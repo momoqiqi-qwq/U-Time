@@ -12,7 +12,7 @@ import { initTaskReminders } from "./taskReminder.js";
 import { initCommandPalette } from "./commandPalette.js";
 import { initGlobalShortcuts } from "./globalShortcuts.js";
 import { initAutomation } from "./automation.js";
-import { initMotionInteractions } from "./motion.js";
+import { initMotionInteractions, reducedMotion } from "./motion.js";
 import { initLanPushGate } from "./lanPushGate.js";
 import { initUpdateChecker } from "./updateChecker.js";
 
@@ -29,6 +29,9 @@ function seed() {
 }
 
 async function boot() {
+  // 原生桌面窗体先保持隐藏：恢复用户的默认尺寸、主题与缩放后再显示，避免看到
+  // 默认 1440×900 窗口先出现、随后被「跟随屏幕」设置放大的过程。
+  if (api.isTauri) document.documentElement.dataset.appStarting = "true";
   // 手机端放开双指缩放：必须在首屏渲染前改 viewport（原生侧 builtInZoomControls 在
   // MainActivity.onWebViewCreate 里打开，两边缺一不可）。
   applyTouchZoomViewport();
@@ -40,10 +43,12 @@ async function boot() {
   // 缩放值本身已由 initUiPreferences → applyUiPreferences → applyUiScale 套用，
   // 这里只负责补挂监听（applyUiScale 幂等，重复调用无副作用）。
   initUiScale();
-  // 启动窗口大小：桌面端按设置套一次（不阻塞首屏，失败也不影响启动）
-  applyWindowSize(getUiPreferences()).catch(() => {});
+  // 必须在首屏渲染前完成尺寸设置；原生窗体目前不可见，调整尺寸不会再表现为启动时放大。
+  // applyWindowSize 内部已吞掉平台/API 错误，失败时仍按配置初始尺寸继续启动。
+  await applyWindowSize(getUiPreferences());
   initMotionInteractions();
   renderShell(document.getElementById("app"));
+  await revealAppWindow();
   initCapture();
   initTaskReminders();
   initCommandPalette();
@@ -85,4 +90,25 @@ async function boot() {
   initPluginHost().catch((e) => console.error("插件宿主初始化失败:", e));
 }
 
-boot();
+async function revealAppWindow() {
+  const frame = document.querySelector("#app > .app");
+  if (api.isTauri) {
+    try {
+      // 给 WebView 一个短暂的合帧时间；不依赖隐藏窗口里的 requestAnimationFrame，
+      // 某些系统会暂停隐藏页的 RAF。
+      await new Promise((resolve) => window.setTimeout(resolve, 32));
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().show();
+    } catch (error) {
+      console.error("显示应用窗口失败:", error);
+    }
+  }
+  document.documentElement.removeAttribute("data-app-starting");
+  if (frame && !reducedMotion()) frame.classList.add("app-start-enter");
+}
+
+boot().catch(async (error) => {
+  console.error("应用启动失败:", error);
+  // 即便初始化某一步抛错，也不要把隐藏的原生窗口留在后台。
+  await revealAppWindow();
+});

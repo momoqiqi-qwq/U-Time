@@ -107,6 +107,16 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     "aria-label": "界面缩放",
   });
   const uiScaleOut = el("output", {}, `${prefs.uiScale}%`);
+  // WebKit range 轨道不会自动画已选区，按原生 input 值同步 CSS 进度；不拦截拖动/键盘事件。
+  const updateRangeTrack = (range) => {
+    const min = Number(range.min || 0);
+    const max = Number(range.max || 100);
+    const value = Number(range.value);
+    const progress = Number.isFinite(value) && max > min ? ((value - min) / (max - min)) * 100 : 0;
+    range.style.setProperty("--range-progress", `${Math.max(0, Math.min(100, progress))}%`);
+  };
+  updateRangeTrack(textScale);
+  textScale.addEventListener("input", () => updateRangeTrack(textScale));
 
   /* ── 拖动稳定映射（v0.58.0）──
      input 直接改 zoom 会把整页（含滑杆轨道）按新系数立即重排：设置弹窗是 margin:auto
@@ -173,6 +183,9 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     paintScalePresets();
     paintCustomScale();
   });
+  // 放在缩放 input/change 处理器之后：先完成稳定拖动映射、再画已选轨道。
+  uiScale.addEventListener("input", () => updateRangeTrack(uiScale));
+  uiScale.addEventListener("change", () => updateRangeTrack(uiScale));
 
   // `.scale-presets` 只加「允许换行」：档位 4 个 + 自定义输入共 5 项，
   // 极窄屏（窄屏自适应把布局宽压到 288 那种）宁可换行也不许横向溢出。
@@ -191,6 +204,7 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
       // 点档位是一步跨 20%~70% 的离散跳变，必须走动画（v0.54.0），否则整页「闪一下」。
       onclick: () => {
         uiScale.value = String(value);
+        updateRangeTrack(uiScale);
         setUiPreferences({ uiScale: value }, { animate: true });
         uiScaleOut.textContent = `${value}%`;
         paintScalePresets();
@@ -238,6 +252,7 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     const { mode, value } = parseCustomScaleInput(customScale.value);
     if (mode !== "preview") return;
     uiScale.value = String(value);
+    updateRangeTrack(uiScale);
     uiScaleOut.textContent = `${value}%`;
     setUiPreferences({ uiScale: value }, { persist: false });
     paintScalePresets();
@@ -255,6 +270,7 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     // 用户输完了，就该夹到边界并把真实生效值写回输入框，而不是丢掉他的输入。
     const applied = setUiPreferences({ uiScale: value }, { animate: true }).uiScale;
     uiScale.value = String(applied);
+    updateRangeTrack(uiScale);
     uiScaleOut.textContent = `${applied}%`;
     paintScalePresets();
     paintScaleHint();

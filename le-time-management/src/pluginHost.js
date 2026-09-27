@@ -357,6 +357,12 @@ function makeApi(man, source) {
     util: {
       today: S.todayStr, addDays: S.addDays, mmOf: S.mmOf, hhmmOf: S.hhmmOf, durLabel: S.durLabel,
       openUrl: (url) => { requirePermission(man, pid, "openUrl"); return api.openUrl(url); },
+      openUrlWithSession: (url, sid) => {
+        requirePermission(man, pid, "openUrl");
+        requirePermission(man, pid, "http");
+        if (pid !== "chaoxing-notify") throw new Error("网页登录态转交仅对学习通插件开放");
+        return api.openUrlWithHttpSession(url, sid);
+      },
       parseWhen: (...args) => { requirePermission(man, pid, "timeParse"); return parseWhen(...args); },
       guessCategory: (...args) => { requirePermission(man, pid, "timeParse"); return guessCategory(...args); },
       guessQuad: (...args) => { requirePermission(man, pid, "timeParse"); return guessQuad(...args); },

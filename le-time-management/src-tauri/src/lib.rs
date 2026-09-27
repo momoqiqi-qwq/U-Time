@@ -1455,6 +1455,167 @@ async fn open_internal(app: AppHandle, url: String) -> Result<(), String> {
     Ok(())
 }
 
+fn is_chaoxing_host(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    ["chaoxing.com"].iter().any(|root| {
+        host == *root || host.ends_with(&format!(".{root}"))
+    })
+}
+
+fn cookie_domain_matches_host(domain: &str, host: &str) -> bool {
+    let domain = domain.trim_start_matches('.').trim_end_matches('.').to_ascii_lowercase();
+    is_chaoxing_host(&domain)
+        && (host.eq_ignore_ascii_case(&domain)
+            || host.to_ascii_lowercase().ends_with(&format!(".{domain}")))
+}
+
+/// 从 native reqwest Cookie Jar 取当前有效的会话，并保留响应中的安全属性。
+/// scope 只覆盖学习通域名；任意外站拿不到这批凭据。
+fn chaoxing_webview_cookies(
+    session: &HttpSession,
+    target: &Url,
+) -> Result<Vec<(String, tauri::webview::Cookie<'static>)>, String> {
+    use reqwest::cookie::CookieStore as _;
+    let target_host = target.host_str().ok_or("链接缺少主机名")?;
+    if target.scheme() != "https" || !is_chaoxing_host(target_host) {
+        return Err("学习通登录态仅允许注入 HTTPS 学习通域名".into());
+    }
+    let mut url_strings = vec![
+        "https://passport2.chaoxing.com/".to_string(),
+        "https://i.chaoxing.com/".to_string(),
+        "https://notice.chaoxing.com/".to_string(),
+        "https://mooc2-ans.chaoxing.com/".to_string(),
+        "https://mooc1.chaoxing.com/".to_string(),
+        "https://study.chaoxing.com/".to_string(),
+        target.as_str().to_string(),
+    ];
+    url_strings.sort();
+    url_strings.dedup();
+    let captured = session.set_cookie_headers.lock().map_err(|_| "登录 Cookie 锁占用")?.clone();
+    let mut out: Vec<(String, tauri::webview::Cookie<'static>)> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for url_string in url_strings {
+        let request_url: Url = url_string.parse().map_err(|e| format!("Cookie URL 无效: {e}"))?;
+        let Some(host) = request_url.host_str() else { continue };
+        if !is_chaoxing_host(host) { continue; }
+        let Some(header) = session.jar.cookies(&request_url) else { continue };
+        let Ok(header) = header.to_str() else { continue };
+        for pair in header.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+            let Some((name, value)) = pair.split_once('=') else { continue };
+            let name = name.trim();
+            let value = value.trim();
+            if name.is_empty() { continue; }
+
+            // 找当前 host/path 确实适用的最新 Set-Cookie，保留 HttpOnly/SameSite/Path。
+            let mut selected: Option<String> = None;
+            for record in captured.iter().rev() {
+                let Ok(source_url) = record.url.parse::<Url>() else { continue };
+                let Some(source_host) = source_url.host_str() else { continue };
+                if !is_chaoxing_host(source_host) { continue; }
+                let Ok(parsed) = tauri::webview::Cookie::parse(record.header.clone()) else { continue };
+                if parsed.name() != name || parsed.value() != value { continue; }
+                let domain = parsed.domain().unwrap_or(source_host);
+                if !cookie_domain_matches_host(domain, host) { continue; }
+                let path = parsed.path().unwrap_or("/");
+                if !request_url.path().starts_with(path) { continue; }
+                let mut raw = record.header.clone();
+                if parsed.domain().is_none() { raw.push_str(&format!("; Domain={source_host}")); }
+                if parsed.path().is_none() { raw.push_str("; Path=/"); }
+                selected = Some(raw);
+                break;
+            }
+
+            // 旧版/手动 Cookie 登录没有 Set-Cookie 元数据；按最窄 host-only 作用域补齐。
+            let raw = selected.unwrap_or_else(|| {
+                format!("{name}={value}; Domain={host}; Path=/; Secure")
+            });
+            let cookie = tauri::webview::Cookie::parse(raw)
+                .map_err(|_| "学习通 Cookie 格式无效，未打开浏览器".to_string())?
+                .into_owned();
+            let domain = cookie.domain().unwrap_or(host);
+            if !cookie_domain_matches_host(domain, host) { continue; }
+            let key = format!("{}\u{1f}{}\u{1f}{}\u{1f}{}", cookie.name(), cookie.value(), domain, cookie.path().unwrap_or("/"));
+            if seen.insert(key) { out.push((url_string.clone(), cookie)); }
+        }
+    }
+    if out.is_empty() {
+        return Err("插件会话中没有可传给浏览器的有效学习通 Cookie，请先在插件刷新登录".into());
+    }
+    Ok(out)
+}
+#[cfg(target_os = "android")]
+fn set_android_webview_cookies(
+    window: &tauri::WebviewWindow,
+    cookies: Vec<(String, String)>,
+) -> Result<(), String> {
+    use jni::objects::JValue;
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    window.with_webview(move |webview| {
+        webview.jni_handle().exec(move |env, _activity, _native_webview| {
+            let result = (|| -> Result<(), String> {
+                let manager = env.call_static_method(
+                    "android/webkit/CookieManager", "getInstance",
+                    "()Landroid/webkit/CookieManager;", &[],
+                ).map_err(|e| e.to_string())?.l().map_err(|e| e.to_string())?;
+                for (url, cookie) in &cookies {
+                    let jurl = env.new_string(url).map_err(|e| e.to_string())?;
+                    let jcookie = env.new_string(cookie).map_err(|e| e.to_string())?;
+                    env.call_method(
+                        &manager, "setCookie", "(Ljava/lang/String;Ljava/lang/String;)V",
+                        &[JValue::Object(&jurl), JValue::Object(&jcookie)],
+                    ).map_err(|e| e.to_string())?;
+                }
+                env.call_method(&manager, "flush", "()V", &[]).map_err(|e| e.to_string())?;
+                Ok(())
+            })();
+            let _ = tx.send(result);
+        });
+    }).map_err(|e| format!("无法连接 Android WebView: {e}"))?;
+    rx.recv_timeout(std::time::Duration::from_secs(8))
+        .map_err(|e| format!("等待 Android CookieManager 超时: {e}"))?
+}
+
+/// 学习通插件专用：native 写入会话 Cookie 后再导航；Cookie 不经过 URL 或页面 JS。
+#[tauri::command]
+async fn open_internal_with_http_session(
+    app: AppHandle,
+    state: State<'_, HttpSessions>,
+    sid: String,
+    url: String,
+) -> Result<(), String> {
+    let parsed: Url = url.parse().map_err(|e| format!("网页地址无效: {e}"))?;
+    let cookies = {
+        let sessions = state.0.lock().map_err(|_| "会话表被占用")?;
+        let session = sessions.get(&sid).ok_or("学习通会话不存在或已过期，请刷新插件登录")?;
+        chaoxing_webview_cookies(session, &parsed)?
+    };
+    let blank: Url = "about:blank".parse().map_err(|e| format!("空白页地址无效: {e}"))?;
+    let seq = BROWSER_WINDOW_SEQ.fetch_add(1, Ordering::Relaxed);
+    let label = format!("browser-{seq}");
+    let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(blank))
+        .initialization_script_for_all_frames(INTERNAL_BROWSER_BOOTSTRAP)
+        .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
+        .title("U-Time · 网页")
+        .inner_size(1100.0, 780.0);
+    #[cfg(target_os = "android")]
+    let builder = builder.activity_name("BrowserActivity");
+    #[cfg(desktop)]
+    let builder = builder.center();
+    let window = builder.build().map_err(|e| format!("应用内打开网页失败: {e}"))?;
+
+    #[cfg(target_os = "android")]
+    set_android_webview_cookies(
+        &window,
+        cookies.into_iter().map(|(cookie_url, cookie)| (cookie_url, cookie.to_string())).collect(),
+    )?;
+    #[cfg(not(target_os = "android"))]
+    for (_, cookie) in cookies {
+        window.set_cookie(cookie).map_err(|e| format!("写入应用内网页登录态失败: {e}"))?;
+    }
+    window.navigate(parsed).map_err(|e| format!("带登录态导航失败: {e}"))?;
+    Ok(())
+}
 /* ── 局域网联动：手机/小程序作为遥控端 ── */
 
 struct LanHandle(Mutex<Option<lan::LanInstance>>);
@@ -1564,6 +1725,15 @@ pub struct HttpSession {
     client: reqwest::Client,
     no_redirect_client: reqwest::Client,
     jar: Arc<reqwest::cookie::Jar>,
+    // 保留服务端原始 Set-Cookie 属性（HttpOnly/SameSite/Path 等），供应用内 WebView
+    // 建立同一登录态。仅留最近 512 条；不写入日志/URL，也不回传给插件 JS。
+    set_cookie_headers: Arc<Mutex<Vec<CapturedSetCookie>>>,
+}
+
+#[derive(Clone)]
+struct CapturedSetCookie {
+    url: String,
+    header: String,
 }
 
 impl Clone for HttpSession {
@@ -1572,6 +1742,7 @@ impl Clone for HttpSession {
             client: self.client.clone(),
             no_redirect_client: self.no_redirect_client.clone(),
             jar: self.jar.clone(),
+            set_cookie_headers: self.set_cookie_headers.clone(),
         }
     }
 }
@@ -1601,6 +1772,7 @@ fn new_http_session() -> Result<HttpSession, String> {
         client,
         no_redirect_client,
         jar,
+        set_cookie_headers: Arc::new(Mutex::new(Vec::new())),
     })
 }
 
@@ -1767,13 +1939,24 @@ async fn http_fetch(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("")
         .to_string();
-    let cookies = resp
+    let cookies: Vec<String> = resp
         .headers()
         .get_all(reqwest::header::SET_COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
         .map(|s| s.to_string())
         .collect();
+    if !cookies.is_empty() {
+        if let Ok(mut captured) = session.set_cookie_headers.lock() {
+            for header in &cookies {
+                captured.push(CapturedSetCookie { url: final_url.clone(), header: header.clone() });
+            }
+            if captured.len() > 512 {
+                let excess = captured.len() - 512;
+                captured.drain(..excess);
+            }
+        }
+    }
     // binary=true 时返回 base64（验证码等图片场景）
     let bytes = resp
         .bytes()
@@ -2032,6 +2215,7 @@ pub fn run() {
             http_get_icon,
             open_external,
             open_internal,
+            open_internal_with_http_session,
             des_ecb_encrypt_hex,
             http_session_new,
             http_fetch,

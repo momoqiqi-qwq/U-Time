@@ -168,6 +168,12 @@ export const api = {
     return api.openExternal(url);
   },
 
+  /** 插件专用会话打开：Rust 原生端从指定 HTTP Cookie Jar 注入后再打开 WebView。 */
+  async openUrlWithHttpSession(url, sid) {
+    if (!isTauri) return api.openUrl(url);
+    return invoke("open_internal_with_http_session", { sid, url });
+  },
+
   async schoolImportOpen(url, adapterScript, title) {
     if (isTauri) return invoke("school_import_open", { url, adapterScript, title });
     window.open(url, "_blank");

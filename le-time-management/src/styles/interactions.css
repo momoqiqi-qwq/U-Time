@@ -56,7 +56,7 @@ button.motion-pressing:not([data-motion="off"], [data-motion="off"] *):not(:disa
 [role="button"].motion-pressing:not([data-motion="off"], [data-motion="off"] *):not(:disabled),
 button:not([data-motion="off"], [data-motion="off"] *):active:not(:disabled),
 [role="button"]:not([data-motion="off"], [data-motion="off"] *):active:not(:disabled) {
-  transform: translateY(1px) scale(.965);
+  transform: translateY(1px) scale(.98);
   transition-duration: 70ms;
 }
 
@@ -222,22 +222,101 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
 }
 
 @keyframes motion-ripple-spread {
-  0% { opacity: .16; transform: translate(-50%, -50%) scale(.08); }
+  0% { opacity: .14; transform: translate(-50%, -50%) scale(.08); }
   72% { opacity: .08; }
   100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
 }
 
 @keyframes motion-button-release {
-  0% { transform: translateY(1px) scale(.965); }
-  55% { transform: translateY(-1px) scale(1.018); }
+  0% { transform: translateY(1px) scale(.98); }
+  55% { transform: translateY(-.5px) scale(1.012); }
   100% { transform: translateY(0) scale(1); }
 }
 
 @keyframes motion-close-button-release {
-  0% { transform: translateY(1px) scale(.95) rotate(0); }
-  55% { transform: translateY(0) scale(1.015) rotate(3deg); }
+  0% { transform: translateY(1px) scale(.98) rotate(0); }
+  55% { transform: translateY(0) scale(1.01) rotate(2deg); }
   100% { transform: translateY(0) scale(1) rotate(0); }
 }
+
+/* 启动时先呈现稳定的布局，再以轻微淡入完成交接；不缩放整个界面，避免像窗口再次放大。 */
+:root[data-app-starting="true"] #app { visibility: hidden; }
+.app-start-enter { animation: motion-app-start-enter 200ms var(--motion-out) both; }
+@keyframes motion-app-start-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 范围滑杆：保持原生键盘 / 触屏拖动行为，只统一轨道、拇指和按下反馈。 */
+input[type="range"] {
+  height: 24px;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  accent-color: var(--deep);
+  cursor: pointer;
+  touch-action: pan-y;
+}
+/* 深色表单兜底会给普通 input 上色；范围滑杆本身须保持透明，只绘制轨道。 */
+:root[data-theme-mode="dark"] input[type="range"] { background: transparent !important; }
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--deep) 0%, var(--deep) var(--range-progress, 0%), var(--line) var(--range-progress, 0%), var(--line) 100%);
+}
+input[type="range"]::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--line);
+}
+input[type="range"]::-moz-range-progress {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--deep);
+}
+input[type="range"]::-webkit-slider-thumb {
+  width: 16px;
+  height: 16px;
+  margin-top: -5.5px;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 3px solid var(--panel);
+  border-radius: 50%;
+  background: var(--deep);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 24%, transparent);
+  transition: transform var(--motion-fast) var(--motion-out), box-shadow var(--motion-normal) ease;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 3px solid var(--panel);
+  border-radius: 50%;
+  background: var(--deep);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 24%, transparent);
+  transition: transform var(--motion-fast) var(--motion-out), box-shadow var(--motion-normal) ease;
+}
+input[type="range"]:hover::-webkit-slider-thumb,
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  transform: scale(1.12);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--deep) 32%, transparent);
+}
+input[type="range"]:hover::-moz-range-thumb,
+input[type="range"]:focus-visible::-moz-range-thumb {
+  transform: scale(1.12);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--deep) 32%, transparent);
+}
+input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.16);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--deep) 38%, transparent);
+}
+input[type="range"]:active::-moz-range-thumb {
+  transform: scale(1.16);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--deep) 38%, transparent);
+}
+input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 
 /* 主页面前进和返回保持相反方向，帮助用户感知导航层级。 */
 .view.page-l {

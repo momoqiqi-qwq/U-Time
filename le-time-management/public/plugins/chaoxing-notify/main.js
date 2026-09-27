@@ -202,6 +202,13 @@ const CX_PY_DATA = {
   }
   // 公开分享页无需登录即可看到正文，浏览器直接打开即可，不做跳板。
   function isAnonymousUrl(url) { return ANON_HOST_RE.test(hostOf(url)); }
+  // 插件凭据只用于学习通 HTTPS 站点；无法识别的通知外链直接打开，不做带 Cookie 探测。
+  function isChaoxingSessionUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === "https:" && /(^|\.)chaoxing\.com$/i.test(parsed.hostname);
+    } catch { return false; }
+  }
   function linkScore(url) {
     if (/\/work\/|doHomeWorkNew|workId|workRelationId|homework/i.test(url)) return 100;
     if (/\/exam\/|exam-ans|examId|testpaper|mock/i.test(url)) return 90;
@@ -242,11 +249,22 @@ const CX_PY_DATA = {
     return /请先登录|用户登录|登录学习通|fanyalogin|账号登录/.test(head);
   }
 
-  /* 带登录态打开：能直接开就直接开；需要登录就改走 passport 跳板，登录后自动回到该页。
-     通知与课程门户共用这一条，别各写一份。 */
+  /* 已登录时将插件 native 会话交给应用内网页；未登录时保留 passport 跳板。
+     外站不做登录探测，避免把学习通 Cookie 发给通知正文里的第三方链接。 */
   async function openWithLogin(target) {
     if (!target) { tide.notify("没有可打开的链接"); return; }
     if (isAnonymousUrl(target)) { tide.util.openUrl(target); return; }
+    if (!isChaoxingSessionUrl(target)) { tide.util.openUrl(target); return; }
+    if (state.loggedIn && state.sid) {
+      state.busy = "open"; paintMain();
+      try {
+        await tide.util.openUrlWithSession(target, state.sid);
+        tide.notify("已在应用内打开，并带入学习通插件登录态");
+      } catch (error) {
+        tide.notify(`带登录态打开失败：${String(error?.message || error)}`);
+      } finally { state.busy = ""; paintMain(); }
+      return;
+    }
     state.busy = "open"; paintMain();
     let needLogin = true;
     try { needLogin = await withTimeout(probeNeedsLogin(target), PROBE_TIMEOUT_MS, true); }
@@ -497,8 +515,11 @@ const CX_PY_DATA = {
   }
 
   async function startCookieSession(cookie) {
-    state.sid = await tide.http.session(); state.cookie = String(cookie || "").trim();
+    state.cookie = String(cookie || "").trim();
     if (!state.cookie) throw new Error("Cookie 不能为空");
+    const cookieUrls = [LOGIN_PAGE, "https://i.chaoxing.com/", INBOX_URL, COURSES_URL,
+      "https://notice.chaoxing.com/", "https://mooc2-ans.chaoxing.com/", "https://mooc1.chaoxing.com/"];
+    state.sid = await tide.http.restoreCookies(cookieUrls.map((url) => ({ url, cookie: state.cookie })));
     await fetchInbox(1, false);
     state.loggedIn = true; await saveAuth();
   }
@@ -1027,7 +1048,7 @@ const CX_PY_DATA = {
   function paintMain() {
     if (!host) return;
     const modeBtns = `<span class="cx2-mode" role="group" aria-label="打开插件时的刷新策略">${["auto", "throttle"].map((m) => `<button class="${state.refreshMode === m ? "on" : ""}" data-mode="${m}" title="${esc(REFRESH_MODES[m].why)}" aria-pressed="${state.refreshMode === m}">${REFRESH_MODES[m].label}</button>`).join("")}</span>`;
-    host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-sub">收件箱通知 · 未截止作业 · 课程列表 · 分享码全文</p></div><div class="cx2-actions">${modeBtns}<button class="primary" data-refresh ${state.loading?'disabled':''}>${state.loading?'刷新中…':'快速刷新'}</button><button data-full-sync ${state.loading?'disabled':''}>完整同步</button>${state.ignoredIds.size?`<button data-ignore-reset title="把被移除的通知重新放回列表，不需要重新同步">恢复已移除（${state.ignoredIds.size}）</button>`:''}<button data-switch>切换登录</button></div></div>${navHtml()}<div class="cx2-status ${state.error?'err':''}">${state.error?esc(state.error):`${state.busy==='open'?'正在校验学习通登录态，随后交给系统浏览器 · ':''}${state.lastSync?`上次刷新 ${esc(state.lastSync)} · `:''}收件箱使用 notice.chaoxing.com 无 IP 白名单主路径`}</div><div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?coursesHtml():lookupHtml()}</div><footer>基于 chaoxing-notify-skill v2.0.0 的已验证接口流程。Cookie/账号信息仅在选择“保存登录信息”时写入本机；Cookie 等同账号登录身份，请勿外传。</footer></div>`;
+    host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-sub">收件箱通知 · 未截止作业 · 课程列表 · 分享码全文</p></div><div class="cx2-actions">${modeBtns}<button class="primary" data-refresh ${state.loading?'disabled':''}>${state.loading?'刷新中…':'快速刷新'}</button><button data-full-sync ${state.loading?'disabled':''}>完整同步</button>${state.ignoredIds.size?`<button data-ignore-reset title="把被移除的通知重新放回列表，不需要重新同步">恢复已移除（${state.ignoredIds.size}）</button>`:''}<button data-switch>切换登录</button></div></div>${navHtml()}<div class="cx2-status ${state.error?'err':''}">${state.error?esc(state.error):`${state.busy==='open'?'正在将学习通插件登录态带入应用内网页 · ':''}${state.lastSync?`上次刷新 ${esc(state.lastSync)} · `:''}收件箱使用 notice.chaoxing.com 无 IP 白名单主路径`}</div><div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?coursesHtml():lookupHtml()}</div><footer>基于 chaoxing-notify-skill v2.0.0 的已验证接口流程。Cookie/账号信息仅在选择“保存登录信息”时写入本机；Cookie 等同账号登录身份，请勿外传。</footer></div>`;
   }
 
   async function refreshAll() {

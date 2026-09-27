@@ -45,6 +45,7 @@ const NS_PERMISSION = {
 // tide.util 要再看第二段：同一个 util 下不同函数归不同能力
 const UTIL_PERMISSION = {
   openUrl: 'openUrl',
+  openUrlWithSession: ['openUrl', 'http'],
   parseWhen: 'timeParse',
   guessQuad: 'timeParse',
   guessCategory: 'timeParse',
@@ -74,7 +75,7 @@ function requiredPermissions(calls, pluginId) {
       if (UTIL_FREE.has(second)) continue;
       const perm = UTIL_PERMISSION[second];
       assert.ok(perm, `${pluginId}: tide.util.${second}() 不在权限映射表里 —— 新增 API 时请同步本测试`);
-      need.add(perm);
+      for (const required of Array.isArray(perm) ? perm : [perm]) need.add(required);
       continue;
     }
     const perm = NS_PERMISSION[ns];

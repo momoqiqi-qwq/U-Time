@@ -7,9 +7,14 @@ import vm from 'node:vm';
 const root = new URL('../', import.meta.url);
 const source = fs.readFileSync(new URL('public/plugins/chaoxing-notify/main.js', root), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(new URL('public/plugins/chaoxing-notify/manifest.json', root), 'utf8'));
+const apiSource = fs.readFileSync(new URL('src/api.js', root), 'utf8');
+const pluginHostSource = fs.readFileSync(new URL('src/pluginHost.js', root), 'utf8');
+const nativeSource = fs.readFileSync(new URL('src-tauri/src/lib.rs', root), 'utf8');
 
 const storage = {};
 const opened = [];
+const openedWithSession = [];
+const restoredCookieSets = [];
 const notifies = [];
 const fetched = [];
 let response = { status: 200, body: '', finalUrl: '' };
@@ -23,6 +28,7 @@ const tide = {
   notify: (msg) => { notifies.push(String(msg)); },
   http: {
     session: async () => 's1',
+    restoreCookies: async (cookies) => { restoredCookieSets.push(cookies); return 'restored-sid'; },
     fetch: async (sid, method, url) => {
       fetched.push(url);
       return typeof response === 'function' ? response(url) : response;
@@ -30,6 +36,7 @@ const tide = {
   },
   util: {
     openUrl: (url) => { opened.push(url); },
+    openUrlWithSession: (url, sid) => { openedWithSession.push({ url, sid }); },
     today: () => '', addDays: () => '', mmOf: () => 0, hhmmOf: (m) => String(m), durLabel: () => '',
     parseWhen: () => ({}), guessCategory: () => '', guessQuad: () => '', navigate: () => {},
     desEncryptHex: async () => '',
@@ -48,15 +55,15 @@ const context = vm.createContext({
   tide,
 });
 
-const EXPORTS = '{state,pickTargetLink,isAnonymousUrl,linkScore,cardActionsHtml,ignoreNotice,restoreIgnored,visibleInbox,filteredInbox,todos,submittedOpen,lateAll,overdueTodos,submittedOverdue,noDueWorks,recentNoDueWorks,gradingNoDue,noticeTimeMs,todoHtml,openTarget,fetchInbox,LOGIN_JUMP,loadCourses,termOf,currentTerm,gradeOf,detectEnrollYear,courseStatus,courseCardHtml,coursesHtml,parseWorkRef,statusOf,gradingBadge,probeWorkStatus,probePendingWorks,noticeAcademicYear,catYears,catsHtml,inboxCardHtml,cxInitials,cxKwHit}';
+const EXPORTS = '{state,pickTargetLink,isAnonymousUrl,isChaoxingSessionUrl,linkScore,cardActionsHtml,ignoreNotice,restoreIgnored,visibleInbox,filteredInbox,todos,submittedOpen,lateAll,overdueTodos,submittedOverdue,noDueWorks,recentNoDueWorks,gradingNoDue,noticeTimeMs,todoHtml,openTarget,openWithLogin,startCookieSession,fetchInbox,LOGIN_JUMP,loadCourses,termOf,currentTerm,gradeOf,detectEnrollYear,courseStatus,courseCardHtml,coursesHtml,parseWorkRef,statusOf,gradingBadge,probeWorkStatus,probePendingWorks,noticeAcademicYear,catYears,catsHtml,inboxCardHtml,cxInitials,cxKwHit}';
 vm.runInContext(
   source.replace('  tide.ui.registerView({', `  globalThis.cx = ${EXPORTS};\n  tide.ui.registerView({`),
   context,
 );
-const { state, pickTargetLink, isAnonymousUrl, cardActionsHtml, ignoreNotice, restoreIgnored,
+const { state, pickTargetLink, isAnonymousUrl, isChaoxingSessionUrl, cardActionsHtml, ignoreNotice, restoreIgnored,
   visibleInbox, filteredInbox, todos, submittedOpen, lateAll, overdueTodos, submittedOverdue,
   noDueWorks, recentNoDueWorks, gradingNoDue, noticeTimeMs,
-  todoHtml, openTarget, fetchInbox, LOGIN_JUMP,
+  todoHtml, openTarget, openWithLogin, startCookieSession, fetchInbox, LOGIN_JUMP,
   loadCourses, termOf, currentTerm, gradeOf, detectEnrollYear, courseStatus, courseGroups, coursesHtml,
   parseWorkRef, statusOf, gradingBadge, probeWorkStatus, probePendingWorks,
   noticeAcademicYear, catYears, catsHtml, inboxCardHtml, cxInitials, cxKwHit } = context.cx;
@@ -76,6 +83,8 @@ const hwItem = {
 assert.equal(pickTargetLink(hwItem), HW, '必须回到 raw.rtf_content 里取作业链接');
 assert.ok(!isAnonymousUrl(HW), '作业页不是公开分享页');
 assert.ok(isAnonymousUrl(shareUrl('a')), 'sharewh3 分享页免登录');
+assert.ok(isChaoxingSessionUrl(HW), '学习通 HTTPS 页面允许复用插件登录态');
+assert.ok(!isChaoxingSessionUrl('https://example.com/private'), '外站不能带学习通会话探测');
 
 const noLinkItem = { id: 'n-b', idCode: code('b'), title: '通知', body: '没有链接', unread: true, insertTime: 2, raw: { rtf_content: '<p>没有链接</p>' } };
 assert.equal(pickTargetLink(noLinkItem), shareUrl('b'), '没有真实链接时回退到分享页');
@@ -165,6 +174,17 @@ response = { status: 200, body: '<html><body>作业页内容</body></html>', fin
 await openTarget(hwItem);
 assert.equal(opened.at(-1), HW, '会话仍有效时直接开原页面，不绕登录页');
 
+state.loggedIn = true; state.sid = 'verified-session';
+const openedBeforeSession = opened.length;
+await openWithLogin(HW);
+assert.deepEqual(openedWithSession.at(-1), { url: HW, sid: 'verified-session' }, '登录后必须将当前插件会话交给应用内浏览器');
+assert.equal(opened.length, openedBeforeSession, '带登录态打开不能退化成普通 URL 打开');
+const fetchCountBeforeExternal = fetched.length;
+await openWithLogin('https://example.com/notice');
+assert.equal(fetched.length, fetchCountBeforeExternal, '外站通知链接不得使用学习通 Cookie 探测');
+assert.equal(opened.at(-1), 'https://example.com/notice', '外站仍可普通打开');
+state.loggedIn = false; state.sid = null;
+
 state.cookie = '';
 await openTarget(hwItem);
 assert.equal(opened.at(-1), LOGIN_JUMP(HW), '没有本机会话时按需要登录处理');
@@ -172,7 +192,7 @@ assert.equal(opened.at(-1), LOGIN_JUMP(HW), '没有本机会话时按需要登�
 /* ── 6. 权限与清单：openUrl 必须在 manifest 里声明，否则按钮点了没反应 ── */
 assert.ok(source.includes('tide.util.openUrl('), '插件确实调用了 openUrl');
 assert.ok((manifest.permissions || []).includes('openUrl'), 'manifest 必须声明 openUrl 权限');
-assert.equal(manifest.version, '2.13.0');
+assert.equal(manifest.version, '2.14.0');
 const catalog = fs.readFileSync(new URL('src/pluginCatalog.js', root), 'utf8');
 const entry = catalog.slice(catalog.indexOf('"id": "chaoxing-notify"'));
 const block = entry.slice(0, entry.indexOf('},\n  {'));
@@ -651,3 +671,18 @@ assert.equal(fetched.filter((u) => /intoexamorwork/.test(u)).length - probeBefor
 state.inbox = [{ id: 'ex1', title: '期末考试时间安排', sender: '教务处', insertTime: 1, body: '<p>结束时间：2099-05-01 09:00</p>' }];
 assert.match(todoHtml(), /<span class="cx2-tag 考试">考试</, '待办卡片按 classify 打类型标签，不再一律写成「作业」');
 state.inbox = [];
+
+/* ── Cookie 登录必须把同一 native 会话交给应用内浏览器 ── */
+response = {
+  status: 200,
+  body: JSON.stringify({ notices: { list: [], lastPage: true } }),
+  finalUrl: 'https://notice.chaoxing.com/pc/notice/getNoticeList',
+};
+await startCookieSession('_uid=1; route=abc');
+assert.equal(state.sid, 'restored-sid', '手动 Cookie 登录要使用恢复出的 native 会话');
+assert.ok(restoredCookieSets.at(-1).some((item) => item.url === 'https://notice.chaoxing.com/pc/notice/getNoticeList'), '恢复 Cookie 的 host 列表必须覆盖通知站点');
+assert.ok(restoredCookieSets.at(-1).every((item) => item.cookie === '_uid=1; route=abc'), '同一插件 Cookie 要预置到学习通会话域名');
+assert.match(apiSource, /open_internal_with_http_session/);
+assert.match(pluginHostSource, /pid !== "chaoxing-notify"/);
+assert.match(nativeSource, /学习通登录态仅允许注入 HTTPS 学习通域名/);
+assert.match(nativeSource, /CookieManager/);
