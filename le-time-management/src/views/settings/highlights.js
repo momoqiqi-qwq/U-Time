@@ -60,7 +60,7 @@ export function createKeywordHighlightsCard() {
     persist(); paintRules(); paintPreview();
   } }, "添加关键词");
   const reset = el("button", { class: "btn ghost sm", type: "button", onclick: () => {
-    Object.assign(cfg, JSON.parse(JSON.stringify(DEFAULT_KEYWORD_HIGHLIGHTS)));
+    Object.assign(cfg, structuredClone(DEFAULT_KEYWORD_HIGHLIGHTS));
     enabled.checked = cfg.enabled; timeEnabled.checked = cfg.highlightTimes; timeColor.value = cfg.timeColor;
     persist(); paintRules(); paintPreview(); toast("关键词标注已恢复默认");
   } }, "恢复默认");

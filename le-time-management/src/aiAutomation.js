@@ -1,7 +1,7 @@
 import * as S from "./store.js";
 import { api } from "./api.js";
 
-const clone = (x) => JSON.parse(JSON.stringify(x));
+const clone = (x) => structuredClone(x);
 const MAX_AI_RULES = 30;
 const WEEKDAY_NAMES = ["日", "一", "二", "三", "四", "五", "六"];
 

@@ -11,6 +11,7 @@ import { isAndroidRuntime, notifyStatus, askNotifyPermission, openNotifySettings
 import { createAboutCard } from "./aboutCard.js";
 import { DEFAULT_GLOBAL_SHORTCUTS, getShortcutConfig, getGlobalShortcutStatus, applyGlobalShortcuts } from "../globalShortcuts.js";
 import { fullBackup, parseFullBackup, downloadText, tasksToCsv, blocksToCsv, importTasksCsv, toIcs, importIcs, exportXlsx, importXlsx, listAutoBackups, createAutoBackup, restoreAutoBackup, deleteAutoBackup } from "../dataCenter.js";
+import { scanHealth, repairHealth } from "../dataHealth.js";
 import { createInterfaceCard, createThemeCard } from "./settings/appearance.js";
 import { createSettingsNavigator } from "./settings/navigator.js";
 import { createPluginSettingsCard, isPluginBatchBusy } from "./settings/plugins.js";
@@ -72,7 +73,7 @@ export function renderSettings(container, opts = {}) {
     const highlightCard = createKeywordHighlightsCard();
 
     /* 任务提醒 */
-    settings.taskReminder ??= JSON.parse(JSON.stringify(DEFAULT_REMINDER_SETTINGS));
+    settings.taskReminder ??= structuredClone(DEFAULT_REMINDER_SETTINGS);
     const rc = settings.taskReminder;
     rc.defaultOffsets = normalizeOffsets(rc.defaultOffsets || DEFAULT_REMINDER_SETTINGS.defaultOffsets);
     const reminderCard = el("div", { class: "card set-card" },
@@ -225,7 +226,7 @@ export function renderSettings(container, opts = {}) {
     const abFreq = el("select", {}, el("option", { value: "daily" }, "每天"), el("option", { value: "weekly" }, "每周")); abFreq.value = ab.frequency || "daily";
     const abKeep = el("input", { type: "number", min: "3", max: "30", value: ab.keep || 7, style: "width:84px" });
     const backupList = el("div", { class: "backup-list" });
-    const paintBackups = () => { backupList.replaceChildren(); const rows = listAutoBackups(); if (!rows.length) { backupList.append(el("p", { class: "desc" }, "还没有自动恢复点。")); return; } for (const row of rows.slice(0, 10)) backupList.append(el("div", { class: "backup-row" }, el("span", {}, el("b", {}, row.reason), el("small", {}, new Date(row.at).toLocaleString("zh-CN"))), el("span", {}, el("button", { class: "btn ghost sm", onclick: async () => { if (!confirm("恢复这个自动备份？当前数据会先再建一个恢复点。")) return; createAutoBackup("手动恢复前", info?.version || ""); await restoreAutoBackup(row.id); toast("已恢复自动备份"); render(); } }, "恢复"), el("button", { class: "btn ghost sm", onclick: () => { deleteAutoBackup(row.id); paintBackups(); } }, "删除")))); };
+    const paintBackups = () => { backupList.replaceChildren(); const rows = listAutoBackups(); if (!rows.length) { backupList.append(el("p", { class: "desc" }, "还没有自动恢复点。")); return; } for (const row of rows.slice(0, 10)) backupList.append(el("div", { class: "backup-row" }, el("span", {}, el("b", {}, row.reason), el("small", {}, `${new Date(row.at).toLocaleString("zh-CN")} · ${(JSON.stringify(row.payload).length / 1024).toFixed(0)} KB`)), el("span", {}, el("button", { class: "btn ghost sm", onclick: async () => { if (!confirm("恢复这个自动备份？当前数据会先再建一个恢复点。")) return; createAutoBackup("手动恢复前", info?.version || ""); await restoreAutoBackup(row.id); toast("已恢复自动备份"); render(); } }, "恢复"), el("button", { class: "btn ghost sm", onclick: () => { deleteAutoBackup(row.id); paintBackups(); } }, "删除")))); };
     dataCard.append(
       el("div", { class: "data-section-title" }, "自动备份 / 恢复点"),
       el("div", { class: "setting-row" }, el("span", {}, "启用自动备份"), abEnabled),
@@ -236,6 +237,33 @@ export function renderSettings(container, opts = {}) {
     );
     const persistAb = () => { ab.enabled = abEnabled.checked; ab.frequency = abFreq.value; ab.keep = Math.min(30, Math.max(3, Number(abKeep.value) || 7)); S.saveNow(); };
     abEnabled.onchange = persistAb; abFreq.onchange = persistAb; abKeep.onchange = persistAb; paintBackups();
+    /* v0.111.0 数据体检：扫描孤儿块 / 重复 id / 超期 NEW / 非法日期。修复前先建
+       恢复点（与导入/恢复同一条安全网）；analyze/repairPlan 是纯函数，行为面在
+       scripts/test-data-health.mjs。 */
+    const healthReport = el("div", { class: "health-report desc", style: "margin-top:8px" });
+    const paintHealth = () => {
+      const { issues, checked } = scanHealth();
+      healthReport.replaceChildren();
+      if (!issues.length) { healthReport.append(`✓ 未发现问题（任务 ${checked.tasks} · 时间块 ${checked.blocks}）`); return { issues }; }
+      for (const it of issues) healthReport.append(el("div", {}, `• ${it.label} × ${it.count} —— ${it.detail}`));
+      return { issues };
+    };
+    const healthBtn = el("button", { class: "btn ghost sm", onclick: async () => {
+      const { issues } = paintHealth();
+      if (!issues.length) { toast("数据很干净"); return; }
+      const total = issues.reduce((s2, x) => s2 + x.count, 0);
+      if (!confirm(`发现 ${total} 处问题。\n修复前会先创建一个恢复点（可随时回退）。\n继续修复吗？`)) return;
+      createAutoBackup("数据体检修复前", info?.version || "");
+      const fixed = await repairHealth();
+      const n = fixed.reduce((s2, x) => s2 + x.count, 0);
+      toast(`已修复 ${n} 处（恢复点已留好）`);
+      paintHealth(); render();
+    } }, "开始体检");
+    dataCard.append(
+      el("div", { class: "data-section-title" }, "数据体检"),
+      el("div", { class: "data-actions" }, healthBtn),
+      healthReport,
+    );
 
     /* 可选同步：网盘快照的分步引导与一键配置，实现拆在 views/settings/sync.js（和 ai.js 同一个理由）*/
     const syncCard = await createSyncCard({ appVersion: info?.version || "", os: info?.os || "" });

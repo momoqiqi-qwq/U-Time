@@ -44,6 +44,30 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
       onclick: () => { setUiPreferences({ navBarSize: id }); rerender(); },
     }, label));
   }
+  // v0.108.0：底栏形态 —— 悬浮玻璃（默认，四周留缝浮起）/ 贴底（通宽压平）；
+  // 材质 —— 毛玻璃（默认）/ 实色（低端机关掉实时模糊换流畅）。
+  const navDockBox = el("div", { class: "pref-choice", role: "group", "aria-label": "底栏形态" });
+  for (const [id, label] of [["float", "悬浮玻璃"], ["docked", "贴底"]]) {
+    navDockBox.append(el("button", {
+      class: `pref-choice-btn${prefs.navDock === id ? " on" : ""}`,
+      onclick: () => { setUiPreferences({ navDock: id }); rerender(); },
+    }, label));
+  }
+  const navGlassBox = el("div", { class: "pref-choice", role: "group", "aria-label": "底栏材质" });
+  for (const [id, label] of [["frosted", "毛玻璃"], ["solid", "实色"]]) {
+    navGlassBox.append(el("button", {
+      class: `pref-choice-btn${prefs.navGlass === id ? " on" : ""}`,
+      onclick: () => { setUiPreferences({ navGlass: id }); rerender(); },
+    }, label));
+  }
+  // v0.110.0：悬浮键（‹ 返回 / ⋮ 菜单）垂直档位；互换用开关。
+  const fabHeightBox = el("div", { class: "pref-choice", role: "group", "aria-label": "悬浮键高度" });
+  for (const [id, label] of [[35, "偏低"], [45, "居中"], [55, "偏高"]]) {
+    fabHeightBox.append(el("button", {
+      class: `pref-choice-btn${prefs.fabHeight === id ? " on" : ""}`,
+      onclick: () => { setUiPreferences({ fabHeight: id }); rerender(); },
+    }, label));
+  }
 
   // 「文字大小」80%~150%（TEXT_SCALE_LIMITS 单一事实源）：作用于**全部文字** ——
   // styles.css 与各插件样式里的每一条 font-size 都乘了 --ui-text-scale（守卫：test-text-scale.mjs）。
@@ -402,6 +426,10 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     ),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "界面密度")), densityBox),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "底栏高度")), navBarBox),
+    el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "底栏形态")), navDockBox),
+    el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "底栏材质")), navGlassBox),
+    el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "悬浮键高度")), fabHeightBox),
+    toggleRow("悬浮键左右互换（‹ 在右 · ⋮ 在左）", prefs.fabSwap, (value) => setUiPreferences({ fabSwap: value })),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "文字大小")), el("span", { class: "pref-range" }, textScale, textScaleOut)),
     el("div", { class: "setting-row setting-col" },
       el("div", { class: "setting-row-head" },

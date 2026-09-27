@@ -2,7 +2,7 @@ import * as S from './store.js';
 import { createAutoBackup } from './dataCenter.js';
 import { runDueAiAutomations } from './aiAutomation.js';
 
-const clone=x=>JSON.parse(JSON.stringify(x));
+const clone=x=>structuredClone(x);
 let running=false, timer=null, unsub=null;
 const DEFAULT_RULES=[
   {id:'deadline-auto-schedule',name:'截止任务自动排程',enabled:true,trigger:'change',action:'schedule-due'},

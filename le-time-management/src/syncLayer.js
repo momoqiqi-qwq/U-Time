@@ -28,7 +28,7 @@ export function makeSnapshot(data, appVersion = "") {
     schema: 1,
     appVersion: String(appVersion || ""),
     exportedAt: new Date().toISOString(),
-    data: JSON.parse(JSON.stringify(data)),
+    data: structuredClone(data),
   };
 }
 

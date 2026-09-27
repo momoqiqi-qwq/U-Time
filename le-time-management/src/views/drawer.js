@@ -94,7 +94,7 @@ export function openTaskDrawer(taskId) {
     for (const a of taskActions) {
       plugBox.append(el("button", {
         class: "btn ghost sm",
-        onclick: () => { try { a.run(JSON.parse(JSON.stringify(S.taskById(t.id)))); } catch (e) { toast(`插件动作出错：${e.message}`); } },
+        onclick: () => { try { a.run(structuredClone(S.taskById(t.id))); } catch (e) { toast(`插件动作出错：${e.message}`); } },
       }, a.icon ? `${a.icon} ` : "", a.label));
     }
   };

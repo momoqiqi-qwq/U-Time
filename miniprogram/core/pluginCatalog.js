@@ -3,7 +3,7 @@ const plugins = [
   {
     "id": "shiguang-schedule",
     "name": "课程表",
-    "version": "3.10.1",
+    "version": "3.12.0",
     "author": "基于 XingHeYuZhuan/shiguangschedule · U-Time适配",
     "icon": "calendar-days",
     "faIcon": "calendar-days",

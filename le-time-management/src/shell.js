@@ -1439,6 +1439,29 @@ export function renderShell(root) {
     chromeToggle.setAttribute("aria-expanded", String(show));
     chromeToggle.title = show ? "收起菜单" : "显示菜单";
   }
+  // v0.108.0：呼出态点空白即收起。此前底栏只跟着「再按 ⋮ / 打开设置」消失，用户
+  // 点内容区没有任何反馈，还得再找那颗 ⋮ —— 与 Android「弹出的面板，点外部即收」
+  // 的肌肉记忆相悖。捕获阶段监听 pointerdown：不 preventDefault、不 stopPropagation，
+  // 收起与「点到的那个控件照常工作」同时发生（收起绝不抢点击）。两颗悬浮键本身排除：
+  // ⋮ 自带 toggle onclick（排除避免先收起再被点击重新呼出），‹ 是返回（返回后底栏
+  // 保留是既有语义）。
+  document.addEventListener("pointerdown", (e) => {
+    if (!chromeShown || !mobileQuery.matches) return;
+    if (!(e.target instanceof Element)) return;
+    if (e.target.closest(".rail, .chrome-toggle, .mobile-back")) return;
+    setChromeShown(false);
+  }, true);
+  // v0.108.0：软键盘让路。输入框/可编辑区聚焦 → :root 挂 data-kbd="1"（CSS ≤900px
+  // 把两颗悬浮键淡出并停吃点击），失焦摘掉。focusin/focusout 是冒泡版 focus/blur，
+  // 输入框之间移动时 focusout 先于 focusin，一删一挂自然收敛到正确状态。
+  const isEditableTarget = (t) => t instanceof HTMLElement
+    && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+  document.addEventListener("focusin", (e) => {
+    if (isEditableTarget(e.target)) document.documentElement.dataset.kbd = "1";
+  });
+  document.addEventListener("focusout", (e) => {
+    if (isEditableTarget(e.target)) delete document.documentElement.dataset.kbd;
+  });
 
   // opts.history=false：程序性重渲染（刷新当前视图、注册表变化后回正、首屏）不该压历史栈，
   // 否则 Android 返回键要多按好几下才退得出去（见 backNav.js）。
@@ -1768,13 +1791,23 @@ export function renderShell(root) {
   // 先关最上层浮层，没有浮层才回上一个视图，没有格子可回就静默忽略（不会误退应用）。
   // SWIPE_SKIP 的排除清单照旧：横滑课表 / 泳道 / 甘特这类「自己能横向滚」的内容时
   // 必须滚内容，不能被手势抢去当返回。
-  let swX = 0, swY = 0, swOn = false;
+  let swX = 0, swY = 0, swOn = false, swEdge = false;
   const SWIPE_SKIP = ".plist, .block, .drawer, .popmenu, input, textarea, select, [data-noswipe], " +
-    ".wakeup-scroll, .milestone-scroll, .chronicle-scroll, .gantt-scroll, .swim-scroll";
+    ".wakeup-scroll, .milestone-scroll, .chronicle-scroll, .gantt-scroll, .swim-scroll, " +
+    // 插件页（.plugview）横向手势归插件自己：课程表周视图左右滑 = 切周（约 70px 阈值），
+    // 这里的返回手势（56px 阈值）会同时命中 —— 同一次滑动既切周又退回上个视图。
+    // 插件页内的视图级返回走 ‹ 悬浮键，插件子页返回走子页自己的 ‹（历史栈照常）。
+    ".plugview";
+  // v0.110.0：左缘返回带（视觉 px）。从屏幕最左 28px 内起滑的横滑视作「系统级返回」，
+  // 即使落在插件页（.plugview）内也生效 —— 0.108 把插件页中部横滑让给插件（课表切周）
+  // 之后，插件页里失去滑动返回只能找悬浮键；边缘带把通用返回找回来，页面中部仍归插件。
+  // 用视觉像素、不 ÷ --ui-scale：边缘就是物理屏幕边缘。SKIP 只拦「非边缘」起滑。
+  const EDGE_SWIPE_PX = 28;
   view.addEventListener("touchstart", (e) => {
-    swOn = false;
+    swOn = false; swEdge = false;
     if (e.touches.length !== 1) return;
-    if (e.target.closest?.(SWIPE_SKIP)) return;
+    swEdge = e.touches[0].clientX <= EDGE_SWIPE_PX;
+    if (!swEdge && e.target.closest?.(SWIPE_SKIP)) return;
     swX = e.touches[0].clientX; swY = e.touches[0].clientY; swOn = true;
   }, { passive: true });
   view.addEventListener("touchcancel", () => { swOn = false; }, { passive: true });
@@ -1787,8 +1820,12 @@ export function renderShell(root) {
     swOn = false;
     const dx = e.changedTouches[0].clientX - swX;
     const dy = e.changedTouches[0].clientY - swY;
-    // 横向主导 + 足够长才算滑动手势，避免误伤纵向滚动；方向不限 —— 左滑右滑都是返回
+    // 横向主导 + 足够长才算滑动手势，避免误伤纵向滚动
     if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+    // 边缘带起滑：只认「从左往右拉」（与 Android 系统返回同向）；SKIP 例外在这里不适用 ——
+    // 起滑阶段已为边缘放行，56px 阈值内内容自身的横滚基本没动，不构成冲突。
+    if (swEdge) { if (dx > 0) goBack(); return; }
+    // 页面中部：方向不限 —— 左滑右滑都是返回
     goBack();
   }, { passive: true });
 

@@ -105,9 +105,12 @@ export function collectNotice(payload, fromPluginId) {
   }
 }
 
-/** 最近的消息，新的在前。宿主内部与测试都用这一个出口。 */
+/** 最近的消息，新的在前。宿主内部与测试都用这一个出口。
+ *  深拷贝统一走 structuredClone（v0.109.0）：宿主交给插件的数据全部是 store 的
+ *  纯 JSON 结构，直接结构化克隆即可 —— 不再「序列化成字符串再解析回来」，
+ *  大列表（几百条任务/消息）上显著更快，中间字符串与解析垃圾也不再产生。 */
 export function listNotices(limit = 30) {
-  return JSON.parse(JSON.stringify(MESSAGE_FEED.slice(-Math.max(1, limit)).reverse()));
+  return structuredClone(MESSAGE_FEED.slice(-Math.max(1, limit)).reverse());
 }
 
 const yieldUi = () => new Promise((resolve) => {
@@ -187,7 +190,7 @@ function makeApi(man, source) {
     },
 
     tasks: {
-      list: () => { requirePermission(man, pid, "tasks"); return JSON.parse(JSON.stringify(S.getState().tasks)); },
+      list: () => { requirePermission(man, pid, "tasks"); return structuredClone(S.getState().tasks); },
       // 插件创建的任务自动记住来源插件（sourcePlugin），四象限/详情抽屉据此显示插件图标；
       // 以宿主注入为准，插件自己传的同名字段会被覆盖，防止伪装来源。
       create: (patch) => { requirePermission(man, pid, "tasks"); return S.addTask({ ...patch, sourcePlugin: pid }); },
@@ -200,12 +203,12 @@ function makeApi(man, source) {
     },
 
     blocks: {
-      list: (date) => { requirePermission(man, pid, "blocks"); return JSON.parse(JSON.stringify(S.blocksOf(date))); },
+      list: (date) => { requirePermission(man, pid, "blocks"); return structuredClone(S.blocksOf(date)); },
       preview: (patch, ignoreId = null) => {
         requirePermission(man, pid, "blocks");
         const date = patch?.date || S.todayStr();
         const startMin = patch?.startMin ?? S.mmOf(patch?.start || "09:00");
-        return JSON.parse(JSON.stringify(previewSchedule(S.blocksOf(date), { ...patch, startMin }, { ignoreId })));
+        return structuredClone(previewSchedule(S.blocksOf(date), { ...patch, startMin }, { ignoreId }));
       },
       create: (patch) => { requirePermission(man, pid, "blocks"); return S.addBlock(patch); },
       createSmart: (patch) => {

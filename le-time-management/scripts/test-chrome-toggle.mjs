@@ -56,8 +56,9 @@ assert.ok(toggleRule, "必须存在 .chrome-toggle 规则");
 // v0.52.1：⋮ 从「贴顶」挪到右侧 45% 高度 —— 贴顶时它压在顶栏里，窄屏（288 CSS px 档）
 // 会盖住顶栏右侧的「快捷入口 / 搜索」。纵向不再贴边 ⇒ 与 --sat 无关，不必吃安全区；
 // 但**任何**位置都不许裸用 env()（铁律四），由文件末尾的全文件守卫统一把守。
-assert.match(toggleRule, /top:\s*calc\(45%\s*-\s*18px\)/,
-  "⋮ 菜单键应落在右侧 45% 高度（v0.52.1 起不再贴顶；贴顶会压住顶栏右侧控件）");
+// v0.110.0：垂直锚点参数化为 --fab-v（默认 45%，设置里可切 35%/55%），断言锚定默认值。
+assert.match(toggleRule, /top:\s*calc\(\s*var\(--fab-v,\s*45%\)\s*-\s*18px\)/,
+  "⋮ 菜单键垂直锚点必须走 var(--fab-v, 45%)（v0.52.1 起不贴顶；v0.110.0 起档位可调）");
 assert.match(toggleRule, /right:\s*calc\(\d+px\s*\+\s*var\(--sar,\s*env\(safe-area-inset-right,\s*0px\)\)/,
   "⋮ 菜单键的 right 必须吃 var(--sar, env(…))（横屏挖孔在侧边）");
 assert.match(toggleRule, /position:\s*fixed/, "⋮ 菜单键必须悬浮（fixed）");
@@ -67,8 +68,8 @@ const mobileBackRule = [...css.matchAll(/\.mobile-back\s*\{([^}]*)\}/g)]
   .map((m) => m[1])
   .find((body) => /position:\s*fixed/.test(body)) ?? "";
 assert.ok(mobileBackRule, "必须存在 .mobile-back 的窄屏定位规则（position:fixed）");
-assert.match(mobileBackRule, /top:\s*calc\(45%\s*-\s*18px\)/,
-  "悬浮返回键应与 ⋮ 对称落在左侧 45% 高度（v0.52.1 起同样不再贴顶）");
+assert.match(mobileBackRule, /top:\s*calc\(\s*var\(--fab-v,\s*45%\)\s*-\s*18px\)/,
+  "悬浮返回键与 ⋮ 对称，垂直锚点同样走 var(--fab-v, 45%)（v0.110.0 起档位可调）");
 assert.match(mobileBackRule, /left:\s*calc\(\d+px\s*\+\s*var\(--sal,\s*env\(safe-area-inset-left,\s*0px\)\)/,
   "悬浮返回键的 left 必须吃 var(--sal, env(…))（横屏挖孔在侧边）");
 // 悬浮键要压在底栏(z-55)之上：两栏呼出时 ⋮ 必须保持可点
@@ -158,8 +159,11 @@ assert.ok(/@keyframes rail-dock-in\s*\{/.test(css) && /@keyframes rail-dock-out\
   "必须存在 rail-dock-in / rail-dock-out 关键帧");
 for (const kf of ["rail-dock-in", "rail-dock-out"]) {
   const body = css.match(new RegExp(`@keyframes ${kf}\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1] ?? "";
-  assert.match(body, /translate3d\(0,\s*105%,\s*0\)/,
-    `${kf} 关键帧的 transform 必须是 translate3d(0,105%,0)（滑到屏下且保留 z=0 合成层）`);
+  // v0.106.0：底栏改悬空玻璃后，位移不再是「自己高度 ×105%」—— 必须算进四周的
+  // --nav-float 与阴影余量，否则收起动画停在屏下时屏幕底缘会留一条边光。
+  // 悬空量本身是否进了 left/right/bottom 由 scripts/test-floating-navbar.mjs 钉。
+  assert.match(body, /translate3d\(0,\s*calc\(100%\s*\+\s*var\(--nav-float/,
+    `${kf} 关键帧必须是 translate3d(0, calc(100% + var(--nav-float) + 阴影余量), 0)（滑到屏下且保留 z=0 合成层）`);
 }
 // JS 侧：收起编排 —— 摘 chrome-shown 前挂 rail-hiding、超时兜底摘类、呼出先摘 rail-hiding
 assert.match(shell,

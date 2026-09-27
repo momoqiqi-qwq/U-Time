@@ -910,7 +910,54 @@ button, .nav { touch-action: manipulation; }
        布局长度里，150% 时反而多出 1px 空隙，不如整体除来得干净（推导见上方 .view 那条）。 */
     padding-top: calc((2px + var(--sat, env(safe-area-inset-top, 0px))) / var(--ui-scale, 1));
     padding-bottom: calc((4px + var(--sab, env(safe-area-inset-bottom, 0px))) / var(--ui-scale, 1));
+    /* v0.107.0：滚动安全锚（消费方见下方 .view::before / .plugview 吸顶规则）。
+       沉浸档与 padding 同规则声明，两值永远逐字同源；⚠️ 不要为此再开一条
+       同名的沉浸档选择器 —— test-immersive-view.mjs 以子串计数断言它全文件恰好出现一次。 */
+    --safe-top-anchor: calc((2px + var(--sat, env(safe-area-inset-top, 0px))) / var(--ui-scale, 1));
   }
+  /* v0.107.0：滚动安全锚。上面的 padding 只保证「未滚动」时内容不顶进状态栏 ——
+     Android edge-to-edge 的状态栏是透明浮层，一滚动内容就从 padding 底下穿进状态栏
+     （课程表「时间与学期」这类长表单子页必现；sticky 的约束矩形是 scrollport，含
+     padding 区，插件里 top:0 的吸顶栏滚起来会一直钉到状态栏底下）。两层防御，
+     全部只由宿主写（安全区唯一负责人是宿主，v0.38.2 约定；插件侧再碰 var(--sat,…)
+     会被 scripts/test-plugin-safe-area.mjs 的「单一负责人」断言拦下）：
+     ① --safe-top-anchor = .view 顶部的「内容起始线」：常规页是 46px 让位 + 安全区，
+        沉浸式（.rail-hidden，课程表）是 2px 缝 + 安全区 —— 与两条 padding 规则
+        逐字同源。吸顶头钉在这条线上 = 未滚动的自然位置，滚动态与静态无缝衔接。
+     ② .view::before 滚动保护带：一条 sticky 毛玻璃，未滚动时靠负 margin 恰好铺满
+        padding 空档、不占布局空间；滚动时钉在 scrollport 顶 —— 任何页面（核心页
+        与插件页）的内容滚进顶部都从带底下过，而不是从状态栏底下过。
+        pointer-events:none，纯视觉层，绝不拦点击。仅在 ≤900px 生效：桌面没有
+        状态栏浮层，.view 也不吃顶部 padding，这条带毫无意义。 */
+  .view { --safe-top-anchor: calc((46px + var(--sat, env(safe-area-inset-top, 0px))) / var(--ui-scale, 1)); }
+  .view::before {
+    content: "";
+    position: sticky;
+    top: 0;
+    z-index: 7;
+    display: block;
+    height: var(--safe-top-anchor);
+    margin: calc(-1 * var(--safe-top-anchor)) 0;
+    background: color-mix(in srgb, var(--panel, #fff) 82%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    pointer-events: none;
+  }
+  /* 插件子页头（‹ 返回 + 标题，「时间与学期」等全部子页与「我的」「今日课表」主头）
+     吸顶时钉在内容起始线上。插件样式表挂在宿主样式之后（<style> 在文档更深处），
+     同特异性会赢，所以这里用 .plugview 前缀抬高一级。 */
+  .plugview .screen-head {
+    position: sticky;
+    top: var(--safe-top-anchor);
+    z-index: 12;
+    background: color-mix(in srgb, var(--paper, #f2f7f8) 94%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 13px;
+  }
+  /* 课程表周视图工具栏（‹ 第N周 › ⋯）自带 position:sticky;top:0 —— 滚动会钉进
+     状态栏，同样钉到锚点线上。两级前缀压过插件里 .sg .schedule-top 的 top:0。 */
+  .plugview .sg .schedule-top { top: var(--safe-top-anchor); }
   /* :root 前缀不是冗余 —— 紧凑密度那条（:root[data-ui-density="compact"] .plugview
      { padding-top:14px; padding-bottom:18px }，默认密度就是 compact）与沉浸式规则同为
      (0,3,0) 且写在更后，会把上下内边距盖回来。多一个 :root 升到 (0,4,0)，四边一起归零。
@@ -919,22 +966,78 @@ button, .nav { touch-action: manipulation; }
      右侧就会留出一条白边 —— 与「填满除安全区之外」直接冲突，收掉。 */
   :root .app.rail-hidden .plugview { padding: 0; scrollbar-width: none; }
   .app.rail-hidden .plugview::-webkit-scrollbar { display: none; }
+  /* v0.106.0：底栏悬空量 —— 四周离开屏幕边缘的距离，「悬空玻璃」的「悬空」部分。
+     只在本媒体块定义：桌面是左侧竖栏（≥901px 那条 .rail），没有悬空一说。
+     底栏是**浮层**、不占流内高度（.view 为它预留的 --nav-pad 早已被下方 (0,4,0)
+     那组 .chrome-shown 规则盖成「4px + 安全区」，档位设置实际只靠 --nav-btn-h
+     / --nav-ic 生效），所以 --nav-float 只需要被三处读到：底栏自己的 left/right/bottom、
+     进出场位移、以及 toast 系的抬升底距。 */
+  :root { --nav-float: 10px; }
+  /* v0.108.0：底栏形态 / 材质（设置 → 外观 → 底栏）。
+     data-nav-dock="docked"：贴底通宽 —— 悬空量归零、压平四角、去掉左右下三条边框，
+     回到 v0.105 的贴底形态。几何消费方（.rail 的 left/right/bottom、出入场关键帧）
+     全部读 --nav-float，改这一个变量即全局联动，没有第三个要背的角落。
+     data-nav-glass="solid"：实色表面 —— 关掉 backdrop-filter（实时模糊是低端
+     WebView 滚动掉帧的大头），底色提到不透明；层级、配色、几何都不动。 */
+  :root[data-nav-dock="docked"] { --nav-float: 0px; }
+  :root[data-nav-dock="docked"] .rail {
+    border-radius: 0;
+    border-left-width: 0;
+    border-right-width: 0;
+    border-bottom-width: 0;
+  }
+  :root[data-nav-glass="solid"] .rail {
+    background: var(--panel, #fff);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
   .rail { order: 2; }
   /* v0.58.0：窄屏侧栏变底栏，「侧栏宽度」没有意义，分隔条整条隐藏（flex 子元素
      默认 order:0 会排到最前，不能只靠视觉隐藏，必须 display:none） */
   .rail-resizer { display: none; }
-  /* 底栏：扁平单行核心入口，图标+小字，激活变色不加底。高度档位由设置「底栏高度」控制 */
+  /* 底栏：扁平单行核心入口，图标+小字，激活变色不加底。高度档位由设置「底栏高度」控制。
+     v0.106.0：贴底通宽 → **悬空玻璃**。四处必须联动，少改一处都是看得见的缺陷：
+       ① 四周离开屏幕 --nav-float（左右等值；底边要先让开原生导航栏再悬空）；
+       ② 表面换成仓库里既有的玻璃配方（照 .quick-dock 那颗悬浮面板：半透明
+          --panel→--paper 渐变 + blur(18px) saturate + 78% 描边），内容从底下透过来
+          被磨掉。全用主题 token、不写死底色：六套配色 × 浅深色自动跟随
+          （本项目的深色靠 token 换值，不靠 [data-theme-mode] 覆盖，见铁律二）；
+       ③ 描边由「只有上边一条」改成整圈 1px + 四角圆角 —— 悬空之后没有贴边可依，
+          四条边都得自己收口；阴影也从「只往上方抛」改成四周浮起；
+       ④ 安全区由 padding 挪到底边偏移上：--sab 只算一次（两处都留就是 v0.38.2
+          「安全区被算了两遍」的同族 bug）。左右仍走 padding 让开横屏挖孔，
+          因为挖孔 inset 比 --nav-float 大得多，得靠内边距把按钮让开。
+     ⚠️ 三条让位一律 ÷ --ui-scale（v0.105.1 结论，见 uiScale.js 与铁律四）：
+        「界面缩放」是 documentElement 上的 CSS zoom，属**布局级**缩放 ⇒ 布局长度会被
+        乘掉，而 --sab/--sal/--sar 对应原生浮层、物理尺寸恒定。悬空条正是「拿自己的偏移
+        去让开一条原生栏」的典型：0.7 档不除回来，导航栏就会压住底栏下缘三成。
+        var() 兜底 1 ⇒ 100% 缩放逐像素等于不写除法。 */
   .rail {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 55;
-    width: 100%; flex: none; flex-direction: row; align-items: stretch;
-    padding: 2px calc(6px + var(--sar, env(safe-area-inset-right, 0px))) calc(4px + var(--sab, env(safe-area-inset-bottom, 0px))) calc(6px + var(--sal, env(safe-area-inset-left, 0px)));
-    border-top: 1px solid rgba(255, 255, 255, .07);
-    box-shadow: 0 -8px 24px rgba(13, 31, 38, .18);
+    position: fixed; z-index: 55;
+    left: calc(var(--nav-float, 10px) / var(--ui-scale, 1));
+    right: calc(var(--nav-float, 10px) / var(--ui-scale, 1));
+    bottom: calc((var(--nav-float, 10px) + var(--sab, env(safe-area-inset-bottom, 0px))) / var(--ui-scale, 1));
+    /* width 必须显式 auto：基础 .rail 那条带着桌面的 width: var(--rail-w)（212px），
+       旧写法靠 width:100% 压住它，改左右定宽后如果不清零，底栏就只有 212px 宽、
+       右边空一大截（探针实测 gapRight 176）。 */
+    width: auto;
+    flex: none; flex-direction: row; align-items: stretch;
+    padding: 2px
+      calc((6px + var(--sar, env(safe-area-inset-right, 0px))) / var(--ui-scale, 1))
+      4px
+      calc((6px + var(--sal, env(safe-area-inset-left, 0px))) / var(--ui-scale, 1));
+    border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+    border-radius: 20px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 90%, transparent), color-mix(in srgb, var(--paper) 86%, var(--panel)));
+    backdrop-filter: blur(18px) saturate(1.12);
+    box-shadow: 0 18px 44px rgba(15, 23, 42, .16), 0 2px 6px rgba(15, 23, 42, .10);
     /* 固定底栏提升为独立合成层。真机（APK）实测：点开任意插件时底栏会「闪/跳一帧」——
        插件视图挂载与数据到达时，observePluginMotion 对新节点跑 WAAPI 透明度动画 +
        大段 DOM 替换，触发整帧重光栅化；底栏若与内容同层，就会被拖着重绘这一帧。
        核心页（四象限/时间块/收件箱）是同步一次成型，不走 observePluginMotion，所以不弹。
-       translateZ(0) 让底栏的合成层常驻，内容层怎么翻腾都不带它（仅窄屏固定底栏需要）。 */
+       translateZ(0) 让底栏的合成层常驻，内容层怎么翻腾都不带它（仅窄屏固定底栏需要）。
+       ⚠️ 改这条规则时别把它换成 will-change 或删掉：backdrop-filter 已经另起一层，
+       但真机那一帧抖动是这张条子自己的合成层治的，两回事。 */
     transform: translateZ(0);
   }
   .brand { display: none; }
@@ -1000,9 +1103,13 @@ button, .nav { touch-action: manipulation; }
   .plug-card > div:last-child { flex-direction: column; align-items: flex-end; }
   .set-card { padding: 16px 14px; }
   .toast { max-width: calc(var(--ui-vw, 100vw) - 24px); }
-  /* toast 抬到底部导航上方（86px = 导航 62 + 间距），避免被底栏挡住。
+  /* toast 抬到底部导航上方，避免被底栏挡住。
+     v0.106.0：86px → 96px。390×844 探针实测（注入 --sab 24px、标准档底栏高度）：
+     悬空底栏顶缘离屏幕底 99px，其中安全区 24 + 条子自身 75（含 1px 描边与 --nav-float
+     的 10px）⇒ 这条写 96px + --sab = 120px，压在条子上方留 21px 缝。
+     底栏虽是半透明的，toast 叠在它上面仍读成「糊在一起」，而且两层都是玻璃。
      边距 ÷ --ui-scale；--sab 按项目约定不补偿（安全区被 zoom 缩小属已知项）。 */
-  #toasts { right: 12px; bottom: calc(86px / var(--ui-scale, 1) + var(--sab, env(safe-area-inset-bottom, 0px))); }
+  #toasts { right: 12px; bottom: calc(96px / var(--ui-scale, 1) + var(--sab, env(safe-area-inset-bottom, 0px))); }
   /* ── v0.52.0：沉浸式外壳（需求：APK 默认上下栏都藏，点 ⋮ 菜单键才呼出）──
      结构：.app 挂 .chrome-shown ⇔ 底栏显示（shell.js 的 setChromeShown）。
      v0.59.0：顶栏已整条移除，这个状态类只剩控制底栏一个职责。
@@ -1018,7 +1125,7 @@ button, .nav { touch-action: manipulation; }
        离中间最近、且各视图交互控件遮挡为 0 的档位（见 scan-fab.cjs）。
        ⚠️ 用 `calc(% - 半高)`，不要 `transform:translateY(-50%)`：
        `:active` 要覆写 transform 做 scale(.94)，两者打架会让按下瞬间跳位。 */
-    top: calc(45% - 18px);
+    top: calc(var(--fab-v, 45%) - 18px);
     right: calc(6px + var(--sar, env(safe-area-inset-right, 0px)));
     /* 底栏(55)之上 —— 两栏呼出时它必须保持可点；popmenu(60)/遮罩(40+) 之下 */
     z-index: 58;
@@ -1029,7 +1136,7 @@ button, .nav { touch-action: manipulation; }
     backdrop-filter: blur(8px);
     box-shadow: 0 2px 10px rgba(13, 31, 38, .18);
     -webkit-tap-highlight-color: transparent;
-    transition: background .12s ease, color .12s ease, transform .08s ease;
+    transition: opacity .16s ease, background .12s ease, color .12s ease, transform .08s ease;
   }
   .chrome-toggle:hover { color: var(--ink); }
   .chrome-toggle:active { transform: scale(.94); }
@@ -1046,7 +1153,7 @@ button, .nav { touch-action: manipulation; }
     align-items: center; justify-content: center;
     position: fixed;
     /* 与 ⋮ 菜单键对称：同样落到左侧 45% 高度（v0.52.1）。同上，不用 transform 居中。 */
-    top: calc(45% - 18px);
+    top: calc(var(--fab-v, 45%) - 18px);
     left: calc(6px + var(--sal, env(safe-area-inset-left, 0px)));
     z-index: 58;
     width: 36px; height: 36px; padding: 0; flex: none;
@@ -1056,12 +1163,35 @@ button, .nav { touch-action: manipulation; }
     backdrop-filter: blur(8px);
     box-shadow: 0 2px 10px rgba(13, 31, 38, .18);
     -webkit-tap-highlight-color: transparent;
-    transition: background .12s ease, color .12s ease, transform .08s ease;
+    transition: opacity .16s ease, background .12s ease, color .12s ease, transform .08s ease;
   }
   .mobile-back:hover { color: var(--ink); }
   .mobile-back:active { transform: scale(.94); }
   .mobile-back.show { display: inline-flex; }
   .mobile-back-glyph { display: block; font-size: calc(19px * var(--ui-text-scale)); line-height: 1; transform: translateY(-1px); }
+  /* v0.108.0：软键盘让路 —— 任意输入框/可编辑区聚焦时（键盘几乎必然弹出），
+     :root 挂 data-kbd="1"（shell.js 的 focusin/focusout 维护），两颗悬浮键淡出、
+     停吃点击：它们钉在 45% 高度，键盘把视口压矮后正好压在聚焦输入框上。
+     失焦即恢复；输入框之间移动（focusout → focusin）一删一挂，状态自然收敛。 */
+  :root[data-kbd="1"] .chrome-toggle,
+  :root[data-kbd="1"] .mobile-back {
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* v0.110.0：悬浮键位置设置（设置 → 外观）。--fab-v 默认 45%（v0.52.1 实测对各类
+     视图遮挡最少的档位），35/55 两档由 data-fab-v 切换；data-fab-swap="on" 时 ‹ 与 ⋮
+     左右互换 —— 选择器特异性 (0,2,1) 稳压上方基础定位 (0,1,0)，与书写顺序无关。
+     左右安全区仍走双路取值（铁律四）：互换只是交换两侧，挖孔在谁的侧边谁让。 */
+  :root[data-fab-v="35"] { --fab-v: 35%; }
+  :root[data-fab-v="55"] { --fab-v: 55%; }
+  :root[data-fab-swap="on"] .chrome-toggle {
+    right: auto;
+    left: calc(6px + var(--sal, env(safe-area-inset-left, 0px)));
+  }
+  :root[data-fab-swap="on"] .mobile-back {
+    left: auto;
+    right: calc(6px + var(--sar, env(safe-area-inset-right, 0px)));
+  }
   /* 上下栏默认收起。:not(…) 里的类名参与特异性（0,3,0），稳压 .rail-hidden 那组 (0,2,1)。
      收起时 .view 自己给状态栏让位（需求：「距离手机状态栏合适的距离」）：悬浮键
      底缘在 41px + --sat 处，内容从 46px + --sat 起步；底部同理只留 --sab + 4px。
@@ -1078,6 +1208,15 @@ button, .nav { touch-action: manipulation; }
   .app.chrome-shown:not(.rail-hidden) .view {
     padding-top: calc(46px + var(--sat, env(safe-area-inset-top, 0px)));
     padding-bottom: calc(4px + var(--sab, env(safe-area-inset-bottom, 0px)));
+  }
+  /* v0.108.0：底栏呼出期间，内容整体抬到玻璃条上方。上一条把 padding-bottom 塌成
+     4px + 安全区，前提是「底栏贴底、且呼出只是瞬间态」；v0.106.0 之后底栏悬空浮起、
+     且呼出态在导航后保留 —— 玻璃条（高 ≈ --nav-btn-h + 8px，再加 --nav-float 悬空缝）
+     会一直盖住内容最后一行，看得见点不到。呼出期间让 .view 把这块高度让出来：
+     布局随呼出/收起跳动一次，换「条子永不遮内容」。沉浸式页（.rail-hidden）除外：
+     满屏格子挤压会破坏一屏布局，那边靠「点空白即收起」（shell.js）。 */
+  .app.chrome-shown:not(.rail-hidden) .view {
+    padding-bottom: calc((var(--nav-btn-h, 46px) + 8px + var(--nav-float, 10px) + 12px + var(--sab, env(safe-area-inset-bottom, 0px))) / var(--ui-scale, 1));
   }
   /* ⋮ 呼出底栏。必须写在上面 .rail-hidden 两条规则之后：同为 (0,2,1) 靠后者胜 ——
      沉浸式插件页（rail-hidden，如课程表）里点 ⋮ 也要能把底栏呼出来。
@@ -1100,13 +1239,19 @@ button, .nav { touch-action: manipulation; }
   }
 }
 
-/* 底栏呼出/收起关键帧：滑入从屏下 105% 起步（105% 盖过 box-shadow 的上抛阴影），
-   滑出 forwards 停在屏下直到 JS 摘类。opacity 同步淡入淡出，进出场更有整体感。 */
+/* 底栏呼出/收起关键帧：位移必须算进 --nav-float（v0.106.0 底栏悬空）。
+   旧的 105% 是按「条子贴底」算的 —— 位移只要盖过自身高度就出屏；悬空之后底边还留着
+   --nav-float 的缝隙，100% 会把这 10px 留在屏内，所以基准必须是 100% + 悬空量。
+   再多的 28px 是给阴影的：阴影四周都抛（0 18px 44px ⇒ 上抛分量 44 − 18 = 26px），
+   中段动画里条子还没走完、阴影已经先探进屏幕底缘。⚠️ 但别把这条当「零残留」的凭据：
+   真正保证收干净的是同一条关键帧里同步淡到 0 的 opacity（out 还带 forwards 停在终态），
+   位移只负责「条子本体出屏」。旧注释写的「105% 盖过上抛阴影」按实算并不成立
+   （旧阴影上抛 32px，而 105% 只多让出 2.6px），一直是靠 opacity 兜的。 */
 @keyframes rail-dock-in {
-  from { transform: translate3d(0, 105%, 0); opacity: 0; }
+  from { transform: translate3d(0, calc(100% + var(--nav-float, 10px) + 28px), 0); opacity: 0; }
 }
 @keyframes rail-dock-out {
-  to { transform: translate3d(0, 105%, 0); opacity: 0; }
+  to { transform: translate3d(0, calc(100% + var(--nav-float, 10px) + 28px), 0); opacity: 0; }
 }
 
 @media (max-width: 520px) {
@@ -1527,7 +1672,11 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, te
   .app { padding: 0; }
   .main { background: var(--bg); }
   .topbar { height: calc(50px + var(--sat, env(safe-area-inset-top, 0px))); padding-left: 14px; padding-right: 14px; }
-  .rail { background: color-mix(in srgb, var(--panel) 97%, var(--paper)); border-top: 1px solid var(--line); }
+  /* v0.106.0：这里原本有一条 `.rail { background: …97%…; border-top: 1px solid var(--line) }`
+     —— 本层（v0.9 UI layer）写在移动端媒体块之后，同特异性靠后者胜，会把上面那条
+     悬空玻璃的表面整个盖回不透明、并把 border-top 塞回来。底栏的几何与表面现在
+     是同一处事实源（上方 ≤900px 的 .rail），本层只留下面这些「按钮配色跟主题走」的
+     覆盖；要改底栏长相，去改那一条，别在这里补。 */
   .nav button { color: var(--ink-2); }
   .nav button.on { color: var(--ink); }
   .nav button .ic { background: transparent; }
@@ -4340,12 +4489,12 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   .keyword-rule select { grid-column: 1 / 2; }
   .keyword-rule-remove { grid-column: 3; }
   /* 手机上左下角会和底部导航挤在一起；改成整宽横幅。
-     ⚠️ 底距必须抬到导航上方（和 #toasts 同一高度 86px = 导航 62px + 间距），
+     ⚠️ 底距必须抬到导航上方（和 #toasts 同一高度 96px，实测依据见 #toasts 那条注释），
      原来写 bottom:12px 时横幅是**压在底部导航上**的 —— 提示条要用户点按钮才消失，
      等于把那会儿的导航整条挡住（390px 截图实测）。sab 用双路写法：WebView 不实现 env()。 */
   .update-toast {
     left: 12px; right: 12px;
-    bottom: calc(86px / var(--ui-scale, 1) + var(--sab, env(safe-area-inset-bottom, 0px)));
+    bottom: calc(96px / var(--ui-scale, 1) + var(--sab, env(safe-area-inset-bottom, 0px)));
     width: auto;
   }
   .update-toast-card { padding: 12px 13px; }

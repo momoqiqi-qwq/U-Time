@@ -160,7 +160,7 @@ export function markTaskSeen(id) {
 export function deleteTaskUndoable(id) {
   const task = taskById(id);
   if (!task) return null;
-  const snapshot = JSON.parse(JSON.stringify({ task, blocks: state.blocks.filter((b) => b.taskId === id) }));
+  const snapshot = structuredClone({ task, blocks: state.blocks.filter((b) => b.taskId === id) });
   removeTask(id);
   return () => {
     if (taskById(id)) return;
@@ -176,10 +176,10 @@ export function deleteTaskUndoable(id) {
 export function deleteDoneTasksUndoable() {
   const done = state.tasks.filter((t) => t.done);
   if (!done.length) return null;
-  const snapshot = JSON.parse(JSON.stringify(done.map((t) => ({
+  const snapshot = structuredClone(done.map((t) => ({
     task: t,
     blocks: state.blocks.filter((b) => b.taskId === t.id),
-  }))));
+  })));
   batchChanges(() => { done.forEach((t) => removeTask(t.id)); });
   return () => {
     const tasks = [], blocks = [];

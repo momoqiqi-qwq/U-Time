@@ -1,6 +1,6 @@
 import * as S from './store.js';
 
-const clone = (x) => JSON.parse(JSON.stringify(x));
+const clone = (x) => structuredClone(x);
 const escCsv = (v) => {
   const s = v == null ? '' : String(v);
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

@@ -3,7 +3,9 @@ export const CURRENT_SCHEMA_VERSION = 1;
 const cloneSnapshot = (value) => {
   if (!value || typeof value !== "object") return {};
   if (typeof structuredClone === "function") return structuredClone(value);
-  return JSON.parse(JSON.stringify(value));
+  // structuredClone（v0.109.0）：迁移数据全是 store 的纯 JSON 结构，直接结构化克隆，
+  // 不再走「序列化成字符串再解析回来」——更快，也不丢类型。
+  return structuredClone(value);
 };
 
 const MIGRATIONS = new Map([

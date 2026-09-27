@@ -530,6 +530,21 @@ async function pressBack(world) {
     assert.match(swipeBlock, /document\.body\.dataset\.swipeSuspended === "1"/,
       "touchend 必须检查 swipeSuspended：拖拽排序等手势会话期间滑动返回让路（v0.52.0 配套）");
   }
+
+  // v0.110.0：边缘起滑新增手势，锁住「左缘 28px 起滑 + 右拉才回」与中部兼容。
+  {
+    const edgeAt = shell.indexOf("const EDGE_SWIPE_PX = 28;");
+    assert.ok(edgeAt > -1, "边缘返回热区必须固定为视觉像素 28px");
+    const edgeBlock = shell.slice(shell.lastIndexOf("// v0.110.0：左缘返回带", edgeAt), shell.indexOf("mountQuickDock();", edgeAt));
+    assert.match(edgeBlock, /swEdge = e\.touches\[0\]\.clientX <= EDGE_SWIPE_PX/,
+      "边缘带必须由 touchstart 的屏幕 clientX 判定");
+    assert.match(edgeBlock, /if \(!swEdge && e\.target\.closest\?\.\(SWIPE_SKIP\)\) return/,
+      "边缘起滑必须优先于 SWIPE_SKIP，让插件页/输入区仍可边缘返回");
+    assert.match(edgeBlock, /if \(swEdge\) \{ if \(dx > 0\) goBack\(\); return; \}/,
+      "边缘带只认左向右拉；左向右不反、也不落入中部双向返回");
+    assert.ok(edgeBlock.indexOf("Math.abs(dx) < 56") < edgeBlock.indexOf("if (swEdge)"),
+      "边缘分支必须仍受 56px 长度与横纵比例门槛保护");
+  }
 }
 
 // 14. 同一个模块实例重新挂载（热重载 / 宿主重建）：depth 必须归零。

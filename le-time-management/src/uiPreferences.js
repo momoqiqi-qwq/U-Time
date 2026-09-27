@@ -42,6 +42,16 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   startupView: "last",
   // 手机底栏高度档位：紧凑 40px / 标准 46px / 宽松 54px（按钮最小高，CSS 变量消费）
   navBarSize: "standard",
+  // v0.108.0：手机底栏形态 —— float = 悬空玻璃（默认，四周留缝浮起）；
+  // docked = 贴底通宽（v0.105 之前的形态：悬浮量归零、压平四角）。
+  navDock: "float",
+  // v0.110.0：悬浮键（‹ 返回 / ⋮ 菜单）垂直锚点档位（35 / 45 / 55，百分比）。
+  // 默认 45 = v0.52.1 实测对各类视图遮挡最少的档位；互换只对调两颗键的左右。
+  fabHeight: 45,
+  fabSwap: false,
+  // v0.108.0：手机底栏材质 —— frosted = 毛玻璃（默认）；solid = 实色
+  // （低端 WebView 关掉 backdrop-filter，滚动更稳、更省电）。
+  navGlass: "frosted",
   // 启动窗口大小：默认「跟随屏幕」——绝大多数显示器上都会比旧的固定 1280×820 更大。
   startupWindowMode: "auto",
   startupWindowWidth: 1440,
@@ -78,6 +88,9 @@ export const WINDOW_SIZE_OPTIONS = Object.freeze([
 const DENSITIES = new Set(["comfortable", "compact"]);
 const MOTIONS = new Set(["system", "full", "reduced"]);
 const NAVBAR_SIZES = new Set(NAVBAR_SIZE_OPTIONS.map(([id]) => id));
+const NAV_DOCKS = new Set(["float", "docked"]);
+const NAV_GLASSES = new Set(["frosted", "solid"]);
+const FAB_HEIGHTS = new Set([35, 45, 55]);
 const STARTUP_VIEWS = new Set(STARTUP_VIEW_OPTIONS.map(([id]) => id));
 const WINDOW_SIZE_MODES_SET = new Set(WINDOW_SIZE_MODES);
 
@@ -91,6 +104,10 @@ export function normalizeUiPreferences(raw = {}) {
   if (!DENSITIES.has(next.density)) next.density = DEFAULT_UI_PREFERENCES.density;
   if (!MOTIONS.has(next.motion)) next.motion = DEFAULT_UI_PREFERENCES.motion;
   if (!NAVBAR_SIZES.has(next.navBarSize)) next.navBarSize = DEFAULT_UI_PREFERENCES.navBarSize;
+  if (!NAV_DOCKS.has(next.navDock)) next.navDock = DEFAULT_UI_PREFERENCES.navDock;
+  if (!NAV_GLASSES.has(next.navGlass)) next.navGlass = DEFAULT_UI_PREFERENCES.navGlass;
+  next.fabHeight = FAB_HEIGHTS.has(next.fabHeight) ? next.fabHeight : DEFAULT_UI_PREFERENCES.fabHeight;
+  next.fabSwap = next.fabSwap === true;
   if (!STARTUP_VIEWS.has(next.startupView)) next.startupView = DEFAULT_UI_PREFERENCES.startupView;
   next.textScale = Math.round(clamp(next.textScale, TEXT_SCALE_LIMITS.min, TEXT_SCALE_LIMITS.max) / TEXT_SCALE_LIMITS.step) * TEXT_SCALE_LIMITS.step;
   next.uiScale = normalizeUiScale(next.uiScale);
@@ -127,6 +144,13 @@ export function applyUiPreferences(raw = null, { animate = false } = {}) {
   // 注意：dataset.navbar 才生成 data-navbar；写成 dataset.navBar 会变成 data-nav-bar，
   // CSS 的 :root[data-navbar=…] 选择器就匹配不上了
   root.dataset.navbar = cfg.navBarSize;
+  // dataset.navDock → data-nav-dock、dataset.navGlass → data-nav-glass（驼峰自动转
+  // 连字符，与上一行 data-navbar 同一批 CSS 消费方，见 styles.css 的 ≤900px 媒体块）
+  root.dataset.navDock = cfg.navDock;
+  root.dataset.navGlass = cfg.navGlass;
+  // 悬浮键档位（data-fab-v）与左右互换（data-fab-swap）：styles.css ≤900px 媒体块消费
+  root.dataset.fabV = String(cfg.fabHeight);
+  root.dataset.fabSwap = cfg.fabSwap ? "on" : "off";
   root.dataset.showTopStats = cfg.showTopStats ? "on" : "off";
   root.dataset.centerTopStats = cfg.centerTopStats ? "on" : "off";
   root.dataset.showViewSubtitle = cfg.showViewSubtitle ? "on" : "off";

@@ -41,7 +41,7 @@ export const COURSE_PLUGIN_ID = "shiguang-schedule";
 /** 课程表插件接受外部导入的事件名。 */
 export const INGEST_COURSES_EVENT = "ingest:courses";
 
-const clone = (x) => JSON.parse(JSON.stringify(x ?? null));
+const clone = (x) => structuredClone(x ?? null);
 
 /* ── 基础清洗 ───────────────────────────────────────────── */
 
