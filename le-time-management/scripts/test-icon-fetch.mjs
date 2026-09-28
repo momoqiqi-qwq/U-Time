@@ -235,7 +235,7 @@ hit(apiSource, /async httpGetIcon\(url\) \{[\s\S]{0,200}?invoke\("http_get_icon"
 
 // 调用点：新增 / 刷新 / 存量补抓三处都要接上，漏一处就有一批站点永远没有图标
 hit(pluginSource, /tmp\.iconUrl = ad\?\.icon \|\| meta\.iconUrl \|\| "";[\s\S]{0,2000}?await ensureIconData\(tmp, false\);/, 'addSite 要补抓图标');
-hit(pluginSource, /await save\(\);\s*\n\s*\/\/ 刷新顺带补图标[\s\S]{0,300}?await ensureIconData\(site, false\);/, '刷新要补抓图标');
+hit(pluginSource, /await save\(\);[\s\S]{0,200}?\/\/ 刷新顺带补图标[\s\S]{0,300}?await ensureIconData\(site, false\);/, '刷新要补抓图标');
 hit(pluginSource, /if \(sites\.some\(\(x\) => x\.iconUrl && !x\.iconData\)\)/, 'render 要对存量站点后台补抓');
 hit(pluginSource, /sites\.map\(\(\{ id, name, url, loginUrl, cms, lastFetchedAt, iconUrl, iconData, spaHint \}\)/, 'iconData 要落盘，否则重启就丢');
 

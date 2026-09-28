@@ -240,6 +240,167 @@ export function noticeKind(title) {
   return "other";
 }
 
+const TITLE_KEYS = ["title", "bt", "name", "subject", "caption", "headline", "newsTitle", "noticeTitle", "articleTitle", "msgTitle"];
+const URL_KEYS = ["url", "link", "href", "path", "jumpUrl", "detailUrl", "wapUrl", "pcUrl"];
+const DATE_KEYS = ["date", "time", "publishTime", "publishDate", "publish_time", "createTime", "createdAt", "releaseTime", "pubDate", "pubtime", "addtime"];
+const SNIP_KEYS = ["summary", "description", "desc", "content", "digest", "category", "channelName", "columnName", "typeName", "cname"];
+
+function objectValueByKeys(obj, keys) {
+  if (!obj || typeof obj !== "object") return "";
+  for (const key of keys) {
+    if (obj[key] != null && obj[key] !== "") return obj[key];
+  }
+  const lower = Object.create(null);
+  for (const [k, v] of Object.entries(obj)) lower[k.toLowerCase()] = v;
+  for (const key of keys) {
+    const v = lower[key.toLowerCase()];
+    if (v != null && v !== "") return v;
+  }
+  return "";
+}
+
+function normalizeDateValue(value, yearHint) {
+  if (value == null || value === "") return "";
+  if (typeof value === "number") {
+    const ms = value > 100000000000 ? value : value > 1000000000 ? value * 1000 : 0;
+    if (ms) return new Date(ms).toISOString().slice(0, 10);
+  }
+  return extractDate(String(value), yearHint);
+}
+
+function jsonNoticeRow(raw, baseUrl, yearHint) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const title = cleanText(objectValueByKeys(raw, TITLE_KEYS));
+  if (title.length < 4) return null;
+  const href = resolveWebUrl(objectValueByKeys(raw, URL_KEYS), baseUrl);
+  if (!href) return null;
+  const date = normalizeDateValue(objectValueByKeys(raw, DATE_KEYS), yearHint)
+    || extractDate(`${title} ${cleanText(objectValueByKeys(raw, SNIP_KEYS))}`, yearHint);
+  const snippet = SNIP_KEYS.map((k) => cleanText(raw[k])).filter(Boolean).slice(0, 3).join(" · ");
+  const score = noticeScore(title, href, snippet, !!date) + 20;
+  if (score < 10) return null;
+  return { title, url: href, date, score, kind: noticeKind(title), snippet: snippetOf(title, snippet) };
+}
+
+function collectJsonNoticeRows(value, baseUrl, options, out, depth = 0) {
+  if (!value || depth > 8 || out.length >= options.max) return;
+  if (Array.isArray(value)) {
+    let local = [];
+    for (const item of value) {
+      const row = jsonNoticeRow(item, baseUrl, options.yearHint);
+      if (row) local.push(row);
+    }
+    if (local.length) {
+      for (const row of local) {
+        if (out.length >= options.max) break;
+        out.push(row);
+      }
+    }
+    for (const item of value) collectJsonNoticeRows(item, baseUrl, options, out, depth + 1);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const v of Object.values(value)) collectJsonNoticeRows(v, baseUrl, options, out, depth + 1);
+  }
+}
+
+function uniqueNoticeRows(rows, max) {
+  const seen = new Set(), titleSeen = new Set(), out = [];
+  for (const row of rows) {
+    const key = String(row.url || "").replace(/[?#].*$/, "");
+    const tkey = String(row.title || "").replace(/\s+/g, "");
+    if (!key || seen.has(key)) continue;
+    if (tkey.length >= 6 && titleSeen.has(tkey)) continue;
+    seen.add(key); titleSeen.add(tkey);
+    out.push(row);
+    if (out.length >= max) break;
+  }
+  return out.sort((a, b) => (b.date || "").localeCompare(a.date || "") || (b.score || 0) - (a.score || 0));
+}
+
+export function parseGenericNoticeJson(body, baseUrl, options = {}) {
+  let data = body;
+  if (typeof body === "string") {
+    try { data = JSON.parse(body); } catch { return []; }
+  }
+  const max = Math.max(1, Math.min(200, Number(options.max) || 100));
+  const rows = [];
+  collectJsonNoticeRows(data, baseUrl, { max: max * 3, yearHint: Number(options.yearHint) || new Date().getFullYear() }, rows);
+  return uniqueNoticeRows(rows, max);
+}
+
+function scriptTextBlocks(html) {
+  const blocks = [];
+  const re = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(String(html || "")))) {
+    const type = attr(m[1], "type").toLowerCase();
+    if (type && !/json|javascript|ecmascript|module|ld\+json/.test(type)) continue;
+    blocks.push(m[2] || "");
+  }
+  return blocks;
+}
+
+function balancedJsonAt(text, start) {
+  const open = text[start], close = open === "{" ? "}" : "]";
+  let depth = 0, quote = "", escp = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (escp) escp = false;
+      else if (c === "\\") escp = true;
+      else if (c === quote) quote = "";
+      continue;
+    }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === open) depth++;
+    else if (c === close && --depth === 0) return text.slice(start, i + 1);
+  }
+  return "";
+}
+
+export function extractEmbeddedJsonNotices(html, baseUrl, options = {}) {
+  const max = Math.max(1, Math.min(200, Number(options.max) || 100));
+  const rows = [];
+  for (const block of scriptTextBlocks(html)) {
+    const trimmed = block.trim();
+    if ((trimmed.startsWith("{") || trimmed.startsWith("["))) {
+      rows.push(...parseGenericNoticeJson(trimmed, baseUrl, { ...options, max: max * 2 }));
+      continue;
+    }
+    const marks = [...block.matchAll(/(?:__INITIAL_STATE__|__NEXT_DATA__|__NUXT__|window\.\w*DATA\w*|window\.\w*STATE\w*)\s*=\s*([\[{])/g)];
+    for (const m of marks) {
+      const json = balancedJsonAt(block, (m.index || 0) + m[0].lastIndexOf(m[1]));
+      if (json) rows.push(...parseGenericNoticeJson(json, baseUrl, { ...options, max: max * 2 }));
+    }
+  }
+  return uniqueNoticeRows(rows, max);
+}
+
+export function extractNoticeApiCandidates(html, baseUrl, options = {}) {
+  const max = Math.max(1, Math.min(40, Number(options.max) || 12));
+  const out = [], seen = new Set();
+  const source = String(html || "");
+  const re = /["'`]([^"'`<>\s]{3,260})["'`]/g;
+  let m;
+  while ((m = re.exec(source))) {
+    const raw = m[1].replace(/\\\//g, "/");
+    if (!/^(?:https?:)?\/\//i.test(raw) && !raw.startsWith("/")) continue;
+    if (!/(notice|announce|news|article|message|msg|bulletin|inform|publish|list|page|portal|cms|content|栏目|通知|公告)/i.test(raw)) continue;
+    if (/\.(?:js|css|png|jpe?g|gif|svg|ico|woff2?|map)(?:[?#]|$)/i.test(raw)) continue;
+    const url = resolveWebUrl(raw, baseUrl);
+    if (!url || seen.has(url)) continue;
+    let u; try { u = new URL(url); } catch { continue; }
+    if (siteKey(url) !== siteKey(baseUrl)) continue;
+    if (!/[?&](?:page|pageNo|pageNum|pageIndex|current|size|limit|rows)=/i.test(u.search)
+      && !/\/(?:api|apis|open|portal|cms|content)\/.*(?:list|page|search|query|notice|news|message|bulletin)\b/i.test(u.pathname)
+      && !/\/(?:notice|news|message|bulletin|article)[_-]?(?:list|page|search|query)\b/i.test(u.pathname)) continue;
+    seen.add(url); out.push(url);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 export function extractNoticeLinks(html, baseUrl, options = {}) {
   const source = String(html || ""), max = Math.max(1, Math.min(200, Number(options.max) || 80));
   const yearHint = Number(options.yearHint) || new Date().getFullYear();

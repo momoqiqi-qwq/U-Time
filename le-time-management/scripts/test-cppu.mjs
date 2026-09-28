@@ -43,6 +43,13 @@ const foundAttachments=extractAttachments({ATTACHMENTS:[{FILE_NAME:'实施方案
 assert.equal(foundAttachments.length,1);
 assert.equal(foundAttachments[0].name,'实施方案.pdf');
 assert.match(foundAttachments[0].url,/portal-jw\.cppu\.edu\.cn\/tp_up\/up\/pim\/file\/download/);
+const affixJson = extractAttachments({AFFIX: JSON.stringify([{FILE_NAME:'参赛名单.xlsx',FILE_URL:'uploadfiles/2026/list.xlsx?id=2&amp;part=1'}])}, '附件：参赛名单');
+assert.equal(affixJson.length,1,'详情 AFFIX 的 JSON 字符串应识别为附件');
+assert.equal(affixJson[0].name,'参赛名单.xlsx');
+assert.match(affixJson[0].url,/list\.xlsx\?id=2&part=1/);
+const affixFields = extractAttachments({AFFIX_NAME:'报名表.docx',AFFIX_PATH:'/tp_up/uploadfiles/form.docx'}, '');
+assert.equal(affixFields.length,1,'详情 AFFIX_NAME / AFFIX_PATH 应识别为附件');
+assert.equal(extractAttachments({}, '附件：只有文件名、没有下载地址').length,0,'纯文字不能伪装成可下载附件');
 state.details={};state.expanded.add('attach');calls=[];
 response={status:200,body:JSON.stringify([{PIM_CONTENT:'',ATTACHMENTS:[{FILE_NAME:'实施方案.pdf',FILE_URL:'/tp_up/up/pim/file/download?id=1'}]}])};
 await loadDetail('attach');
@@ -50,6 +57,7 @@ const attachmentItem={RESOURCE_ID:'attach',PIM_TITLE:'附件通知',CREATE_TIME:
 assert.match(cardHtml(attachmentItem),/附件 1/);
 assert.match(cardHtml(attachmentItem),/实施方案\.pdf/);
 assert.match(cardHtml(attachmentItem),/下载附件/);
+assert.match(cardHtml(attachmentItem),/class="pp-att" data-attach-download="0"/,'点击附件整行应直接触发下载');
 const attachmentCalls=calls.length;
 await loadDetail('attach');
 assert.equal(calls.length,attachmentCalls,'Only-attachment detail should also use cached detail');

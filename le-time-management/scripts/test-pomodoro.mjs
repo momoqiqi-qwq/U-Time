@@ -139,9 +139,10 @@ const uiCtx = vm.createContext({
 
 vm.runInContext(
   source.replace('  tide.ui.registerView({',
-    '  globalThis.__fx = { render, finish, normalizeReminder, MODES, clampCustomSec, fmtMin, modeSeconds, CUSTOM_MAX_SEC,\n'
+    '  globalThis.__fx = { render, finish, tick, normalizeReminder, MODES, clampCustomSec, fmtMin, modeSeconds, CUSTOM_MAX_SEC,\n'
     + '    get reminder() { return reminder; }, set reminder(v) { reminder = v; },\n'
     + '    get customSec() { return customSec; }, set customSec(v) { customSec = v; },\n'
+    + '    setLeft(v) { left = v; }, resetStages() { firedStages = new Set(); },\n'
     + '    get dotsBox() { return dotsBox; },\n'
     + '    setMode(id) { if (id === "custom") { mode = { id: "custom", label: "自定义", min: customSec / 60 }; return; } mode = MODES.find((m) => m.id === id); },\n'
     + '    setTaskId(id) { currentTaskId = id; } };\n'
@@ -157,6 +158,23 @@ await tick();
 
 const base = { focusNotify: true, focusSound: true, breakNotify: true, breakSound: true, sound: 'chime', volume: 0.6, customAudio: null, customAudioName: '' };
 const reset = () => { notified.length = 0; played.length = 0; };
+
+/* 多段提醒只在命中的剩余时间触发，且短番茄不会提前触发超过总时长的时间点。 */
+reset();
+fx.setMode('focus');
+fx.reminder = { ...base, focusStages: [300, 60] };
+fx.resetStages();
+fx.setLeft(301);
+fx.tick();
+assert.equal(notified[0], '专注还剩 05:00');
+assert.equal(played.length, 1);
+fx.setLeft(61);
+fx.tick();
+assert.equal(notified[1], '专注还剩 01:00');
+assert.equal(played.length, 2);
+fx.setMode('custom'); fx.customSec = 30; fx.setLeft(30); fx.resetStages();
+fx.tick();
+assert.equal(notified.length, 2, '不足一分钟的番茄不应误触发 1 / 5 分钟提醒');
 
 /* 专注结束：通知 + 声音都开 */
 reset();

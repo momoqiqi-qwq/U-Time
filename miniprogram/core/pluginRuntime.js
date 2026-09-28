@@ -287,6 +287,8 @@ const DD_UPCOMING = 6;      // 后续轮次展示条数
 const DD_REMOVED_KEEP = 12; // 「已移除」最多保留几个
 const DD_NAME_MAX = 12;     // 轮换名（如「宿舍值日」/「公区卫生」）
 const DD_MEMBER_MAX = 16;   // 成员名
+const DD_LOCATION_MAX = 12;
+const DD_LOCATION_NAME_MAX = 24;
 
 function ddValidDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")); }
 /** 合法时刻 → "HH:MM"；非法返回 null。
@@ -328,6 +330,10 @@ function ddMembers(raw) {
     .filter((m) => m && m.id)
     .map((m) => ({ id: String(m.id), name: String(m.name || "").slice(0, DD_MEMBER_MAX).trim() || "未命名" }));
 }
+function ddLocations(raw) {
+  const names = (Array.isArray(raw) ? raw : []).map((v) => String(v || "").trim().slice(0, DD_LOCATION_NAME_MAX)).filter(Boolean);
+  return names.filter((v, i) => names.indexOf(v) === i).slice(0, DD_LOCATION_MAX);
+}
 function ddUid(prefix) { return (prefix || "m") + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
 /* ── 轮换组的归一化 / 迁移 ── */
@@ -339,6 +345,8 @@ function ddDefaultGroup(today, name) {
     startDate: ddValidDate(today) ? today : store.todayStr(),
     periodDays: 7,
     perRound: 1,
+    locations: [],
+    locationPeriodDays: 7,
     remindEnabled: true,
     remindTime: "08:00",
     sound: "beep",
@@ -354,6 +362,8 @@ function ddNormalizeGroup(raw, today) {
   g.name = String(g.name || "").trim().slice(0, DD_NAME_MAX) || DD_NAME_DEFAULT;
   if (!ddValidDate(g.startDate)) g.startDate = base.startDate;
   g.periodDays = Math.min(365, Math.max(1, Math.round(Number(g.periodDays) || 7)));
+  g.locationPeriodDays = Math.min(365, Math.max(1, Math.round(Number(g.locationPeriodDays) || 7)));
+  g.locations = ddLocations(g.locations);
   // 每轮人数：1 = 单人（历史默认）。不 clamp 到当前成员数（成员会变），计算时用模运算兜底。
   g.perRound = Math.min(DD_MEMBER_MAX, Math.max(1, Math.round(Number(g.perRound) || 1)));
   g.remindTime = ddNormalizeTime(g.remindTime) || "08:00";
@@ -421,6 +431,17 @@ function ddCycleStartOf(g, date) {
   return store.addDays(start, Math.floor(diff / ddPeriod(g)) * ddPeriod(g));
 }
 const ddCycleIndexAt = (g, cycleStart) => Math.round(dayDiff(g.startDate, cycleStart) / ddPeriod(g));
+function ddLocationCycleStartOf(g, date) {
+  if (!ddValidDate(g.startDate) || !ddValidDate(date)) return null;
+  const diff = dayDiff(g.startDate, date);
+  if (diff < 0) return null;
+  return store.addDays(g.startDate, Math.floor(diff / g.locationPeriodDays) * g.locationPeriodDays);
+}
+function ddLocationAt(g, date) {
+  if (!g.locations.length) return "";
+  const start = ddLocationCycleStartOf(g, date);
+  return start ? g.locations[Math.round(dayDiff(g.startDate, start) / g.locationPeriodDays) % g.locations.length] : "";
+}
 const ddIsCycleStartDay = (g, date) => ddCycleStartOf(g, date) === date;
 /** 某一轮「正常轮换」该当班的一批人（不看临时换人）：成员环上取 perRound 人的滑动窗口。 */
 function ddNormalAssignees(g, cycleStart) {
@@ -468,6 +489,10 @@ function ddAssigneesFor(g, date) {
   const hits = ddOverrideHits(g, cycle);
   return hits.length ? hits : ddNormalAssignees(g, cycle);
 }
+/** 编辑列表按真实轮换顺序排列，拖动索引与保存位置一致。 */
+function ddMembersInDateOrder(g, date) {
+  return g.members.slice();
+}
 /** 某天的当班人（单人行，兼容旧调用）：多人时取第一个。 */
 function ddAssigneeFor(g, date) {
   return ddAssigneesFor(g, date)[0] || null;
@@ -480,6 +505,24 @@ function ddWithGroup(groups, id, fn) {
 }
 function ddGroupPatch(g, patch) {
   return Object.assign({}, g, patch || {});
+}
+function ddGroupAddLocation(g, name) {
+  const n = String(name || "").trim().slice(0, DD_LOCATION_NAME_MAX);
+  if (!n || (g.locations || []).indexOf(n) >= 0 || (g.locations || []).length >= DD_LOCATION_MAX) return g;
+  return ddGroupPatch(g, { locations: (g.locations || []).concat(n) });
+}
+function ddGroupMoveLocation(g, index, delta) {
+  const list = (g.locations || []).slice();
+  const to = index + delta;
+  if (index < 0 || to < 0 || to >= list.length) return g;
+  const hold = list[index]; list[index] = list[to]; list[to] = hold;
+  return ddGroupPatch(g, { locations: list });
+}
+function ddGroupRemoveLocation(g, index) {
+  const list = (g.locations || []).slice();
+  if (index < 0 || index >= list.length) return g;
+  list.splice(index, 1);
+  return ddGroupPatch(g, { locations: list });
 }
 function ddGroupAddMember(g, name) {
   const n = String(name || "").trim().slice(0, DD_MEMBER_MAX);
@@ -498,6 +541,16 @@ function ddGroupMoveMember(g, id, delta) {
   if (i < 0 || j < 0 || j >= members.length) return g;
   const next = members.slice();
   const tmp = next[i]; next[i] = next[j]; next[j] = tmp;
+  return Object.assign({}, g, { members: next });
+}
+function ddGroupMoveMemberTo(g, id, toIndex) {
+  const members = g.members || [];
+  const from = members.map((m) => m.id).indexOf(id);
+  const to = Math.max(0, Math.min(members.length - 1, Math.round(Number(toIndex))));
+  if (from < 0 || to < 0 || from === to) return g;
+  const next = members.slice();
+  const hit = next.splice(from, 1)[0];
+  next.splice(to, 0, hit);
   return Object.assign({}, g, { members: next });
 }
 /** 移除成员：进「已移除」可恢复，并把指向他的临时换人一并清掉（否则会留一条永远命中不了的 override）。
@@ -532,10 +585,14 @@ function ddGroupRestoreMember(g, id) {
 /** 记 / 撤临时换人。memberId 传空 = 撤销这一轮的换人。
     小程序端的换人面板是单选（ActionSheet），所以这里写**字符串**（历史格式，
     桌面端 / 旧版本客户端都能读）；桌面端的多选换人写数组，本端读取时用 ddOverrideHits 兼容。 */
-function ddGroupSetOverride(g, cycle, memberId) {
+function ddGroupSetOverride(g, cycle, memberId, remindTime, today) {
   const next = Object.assign({}, g.overrides || {});
   if (memberId) next[cycle] = memberId; else delete next[cycle];
-  return Object.assign({}, g, { overrides: next });
+  const patch = { overrides: next };
+  const t = memberId ? ddNormalizeTime(remindTime) : "";
+  if (t) patch.remindTime = t;
+  if (memberId && today && g.lastNotified === today) patch.lastNotified = "";
+  return Object.assign({}, g, patch);
 }
 /** 新建一套轮换（返回新组，由调用方 concat 进列表并切过去）。到上限返回 null。 */
 function ddAddGroup(groups, today, name) {
@@ -642,6 +699,8 @@ function ddSnapshot(today, group) {
   const current = ddAssigneeFor(g, today);
   const currentAll = ddAssigneesFor(g, today);
   const nextStart = cycle ? store.addDays(cycle, period) : (ddValidDate(g.startDate) ? g.startDate : null);
+  const locationCycle = ddLocationCycleStartOf(g, today);
+  const nextLocationStart = g.locations.length ? (locationCycle ? store.addDays(locationCycle, g.locationPeriodDays) : g.startDate) : null;
 
   const rows = [];
   for (let i = 0; i < DD_UPCOMING && nextStart; i++) {
@@ -677,6 +736,7 @@ function ddSnapshot(today, group) {
     groupName: g.name,
     cfg: {
       name: g.name, startDate: g.startDate, periodDays: g.periodDays,
+      locationPeriodDays: g.locationPeriodDays,
       remindTime: g.remindTime, remindEnabled: g.remindEnabled, sound: g.sound,
     },
     periodLabel: ddPeriodLabel(period),
@@ -696,6 +756,14 @@ function ddSnapshot(today, group) {
     current: current ? { id: current.id, name: current.name } : null,
     /** 多人当班时的名字串（「、」连接）；单人时与 current.name 一致。 */
     currentNames: currentAll.map((m) => m.name).join("、"),
+    currentLocation: ddLocationAt(g, today),
+    nextLocationStart: nextLocationStart || "",
+    nextLocationText: nextLocationStart ? ddMonthDay(nextLocationStart) + " " + weekday(nextLocationStart) : "",
+    nextLocationName: nextLocationStart ? ddLocationAt(g, nextLocationStart) : "",
+    locations: g.locations.map((name, i) => ({ name, index: i, no: i + 1, canUp: i > 0, canDown: i < g.locations.length - 1 })),
+    canAddLocation: g.locations.length < DD_LOCATION_MAX,
+    locationPeriods: DD_PERIODS.map((p) => ({ days: p.days, label: p.label, on: p.days === g.locationPeriodDays })),
+    locationPeriodCustom: !DD_PERIODS.some((p) => p.days === g.locationPeriodDays),
     /** 本轮实际当班的 id 集合（换过 = 换上的名单），供「当班」标记与换人面板用。 */
     currentIds: currentAll.map((m) => m.id),
     currentIsMulti: currentAll.length > 1,
@@ -709,11 +777,14 @@ function ddSnapshot(today, group) {
     nextBigUnit: nextDiff <= 0 ? "" : nextDiff === 1 ? "" : " 天后",
     nextVerb: started ? "换人" : "开始",
     rows,
-    members: g.members.map((m, i) => ({
-      id: m.id, name: m.name, no: i + 1,
-      isCurrent: currentIdsOf(currentAll, m.id),
-      canUp: i > 0, canDown: i < g.members.length - 1,
-    })),
+    members: ddMembersInDateOrder(g, today).map((m, i) => {
+      const baseIndex = g.members.findIndex((item) => item.id === m.id);
+      return {
+        id: m.id, name: m.name, no: i + 1,
+        isCurrent: currentIdsOf(currentAll, m.id),
+        canUp: baseIndex > 0, canDown: baseIndex < g.members.length - 1,
+      };
+    }),
     removed: g.removed,
     lastNotified: g.lastNotified,
   };
@@ -785,7 +856,7 @@ function ddReminderDue(group, today, nowMinutes) {
   if (now < parts[0] * 60 + parts[1]) return null;        // 还没到点
   const all = ddAssigneesFor(g, today);
   if (!all.length) return null;
-  return { groupId: g.id, groupName: g.name, whoName: all.map((m) => m.name).join("、"), time: g.remindTime };
+  return { groupId: g.id, groupName: g.name, whoName: all.map((m) => m.name).join("、"), location: ddLocationAt(g, today), time: g.remindTime };
 }
 /** 所有到点的组（多套轮换各有各的时刻与去重，互不影响）。 */
 function ddDueReminders(groups, today, nowMinutes) {
@@ -1153,8 +1224,9 @@ module.exports = {
   dormDutySummary, ddSummaryFrom, ddSnapshot, ddReminderDue, ddDueReminders, ddMarkNotified, ddPeriodLabel,
   ddDefaultConfig, ddNormalizeConfig, ddNormalizeTime, ddMembers, ddPeriod,
   ddDefaultGroup, ddNormalizeGroup, ddGroups, ddMigrateLegacy, ddActiveId,
-  ddCycleStartOf, ddCycleIndexAt, ddIsCycleStartDay, ddAssigneeFor, ddNormalFor, ddOverrideHit,
-  ddWithGroup, ddGroupPatch, ddGroupAddMember, ddGroupRenameMember, ddGroupMoveMember,
+  ddLocationAt, ddGroupAddLocation, ddGroupMoveLocation, ddGroupRemoveLocation,
+  ddCycleStartOf, ddCycleIndexAt, ddIsCycleStartDay, ddAssigneeFor, ddNormalFor, ddOverrideHit, ddMembersInDateOrder,
+  ddWithGroup, ddGroupPatch, ddGroupAddMember, ddGroupRenameMember, ddGroupMoveMember, ddGroupMoveMemberTo,
   ddGroupRemoveMember, ddGroupRestoreMember, ddGroupSetOverride, ddAddGroup, ddRemoveGroup,
   ddDuplicateGroup, ddImportMembers, ddCopyName,
   DD_PERIODS, DD_UPCOMING, DD_REMOVED_KEEP, DD_GROUP_MAX, DD_NAME_MAX,

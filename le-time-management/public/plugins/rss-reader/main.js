@@ -455,6 +455,14 @@
     state.items = Array.isArray(raw) ? raw.filter((it) => it && it.id && it.feedId) : [];
     state.fetchedAt = Number(await tide.storage.get("fetchedAt", 0)) || 0;
   }
+  function publishItems() {
+    try {
+      tide.messages?.publish(state.items.slice(0, 80).map((item) => {
+        const feed = state.feeds.find((f) => f.id === item.feedId);
+        return { title: item.title || "", time: item.date || "", sender: item.author || "", sourceName: feed?.title ? `RSS·${feed.title}` : "RSS 订阅" };
+      }));
+    } catch {}
+  }
   async function saveItems() {
     await tide.storage.set("items", state.items);
     await tide.storage.set("fetchedAt", state.fetchedAt);
@@ -586,6 +594,7 @@
       state.fetchedAt = Date.now();
       state.error = failures.length ? "有 " + failures.length + " 个源抓取失败：" + failures.join("、") : null;
       await Promise.all([saveFeeds(), saveItems()]);
+      publishItems();
     } catch (e) {
       state.error = String((e && e.message) || e);
     }
@@ -1207,6 +1216,7 @@
     state.items = state.items.filter((it) => it.feedId !== feed.id);
     if (state.prefs.feed === feed.id) state.prefs.feed = "all";
     await Promise.all([saveFeeds(), saveItems(), savePrefs()]);
+    publishItems();
     paintAll();
     tide.notify("已删除「" + feed.title + "」");
   }
@@ -1450,6 +1460,7 @@
     Promise.all([loadPrefs(), loadFeeds(), loadItems()])
       .catch((e) => { console.error("[rss-reader] 读取本地数据失败", e); })
       .then(() => {
+        publishItems();
         buildUI(el);
         paintAll();
         // 摘要里的「已停用 / 抓取异常」计数与顶栏箭头的展开态都随开合变化，一起对齐

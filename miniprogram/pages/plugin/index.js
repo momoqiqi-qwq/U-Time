@@ -38,7 +38,7 @@ const GUIDE_DOCS = {
   "cn-holiday": ["打开即可优先读取本地节假日数据", "需要最新调整时再手动联网更新", "用于课程、计划和休息日判断"],
   "wechat-push": ["按插件页面配置 PushPlus / 推送参数", "选择需要推送的提醒", "先测试连接，再开启日常使用"],
   "web-collector": ["输入网址和名称进行收藏，可搜索、编辑备注和导入桌面收藏", "小程序复制原文链接后在浏览器打开；不自动抓取任意网站，也不保证网页内嵌"],
-  "dorm-duty": ["一个插件里可放多套轮换（宿舍值日 / 公区卫生…），各有自己的成员、周期与提醒时刻，互不影响", "选中一套轮换后按顺序添加成员，第一个人先当班；设好起始日期与轮换周期（每天 / 每周 / 自定义 N 天）", "需要时给某一轮临时换人；到点会提醒当班的人，也可一键加入今日任务", "点标签后面的「⋯」可以改名、删除，或把整套轮换连成员带规则复制一份，也能从别的轮换按名字导入成员，不用重打一遍名字"],
+  "dorm-duty": ["一个插件里可放多套轮换（宿舍值日 / 公区卫生…），各有自己的成员、周期与提醒时刻，互不影响", "选中一套轮换后按顺序添加成员，第一个人先当班；设好起始日期与轮换周期（每天 / 每周 / 自定义 N 天）", "在「地点轮换」里添加地点并设置每多少天换一次；地点和成员从同一起始日分别计时，可有不同周期", "需要时给某一轮临时换人；到点会提醒当班的人和当天地点，也可一键加入今日任务", "点标签后面的「⋯」可以改名、删除，或把整套轮换连成员带规则复制一份，也能从别的轮换按名字导入成员，不用重打一遍名字"],
   "inbox-drop": ["小程序没有系统级拖放，用「粘贴消息」把聊天里的通知复制进来，或直接手输一句话", "插件会自动认出来源平台、消息类型和其中的日期时间，认错了可以改", "确认无误后收纳；需要动起来的点「建任务」，会带着象限和截止时间进任务表", "收纳记录与桌面端共用一份存储，桌面拖进来的消息在这里也能看到"],
 };
 
@@ -352,6 +352,7 @@ Page({
     const today = store.todayStr();
     const dd = runtime.dormDutySummary(today);
     dd.newMemberName = (this.data.dd && this.data.dd.newMemberName) || "";
+    dd.newLocationName = (this.data.dd && this.data.dd.newLocationName) || "";
     dd.remindBanner = [];
     // 到点提醒：小程序不常驻后台、宿主也不给定时回调，只能在打开本页时补一次。
     // 先落盘「已提醒」再弹提示 —— 万一多个入口同时打开，也只有一个能抢到写入。
@@ -360,7 +361,7 @@ Page({
     if (due.length) {
       store.pluginStorageSet("dorm-duty", "groups", runtime.ddMarkNotified(groups, due.map((d) => d.groupId), today));
       dd.lastNotified = today;
-      dd.remindBanner = due.map((d) => ({ group: d.groupName, name: d.whoName, time: d.time }));
+      dd.remindBanner = due.map((d) => ({ group: d.groupName, name: d.whoName, location: d.location, time: d.time }));
       wx.showToast({
         title: due.length > 1
           ? "有 " + due.length + " 项轮换今天换人"
@@ -513,6 +514,44 @@ Page({
     if (runtime.ddGroupMoveMember(g, id, delta) === g) return;   // 已在首/末位，别写一次没意义的存储
     this.ddCommit((cur) => runtime.ddGroupMoveMember(cur, id, delta));
   },
+  ddCurrentTime() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return pad(d.getHours()) + ":" + pad(d.getMinutes());
+  },
+  onDdDragStart(e) {
+    const id = e.currentTarget.dataset.id;
+    const touch = (e.touches || [])[0];
+    const members = ((this.data.dd || {}).members || []);
+    const at = members.findIndex((m) => m.id === id);
+    if (!id || !touch || at < 0) return;
+    this._ddDrag = { id, startY: touch.clientY, from: at };
+    this.setData({ "dd.dragMemberId": id });
+  },
+  onDdDragMove(e) {
+    if (!this._ddDrag) return;
+    const touch = (e.touches || [])[0];
+    if (touch) this._ddDrag.lastY = touch.clientY;
+  },
+  onDdDragEnd(e) {
+    const drag = this._ddDrag;
+    this._ddDrag = null;
+    this.setData({ "dd.dragMemberId": "" });
+    if (!drag) return;
+    const touch = (e.changedTouches || [])[0];
+    const endY = touch ? touch.clientY : (drag.lastY || drag.startY);
+    const rowH = 58; // rpx 视觉高度约等于 58px 级别；只在松手时折算目标位。
+    const delta = Math.round((endY - drag.startY) / rowH);
+    if (!delta) return;
+    const members = ((this.data.dd || {}).members || []);
+    const to = Math.max(0, Math.min(members.length - 1, drag.from + delta));
+    if (to === drag.from) return;
+    this.ddCommit((g) => runtime.ddGroupMoveMemberTo(g, drag.id, to));
+  },
+  onDdDragCancel() {
+    this._ddDrag = null;
+    this.setData({ "dd.dragMemberId": "" });
+  },
   onDdMemberRemove(e) {
     const id = e.currentTarget.dataset.id;
     const hit = ((this.data.dd || {}).members || []).filter((m) => m.id === id)[0];
@@ -533,6 +572,44 @@ Page({
     const days = Number(e.currentTarget.dataset.days) || 7;
     this.ddCommit((g) => runtime.ddGroupPatch(g, { periodDays: days }));
   },
+  onDdLocationPeriod(e) {
+    const days = Number(e.currentTarget.dataset.days);
+    if (days >= 1 && days <= 365) this.ddCommit((g) => runtime.ddGroupPatch(g, { locationPeriodDays: days }));
+  },
+  onDdLocationPeriodCustom() {
+    const current = (this.data.dd || {}).cfg.locationPeriodDays || 7;
+    wx.showModal({ title: "地点更换间隔", editable: true, content: String(current), placeholderText: "1～365 天", success: (res) => {
+      if (!res.confirm) return;
+      const days = Number(String(res.content || "").trim());
+      if (!Number.isInteger(days) || days < 1 || days > 365) { wx.showToast({ title: "请输入 1～365 天", icon: "none" }); return; }
+      this.ddCommit((g) => runtime.ddGroupPatch(g, { locationPeriodDays: days }));
+    } });
+  },
+  onDdNewLocationInput(e) { this.setData({ "dd.newLocationName": e.detail.value }); },
+  onDdAddLocation() {
+    const name = String((this.data.dd || {}).newLocationName || "").trim();
+    if (!name) { wx.showToast({ title: "先输入地点", icon: "none" }); return; }
+    const dd = this.data.dd || {};
+    if (!dd.canAddLocation) { wx.showToast({ title: "最多添加 12 个地点", icon: "none" }); return; }
+    if ((dd.locations || []).some((item) => item.name === name.slice(0, 24))) { wx.showToast({ title: "这个地点已经添加", icon: "none" }); return; }
+    this.setData({ "dd.newLocationName": "" });
+    this.ddCommit((g) => runtime.ddGroupAddLocation(g, name));
+  },
+  onDdLocationRename(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const current = ((this.data.dd || {}).locations || [])[index];
+    if (!current) return;
+    wx.showModal({ title: "修改地点", editable: true, content: current.name, success: (res) => {
+      if (!res.confirm) return;
+      const name = String(res.content || "").trim().slice(0, 24);
+      const list = (this.data.dd || {}).locations || [];
+      if (!name || list.some((item, i) => i !== index && item.name === name)) { wx.showToast({ title: "地点不能为空或重复", icon: "none" }); return; }
+      this.ddCommit((g) => runtime.ddGroupPatch(g, { locations: g.locations.map((v, i) => i === index ? name : v) }));
+    } });
+  },
+  onDdLocationUp(e) { this.ddCommit((g) => runtime.ddGroupMoveLocation(g, Number(e.currentTarget.dataset.index), -1)); },
+  onDdLocationDown(e) { this.ddCommit((g) => runtime.ddGroupMoveLocation(g, Number(e.currentTarget.dataset.index), 1)); },
+  onDdLocationRemove(e) { this.ddCommit((g) => runtime.ddGroupRemoveLocation(g, Number(e.currentTarget.dataset.index))); },
   /** 每轮人数（多人值日）：1 = 单人；N = 每轮按名单顺序 N 人一起当班。 */
   onDdPerRound(e) {
     const n = Math.max(1, Math.round(Number(e.currentTarget.dataset.n) || 1));
@@ -577,8 +654,9 @@ Page({
         // 用视图模型里的本轮起始日（未开始时为空串），别自己再算一遍
         const cycle = dd.cycle;
         if (!cycle) { wx.showToast({ title: "轮换还没开始，无法换人", icon: "none" }); return; }
-        this.ddCommit((g) => runtime.ddGroupSetOverride(g, cycle, pick.id));
-        wx.showToast({ title: "本轮改由「" + pick.name + "」当班", icon: "none" });
+        const time = this.ddCurrentTime();
+        this.ddCommit((g) => runtime.ddGroupSetOverride(g, cycle, pick.id, time, store.todayStr()));
+        wx.showToast({ title: "已换人，提醒改为 " + time, icon: "none" });
       },
     });
   },
@@ -592,7 +670,7 @@ Page({
     const who = dd.current;
     if (!who) { wx.showToast({ title: "这一套还没有当班安排", icon: "none" }); return; }
     const today = store.todayStr();
-    const title = dd.groupName + " · " + who.name;
+    const title = dd.groupName + " · " + dd.currentNames + (dd.currentLocation ? " · " + dd.currentLocation : "");
     const dup = (store.getState().tasks || []).filter((t) => !t.done && t.due === today && t.title === title)[0];
     if (dup) { wx.showToast({ title: "今天的「" + title + "」已经在任务里了", icon: "none" }); return; }
     store.addTask({ title, due: today, quad: 2, estMin: 15, tags: [dd.groupName] });

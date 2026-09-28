@@ -169,7 +169,7 @@
   const titleOf = (it) => String(it.PIM_TITLE || "(无标题)").replace(/&ldquo;/g, "\u201c").replace(/&rdquo;/g, "\u201d");
   const itemKey = (it) => String(it.RESOURCE_ID || "");
   function portalUrl(raw) {
-    const s = String(raw || "").trim();
+    const s = String(raw || "").trim().replace(/&amp;/gi, "&");
     if (!s) return "";
     try { return new URL(s, PORTAL + "/tp_up/").href; }
     catch { return s; }
@@ -188,26 +188,41 @@
     const out = [], seen = new Set();
     const push = (name, url) => {
       const href = portalUrl(url);
-      if (!href || seen.has(href)) return;
+      if (!/^https?:\/\//i.test(href) || seen.has(href)) return;
       seen.add(href);
       out.push({ name: safeFileName(cleanText(name) || fileNameFromUrl(href)), url: href });
     };
     const pick = (obj, re) => Object.keys(obj || {}).find((k) => re.test(k) && obj[k] != null && String(obj[k]).trim());
-    const walk = (v) => {
-      if (!v || typeof v !== "object") return;
-      if (Array.isArray(v)) { v.forEach(walk); return; }
-      const nameKey = pick(v, /(^|_)(file|attach)?.?(name|title|mc|bt|originalname)$/i);
-      const urlKey = pick(v, /(^|_)(file|attach|download)?.?(url|href|path|dz|lj)$/i);
-      if (urlKey && urlKey !== "CONTENT_URL" && (nameKey || /file|attach|download/i.test(Object.keys(v).join(" ")))) {
-        push(v[nameKey] || "", v[urlKey]);
-      }
-      Object.entries(v).forEach(([k, val]) => { if (k !== "CONTENT_URL") walk(val); });
-    };
-    walk(raw);
-    String(contentHtml || "").replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_, href, label) => {
+    const links = (html) => String(html || "").replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_, href, label) => {
       push(label, href);
       return "";
     });
+    const walk = (v, affix = false) => {
+      if (!v) return;
+      if (typeof v === "string") {
+        const s = v.trim();
+        if (affix && /^[\[{]/.test(s)) { try { walk(JSON.parse(s), true); return; } catch { /* 保留原文继续找链接 */ } }
+        if (affix) {
+          links(s);
+          if (/^(?:https?:\/\/|\/?(?:tp_up\/)?uploadfiles\/|\/?tp_up\/)/i.test(s)) push("", s);
+        }
+        return;
+      }
+      if (typeof v !== "object") return;
+      if (Array.isArray(v)) { v.forEach((item) => walk(item, affix)); return; }
+      const nameKey = pick(v, /^(?:(?:file|attach|attachment|affix|original|origin|real)[_\-]?)?(?:name|title|mc|bt|originalname)$/i);
+      const urlKey = pick(v, /^(?:(?:file|attach|attachment|affix|download)[_\-]?)?(?:url|href|path|dz|lj)$/i);
+      if (urlKey && urlKey !== "CONTENT_URL" && (affix || nameKey || /file|attach|affix|download/i.test(Object.keys(v).join(" ")))) {
+        push(v[nameKey] || "", v[urlKey]);
+      }
+      Object.entries(v).forEach(([k, val]) => {
+        if (k === "CONTENT_URL") return;
+        if (/^AFFIX$/i.test(k) && typeof val === "string" && !/^[\[{<]/.test(val.trim()) && /^(?:https?:\/\/|\/)/i.test(val.trim())) push(v[nameKey] || "", val);
+        walk(val, affix || /affix|attach|file/i.test(k));
+      });
+    };
+    walk(raw);
+    links(contentHtml);
     return out;
   }
   function tokenFromText(...parts) {
@@ -299,10 +314,11 @@
       .pp-detail .pp-act{display:flex;gap:8px;margin-top:10px}
       .pp-att-list{margin-top:10px;border:1px solid #E4DFD6;border-radius:10px;background:#FBFAF5;padding:9px 10px}
       .pp-att-list>b{display:block;font-size:calc(11px * var(--ui-text-scale));color:#0F4C5C;margin-bottom:6px}
-      .pp-att{display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px dashed #E7DFD1;min-width:0}
+      .pp-att{display:flex;align-items:center;gap:8px;width:100%;padding:8px 2px;border:0;border-top:1px dashed var(--line);background:transparent;text-align:left;cursor:pointer;min-width:0;color:var(--ink)}
+      .pp-att:hover,.pp-att:focus-visible{color:var(--deep);background:var(--paper)}
       .pp-att:first-of-type{border-top:0}
-      .pp-att span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(12px * var(--ui-text-scale));color:#4B565E}
-      .pp-att .pp-btn{padding:5px 10px;font-size:calc(11px * var(--ui-text-scale))}
+      .pp-att span:first-child{flex:1;min-width:0;overflow-wrap:anywhere;font-size:calc(12px * var(--ui-text-scale))}
+      .pp-att-action{flex:none;font-size:calc(11px * var(--ui-text-scale));color:var(--deep)}
       .pp-login{max-width:440px;margin:26px auto;background:#fff;border:1px solid #E4DFD6;border-radius:18px;padding:28px 30px;box-shadow:0 2px 10px rgba(34,48,58,.07)}
       .pp-login h3{font-size:calc(16px * var(--ui-text-scale));margin-bottom:4px}
       .pp-login .d{font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;line-height:1.7;margin-bottom:12px}
@@ -450,6 +466,8 @@
       .jw-credit-course.fail{border-color:rgba(220,53,69,.48)}
       .jw-cx-project{border-left:3px solid #2EC4B6}
       .jw-cx-project.pending{border-left-color:#E3C384}
+      .jw-cx-term{margin-top:12px}.jw-cx-term>summary{display:flex;align-items:baseline;gap:8px;cursor:pointer;color:var(--deep);font-weight:700;padding:10px 2px;border-bottom:1px solid var(--line);list-style:none}.jw-cx-term>summary::-webkit-details-marker,.jw-cx-project>summary::-webkit-details-marker{display:none}.jw-cx-term>summary::before,.jw-cx-project>summary::before{content:"▸";font-size:calc(12px * var(--ui-text-scale));color:var(--ink-3);transition:transform .15s}.jw-cx-term[open]>summary::before,.jw-cx-project[open]>summary::before{transform:rotate(90deg)}.jw-cx-term>summary small{font-size:calc(10.5px * var(--ui-text-scale));font-weight:400;color:var(--ink-3)}.jw-cx-project{margin-top:8px}.jw-cx-project>summary{display:flex;align-items:flex-start;gap:8px;cursor:pointer;list-style:none}.jw-cx-project>summary .jw-card-t{min-width:0;flex:1;overflow-wrap:anywhere}.jw-cx-project>summary .jw-tag{flex:none}.jw-cx-project .pp-meta{margin-top:7px}.jw-cx-project .jw-detail-grid{margin-bottom:2px}
+      .jw-cx-project>summary{flex-wrap:wrap}.jw-cx-project>summary .jw-card-t{flex-basis:calc(100% - 24px)}
       .yk-frame-shell{margin-top:10px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;min-height:620px;height:calc(100vh - 190px);box-shadow:0 1px 10px rgba(34,48,58,.05)}
       .yk-frame{display:block;width:100%;height:100%;border:0;background:var(--paper)}
       .yk-status{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);line-height:1.7;margin:7px 0 0}
@@ -1076,6 +1094,14 @@
       });
     } catch {}
   }
+  function publishNotices() {
+    try {
+      tide.messages?.publish(state.notices.slice(0, 80).map((it) => ({
+        title: titleOf(it), time: it.CREATE_TIME ? new Date(Number(it.CREATE_TIME)).toLocaleString("zh-CN") : "",
+        sender: String(it.CREATE_USER_NAME || ""),
+      })));
+    } catch {}
+  }
 
   /* ── 通知数据 ── */
   async function loadPage(page = 1, renewed = false) {
@@ -1106,6 +1132,7 @@
         const ids = new Set(state.notices.map((x) => x.RESOURCE_ID));
         state.notices = state.notices.concat(items.filter((x) => !ids.has(x.RESOURCE_ID)));
       }
+      publishNotices();
       state.page = page;
       state.hasMore = items.length >= PAGE_SIZE && page < PAGES_MAX;
       state.fetchedAt = Date.now();
@@ -1154,7 +1181,7 @@
       if (res.status !== 200) throw new Error(`详情接口 HTTP ${res.status}`);
       const arr = JSON.parse(res.body);
       const d = Array.isArray(arr) ? arr[0] : null;
-      let text = "";
+      let text = "", contentData = null;
       if (d) {
         const cu = d.CONTENT_URL || "";
         if (cu) {
@@ -1163,13 +1190,13 @@
           if (cres.status !== 200) throw new Error(`正文接口 HTTP ${cres.status}`);
           const mm = cres.body.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
           let obj;
-          try { obj = JSON.parse(mm ? mm[1] : cres.body); text = obj.result || obj.content || ""; }
+          try { obj = JSON.parse(mm ? mm[1] : cres.body); contentData = obj; text = obj.result || obj.content || ""; }
           catch { text = cres.body; }
         } else {
           text = d.PIM_CONTENT || "";
         }
       }
-      state.details[rid] = { content: cleanText(text), attachments: extractAttachments(d, text) };
+      state.details[rid] = { content: cleanText(text), attachments: extractAttachments([d, contentData], text) };
     } catch (e) {
       state.details[rid] = { error: String(e.message || e) };
     }
@@ -1243,10 +1270,9 @@
     const det = state.details[rid];
     const attachments = Array.isArray(det?.attachments) ? det.attachments : [];
     const attHtml = attachments.length ? `<div class="pp-att-list"><b>附件 ${attachments.length}</b>${attachments.map((a, i) => `
-      <div class="pp-att">
-        <span title="${esc(a.url)}">${esc(a.name)}</span>
-        <button class="pp-btn" data-attach-download="${i}">下载附件</button>
-      </div>`).join("")}</div>` : "";
+      <button type="button" class="pp-att" data-attach-download="${i}" title="下载附件：${esc(a.name)}" aria-label="下载附件：${esc(a.name)}">
+        <span>${esc(a.name)}</span><span class="pp-att-action">下载 ↓</span>
+      </button>`).join("")}</div>` : "";
     const content = det?.content ? esc(det.content) : "（正文为空，可能内容在附件中）";
     return !det || det.loading ? "正在加载正文…" :
       det.error ? `<span style="color:#B03535;font-size:calc(12px * var(--ui-text-scale))">${esc(det.error)}</span><button class="pp-btn" data-retry>重试加载正文</button>` :
@@ -2288,7 +2314,7 @@
       if (!byTerm.has(term)) byTerm.set(term, []);
       byTerm.get(term).push(row);
     }
-    const projects = [...byTerm.entries()].map(([term, rows]) => {
+    const projects = [...byTerm.entries()].map(([term, rows], index) => {
       const termCredits = rows.reduce((n, r) => n + (Number(r.CREDIT_VALUE) || 0), 0);
       const cards = rows.map((r) => {
         const approved = String(r.SY_AUDFLAG || "") === "ENDED" || String(r.SY_CURRENTTASK || "").includes("结束");
@@ -2299,19 +2325,17 @@
           ["责任单位", r.RESPONSIBLE_UNIT],
           ["申报时间", r.DECLARATION_DATE],
         ].filter(([, value]) => value).map(([label, value]) => `<div class="jw-detail-cell"><b>${esc(label)}</b><span>${esc(value)}</span></div>`).join("");
-        return `<div class="jw-card jw-cx-project${approved ? "" : " pending"}">
-          <div class="jw-card-t">${esc(r.CONTENT || r.ASSESSMENT_ITEMS || "（未命名创新项目）")}</div>
+        return `<details class="jw-card jw-cx-project${approved ? "" : " pending"}">
+          <summary><div class="jw-card-t">${esc(r.CONTENT || r.ASSESSMENT_ITEMS || "（未命名创新项目）")}</div>${jwTag(`${Number(r.CREDIT_VALUE) || 0} 学分`, "ok")}${jwTag(status, approved ? "ok" : "warn")}</summary>
           ${jwMetaLine([
             r.ASSESSMENT_ITEMS ? jwTag(r.ASSESSMENT_ITEMS) : "",
             r.CATEGORY ? jwTag(r.CATEGORY) : "",
             r.ASSESSMENT_CONTENTS_STANDARDS ? jwTag(r.ASSESSMENT_CONTENTS_STANDARDS) : "",
-            jwTag(`${Number(r.CREDIT_VALUE) || 0} 学分`, "ok"),
-            jwTag(status, approved ? "ok" : "warn"),
           ])}
           ${detailCells ? `<div class="jw-detail-grid">${detailCells}</div>` : ""}
-        </div>`;
+        </details>`;
       }).join("");
-      return jwSection(jwTermName(term), `${rows.length} 项 · ${termCredits} 学分`, cards);
+      return `<details class="jw-cx-term"${index === 0 ? " open" : ""}><summary>${esc(jwTermName(term))}<small>${rows.length} 项 · ${termCredits} 学分</small></summary>${cards}</details>`;
     }).join("");
     return top + (projects || `<div class="pp-empty">汇总已经发布，但教务暂未返回具体申报项目</div>`);
   }
@@ -3117,7 +3141,13 @@
       if (attBtn) {
         const det = state.details[rid];
         const att = det?.attachments?.[Number(attBtn.dataset.attachDownload)];
-        if (att) await downloadAttachment(att);
+        if (att && !attBtn.disabled) {
+          attBtn.disabled = true;
+          const label = attBtn.querySelector(".pp-att-action");
+          if (label) label.textContent = "下载中…";
+          try { await downloadAttachment(att); }
+          finally { attBtn.disabled = false; if (label) label.textContent = "下载 ↓"; }
+        }
         return;
       }
       if (!e.target.closest("[data-toggle]")) return;

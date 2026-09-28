@@ -44,7 +44,7 @@
   const noticeKey = (m) => `${m.source}|${m.time}|${m.title}`;
 
   /**
-   * 把宿主抄收的 notice:new 并进本地环形队列。
+   * 把宿主抄收的新消息和各插件主动发布的现有列表摘要并进本地环形队列。
    *
    * 为什么两头都要：宿主的队列只在本次运行期（重启即空），插件私有存储又能跨重启，
    * 但反过来插件自己听不到早于它加载时广播的消息 —— 合起来才是完整的一份。
@@ -324,7 +324,7 @@
       if (list.length > NOTICE_PER_SOURCE) shown.push(`  - （其余 ${list.length - NOTICE_PER_SOURCE} 条略）`);
       return `【${name} 共 ${list.length} 条】\n${shown.join("\n")}`;
     });
-    return `【其他插件推来的消息（本机收到过的，按来源分组）】\n${blocks.join("\n")}`;
+    return `【其他插件的消息（本机已收集，按来源分组）】\n${blocks.join("\n")}`;
   }
 
   function systemPrompt() {
@@ -334,8 +334,8 @@
       "1. 只依据下面给出的本机数据回答；数据里没有的事实直说不知道，绝不编造任务、日期或 id。",
       "2. 中文回答。",
       "3. 涉及日期一律写 YYYY-MM-DD，涉及时间写 HH:MM。",
-      "4. 本机数据里可能有【其他插件推来的消息】一段，那是门户 / 学习通 / 学校通知 / 竞赛 / RSS 等插件推来的新消息；"
-      + "它们只代表「收到了」，不代表用户已经处理过。要据此提醒或安排时，说清是哪来的消息。",
+       "4. 本机数据里可能有【其他插件的消息】一段，那是门户 / 学习通 / 学校通知 / 竞赛 / RSS / GitHub 等插件公开的消息摘要；"
+       + "它们只代表「收到了或列表里存在」，不代表用户已经处理过。要据此提醒或安排时，说清是哪来的消息。",
     ].join("\n");
     const fmt = [
       "输出格式（严格遵守 —— 回答显示在手机屏幕的气泡里，宽度很窄）：",
@@ -604,6 +604,7 @@
 .aichat-row.me .aichat-who{text-align:right}
 .aichat-msg{border-radius:14px;padding:10px 13px;font-size:calc(12.5px * var(--ui-text-scale));line-height:1.75}
 .aichat-msg.me{background:var(--deep,#0F4C5C);color:var(--on-deep,#fff);border-bottom-right-radius:5px}
+[data-theme-mode="dark"] .aichat-msg.me,[data-theme-mode="dark"] .aichat-avatar.me{background:color-mix(in srgb,var(--deep,#0F4C5C) 38%,#151b1c);color:#f6f8f8}
 .aichat-msg.ai{background:var(--panel,#fff);border:1px solid var(--line,#E4DFD6);border-bottom-left-radius:5px}
 .aichat-msg.err{align-self:stretch;background:color-mix(in srgb,var(--danger,#B03535) 7%,var(--panel,#fff));border:1px solid color-mix(in srgb,var(--danger,#B03535) 34%,var(--line,#E4DFD6));color:var(--danger,#B03535)}
 .aichat-msg p{margin:0 0 6px}.aichat-msg p:last-child{margin-bottom:0}
@@ -799,10 +800,10 @@ button.aichat-avatar{padding:0;cursor:pointer}
     const sources = new Set(notices.map((m) => m.sourceName || m.source));
     ui.feed.textContent = notices.length
       ? `已收集 ${notices.length} 条插件消息 · 来自 ${sources.size} 个来源`
-      : "还没收到其他插件的消息";
+      : "还没收集到其他插件的消息";
     ui.feed.title = notices.length
-      ? "各消息类插件（门户 / 学习通 / 学校通知 / 竞赛 / RSS）推来的新消息，会随快照一起发给模型"
-      : "消息类插件推出新东西时会自动抄收到这里，也可以直接问 AI「最近有什么通知」";
+      ? "各插件公开的现有消息摘要和新消息，会随本机快照一起发给模型"
+      : "打开消息类插件后会收集其当前列表，也可以直接问 AI「最近有什么通知」";
   }
 
   async function refresh() {

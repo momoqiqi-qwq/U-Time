@@ -139,6 +139,7 @@ function fakeEl(tag) {
 function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = null, tasks = [], confirm = true, withWindow = true } = {}) {
   const c = { notified: [], sounds: [], intervalFn: null, started: 0, cleared: 0, created: [] };
   const storage = new Map(Object.entries(seed));
+  let todayNow = today;
   const ctx = {
     console,
     setInterval: (fn) => { c.intervalFn = fn; c.started++; return 1; },
@@ -170,7 +171,7 @@ function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = 
       events: { emit() {}, on() {} },
       ui: { registerView: (d) => { ctx.__view = d; } },
       util: {
-        today: () => today,
+        today: () => todayNow,
         addDays: (s, n) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); },
         navigate: () => {},
       },
@@ -186,7 +187,7 @@ function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = 
       '  globalThis.__fx = { state, load, save, tick, stopTimer, snapshot, GROUP_MAX, NAME_MAX, MEMBER_MAX, confirmFn,\n'
       + '    defaultGroup, normalizeGroup, normalizeGroups, migrateLegacy, addTodayTask,\n'
       + '    cycleStartOf, assigneeFor, assigneesFor, cycleIndexAt, overrideHit, overrideHits, normalAssignees,\n'
-      + '    isCycleStartDay, reminderDue, periodOf, perRoundOf,\n'
+      + '    isCycleStartDay, reminderDue, periodOf, perRoundOf, locationAt, locationsHtml,\n'
       + '    nextBigText, render, heroHtml, rowsHtml, groupChipsHtml, swapHtml, rulesHtml, setActiveGroup, addGroup, removeGroup, renameGroup,\n'
       + '    duplicateGroup, importMembers, tabMenuHtml,\n'
       + '    get tabMenu() { return tabMenu; }, set tabMenu(v) { tabMenu = v; },\n'
@@ -195,7 +196,7 @@ function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = 
     ),
     ctx,
   );
-  return { ctx, fx: ctx.__fx, storage, view: ctx.__view, c };
+  return { ctx, fx: ctx.__fx, storage, view: ctx.__view, c, setToday: (v) => { todayNow = v; } };
 }
 /** 等插件的 boot()（异步读 storage + 首次 tick）跑完。测试要改 state 前必须先等它。 */
 const settle = () => new Promise((r) => setTimeout(r, 15));
@@ -292,6 +293,63 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
     const g = fx.normalizeGroup(GROUP({ periodDays: p }), today);
     assert.equal(fx.assigneeFor(g, today)?.name, want, `周期 ${p} 天、${today} 应轮到 ${want}`);
   }
+}
+
+/* 3.3b 编辑名单保持真实轮换顺序，今天当班人单独标记 */
+{
+  const { fx } = bootPlugin({ seed: quietSeed({ groups: [GROUP({ periodDays: 1 })] }), today: '2026-09-19' });
+  await settle();
+  await fx.load();
+  const host = fakeEl('div');
+  fx.render(host);
+  await settle();
+  const g = fx.state.groups[0];
+  const names = () => [...host.innerHTML.matchAll(/class="dd-mrow(?: current)?" data-id="[^"]+"[\s\S]*?<input class="dd-in" data-name value="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(names().join(','), '阿青,小北,老陈', '编辑列表顺序必须与长期轮换顺序一致');
+  assert.match(host.innerHTML, /class="dd-mrow current" data-id="mC"/, '今天当班的人应有醒目标记');
+  assert.equal(g.members.map((m) => m.name).join(','), '阿青,小北,老陈', '展示排序不改写长期轮换顺序');
+  const miniGroup = mini.ddNormalizeGroup(GROUP({ periodDays: 1, perRound: 2 }), '2026-09-18');
+  const miniMembers = mini.ddSnapshot('2026-09-18', miniGroup).members;
+  assert.equal(miniMembers.map((m) => m.name).join(','), '阿青,小北,老陈', '小程序编辑列表也保持长期轮换顺序');
+  assert.equal(miniGroup.members.map((m) => m.name).join(','), '阿青,小北,老陈', '小程序视图同样不改写基础名单');
+  const swapped = mini.ddNormalizeGroup(GROUP({ periodDays: 1, overrides: { '2026-09-18': 'mC' } }), '2026-09-18');
+  assert.equal(mini.ddSnapshot('2026-09-18', swapped).members[2].isCurrent, true, '临时换人时标记实际替班人');
+}
+
+/* 3.3c 地点与成员分开计时，跨端数据和展示一致 */
+{
+  const { fx } = bootPlugin({ today: '2026-09-20' });
+  const source = GROUP({ periodDays: 7, locations: ['走廊', '浴室', '阳台'], locationPeriodDays: 3 });
+  const g = fx.normalizeGroup(source, '2026-09-20');
+  assert.equal(fx.locationAt(g, '2026-09-16'), '', '起始前无地点');
+  assert.equal(fx.locationAt(g, '2026-09-17'), '走廊');
+  assert.equal(fx.locationAt(g, '2026-09-19'), '走廊');
+  assert.equal(fx.locationAt(g, '2026-09-20'), '浴室', '地点已换，成员仍在第一轮');
+  assert.equal(fx.assigneeFor(g, '2026-09-20').name, '阿青');
+  assert.equal(fx.locationAt(g, '2026-09-26'), '走廊', '地点列表循环');
+  const snap = fx.snapshot(g);
+  assert.equal(snap.currentLocation, '浴室');
+  assert.equal(snap.nextLocationStart, '2026-09-23');
+  assert.equal(snap.nextLocation, '阳台');
+  assert.match(fx.heroHtml(snap), /今日地点：<b>浴室<\/b>/);
+  assert.match(fx.locationsHtml(snap), /data-location-period-custom/);
+  const mg = mini.ddNormalizeGroup(source, '2026-09-20');
+  assert.equal(mini.ddLocationAt(mg, '2026-09-20'), '浴室');
+  const ms = mini.ddSnapshot('2026-09-20', mg);
+  assert.equal(ms.currentLocation, '浴室');
+  assert.equal(ms.nextLocationStart, '2026-09-23');
+  assert.equal(ms.nextLocationName, '阳台');
+  assert.equal(ms.currentNames, '阿青');
+  assert.equal(mini.ddGroupMoveLocation(mg, 0, 1).locations.join(','), '浴室,走廊,阳台');
+  assert.equal(mini.ddGroupRemoveLocation(mg, 1).locations.join(','), '走廊,阳台');
+  assert.equal(mini.ddGroupAddLocation(mg, '厨房').locations.join(','), '走廊,浴室,阳台,厨房');
+  assert.equal(mini.ddGroupAddLocation(mg, '浴室').locations.length, 3, '重复地点不添加');
+  assert.equal(mini.ddLocationAt(mini.ddNormalizeGroup(GROUP({ locations: ['教室'], locationPeriodDays: 1 }), '2026-09-20'), '2026-09-20'), '教室', '其他轮换组有独立地点');
+  assert.equal(mini.ddSnapshot('2026-09-20', mini.ddNormalizeGroup(GROUP(), '2026-09-20')).currentLocation, '', '旧数据没有地点时保持原样');
+  assert.deepEqual(mini.ddNormalizeGroup({ locations: ['走廊', '走廊', '', '浴室'], locationPeriodDays: 999 }, '2026-09-20').locations, ['走廊', '浴室']);
+  assert.equal(fx.normalizeGroup({ locationPeriodDays: 999 }, '2026-09-20').locationPeriodDays, 365);
+  assert.match(miniWxml, /bindtap="onDdAddLocation"/);
+  assert.match(miniPage, /onDdLocationPeriodCustom\(\)/);
 }
 
 /* 3.4 起始日之前：还没有轮次，不能算成「第一个人」 */
@@ -810,6 +868,22 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
   const nextPart = host.innerHTML.split('下次换人')[1] || '';
   assert.ok(heroPart.includes('data-swap'), '「本轮换人」控件必须在本轮卡片里');
   assert.ok(!nextPart.includes('data-swap'), '「下次换人」卡片里不能出现改本轮的换人控件');
+}
+
+/* 6.2b 页面保持打开跨过换人日，定时 tick 自动刷新当班标记 */
+{
+  const { fx, setToday } = bootPlugin({ seed: quietSeed({ groups: [GROUP({ periodDays: 1, remindEnabled: false })] }), today: '2026-09-17' });
+  await settle();
+  const host = fakeEl('div');
+  fx.render(host);
+  await settle();
+  const ids = () => [...host.innerHTML.matchAll(/class="dd-mrow(?: current)?" data-id="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(ids().join(','), 'mA,mB,mC');
+  setToday('2026-09-18');
+  await fx.tick();
+  assert.equal(ids().join(','), 'mA,mB,mC', '跨到新轮次后编辑顺序仍保持不变');
+  assert.match(host.innerHTML, /class="dd-mrow current" data-id="mB"/, '跨到新轮次后应自动更新当班标记');
+  assert.equal(fx.state.groups[0].members.map((m) => m.id).join(','), 'mA,mB,mC', '自动刷新不能重排底层成员名单');
 }
 
 /* 6.3 多组渲染：标签条列出所有轮换、各自带上今天当班的人；成员列表只显示当前组的 */

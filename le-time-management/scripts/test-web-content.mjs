@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { normalizeWebUrl, resolveWebUrl, parseSiteMeta, inferSiteIconName, extractNoticeLinks, extractPager, noticeKind, extractArticleText, screenNotice, formEncode,
   charsetFromContentType, charsetFromMeta, looksLikeMarkup, decodeWebBody,
-  detectSpaShell, matchJsonSiteAdapter, buildJsonSiteListUrl, parseJsonSiteList } from '../src/webContent.js';
+  detectSpaShell, matchJsonSiteAdapter, buildJsonSiteListUrl, parseJsonSiteList,
+  parseGenericNoticeJson, extractEmbeddedJsonNotices, extractNoticeApiCandidates } from '../src/webContent.js';
 assert.equal(normalizeWebUrl('example.edu.cn'), 'https://example.edu.cn/');
 assert.equal(resolveWebUrl('../notice/1.htm', 'https://www.example.edu.cn/xw/list.htm'), 'https://www.example.edu.cn/notice/1.htm');
 const html=`<html><head><meta property="og:site_name" content="示例大学"><link rel="icon" href="/logo.ico"></head><body><ul class="notice-list"><li><a href="/info/1001/1234.htm">关于开展 2026 年奖学金申报的通知</a><span>2026-09-10</span></li><li><a href="/">首页</a></li></ul></body></html>`;
@@ -106,6 +107,39 @@ assert.deepEqual(parseJsonSiteList('没这个适配器', BUAA_JSON, BUAA_URL), [
 assert.equal(parseJsonSiteList('buaa-portal', BUAA_JSON, BUAA_URL, { max: 1 }).length, 1, 'max 要生效');
 // 对象形态的响应（宿主可能已解好 JSON）也要吃
 assert.equal(parseJsonSiteList('buaa-portal', JSON.parse(BUAA_JSON), BUAA_URL).length, 2);
+
+/* ── 通用前端渲染公告 / 消息栏：内嵌状态与接口候选 ──
+   不同学校的公告栏常见形态：HTML 只有 Vue/Nuxt/Next 空壳，列表数据在
+   `window.__INITIAL_STATE__`、`__NEXT_DATA__`，或脚本里某个 `/api/.../list` 接口里。
+   这里不为具体学校写死字段，按常见 title/url/date/summary 同义键递归抽取。 */
+const GENERIC_JSON = {
+  data: {
+    records: [
+      { noticeTitle: '关于 2026 年研究生学业奖学金评审的通知', detailUrl: '/notice/detail?id=1001', publishTime: '2026-09-20 08:30', columnName: '通知公告' },
+      { msgTitle: '图书馆中秋节开放安排', pcUrl: '/message/2002.html', createTime: 1790035200000, summary: '服务消息' },
+      { title: '短', url: '/bad' },
+    ],
+  },
+};
+const genericRows = parseGenericNoticeJson(GENERIC_JSON, 'https://portal.example.edu.cn/notice/list');
+assert.equal(genericRows.length, 2, '通用 JSON 递归解析要跳过短标题并保留有效公告');
+const genericNotice = genericRows.find((x) => x.title.includes('奖学金评审'));
+const genericMsg = genericRows.find((x) => x.title.includes('图书馆'));
+assert.equal(genericNotice.url, 'https://portal.example.edu.cn/notice/detail?id=1001');
+assert.equal(genericNotice.date, '2026-09-20');
+assert.equal(genericNotice.kind, 'notice');
+assert.equal(genericMsg.url, 'https://portal.example.edu.cn/message/2002.html');
+assert.ok(genericMsg.date, '毫秒时间戳要能转成日期');
+assert.deepEqual(parseGenericNoticeJson('不是 JSON', 'https://portal.example.edu.cn/'), []);
+
+const embeddedHtml = `<html><body><div id="app"></div><script>
+  window.__INITIAL_STATE__ = ${JSON.stringify(GENERIC_JSON)};
+</script><script>const api="/api/notice/page?pageNo=1&pageSize=20"; const img="/assets/news.png";</script></body></html>`;
+const embeddedRows = extractEmbeddedJsonNotices(embeddedHtml, 'https://portal.example.edu.cn/notice/');
+assert.equal(embeddedRows.length, 2, '应能从 window.__INITIAL_STATE__ 内嵌状态里抽公告');
+const apiCandidates = extractNoticeApiCandidates(embeddedHtml, 'https://portal.example.edu.cn/notice/');
+assert.deepEqual(apiCandidates, ['https://portal.example.edu.cn/api/notice/page?pageNo=1&pageSize=20'],
+  '脚本里的公告列表接口要被发现，静态图片资源不能混进候选');
 
 /* ── 端到端：有 DOM 时才跑（浏览器环境），Node 下跳过 ── */
 if (typeof DOMParser !== 'undefined') {
@@ -248,4 +282,4 @@ assert.equal(extractPager('<ul><li><a href="/tzgg/2026/0911/c1a2.htm">关于放�
 assert.deepEqual(extractPager('', PKU_TZGG).pages, []);
 assert.equal(extractPager(PKU_PAGER, '不是网址').total, 1, 'baseUrl 非法时不能抛');
 
-console.log('PASS: web URL normalization, site metadata, favicon, FA icon inference, generic notice extraction (nav/footer/listing-page screening), notice classification, article body extraction, form encoding, charset decoding, JSON-API site adapters (SPA shell detection, field mapping) and pager page-number synthesis');
+console.log('PASS: web URL normalization, site metadata, favicon, FA icon inference, generic notice extraction (nav/footer/listing-page screening), notice classification, article body extraction, form encoding, charset decoding, JSON-API site adapters, embedded JSON/API discovery and pager page-number synthesis');

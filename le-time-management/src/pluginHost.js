@@ -4,7 +4,7 @@ import * as S from "./store.js";
 import { toast } from "./ui.js";
 import { parseWhen, guessCategory, guessQuad } from "./timeParser.js";
 import { BUILTIN_IDS, BUILTIN_PLUGINS } from "./pluginCatalog.js";
-import { normalizeWebUrl, resolveWebUrl, parseSiteMeta, inferSiteIconName, extractNoticeLinks, extractPager, noticeKind, extractArticleText, detectLoginForm, formEncode, detectSpaShell, matchJsonSiteAdapter, buildJsonSiteListUrl, parseJsonSiteList } from "./webContent.js";
+import { normalizeWebUrl, resolveWebUrl, parseSiteMeta, inferSiteIconName, extractNoticeLinks, extractPager, noticeKind, extractArticleText, detectLoginForm, formEncode, detectSpaShell, matchJsonSiteAdapter, buildJsonSiteListUrl, parseJsonSiteList, parseGenericNoticeJson, extractEmbeddedJsonNotices, extractNoticeApiCandidates } from "./webContent.js";
 import { PROJECT_LINKS } from "./projectLinks.js";
 import { previewSchedule } from "./scheduleConflict.js";
 import { pushInbox } from "./automation.js";
@@ -81,6 +81,24 @@ export const taskActions = [];       // { id, label, icon, run(task), pluginId }
 const MESSAGE_FEED = [];
 const MESSAGE_SEEN = new Set();
 const MESSAGE_MAX = 120;
+const MESSAGE_SNAPSHOTS = new Map();
+
+/** 插件主动公开当前列表的摘要；source 固定为发布者，不能读或冒充别家的私有存储。 */
+export function publishPluginMessages(pluginId, pluginName, items) {
+  const source = String(pluginId || "");
+  if (!source) return;
+  const rows = Array.isArray(items) ? items : [];
+  MESSAGE_SNAPSHOTS.set(source, rows.slice(0, MESSAGE_MAX).map((raw) => {
+    const item = raw && typeof raw === "object" ? raw : {};
+    return {
+      source, sourceName: String(item.sourceName || pluginName || source).slice(0, 60),
+      title: String(item.title || "").trim().slice(0, 240),
+      time: String(item.time || "").trim().slice(0, 60),
+      sender: String(item.sender || "").trim().slice(0, 80),
+      at: Number(item.at) || Date.now(),
+    };
+  }).filter((item) => item.title));
+}
 
 export function collectNotice(payload, fromPluginId) {
   const p = payload && typeof payload === "object" ? payload : {};
@@ -110,7 +128,15 @@ export function collectNotice(payload, fromPluginId) {
  *  纯 JSON 结构，直接结构化克隆即可 —— 不再「序列化成字符串再解析回来」，
  *  大列表（几百条任务/消息）上显著更快，中间字符串与解析垃圾也不再产生。 */
 export function listNotices(limit = 30) {
-  return structuredClone(MESSAGE_FEED.slice(-Math.max(1, limit)).reverse());
+  const merged = MESSAGE_FEED.slice().reverse();
+  MESSAGE_SNAPSHOTS.forEach((rows) => merged.push(...rows));
+  const seen = new Set();
+  return structuredClone(merged.sort((a, b) => b.at - a.at).filter((item) => {
+    const key = `${item.source}|${item.time}|${item.title}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, Math.min(MESSAGE_MAX, Math.max(1, Number(limit) || 30))));
 }
 
 const yieldUi = () => new Promise((resolve) => {
@@ -307,9 +333,10 @@ function makeApi(man, source) {
       },
     },
 
-    // 跨插件消息视图：读的是宿主抄收的 notice:new，不碰任何插件的私有存储。
+    // 跨插件消息视图：新消息由 notice:new 抄收，历史列表由插件主动公开摘要。
     messages: {
       list: (limit = 30) => { requirePermission(man, pid, "messages"); return listNotices(limit); },
+      publish: (items) => { requirePermission(man, pid, "events"); publishPluginMessages(pid, man.name, items); },
     },
 
     // 网络桥：Rust 端抓取，绕开 WebView CORS；每次调用都会校验插件是否在 manifest 中声明了 http 能力。
@@ -379,6 +406,9 @@ function makeApi(man, source) {
         matchJsonSiteAdapter: (...args) => { requirePermission(man, pid, "http"); return matchJsonSiteAdapter(...args); },
         buildJsonSiteListUrl: (...args) => { requirePermission(man, pid, "http"); return buildJsonSiteListUrl(...args); },
         parseJsonSiteList: (...args) => { requirePermission(man, pid, "http"); return parseJsonSiteList(...args); },
+        parseGenericNoticeJson: (...args) => { requirePermission(man, pid, "http"); return parseGenericNoticeJson(...args); },
+        extractEmbeddedJsonNotices: (...args) => { requirePermission(man, pid, "http"); return extractEmbeddedJsonNotices(...args); },
+        extractNoticeApiCandidates: (...args) => { requirePermission(man, pid, "http"); return extractNoticeApiCandidates(...args); },
         noticeKind: (...args) => { requirePermission(man, pid, "http"); return noticeKind(...args); },
         extractArticleText: (...args) => { requirePermission(man, pid, "http"); return extractArticleText(...args); },
         detectLoginForm: (...args) => { requirePermission(man, pid, "http"); return detectLoginForm(...args); },

@@ -466,7 +466,7 @@ const JUYA = `<?xml version='1.0' encoding='utf-8'?>
   assert.equal(manifest.id, 'rss-reader');
   /* 版本号**故意钉死具体值**：插件内容改了（哪怕只是换一条预置源）就必须来这里确认一次。
      别把它改成 /^\d+\.\d+\.\d+$/ 之类的格式检查 —— 那样「改了内容却忘升版本」就再也拦不住了。 */
-  assert.equal(manifest.version, '1.5.0');
+  assert.equal(manifest.version, '1.6.0');
   for (const perm of ['ui', 'storage', 'notify', 'http', 'openUrl', 'tasks', 'blocks', 'timeParse', 'events']) {
     assert.ok(manifest.permissions.includes(perm), 'manifest 必须声明 ' + perm);
   }

@@ -1429,6 +1429,179 @@ const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
     const frame = String(form.getAttribute("target") || "").toLowerCase();
     if (frame && frame !== "_self") form.removeAttribute("target");
   }, true);
+
+  // 侧边栏只挂在最外层网页；all-frames 注入仍保留给上面的 window.open 兼容处理。
+  if (window.top === window) {
+    const mountToolbox = () => {
+      if (!document.documentElement || !document.body || document.getElementById("__utime-browser-tools")) return;
+      const host = document.createElement("div");
+      host.id = "__utime-browser-tools";
+      const shadow = host.attachShadow({ mode: "open" });
+      shadow.innerHTML = `
+        <style>
+          :host { all: initial; position: fixed; z-index: 2147483647; inset: 0 0 0 auto; width: 48px; height: 100vh; height: 100dvh; color-scheme: dark; pointer-events: none; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+          * { box-sizing: border-box; }
+          .rail { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 6px 4px; background: #17181c; border-left: 1px solid rgba(255,255,255,.08); box-shadow: -3px 0 14px rgba(0,0,0,.18); pointer-events: auto; }
+          button { appearance: none; width: 38px; height: 38px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 9px; background: transparent; color: #d7d9df; cursor: pointer; transition: background 140ms ease, color 140ms ease, transform 100ms ease; }
+          button:hover { background: rgba(255,255,255,.11); color: #fff; }
+          button:active { transform: scale(.92); }
+          button:focus-visible { outline: 2px solid #72c9f2; outline-offset: 1px; }
+          button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+          #refresh { color: #fff; background: rgba(255,255,255,.09); }
+          #favorite[aria-pressed="true"] { color: #ffd66e; }
+          .spacer { flex: 1; min-height: 10px; }
+          .zoom-readout { width: 38px; color: #aeb2bd; font-size: 10px; text-align: center; font-variant-numeric: tabular-nums; }
+          .panel { position: absolute; right: 54px; top: 10px; width: min(290px, calc(100vw - 72px)); max-height: min(70vh, 560px); overflow: auto; padding: 13px; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: #202127; color: #f2f3f6; box-shadow: 0 12px 36px rgba(0,0,0,.38); pointer-events: auto; }
+          .panel[hidden] { display: none; }
+          .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-size: 13px; font-weight: 700; }
+          .panel-head button { width: 28px; height: 28px; font-size: 18px; }
+          .save-current { width: 100%; height: 34px; display: flex; justify-content: flex-start; gap: 8px; padding: 0 10px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); font-size: 12px; }
+          .saved-list { display: grid; gap: 5px; margin-top: 10px; }
+          .saved-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+          .saved-open { width: auto; height: auto; min-height: 36px; flex: 1; display: block; overflow: hidden; padding: 6px 8px; border-radius: 7px; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+          .saved-remove { width: 30px; height: 30px; color: #aeb2bd; font-size: 16px; }
+          .empty { padding: 15px 4px 8px; color: #aeb2bd; font-size: 12px; line-height: 1.5; text-align: center; }
+          .note { margin: 8px 2px 0; color: #8f939e; font-size: 10px; line-height: 1.45; }
+          @media (prefers-reduced-motion: reduce) { button { transition: none; } }
+        </style>
+        <nav class="rail" role="toolbar" aria-label="网页工具箱"></nav>
+        <section class="panel" aria-label="收藏网页" hidden>
+          <div class="panel-head"><span>此网站的收藏</span><button type="button" data-close aria-label="关闭收藏面板" title="关闭">×</button></div>
+          <button class="save-current" type="button" data-save-current>＋ 收藏当前页</button>
+          <div class="saved-list"></div>
+          <p class="note">收藏保存在当前网站的 WebView 数据中。</p>
+        </section>`;
+      const rail = shadow.querySelector(".rail");
+      const panel = shadow.querySelector(".panel");
+      const list = shadow.querySelector(".saved-list");
+      const zoomReadout = document.createElement("div");
+      zoomReadout.className = "zoom-readout";
+      let zoom = 1;
+      const applyZoom = () => {
+        zoom = Math.max(.75, Math.min(1.5, Math.round(zoom * 100) / 100));
+        document.documentElement.style.zoom = String(zoom);
+        zoomReadout.textContent = `${Math.round(zoom * 100)}%`;
+      };
+      const addButton = (id, label, icon, action) => {
+        const button = document.createElement("button");
+        button.id = id;
+        button.type = "button";
+        button.title = label;
+        button.setAttribute("aria-label", label);
+        button.innerHTML = icon;
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          action(button);
+        });
+        rail.appendChild(button);
+        return button;
+      };
+      const icon = (paths) => `<svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
+      addButton("refresh", "刷新网页", icon('<path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0 2 5"/>'), () => location.reload());
+      addButton("back", "后退", icon('<path d="m14 6-6 6 6 6"/><path d="M8 12h12"/>'), () => history.back());
+      addButton("forward", "前进", icon('<path d="m10 6 6 6-6 6"/><path d="M16 12H4"/>'), () => history.forward());
+      const favorite = addButton("favorite", "收藏当前页", icon('<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>'), () => {
+        const key = "__utime_browser_favorites_v1";
+        try {
+          const saved = JSON.parse(localStorage.getItem(key) || "[]");
+          const items = Array.isArray(saved) ? saved : [];
+          const current = items.findIndex((item) => item && item.url === location.href);
+          if (current >= 0) items.splice(current, 1);
+          else items.unshift({ url: location.href, title: (document.title || location.hostname).slice(0, 140), savedAt: Date.now() });
+          localStorage.setItem(key, JSON.stringify(items.slice(0, 100)));
+          updateFavoriteState();
+          if (!panel.hidden) renderFavorites();
+        } catch (_) { favorite.title = "此网站不允许保存收藏"; }
+      });
+      const updateFavoriteState = () => {
+        try {
+          const saved = JSON.parse(localStorage.getItem("__utime_browser_favorites_v1") || "[]");
+          const active = Array.isArray(saved) && saved.some((item) => item && item.url === location.href);
+          favorite.setAttribute("aria-pressed", String(active));
+          favorite.setAttribute("aria-label", active ? "取消收藏" : "收藏当前页");
+          favorite.title = active ? "取消收藏" : "收藏当前页";
+        } catch (_) { favorite.setAttribute("aria-pressed", "false"); }
+      };
+      const renderFavorites = () => {
+        list.replaceChildren();
+        let saved = [];
+        try { saved = JSON.parse(localStorage.getItem("__utime_browser_favorites_v1") || "[]"); } catch (_) {}
+        if (!Array.isArray(saved)) saved = [];
+        const valid = saved.filter((item) => item && typeof item.url === "string" && /^https?:/i.test(item.url));
+        if (!valid.length) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "还没有收藏。点上方按钮保存当前网页。";
+          list.appendChild(empty);
+          return;
+        }
+        for (const item of valid) {
+          const row = document.createElement("div");
+          row.className = "saved-row";
+          const open = document.createElement("button");
+          open.type = "button";
+          open.className = "saved-open";
+          open.textContent = item.title || item.url;
+          open.title = item.url;
+          open.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); location.href = item.url; });
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.className = "saved-remove";
+          remove.textContent = "×";
+          remove.title = "移除收藏";
+          remove.setAttribute("aria-label", `移除收藏：${item.title || item.url}`);
+          remove.addEventListener("click", (event) => {
+            event.preventDefault(); event.stopPropagation();
+            const next = valid.filter((entry) => entry.url !== item.url);
+            try { localStorage.setItem("__utime_browser_favorites_v1", JSON.stringify(next)); } catch (_) {}
+            renderFavorites(); updateFavoriteState();
+          });
+          row.append(open, remove);
+          list.appendChild(row);
+        }
+      };
+      addButton("saved-list", "查看收藏", icon('<path d="M5 4h14v17l-7-4-7 4V4Z"/><path d="M8 8h8M8 11h6"/>'), () => {
+        panel.hidden = !panel.hidden;
+        if (!panel.hidden) renderFavorites();
+      });
+      addButton("copy-url", "复制网页地址", icon('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'), async () => {
+        try {
+          await navigator.clipboard.writeText(location.href);
+        } catch (_) {
+          const input = document.createElement("textarea");
+          input.value = location.href;
+          input.style.position = "fixed"; input.style.opacity = "0";
+          document.body.appendChild(input); input.select();
+          try { document.execCommand("copy"); } catch (_) {}
+          input.remove();
+        }
+      });
+      const spacer = document.createElement("div");
+      spacer.className = "spacer";
+      rail.appendChild(spacer);
+      addButton("zoom-out", "缩小网页", icon('<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M8 11h6"/>'), () => {
+        zoom = Math.max(.75, zoom - .1); applyZoom();
+      });
+      rail.appendChild(zoomReadout);
+      addButton("zoom-in", "放大网页", icon('<circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4M8 11h6M11 8v6"/>'), () => {
+        zoom = Math.min(1.5, zoom + .1); applyZoom();
+      });
+      shadow.querySelector("[data-save-current]").addEventListener("click", () => favorite.click());
+      shadow.querySelector("[data-close]").addEventListener("click", () => { panel.hidden = true; });
+      document.addEventListener("click", (event) => {
+        if (event.target !== host && !host.contains(event.target)) panel.hidden = true;
+      }, true);
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !panel.hidden) panel.hidden = true;
+      }, true);
+      document.documentElement.appendChild(host);
+      applyZoom();
+      updateFavoriteState();
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountToolbox, { once: true });
+    else mountToolbox();
+  }
 })();
 "#;
 

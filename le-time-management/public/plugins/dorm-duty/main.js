@@ -33,6 +33,8 @@
   const GROUP_MAX = 12;               // 最多几套轮换（防病态数据把界面撑爆）
   const NAME_MAX = 12;                // 轮换名（宿舍值日 / 公区卫生）
   const MEMBER_MAX = 16;              // 成员名
+  const LOCATION_MAX = 12;
+  const LOCATION_NAME_MAX = 24;
   const DEFAULT_GROUP_NAME = "值日";
   const PERIOD_CHIPS = [1, 3, 7, 14];
   const PERIOD_LABEL = { 1: "每天", 3: "每 3 天", 7: "每周", 14: "每两周" };
@@ -45,6 +47,7 @@
     timer: null,
     gen: 0,
     busy: false,
+    membersOrderKey: "",
   };
   let root = null;
   let MY_GEN = 0;
@@ -112,6 +115,10 @@
         .map((m) => ({ id: String(m.id), name: String(m.name || "").slice(0, MEMBER_MAX).trim() || "未命名" }))
       : [];
   }
+  function normalizeLocations(raw) {
+    const names = Array.isArray(raw) ? raw.map((v) => String(v || "").trim().slice(0, LOCATION_NAME_MAX)).filter(Boolean) : [];
+    return [...new Set(names)].slice(0, LOCATION_MAX);
+  }
   /** 一套轮换的默认值。 */
   function defaultGroup(today, name) {
     return {
@@ -120,6 +127,8 @@
       startDate: validDate(today) ? today : tide.util.today(),
       periodDays: 7,
       perRound: 1,
+      locations: [],
+      locationPeriodDays: 7,
       remindEnabled: true,
       remindTime: "08:00",
       sound: "beep",
@@ -137,6 +146,8 @@
     g.name = String(g.name || "").trim().slice(0, NAME_MAX) || DEFAULT_GROUP_NAME;
     if (!validDate(g.startDate)) g.startDate = base.startDate;
     g.periodDays = Math.min(365, Math.max(1, Math.round(Number(g.periodDays) || 7)));
+    g.locationPeriodDays = Math.min(365, Math.max(1, Math.round(Number(g.locationPeriodDays) || 7)));
+    g.locations = normalizeLocations(g.locations);
     // 每轮人数：1 = 单人（历史默认）。上限对齐 MEMBER_MAX —— 成员数可能随时变，
     // 这里不能 clamp 到当前成员数（否则移除一个人会偷偷改掉排班规则），计算时用模运算兜底。
     g.perRound = Math.min(MEMBER_MAX, Math.max(1, Math.round(Number(g.perRound) || 1)));
@@ -288,10 +299,26 @@
     const ov = overrideHits(g, cycle);
     return ov.length ? ov : normalAssignees(g, cycle);
   }
+  /** 编辑列表始终显示真实轮换顺序，拖放的目标位置才与写回位置一致。 */
+  function membersInDateOrder(g, date) {
+    return g.members.slice();
+  }
+  const membersOrderKey = (g, date) => `${g.id}:${date}:${assigneesFor(g, date).map((m) => m.id).join(",")}:${locationAt(g, date)}`;
   /** 单人视角（第一个当班人）：提醒判据、「有没有人当班」这类布尔判断用；
       展示一律用 assigneesFor() 的数组，别丢人。 */
   const assigneeFor = (g, date) => assigneesFor(g, date)[0] || null;
   const isCycleStartDay = (g, date) => cycleStartOf(g, date) === date;
+  function locationCycleStartOf(g, date) {
+    if (!validDate(g.startDate) || !validDate(date)) return null;
+    const diff = diffDays(g.startDate, date);
+    if (diff < 0) return null;
+    return addDays(g.startDate, Math.floor(diff / g.locationPeriodDays) * g.locationPeriodDays);
+  }
+  function locationAt(g, date) {
+    if (!g.locations.length) return "";
+    const start = locationCycleStartOf(g, date);
+    return start ? g.locations[Math.round(diffDays(g.startDate, start) / g.locationPeriodDays) % g.locations.length] : "";
+  }
   /** 某组此刻是否该提醒。纯函数 —— 任意「今天 / 当前分钟」都能真跑。
       五个条件缺一不可：开着提醒 + 有成员 + 今天是本轮第一天 + 已过设定时刻 + 这一轮还没提醒过。 */
   function reminderDue(g, today, nowMinutes) {
@@ -329,6 +356,8 @@
       const now = new Date();
       const nowMinutes = now.getHours() * 60 + now.getMinutes();
       const today = tide.util.today();
+      const visibleGroup = activeGroup();
+      if (root && visibleGroup && state.membersOrderKey !== membersOrderKey(visibleGroup, today)) await paint();
       // 逐组判断：每套轮换有各自的周期、提醒时刻与「已提醒」记录，互不干扰。
       const due = state.groups.filter((g) => reminderDue(g, today, nowMinutes) && assigneesFor(g, today).length);
       if (!due.length) return;
@@ -337,7 +366,8 @@
       await tide.storage.set("groups", state.groups);
       for (const g of due) {
         const names = assigneesFor(g, today).map((m) => m.name).join("、");
-        tide.notify(`「${g.name}」今天轮到 ${names}`, {
+        const location = locationAt(g, today);
+        tide.notify(`「${g.name}」今天轮到 ${names}${location ? ` · 地点：${location}` : ""}`, {
           actionLabel: "查看",
           action: () => tide.util.navigate(`plug:${VIEW_ID}`),
         });
@@ -416,9 +446,14 @@
       .dd-tag{font-size:calc(11px * var(--ui-text-scale));border-radius:12px;padding:4px 9px;background:color-mix(in srgb,var(--mint,#2ec4b6) 10%,var(--panel,#fff));color:var(--deep,#0F4C5C);white-space:normal;text-align:right;max-width:100%;justify-self:end}
       .dd-row.now{background:color-mix(in srgb,var(--deep,#0F4C5C) 5%,var(--panel,#fff))}
       .dd-row.past b,.dd-row.past .dd-d{color:var(--ink-3,#A9B2BA)}
-      .dd-mrow{display:grid;grid-template-columns:26px 1fr auto;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line-soft,#F0ECE5)}
+      .dd-mrow{display:grid;grid-template-columns:26px 28px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line-soft,#F0ECE5)}
+      .dd-lrow{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line-soft,#F0ECE5)}
+      .dd-mrow.current .dd-mno{color:var(--deep,#0F4C5C);font-weight:750}.dd-mrow.current .dd-in{border-color:var(--mint,#2EC4B6)}
       .dd-mrow:last-child{border-bottom:0}
+      .dd-mrow.dragging{opacity:.72;background:color-mix(in srgb,var(--deep,#0F4C5C) 6%,transparent)}
       .dd-mno{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A1A9AF);text-align:center;font-variant-numeric:tabular-nums}
+      .dd-drag{width:28px;height:32px;border:0;background:transparent;color:var(--ink-3,#A1A9AF);cursor:grab;font-size:calc(16px * var(--ui-text-scale));line-height:1;display:grid;place-items:center;padding:0;touch-action:none}
+      .dd-drag:active{cursor:grabbing;color:var(--deep,#0F4C5C)}
       .dd-in{height:34px;border:1px solid var(--line,#DDD7CD);border-radius:9px;padding:0 10px;background:var(--panel,#fff);color:var(--ink,#22303A);font:inherit;font-size:calc(13px * var(--ui-text-scale));min-width:0;width:100%}
       .dd-in:focus{outline:2px solid color-mix(in srgb,var(--deep,#0F4C5C) 18%,transparent);border-color:var(--deep,#0F4C5C)}
       .dd-mbtns{display:flex;gap:5px;flex:none}
@@ -451,8 +486,10 @@
         .dd-row > b{grid-column:1;grid-row:1}
         .dd-row > .dd-tag{grid-column:2;grid-row:1;justify-self:end}
         .dd-row > .dd-d{grid-column:1/-1;grid-row:2}
-        .dd-mrow{grid-template-columns:22px 1fr;gap:6px 8px}
-        .dd-mbtns{grid-column:2;justify-content:flex-end}
+        .dd-mrow{grid-template-columns:22px 28px 1fr;gap:6px 8px}
+        .dd-lrow{grid-template-columns:22px minmax(0,1fr);gap:6px 8px}
+        .dd-lrow .dd-mbtns{grid-column:2;justify-content:flex-end}
+        .dd-mbtns{grid-column:3;justify-content:flex-end}
         .dd-field{grid-template-columns:1fr;gap:6px}
       }
     `;
@@ -469,6 +506,8 @@
     const current = assigneeFor(g, today);
     const currentAll = assigneesFor(g, today);
     const nextStart = cycle ? addDays(cycle, p) : (validDate(g.startDate) ? g.startDate : null);
+    const locationCycle = locationCycleStartOf(g, today);
+    const nextLocationStart = g.locations.length ? (locationCycle ? addDays(locationCycle, g.locationPeriodDays) : g.startDate) : null;
     const rows = [];
     for (let i = 0; i < UPCOMING && nextStart; i++) {
       const start = addDays(nextStart, i * p);
@@ -487,6 +526,9 @@
       g, today, cycle, started,
       current, currentAll, per,
       nextStart,
+      currentLocation: locationAt(g, today),
+      nextLocationStart,
+      nextLocation: nextLocationStart ? locationAt(g, nextLocationStart) : "",
       nextWho: nextStart ? assigneeFor(g, nextStart) : null,
       nextWhoAll: nextStart ? assigneesFor(g, nextStart) : [],
       rows, period: p,
@@ -535,7 +577,7 @@
     const rangeEnd = addDays(s.cycle, s.period - 1);
     return `<div class="dd-kicker">${kicker}</div>
       <div class="dd-who"><b${s.currentAll.length > 1 ? ' class="dd-multi"' : ""}>${esc(names)}</b>${onSwitch ? '<span class="dd-badge">今天换人</span>' : ""}${overrideHits(g, s.cycle).length ? `<span class="dd-badge warn">已换人 · 原 ${esc(normalNames)}</span>` : ""}</div>
-      <div class="dd-range">本轮 ${fmt(s.cycle)}${s.period > 1 ? ` — ${fmt(rangeEnd)}` : `（${weekday(s.cycle)}）`}${s.period > 1 ? ` · ${weekday(s.cycle)}起` : ""} · 第 ${cycleIndexAt(g, s.cycle) + 1} 轮</div>`;
+      <div class="dd-range">本轮 ${fmt(s.cycle)}${s.period > 1 ? ` — ${fmt(rangeEnd)}` : `（${weekday(s.cycle)}）`}${s.period > 1 ? ` · ${weekday(s.cycle)}起` : ""} · 第 ${cycleIndexAt(g, s.cycle) + 1} 轮${s.currentLocation ? `<br>今日地点：<b>${esc(s.currentLocation)}</b>` : ""}</div>`;
   }
 
   /** 「本轮换人」：勾选式多选。初始勾选 = 本轮**现在实际**当班的人（换过就是换上的名单），
@@ -569,17 +611,97 @@
     }).join("");
   }
 
-  function membersHtml(g) {
+  function membersHtml(g, date = tide.util.today()) {
     if (!g.members.length) return `<div class="dd-muted">还没有成员。按你填写的顺序轮换，第一个人先当班。</div>`;
-    return g.members.map((m, i) => `<div class="dd-mrow" data-id="${esc(m.id)}">
+    const currentIds = new Set(assigneesFor(g, date).map((m) => m.id));
+    return membersInDateOrder(g, date).map((m, i) => {
+      const baseIndex = g.members.findIndex((item) => item.id === m.id);
+      return `<div class="dd-mrow${currentIds.has(m.id) ? " current" : ""}" data-id="${esc(m.id)}">
       <span class="dd-mno">${i + 1}</span>
+      <button class="dd-drag" data-drag type="button" title="拖动调整长期轮换顺序" aria-label="拖动 ${esc(m.name)} 调整顺序">⋮⋮</button>
       <input class="dd-in" data-name value="${esc(m.name)}" maxlength="${MEMBER_MAX}" aria-label="第 ${i + 1} 位成员的名字">
       <span class="dd-mbtns">
-        <button class="dd-mini" data-up type="button" ${i === 0 ? "disabled" : ""} title="往前排（更早当班）" aria-label="把 ${esc(m.name)} 往前排">↑</button>
-        <button class="dd-mini" data-down type="button" ${i === g.members.length - 1 ? "disabled" : ""} title="往后排" aria-label="把 ${esc(m.name)} 往后排">↓</button>
+        <button class="dd-mini" data-up type="button" ${baseIndex === 0 ? "disabled" : ""} title="调整长期轮换顺序：往前排" aria-label="把 ${esc(m.name)} 在长期轮换顺序中往前排">↑</button>
+        <button class="dd-mini" data-down type="button" ${baseIndex === g.members.length - 1 ? "disabled" : ""} title="调整长期轮换顺序：往后排" aria-label="把 ${esc(m.name)} 在长期轮换顺序中往后排">↓</button>
         <button class="dd-mini danger" data-del type="button" title="从轮换里移除（可在下方恢复）" aria-label="移除 ${esc(m.name)}">移除</button>
       </span>
-    </div>`).join("");
+    </div>`;
+    }).join("");
+  }
+
+  function locationsHtml(s) {
+    const g = s.g;
+    const custom = !PERIOD_CHIPS.includes(g.locationPeriodDays);
+    return `<div class="dd-field"><span>地点周期</span><div class="dd-chips">
+      ${PERIOD_CHIPS.map((p) => `<button class="dd-chip${p === g.locationPeriodDays ? " on" : ""}" data-location-period="${p}" type="button">${PERIOD_LABEL[p]}</button>`).join("")}
+      <input class="dd-in dd-num" data-location-period-custom type="number" min="1" max="365" value="${custom ? g.locationPeriodDays : ""}" placeholder="N" aria-label="自定义地点周期天数"><span class="dd-muted">天换地点</span>
+    </div></div>
+    ${g.locations.length ? g.locations.map((name, i) => `<div class="dd-lrow" data-location-index="${i}"><span class="dd-mno">${i + 1}</span><input class="dd-in" data-location-name value="${esc(name)}" maxlength="${LOCATION_NAME_MAX}" aria-label="第 ${i + 1} 个地点"><span class="dd-mbtns"><button class="dd-mini" data-location-up type="button"${i ? "" : " disabled"} title="地点前移">↑</button><button class="dd-mini" data-location-down type="button"${i < g.locations.length - 1 ? "" : " disabled"} title="地点后移">↓</button><button class="dd-mini danger" data-location-del type="button">移除</button></span></div>`).join("") : '<div class="dd-muted">添加地点后，将从起始日期按顺序轮换。</div>'}
+    <div class="dd-add"><input class="dd-in" data-location-new maxlength="${LOCATION_NAME_MAX}" placeholder="输入地点，如 走廊" aria-label="新地点"><button class="dd-btn pri" data-location-add type="button"${g.locations.length >= LOCATION_MAX ? " disabled" : ""}>添加地点</button></div>
+    ${s.nextLocationStart ? `<div class="dd-note">${s.started ? "下次换地点" : "地点轮换开始"}：${fmt(s.nextLocationStart)}（${weekday(s.nextLocationStart)}）→ ${esc(s.nextLocation)}。地点和成员分别计时，均从起始日期开始。</div>` : ""}`;
+  }
+
+  function moveMemberTo(g, id, toIndex) {
+    const members = g.members || [];
+    const from = members.findIndex((m) => m.id === id);
+    const to = Math.max(0, Math.min(members.length - 1, Math.round(Number(toIndex))));
+    if (from < 0 || to < 0 || from === to) return false;
+    const [m] = members.splice(from, 1);
+    members.splice(to, 0, m);
+    return true;
+  }
+
+  function bindMemberDrag(g, commit) {
+    const list = root?.querySelector("[data-members]");
+    if (!list) return;
+    let drag = null;
+    const rows = () => [...list.querySelectorAll(".dd-mrow")];
+    const clear = () => {
+      if (drag?.row) drag.row.classList.remove("dragging");
+      drag = null;
+    };
+    list.querySelectorAll("[data-drag]").forEach((handle) => {
+      handle.addEventListener("pointerdown", (e) => {
+        const row = e.currentTarget.closest(".dd-mrow");
+        if (!row || e.button > 0) return;
+        e.preventDefault();
+        const order = rows().map((node) => node.dataset.id);
+        drag = { id: row.dataset.id, row, order, startIndex: order.indexOf(row.dataset.id), slot: order.indexOf(row.dataset.id) };
+        row.classList.add("dragging");
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+      });
+      handle.addEventListener("pointermove", (e) => {
+        if (!drag) return;
+        const order = rows();
+        let slot = order.length - 1;
+        for (let i = 0; i < order.length; i++) {
+          const rect = order[i].getBoundingClientRect();
+          if (e.clientY < rect.top + rect.height / 2) { slot = i; break; }
+        }
+        if (slot === drag.slot) return;
+        drag.slot = slot;
+        const peer = order[slot];
+        if (peer && peer !== drag.row) list.insertBefore(drag.row, slot > order.indexOf(drag.row) ? peer.nextSibling : peer);
+      });
+      const finish = async () => {
+        if (!drag) return;
+        const id = drag.id;
+        const nextOrder = rows().map((node) => node.dataset.id);
+        const to = nextOrder.indexOf(id);
+        const changed = to >= 0 && drag.startIndex >= 0 && to !== drag.startIndex;
+        clear();
+        if (!changed) return;
+        await commit(() => { moveMemberTo(g, id, to); });
+      };
+      handle.addEventListener("pointerup", finish);
+      handle.addEventListener("pointercancel", clear);
+    });
+  }
+
+  function currentTimeString() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   function removedHtml(g) {
@@ -653,6 +775,7 @@
     const g = activeGroup();
     if (!g) return;
     const s = snapshot(g);
+    state.membersOrderKey = membersOrderKey(g, s.today);
     root.innerHTML = `<div class="dd-wrap">
       <div class="dd-groups">
         <div class="dd-glist" role="tablist" aria-label="轮换列表">${groupChipsHtml()}</div>
@@ -680,6 +803,7 @@
         </section>
         <section class="dd-card">
           <div class="dd-title">${faIcon("people-group")}成员 · 轮换顺序</div>
+          <div class="dd-note">按真实轮换顺序排列；绿色边框表示今天当班。拖动或点 ↑↓ 调整顺序。</div>
           <div data-members>${membersHtml(g)}</div>
           <div class="dd-add">
             <input class="dd-in" data-new maxlength="${MEMBER_MAX}" placeholder="输入成员名字，回车即可添加" aria-label="新成员名字">
@@ -698,6 +822,10 @@
           ${remindHtml(s)}
         </section>
       </div>
+      <section class="dd-card" style="margin-top:14px">
+        <div class="dd-title">${faIcon("location-dot")}地点轮换</div>
+        ${locationsHtml(s)}
+      </section>
     </div>`;
     bind();
   }
@@ -910,7 +1038,8 @@
     const all = assigneesFor(g, today);
     if (!all.length) { tide.notify("这一组还没有当班安排"); return null; }
     const names = all.map((m) => m.name).join("、");
-    const title = `${g.name} · ${names}`;
+    const location = locationAt(g, today);
+    const title = `${g.name} · ${names}${location ? ` · ${location}` : ""}`;
     const dup = (await tide.tasks.list()).find((t) => !t.done && t.due === today && t.title === title);
     if (dup) { tide.notify(`今天的「${title}」任务已经在列表里了`); return null; }
     try {
@@ -1022,6 +1151,7 @@
     });
 
     // 成员：改名 / 排序 / 移除
+    bindMemberDrag(g, commit);
     root.querySelectorAll(".dd-mrow").forEach((row) => {
       const id = row.dataset.id;
       const idx = g.members.findIndex((m) => m.id === id);
@@ -1101,6 +1231,43 @@
       await commit(() => { g.periodDays = raw; });
     });
 
+    root.querySelectorAll("[data-location-period]").forEach((btn) => btn.addEventListener("click", async () => {
+      const days = Number(btn.dataset.locationPeriod);
+      if (days !== g.locationPeriodDays) await commit(() => { g.locationPeriodDays = days; });
+    }));
+    q("[data-location-period-custom]")?.addEventListener("change", async (e) => {
+      const raw = Number(e.currentTarget.value);
+      if (!Number.isInteger(raw) || raw < 1 || raw > 365) { tide.notify("地点周期请填 1～365 天"); await paint(); return; }
+      await commit(() => { g.locationPeriodDays = raw; });
+    });
+    const addLocation = async () => {
+      const input = q("[data-location-new]");
+      const name = String(input?.value || "").trim().slice(0, LOCATION_NAME_MAX);
+      if (!name) { tide.notify("先输入地点名称"); input?.focus(); return; }
+      if (g.locations.includes(name)) { tide.notify("这个地点已经在列表中"); return; }
+      if (g.locations.length >= LOCATION_MAX) { tide.notify(`最多 ${LOCATION_MAX} 个地点`); return; }
+      await commit(() => { g.locations.push(name); });
+    };
+    q("[data-location-add]")?.addEventListener("click", addLocation);
+    q("[data-location-new]")?.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addLocation(); } });
+    root.querySelectorAll("[data-location-index]").forEach((row) => {
+      const index = Number(row.dataset.locationIndex);
+      row.querySelector("[data-location-name]")?.addEventListener("change", async (e) => {
+        const name = String(e.currentTarget.value || "").trim().slice(0, LOCATION_NAME_MAX);
+        if (!name || g.locations.some((item, i) => i !== index && item === name)) { tide.notify("地点名称不能为空或重复"); await paint(); return; }
+        await commit(() => { g.locations[index] = name; });
+      });
+      row.querySelector("[data-location-up]")?.addEventListener("click", async () => {
+        if (index > 0) await commit(() => { [g.locations[index - 1], g.locations[index]] = [g.locations[index], g.locations[index - 1]]; });
+      });
+      row.querySelector("[data-location-down]")?.addEventListener("click", async () => {
+        if (index < g.locations.length - 1) await commit(() => { [g.locations[index + 1], g.locations[index]] = [g.locations[index], g.locations[index + 1]]; });
+      });
+      row.querySelector("[data-location-del]")?.addEventListener("click", async () => {
+        await commit(() => { g.locations.splice(index, 1); });
+      });
+    });
+
     // 每轮人数（多人值日）
     root.querySelectorAll("[data-perround]").forEach((btn) => btn.addEventListener("click", async () => {
       const n = Math.max(1, Math.round(Number(btn.dataset.perround) || 1));
@@ -1134,7 +1301,8 @@
     q("[data-sound-try]")?.addEventListener("click", () => playSound(g.sound));
     q("[data-test]")?.addEventListener("click", () => {
       const names = assigneesFor(g, tide.util.today()).map((m) => m.name).join("、");
-      tide.notify(names ? `提醒测试：「${g.name}」今天轮到 ${names}` : `提醒测试：「${g.name}」还没有成员，正式提醒时会跳过`);
+      const location = locationAt(g, tide.util.today());
+      tide.notify(names ? `提醒测试：「${g.name}」今天轮到 ${names}${location ? ` · 地点：${location}` : ""}` : `提醒测试：「${g.name}」还没有成员，正式提醒时会跳过`);
       playSound(g.sound);
     });
 
@@ -1155,8 +1323,9 @@
       if (nextIds === activeIds) { tide.notify("勾选的就是本轮当班的名单，没有变化"); return; }
       // 单人存字符串（历史格式，旧版本客户端也能读）；多人才存数组
       const value = members.length === 1 ? members[0].id : members.map((m) => m.id);
-      await commit(() => { g.overrides[key] = value; });
-      tide.notify(`「${g.name}」本轮改由 ${members.map((m) => m.name).join("、")} 当班`);
+      const now = currentTimeString();
+      await commit(() => { g.overrides[key] = value; g.remindTime = now; if (g.lastNotified === s.today) g.lastNotified = ""; });
+      tide.notify(`「${g.name}」本轮改由 ${members.map((m) => m.name).join("、")} 当班，提醒时刻已改为 ${now}`);
     });
     q("[data-swap-clear]")?.addEventListener("click", async () => {
       const s = snapshot(g);

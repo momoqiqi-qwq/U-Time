@@ -478,6 +478,13 @@ const CX_PY_DATA = {
     `; document.head.append(s);
   }
 
+  function publishInbox() {
+    try {
+      tide.messages?.publish(state.inbox.filter((n) => !state.ignoredIds.has(n.id)).slice(0, 80)
+        .map((n) => ({ title: n.title, time: n.time || "", sender: n.sender || "" })));
+    } catch {}
+  }
+
   async function loadPrefs() {
     state.creds = await tide.storage.get("creds", null);
     state.cookie = await tide.storage.get("sessionCookie", "") || "";
@@ -490,6 +497,7 @@ const CX_PY_DATA = {
     state.refreshMode = (await tide.storage.get("refreshMode", "auto")) === "throttle" ? "throttle" : "auto";
     const cached = await tide.storage.get("inboxCache", []);
     if (Array.isArray(cached) && cached.length) { state.inbox = cached; state.cacheLoaded = true; }
+    publishInbox();
   }
 
   async function cxLogin(uname, password) {
@@ -569,6 +577,7 @@ const CX_PY_DATA = {
       else state.newIds = new Set(ids.filter((id) => !state.knownIds.has(id)));
       ids.forEach((id) => state.knownIds.add(id));
       state.inbox = normalized;
+      publishInbox();
       await tide.storage.set("inboxCache", state.inbox.slice(0, 2000));
       await saveKnown(); await saveAuth();
       // 插件联动：把新通知广播给订阅方（微信推送的「插件消息」通道订阅 notice:new）。
@@ -709,7 +718,7 @@ const CX_PY_DATA = {
     if (!n || !n.id) return;
     state.ignoredIds.add(n.id);
     state.newIds.delete(n.id);
-    await saveIgnored(); paintMain();
+    await saveIgnored(); publishInbox(); paintMain();
     tide.notify("已从本机列表移除（不影响学习通平台数据），顶部可恢复");
   }
   async function ignoreNotices(list, label = "通知") {
@@ -719,7 +728,7 @@ const CX_PY_DATA = {
       state.ignoredIds.add(id);
       state.newIds.delete(id);
     }
-    await saveIgnored(); paintMain();
+    await saveIgnored(); publishInbox(); paintMain();
     tide.notify(`已从本机列表移除 ${ids.length} 条${label}（不影响学习通平台数据），顶部可恢复`);
   }
 

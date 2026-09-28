@@ -28,11 +28,11 @@ const plugins = [
   {
     "id": "web-collector",
     "name": "网页收集",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "author": "U-Time内置",
     "icon": "bookmark",
     "faIcon": "bookmark",
-    "description": "输入网址或把浏览器标签、页面链接直接拖进本页，自动读取网站名称、favicon，并智能匹配 Font Awesome 图标；支持单独获取/更换网站图标、一次拖入多个网址、搜索、备注、刷新元信息和一键打开。",
+    "description": "输入或拖入网址，自动识别网站名称与图标；支持多网址拖入、搜索、备注和应用内打开。卡片的编辑、刷新和删除操作可展开收起，长标题与备注可在卡片内查看。",
     "permissions": [
       "ui",
       "storage",
@@ -51,11 +51,11 @@ const plugins = [
   {
     "id": "school-notice",
     "name": "学校通知网站",
-    "version": "1.5.1",
+    "version": "1.7.0",
     "author": "U-Time内置",
     "icon": "school",
     "faIcon": "school",
-    "description": "输入学校公告/通知网址后自动识别常见高校 CMS 列表；对「服务端只吐空壳、列表靠 JS 渲染」的门户站点，命中已登记适配器时直接读取其数据接口。支持会话登录、用户名密码和手动验证码，并可把公告转成 U-Time提醒。站点菜单会始终显示网站名称；点击异站点先切换公告且默认收起设置卡片，再点当前站点才展开登录网址等设置；右键站点弹出操作菜单（刷新 / 登录配置 / 编辑 / 打开 / 删除）。抓到新公告时广播给微信推送插件，可在推送设置里单独勾选这个插件是否推送到微信。",
+    "description": "输入学校公告/通知网址后自动识别常见高校 CMS 列表；对「服务端只吐空壳、列表靠 JS 渲染」的门户站点，会先命中已登记适配器，再尝试内嵌 JSON 状态和脚本里的通用公告/消息列表接口。支持会话登录、用户名密码和手动验证码，并可把公告转成 U-Time提醒。站点菜单会始终显示网站名称；点击异站点先切换公告且默认收起设置卡片，再点当前站点才展开登录网址等设置；右键站点弹出操作菜单（刷新 / 登录配置 / 编辑 / 打开 / 删除）。抓到新公告时广播给微信推送插件，可在推送设置里单独勾选这个插件是否推送到微信。",
     "permissions": [
       "ui",
       "storage",
@@ -78,11 +78,11 @@ const plugins = [
   {
     "id": "pomodoro",
     "name": "番茄专注",
-    "version": "0.5.1",
+    "version": "0.6.0",
     "author": "U-Time内置",
     "icon": "hourglass-half",
     "faIcon": "hourglass-half",
-    "description": "环形番茄钟：挑一个任务开始专注，25 分钟后休息。自定义时长精确到秒，分 / 秒分开填（1 分 30 秒就是 1 分 30 秒，不必再写 1.5）。专注 / 休息结束可分别设置通知与提示音，提示音支持内置音效或导入自定义音频，提醒设置旁有常驻试听按钮、收起面板也能直接试听。完成的番茄会计入统计，也可通过事件被其他插件感知。",
+    "description": "环形番茄钟：可关联任务，使用预设或精确到秒的自定义时长。专注结束前可设置多个提醒时间点；专注与休息结束的通知、声音分别控制。支持内置和自定义提示音、试听，完成记录会计入统计并广播给其他插件。",
     "permissions": [
       "ui",
       "tasks",
@@ -123,7 +123,7 @@ const plugins = [
   {
     "id": "rss-reader",
     "name": "RSS 信息流",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "author": "U-Time内置",
     "icon": "rss",
     "faIcon": "rss",
@@ -150,7 +150,7 @@ const plugins = [
   {
     "id": "gx-news",
     "name": "竞赛消息雷达",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "author": "U-Time内置",
     "icon": "trophy",
     "faIcon": "trophy",
@@ -177,7 +177,7 @@ const plugins = [
   {
     "id": "chaoxing-notify",
     "name": "学习通",
-    "version": "2.14.0",
+    "version": "2.15.0",
     "author": "基于 dsh-user/chaoxing-notify-skill v2.0.0 · U-Time适配",
     "icon": "graduation-cap",
     "faIcon": "graduation-cap",
@@ -204,7 +204,7 @@ const plugins = [
   {
     "id": "cppu-notify",
     "name": "警大门户通知",
-    "version": "1.26.1",
+    "version": "1.28.0",
     "author": "基于 dsh-user/cppu-notify-skill v1.2.1 · U-Time适配（1.26.1 教务查询遇网络抖动自动重发，报错摊平真实成因）",
     "icon": "building-columns",
     "faIcon": "building-columns",
@@ -232,11 +232,11 @@ const plugins = [
   {
     "id": "wechat-push",
     "name": "微信提醒推送",
-    "version": "1.9.0",
+    "version": "1.10.0",
     "author": "U-Time内置",
     "icon": "comment-dots",
     "faIcon": "comment-dots",
-    "description": "通过 PushPlus（推荐）把时间块、任务截止与插件收集的新消息推送到微信；推送内容用带图标的多列下拉勾选，插件消息还能细到单个插件（学习通 / 警大门户 / 竞赛消息 / RSS / 学校通知 各勾各的）。插件消息先攒 2 分钟再合并成一条推送，兼容 PushPlus 频次限制。支持 Token、可选 Topic 群组和测试消息，内置 pushplus 官方文档入口与一键获取 Token；兼容旧版 Server酱配置。",
+    "description": "通过 PushPlus 把时间块、任务截止和插件新消息推送到微信，可细选消息源。插件消息攒批 2 分钟合并发送；支持 Token、Topic、测试消息和本地微信消息样式预览，预览复用实际发送的标题与正文格式。兼容旧版 Server酱配置。",
     "permissions": [
       "ui",
       "tasks",
@@ -306,11 +306,11 @@ const plugins = [
   {
     "id": "dorm-duty",
     "name": "轮换值日",
-    "version": "1.3.0",
+    "version": "1.6.0",
     "author": "U-Time内置",
     "icon": "broom",
     "faIcon": "broom",
-    "description": "把「按成员顺序轮换」的公共事务（宿舍值日 / 公区卫生 / 打水…）集中管理：一个插件里可以放多套互相独立的轮换，各有自己的成员、周期、起始日与提醒时刻。用「起始日 + 周期」切段、一段一批人：每周轮换时整周都是同一批人，不会天天催。支持每天 / 每 3 天 / 每周 / 每两周与自定义 N 天，还可设「每轮人数」让 2 人以上一起当班（按名单顺序滑动轮转）；成员可增删、改名、上下调整轮换顺序，误删可从「已移除」恢复；某一轮临时换人（可勾选多人）只影响那一轮，撤销即回到原排班。提醒可设时刻与提示音，只在每轮第一天触发一次，当天没打开应用会在下次打开时补提醒一次；也可一键把本轮加入今日任务。标签支持右键（小程序端点标签后的「⋯」）：切组、改名、删除，或把整套轮换连成员带规则复制一份再改名，也能从别的轮换按名字导入成员。",
+    "description": "把宿舍值日等公共事务集中管理：可设多套独立轮换、成员周期和地点周期；地点按列表顺序每隔指定天数更换。支持每轮多人当班、成员拖动排序、临时换人、到点提醒和加入今日任务。",
     "permissions": [
       "ui",
       "tasks",
@@ -354,11 +354,11 @@ const plugins = [
   {
     "id": "ai-chat",
     "name": "AI 对话",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "author": "U-Time内置",
     "icon": "robot",
     "faIcon": "robot",
-    "description": "在应用里直接问 AI：把本机任务、近三天时间块，以及门户 / 学习通 / 学校通知 / 竞赛 / RSS 等插件推来的消息读成一份数据快照喂给模型，让它总结今天、盘点本周、挑出拖延已久的事、把成堆通知分成「要办事 / 要知道 / 可忽略」。回答里的整理结果会先停在待确认的建议列表里，逐条勾选后才写入任务与时间块，落库后带一键撤销。复用「设置 › AI 与自动任务」里已配置的模型与密钥，凭据不进插件；未配置时给出直达配置的引导。",
+    "description": "在应用里直接问 AI：把本机任务、近三天时间块，以及消息类插件公开的现有列表摘要和新消息合并成数据快照。可总结今天、盘点本周、整理通知；建议逐条勾选后才写入任务与时间块，支持撤销。复用「设置 › AI 与自动任务」里的模型与密钥，凭据不进插件。",
     "permissions": [
       "ui",
       "storage",
@@ -380,11 +380,11 @@ const plugins = [
   {
     "id": "github-readme",
     "name": "GitHub 文档",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "author": "U-Time",
     "icon": "code-branch",
     "faIcon": "code-branch",
-    "description": "追踪 GitHub 仓库的 README：填 owner/仓库名或粘仓库链接即可加入，点开就是按 GitHub 风格渲染的正文，支持 Markdown 表格（含列对齐）、围栏代码块、任务清单、嵌套列表、页内锚点目录和徽章图片，宽表格在手机上横向滚动而不是压成一团。右键（手机长按）仓库卡片可给单个仓库改显示名称、记一句备注、换一个图标，只改本机卡片怎么显示，不动仓库本身。README 有新提交时作为消息推出去，可与微信推送插件联动；首次加入只记录当前版本、不轰炸历史。日常轮询只走 github.com 的提交订阅和 raw 域名，不吃 api.github.com 匿名每小时 60 次的限流，因此追十几个仓库也不会被挡；被限流或网络不通时只在对应仓库上标一行中文原因，不影响其他仓库。README 正文来自第三方仓库，渲染时先整体转义再只放行标签与属性双白名单，style 属性、事件属性和 data/javascript 协议一律剥掉，白名单外的标签按源码显示。一期只读 README 这一个文件，不含 release、issue 与文件树，也不支持 Gitee。",
+    "description": "追踪 GitHub 仓库 README：支持 owner/repo 或仓库链接，正文按 GitHub Markdown 风格安全渲染。可改卡片名称、备注和图标。新提交可推送消息，首次加入不推历史；优先读取 GitHub 提交订阅，失败时使用 commits API 备用路径，错误只影响对应仓库。README 子目录路径自动处理。只读 README，不含 release、issue 和文件树。",
     "permissions": [
       "ui",
       "tasks",
@@ -405,7 +405,7 @@ const plugins = [
   {
     "id": "plugin-guide",
     "name": "插件使用说明",
-    "version": "1.3.3",
+    "version": "1.4.0",
     "author": "U-Time内置",
     "icon": "circle-question",
     "faIcon": "circle-question",

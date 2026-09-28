@@ -1,11 +1,11 @@
 {
   "id": "web-collector",
   "name": "网页收集",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "author": "U-Time内置",
   "icon": "bookmark",
   "faIcon": "bookmark",
-  "description": "输入网址或把浏览器标签、页面链接直接拖进本页，自动读取网站名称、favicon，并智能匹配 Font Awesome 图标；支持单独获取/更换网站图标、一次拖入多个网址、搜索、备注、刷新元信息和一键打开。",
+  "description": "输入或拖入网址，自动识别网站名称与图标；支持多网址拖入、搜索、备注和应用内打开。卡片的编辑、刷新和删除操作可展开收起，长标题与备注可在卡片内查看。",
   "permissions": [
     "ui",
     "storage",

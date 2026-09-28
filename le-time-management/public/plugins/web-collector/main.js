@@ -3,6 +3,7 @@
   // 用户仍可在工具栏下拉里改成「浏览器打开」，该选择会存进 storage 并被尊重。
   const DEFAULT_OPEN_MODE = "inside";
   let host = null, items = [], query = "", busy = false, openMode = DEFAULT_OPEN_MODE, iconPreview = null;
+  const expandedCards = new Set();
   const DEFAULT_ITEMS = [
     { url: "http://daxue.qiyemulu.cn/", title: "大学名录", host: "daxue.qiyemulu.cn", iconUrl: "http://daxue.qiyemulu.cn/favicon.ico", iconName: "school", note: "默认：大学名录" },
     { url: "https://www.resource.edu.cn/", title: "国家教育资源公共服务平台", host: "resource.edu.cn", iconUrl: "https://www.resource.edu.cn/favicon.ico", iconName: "school", note: "默认：教育资源入口" },
@@ -27,7 +28,9 @@
       .wc-dropping .wc-hero{border-color:var(--deep)}
       .wc-dropping .wc-hero::after{content:"松手即自动收藏（可一次拖多个网址）";grid-column:1/-1;font-size:calc(12px * var(--ui-text-scale));font-weight:650;color:var(--deep)}
       @media(max-width:640px){.wc-dropping .wc-hero::after{grid-column:1/-1;text-align:center}}
-    `; document.head.append(s);
+    `;
+    s.textContent += `.wc-card{min-width:0}.wc-card>div:nth-child(2){min-width:0}.wc-title{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.4}.wc-note{max-height:3.1em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.wc-card.expanded .wc-note{max-height:none;display:block}.wc-card:not(.expanded) .wc-edit,.wc-card:not(.expanded) .wc-actions [data-save],.wc-card:not(.expanded) .wc-actions [data-fetch-icon],.wc-card:not(.expanded) .wc-actions [data-refresh],.wc-card:not(.expanded) .wc-actions [data-remove]{display:none}.wc-card .wc-actions{align-items:center}.wc-card .wc-actions [data-more]{margin-left:auto}.wc-edit{min-width:0}.wc-edit input{box-sizing:border-box}.wc-card.expanded .wc-actions{border-top:1px solid var(--line-soft);padding-top:9px}`;
+    document.head.append(s);
   }
 
   async function save() { await tide.storage.set("items", items); }
@@ -113,6 +116,15 @@
     if (!host?.isConnected) return;
     const rows = visible();
     host.innerHTML = `<div class="wc"><div class="wc-hero"><input class="wc-input" data-url placeholder="输入网站，例如 https://www.example.edu.cn"><button class="wc-btn pri" data-add ${busy ? "disabled" : ""}>${busy ? "正在识别…" : "自动识别并收藏"}</button><button class="wc-btn" data-probe-icon ${busy ? "disabled" : ""}>${busy ? "获取中…" : "自动获取网站图标"}</button></div>${iconPreview ? `<div class="wc-icon-preview"><span class="wc-icon">${favicon(iconPreview)}</span><span class="wc-preview-text">图标地址：<code>${esc(iconPreview.iconUrl || "未取到")}</code></span><button class="wc-btn" data-preview-save ${busy ? "disabled" : ""}>存为新条目</button><button class="wc-btn" data-preview-clear>清空</button></div>` : ""}</div><div class="wc-toolbar"><input class="wc-input" data-search value="${esc(query)}" placeholder="搜索已收藏网站"><select class="wc-open-mode" data-open-mode aria-label="网站打开方式"><option value="external"${openMode === "external" ? " selected" : ""}>浏览器打开</option><option value="inside"${openMode === "inside" ? " selected" : ""}>应用内显示</option></select><span style="font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2)">${rows.length} / ${items.length}</span></div><div class="wc-grid">${rows.map((x) => `<article class="wc-card" data-id="${esc(x.id)}"><div class="wc-icon">${favicon(x)}</div><div><div class="wc-title" title="${esc(x.title)}">${esc(x.title)}</div><div class="wc-host">${esc(x.host || x.url)}</div><span class="wc-badge">FA: ${esc(x.iconName || "globe")}</span><div class="wc-note">${esc(x.note || "暂无备注")}</div></div><div class="wc-edit"><input data-title value="${esc(x.title)}" aria-label="名称"><input data-note value="${esc(x.note || "")}" placeholder="备注" aria-label="备注"></div><div class="wc-actions"><button data-open>打开</button><button data-save>保存修改</button><button data-fetch-icon title="只重新抓取这个网站的图标，标题与备注保持不变">换图标</button><button data-refresh>刷新名称/图标</button><button data-remove>删除</button></div></article>`).join("") || `<div class="wc-empty">还没有收藏网页。输入网址后会自动获取网站名称和图标。</div>`}</div></div>`;
+    for (const card of host.querySelectorAll(".wc-card")) {
+      const open = expandedCards.has(card.dataset.id);
+      card.classList.toggle("expanded", open);
+      const more = document.createElement("button");
+      more.type = "button"; more.dataset.more = "";
+      more.setAttribute("aria-expanded", String(open));
+      more.textContent = open ? "收起" : "更多";
+      card.querySelector(".wc-actions").append(more);
+    }
     fitInputFonts();
   }
 
@@ -313,10 +325,11 @@
       if (e.target.closest("[data-preview-clear]")) { iconPreview = null; return paint(); }
       if (e.target.closest("[data-preview-save]")) return savePreviewAsItem();
       const card = e.target.closest("[data-id]"); if (!card) return; const id = card.dataset.id; const item = items.find((x) => x.id === id); if (!item) return;
+      if (e.target.closest("[data-more]")) { if (expandedCards.has(id)) expandedCards.delete(id); else expandedCards.add(id); return paint(); }
       if (e.target.closest("[data-open]")) openItem(item);
       else if (e.target.closest("[data-fetch-icon]")) refreshIcon(id);
       else if (e.target.closest("[data-refresh]")) refresh(id);
-      else if (e.target.closest("[data-remove]")) { items = items.filter((x) => x.id !== id); save().then(paint); }
+      else if (e.target.closest("[data-remove]")) { items = items.filter((x) => x.id !== id); expandedCards.delete(id); save().then(paint); }
       else if (e.target.closest("[data-save]")) { item.title = card.querySelector("[data-title]").value.trim() || item.title; item.note = card.querySelector("[data-note]").value.trim(); save().then(() => { paint(); tide.notify("已保存"); }); }
     });
     host.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("[data-url]")) add(); });

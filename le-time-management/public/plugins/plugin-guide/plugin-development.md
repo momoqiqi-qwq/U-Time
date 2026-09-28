@@ -127,15 +127,20 @@ tide.events.emit("notice:new", {
 });
 ```
 
-### 读其他插件的消息
+### 发布现有消息与读取汇总
 
 ```js
-const list = tide.messages.list(30);   // 新的在前：[{ source, sourceName, title, time, sender, at }]
+tide.messages.publish([
+  { title: "期末考试安排", time: "2026-09-28 08:00", sender: "教务处" },
+]);
+const list = tide.messages.list(30); // [{ source, sourceName, title, time, sender, at }]
 ```
 
-任何插件 `emit("notice:new", …)` 时，宿主会抄一份进这份跨插件队列，按 `source|time|title` 去重、只留最近 120 条。两条边界要清楚：
+`publish` 供消息类插件在加载缓存和刷新后公开**当前列表的摘要**，传空数组即清空该插件先前发布的列表；需声明 `events` 权限。来源 id 由宿主固定为发布插件，不能伪装其他插件；只接受标题、时间、发送者和可选的来源名称，不开放插件私有存储或登录信息。`publish` 不代表“刚收到新消息”，不会触发 `notice:new` 订阅者或微信推送。
 
-- 队列**只在本次运行期**，重启即空 —— 消息的原始事实仍在各插件自己的私有存储里，这里只是一份汇总视图。要跨重启留存，自己并入私有存储（内置的 AI 对话插件就是这么做的）。
+任何插件 `emit("notice:new", …)` 时，宿主仍会抄收新消息。`list` 合并新消息与各插件当前公开的摘要，按 `source|time|title` 去重、最多返回 120 条；需声明 `messages` 权限。两条边界要清楚：
+
+- 宿主汇总**只在本次运行期**，重启即空 —— 原始事实仍在各插件自己的存储里；需要跨重启留存的调用方可自行保存汇总（AI 对话插件会这么做）。
 - 抄收发生在 `emit` 那一刻，与谁在监听无关；所以晚加载的插件也读得到早加载插件在启动阶段广播的消息，不必自己去 `events.on` 蹲。
 
 ### 网络请求

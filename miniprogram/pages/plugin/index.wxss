@@ -123,6 +123,8 @@
 .dd-mrow { display: flex; align-items: center; gap: 12rpx; padding: 14rpx 0; }
 .dd-mrow + .dd-mrow { border-top: 1rpx solid var(--line-soft); }
 .dd-mno { flex: none; width: 40rpx; font-size: 21rpx; color: var(--ink-3); text-align: center; font-variant-numeric: tabular-nums; }
+.dd-drag { flex: none; width: 46rpx; min-height: 56rpx; display: flex; align-items: center; justify-content: center; color: var(--ink-3); font-size: 28rpx; line-height: 1; touch-action: none; }
+.dd-drag.on { color: var(--deep); background: rgba(15, 76, 92, .08); border-radius: 12rpx; }
 .dd-mname { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10rpx; font-size: 26rpx; font-weight: 600; }
 .dd-cur { flex: none; font-size: 18rpx; border-radius: 999rpx; padding: 2rpx 12rpx; background: var(--deep); color: var(--on-deep); }
 .dd-mbtns { flex: none; display: flex; gap: 8rpx; }

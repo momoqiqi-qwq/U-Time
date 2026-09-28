@@ -38,6 +38,13 @@ assert.match(host, /messages: \{[\s\S]{0,200}requirePermission\(man, pid, "messa
   "tide.messages.list 必须过权限闸门，未声明就读不到别的插件推了什么");
 assert.match(host, /if \(name === "notice:new"\) collectNotice\(data, pid\)/,
   "抄收必须挂在 events.emit 上：这样与谁在监听、谁先加载都无关");
+assert.match(host, /publish: \(items\) => \{ requirePermission\(man, pid, "events"\); publishPluginMessages\(pid, man\.name, items\); \}/,
+  "发布当前列表摘要必须过 events 权限，并由宿主绑定真实来源");
+assert.match(doc, /tide\.messages\.publish\(/, "插件开发文档必须说明现有列表如何发布");
+for (const id of ["school-notice", "chaoxing-notify", "cppu-notify", "gx-news", "rss-reader", "github-readme"]) {
+  assert.match(read(`../public/plugins/${id}/main.js`), /tide\.messages\?\.publish\(/, `${id} 必须公开现有消息摘要`);
+  assert.ok(JSON.parse(read(`../public/plugins/${id}/manifest.json`)).permissions.includes("events"), `${id} 发布摘要需要 events 权限`);
+}
 assert.match(host, /只存内存/, "宿主注释要写清这份队列只在运行期，避免有人以为它能跨重启");
 assert.match(doc, /tide\.messages\.list\(/, "插件开发文档必须写清怎么读其他插件的消息");
 assert.match(doc, /source\|time\|title/, "文档要写明去重键，插件侧才知道重复推送会合并");
@@ -85,6 +92,7 @@ for (const banned of ["position:fixed", "document.body.append", "innerWidth", "i
 }
 assert.match(mainSrc, /!e\.isComposing/, "回车发送必须避开中文输入法的选词回车");
 assert.match(mainSrc, /带本机数据/, "「带本机数据」开关要在界面上看得见 —— 这是数据外发的唯一闸口");
+assert.match(mainSrc, /\[data-theme-mode="dark"\] \.aichat-msg\.me/, "深色模式的用户气泡须单独压低亮度");
 
 /* ───────── 四、真跑：解析、校验、落库、撤销 ───────── */
 
@@ -471,6 +479,14 @@ assert.ok(fx && typeof fx.parseReply === "function", "插件源码没暴露内�
   PH.collectNotice({ items: "不是数组" });
   PH.collectNotice({ source: "x", items: [null, { title: "活下来了" }] });
   assert.equal(PH.listNotices(1)[0].title, "活下来了", "载荷畸形只能丢条目，不能把广播方一起打断");
+  PH.publishPluginMessages("school-notice", "学校通知", [
+    { title: "  已有公告  ", time: "09-20", sender: "教务处" },
+    { title: "", time: "09-19" },
+  ]);
+  assert.equal(PH.listNotices(120).filter((m) => m.source === "school-notice").length, 1, "现有列表只公开有效标题");
+  assert.equal(PH.listNotices(120).find((m) => m.title === "已有公告").sourceName, "学校通知");
+  PH.publishPluginMessages("school-notice", "学校通知", []);
+  assert.equal(PH.listNotices(120).some((m) => m.title === "已有公告"), false, "空列表须撤销先前公开的摘要");
 }
 
 /* 10. 插件侧合并：跨重启留存、重复同步不翻倍、快照与提示词都带上消息 */
@@ -493,7 +509,7 @@ assert.ok(fx && typeof fx.parseReply === "function", "插件源码没暴露内�
   assert.equal(fx.notices[0].title, "一篇新文章");
 
   const snap = fx.snapshot();
-  assert.match(snap, /其他插件推来的消息/, "快照必须带上消息段，否则「最近有什么通知」无从回答");
+  assert.match(snap, /其他插件的消息/, "快照必须带上消息段，否则「最近有什么通知」无从回答");
   assert.match(snap, /【警大门户 共 1 条】/);
   assert.match(snap, /补考通知 · 09-22 10:00 · 教务处/);
   assert.match(snap, /【RSS 订阅 共 1 条】/);

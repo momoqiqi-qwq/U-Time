@@ -9,13 +9,13 @@ const manifest = JSON.parse(fs.readFileSync(new URL('../public/plugins/wechat-pu
 assert.ok(source.includes('https://www.pushplus.plus/doc/guide/sdk.html'), '必须链接官方使用说明/SDK 文档');
 assert.ok(source.includes('https://www.pushplus.plus/doc/guide/api.html'), '必须链接官方消息接口文档');
 assert.ok(source.includes('tide.util.openUrl'), '文档链接必须用 openUrl 经系统浏览器打开');
-assert.equal(manifest.version, '1.9.0');
+assert.equal(manifest.version, '1.10.0');
 assert.ok((manifest.permissions || []).includes('openUrl'), 'manifest 必须声明 openUrl 权限');
 assert.ok((manifest.permissions || []).includes('events'), '订阅 notice:new 必须在 manifest 声明 events 权限');
 const catalog = fs.readFileSync(new URL('../src/pluginCatalog.js', import.meta.url), 'utf8');
 const entry = catalog.slice(catalog.indexOf('"id": "wechat-push"'));
 const block = entry.slice(0, entry.indexOf('},\n  {'));
-assert.match(block, /"1\.9\.0"/, 'pluginCatalog 必须同步插件新版本号');
+assert.match(block, /"1\.10\.0"/, 'pluginCatalog 必须同步插件新版本号');
 assert.match(block, /"openUrl"/, 'pluginCatalog 必须同步 openUrl 权限');
 
 /* ── 2. vm 实测 pushPlus：请求体、成功判定、失败透传 ── */
@@ -79,7 +79,7 @@ assert.match(source, /推送「\$\{title\.slice\(0, 20\)\}」/, '失败日志必
    旧单选下拉（data-scope）已移除；pushScope 数组持久化，老配置从 blockEnabled/taskEnabled 反推。
    v1.8.0 攒批策略（对照 PushPlus 官方限制：相同内容 1 小时限 3 条、每分钟限 5 次、内容 ≤20000 字）：
    首条入队后攒 2 分钟（节流式窗口），到点把队列里全部待发消息合并成一条推送，请求数压到最低。 */
-assert.match(block, /"1\.9\.0"/, 'pluginCatalog 必须同步插件新版本号');
+assert.match(block, /"1\.10\.0"/, 'pluginCatalog 必须同步插件新版本号');
 assert.match(source, /data-ms="block"/, '多选面板要有「时间块」选项');
 assert.match(source, /data-ms="task"/, '多选面板要有「任务截止」选项');
 assert.match(source, /data-ms="plugin"/, '多选面板要有「插件收集的新消息」选项');

@@ -22,11 +22,12 @@
     breakNotify: true, breakSound: true,
     sound: "beep", volume: 0.75,
     customAudio: null, customAudioName: "",
+    focusStages: [],
   };
   // 自定义音频以 data URL 存进插件设置，会跟着应用数据一起备份，所以卡在 4 MB。
   const AUDIO_MAX_BYTES = 4 * 1024 * 1024;
 
-  let mode = MODES[0], left = 25 * 60, timer = null, currentTaskId = "", customSec = 25 * 60;
+  let mode = MODES[0], left = 25 * 60, timer = null, currentTaskId = "", customSec = 25 * 60, firedStages = new Set();
   let box, timeText, ring, taskSel, dotsBox;
 
   let reminder = { ...REMINDER_DEFAULT };
@@ -59,6 +60,7 @@
     out.sound = typeof out.sound === "string" && out.sound ? out.sound : REMINDER_DEFAULT.sound;
     out.customAudio = typeof out.customAudio === "string" && out.customAudio ? out.customAudio : null;
     out.customAudioName = String(out.customAudioName || "");
+    out.focusStages = Array.isArray(out.focusStages) ? [...new Set(out.focusStages.map(Number).filter((n) => Number.isInteger(n) && n > 0 && n <= CUSTOM_MAX_SEC))].sort((a, b) => b - a).slice(0, 8) : [...REMINDER_DEFAULT.focusStages];
     // 音频丢了就别停在「自定义」上，否则到点会一声不响。
     if (out.sound === "custom" && !out.customAudio) out.sound = REMINDER_DEFAULT.sound;
     return out;
@@ -111,6 +113,14 @@
       left = 0; paint();
       finish();
       return;
+    }
+    if (mode.id === "focus" || mode.id === "custom") {
+      for (const seconds of reminder.focusStages || []) {
+        if (left !== seconds || firedStages.has(seconds) || seconds >= modeSeconds(mode)) continue;
+        firedStages.add(seconds);
+        if (reminder.focusNotify) tide.notify(`专注还剩 ${fmt(seconds)}`);
+        if (reminder.focusSound) playReminderSound();
+      }
     }
     paint();
   }
@@ -316,8 +326,17 @@
       reader.readAsDataURL(file);
     });
 
+    const stages = document.createElement("input");
+    stages.type = "text";
+    stages.placeholder = "例如 5, 1";
+    stages.setAttribute("aria-label", "专注结束前提醒时间，以分钟为单位，逗号分隔");
+    stages.style.cssText = "width:min(100%,190px);height:32px;padding:0 9px;border:1px solid var(--line,#E4DFD6);border-radius:7px;background:var(--paper,#fff);color:var(--ink,#22303A)";
+    const stageHint = document.createElement("div");
+    stageHint.style.cssText = "font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#8FA2A8)";
+    stageHint.textContent = "分钟，逗号分隔；留空仅在结束时提醒，最多 8 段";
     body.append(
       row("专注结束", check("focusNotify", "通知"), check("focusSound", "声音")),
+      row("结束前提醒", stages), stageHint,
       row("休息结束", check("breakNotify", "通知"), check("breakSound", "声音")),
       soundChips,
       soundNote,
@@ -325,12 +344,24 @@
       row("自定义音频", audioName, chip("导入", () => audioInput.click()), clearAudio),
       audioInput,
     );
+    stages.addEventListener("change", () => {
+      const raw = stages.value.trim();
+      const parts = raw ? raw.split(/[,，、\s]+/).filter(Boolean) : [];
+      const minutes = parts.map(Number);
+      if (parts.length > 8 || minutes.some((n) => !Number.isFinite(n) || Math.round(n * 60) < 1 || n * 60 > CUSTOM_MAX_SEC)) {
+        tide.notify("请输入 0 到 240 分钟内的时间点，最多 8 段");
+        stages.value = (reminder.focusStages || []).map((n) => n / 60).join(", ");
+        return;
+      }
+      reminder.focusStages = [...new Set(minutes.map((n) => Math.round(n * 60)))].sort((a, b) => b - a);
+      saveReminder(); updateSummary();
+    });
 
     function updateSummary() {
       const on = (key) => reminder[key] !== false;
       const both = (a, b) => (on(a) || on(b) ? "开" : "关");
       const name = reminder.sound === "custom" ? (reminder.customAudioName || "自定义音频") : (presetLabels[reminder.sound] || reminder.sound);
-      summary.textContent = `专注 ${both("focusNotify", "focusSound")} · 休息 ${both("breakNotify", "breakSound")} · ${name} ${Math.round(reminder.volume * 100)}%`;
+      summary.textContent = `专注 ${both("focusNotify", "focusSound")}${reminder.focusStages?.length ? ` · 提前 ${reminder.focusStages.length} 段` : ""} · 休息 ${both("breakNotify", "breakSound")} · ${name} ${Math.round(reminder.volume * 100)}%`;
     }
 
     function updateNote() {
@@ -347,6 +378,7 @@
       audioName.textContent = reminder.customAudio ? (reminder.customAudioName || "已导入音频") : "未导入";
       audioName.title = reminder.customAudio ? (reminder.customAudioName || "已导入音频") : "可选：导入一段本地音频作为到点提示音";
       clearAudio.style.display = reminder.customAudio ? "" : "none";
+      stages.value = (reminder.focusStages || []).map((n) => n / 60).join(", ");
       updateSummary();
       updateNote();
     }
@@ -392,7 +424,7 @@
       b.dataset.m = m.id;
       b.style.cssText = "font-size:calc(12px * var(--ui-text-scale));border-radius:16px;padding:7px 16px;border:1px solid var(--line,#E4DFD6);color:var(--ink-2,#7E8B94);background:var(--panel,#fff);cursor:pointer";
       b.addEventListener("click", () => {
-        stop(); mode = m; left = modeSeconds(m);
+        stop(); mode = m; left = modeSeconds(m); firedStages = new Set();
         modes.querySelectorAll("button").forEach((x) => {
           const on = x.dataset.m === m.id;
           x.style.background = on ? "var(--deep,#0F4C5C)" : "var(--panel,#fff)";
@@ -434,6 +466,7 @@
       stop();
       mode = { id: "custom", label: "自定义", min: customSec / 60 };
       left = customSec;
+      firedStages = new Set();
       paint();
     };
     customBtn.addEventListener("click", applyCustom);
@@ -475,10 +508,10 @@
     const startBtn = mkBtn("▶ 开始", "var(--deep,#0F4C5C)", "var(--on-deep,#fff)");
     startBtn.addEventListener("click", () => {
       if (timer) { stop(); startBtn.textContent = "▶ 继续"; }
-      else { timer = setInterval(tick, 1000); startBtn.textContent = "⏸ 暂停"; }
+      else { if (left <= 0) { left = modeSeconds(mode); firedStages = new Set(); paint(); } timer = setInterval(tick, 1000); startBtn.textContent = "⏸ 暂停"; }
     });
     const resetBtn = mkBtn("↺ 重置", "var(--panel,#fff)", "var(--ink-2,#7E8B94)", true);
-    resetBtn.addEventListener("click", () => { stop(); left = modeSeconds(mode); paint(); startBtn.textContent = "▶ 开始"; });
+    resetBtn.addEventListener("click", () => { stop(); left = modeSeconds(mode); firedStages = new Set(); paint(); startBtn.textContent = "▶ 开始"; });
     ctrl.append(startBtn, resetBtn);
 
     dotsBox = document.createElement("div");

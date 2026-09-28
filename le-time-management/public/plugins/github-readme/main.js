@@ -337,15 +337,15 @@
   }
 
   /* ═══════════════════ 取数与变更检测 ═══════════════════
-     日常轮询一个 api.github.com 请求都不发：匿名限流只有 60 次/小时，追十个仓库轮几轮
-     就撞墙了。变更靠 per-path 的 commit Atom feed（github.com 域名，不吃 API 限流），
-     正文靠 raw.githubusercontent.com。API 只在「添加仓库」那一刻用一次 —— 顺带把 README
-     的真实文件名与分支拿回来（readme.md / README.MD / docs/ 都实测存在，猜不出来）。 */
+     平时靠 per-path Atom feed 查提交，正文走 raw 域名；Atom 不可用时才走 commits API，
+     避免正常轮询消耗匿名 API 配额。添加仓库时用 README API 识别真实文件名与分支。 */
 
   const apiReadmeUrl = (owner, repo, ref) =>
     `https://api.github.com/repos/${owner}/${repo}/readme${ref ? `?ref=${encodeURIComponent(ref)}` : ""}`;
-  const rawUrlOf = (r) => `https://raw.githubusercontent.com/${r.owner}/${r.repo}/${r.branch}/${r.dir || ""}${r.path}`;
-  const atomUrlOf = (r) => `https://github.com/${r.owner}/${r.repo}/commits/${r.branch}/${r.dir || ""}${r.path}.atom`;
+  const readmePathOf = (r) => String(r.path || "").includes("/") ? r.path : `${r.dir || ""}${r.path}`;
+  const rawUrlOf = (r) => `https://raw.githubusercontent.com/${r.owner}/${r.repo}/${r.branch}/${readmePathOf(r)}`;
+  const atomUrlOf = (r) => `https://github.com/${r.owner}/${r.repo}/commits/${r.branch}/${readmePathOf(r)}.atom`;
+  const commitsApiUrlOf = (r) => `https://api.github.com/repos/${r.owner}/${r.repo}/commits?path=${encodeURIComponent(readmePathOf(r))}&sha=${encodeURIComponent(r.branch)}&per_page=20`;
   const repoKey = (r) => `${r.owner}/${r.repo}`;
 
   const ENT = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
@@ -405,6 +405,17 @@
     return out;
   }
 
+  function apiEntries(body) {
+    let rows;
+    try { rows = JSON.parse(String(body || "")); } catch { return []; }
+    if (!Array.isArray(rows)) return [];
+    return rows.filter((row) => row && row.sha).map((row) => ({
+      sha: String(row.sha), title: String(row.commit?.message || "").split("\n")[0],
+      time: String(row.commit?.author?.date || ""), author: String(row.commit?.author?.name || ""),
+      url: String(row.html_url || ""),
+    }));
+  }
+
   const state = {
     repos: [], docs: {}, seen: new Set(), known: {}, syncing: false, lastAt: 0, error: "", auto: true,
     async persist() {
@@ -423,6 +434,7 @@
     state.known = (await tide.storage.get("known", null)) || {};
     state.docs = (await tide.storage.get("docs", null)) || {};
     state.repos.forEach(countUnread);
+    publishCommits();
     return true;
   }
 
@@ -434,12 +446,32 @@
 
   async function fetchHead(repo) {
     let res;
-    try { res = await tide.http.get(atomUrlOf(repo)); } catch { return { error: "网络不通，拉取失败" }; }
-    if (res.status === 403 || res.status === 429) return { error: "GitHub 访问太频繁，歇一会儿再试", throttled: true };
-    if (res.status !== 200) return { error: `拉取失败（HTTP ${res.status}）` };
-    const entries = atomEntries(res.body);
-    if (!entries.length) return { error: "没读到该文件的提交记录" };
-    return { entries };
+    let atomError = "";
+    try { res = await tide.http.get(atomUrlOf(repo)); } catch (e) { atomError = String(e?.message || e); }
+    if (res?.status === 403 || res?.status === 429) return { error: "GitHub 访问太频繁，歇一会儿再试", throttled: true };
+    if (res?.status === 200) {
+      const entries = atomEntries(res.body);
+      if (entries.length) return { entries };
+      atomError = "提交订阅为空";
+    } else if (res) atomError = `HTTP ${res.status}`;
+    try {
+      const fallback = await tide.http.get(commitsApiUrlOf(repo));
+      if (fallback.status === 403 || fallback.status === 429) return { error: "GitHub API 限流，请稍后重试", throttled: true };
+      const entries = fallback.status === 200 ? apiEntries(fallback.body) : [];
+      if (entries.length) return { entries };
+      return { error: `提交记录拉取失败：订阅 ${atomError || "不可用"}；API HTTP ${fallback.status}` };
+    } catch (e) {
+      return { error: `提交记录拉取失败：订阅 ${atomError || "不可用"}；API ${String(e?.message || e)}`.slice(0, 180) };
+    }
+  }
+
+  function publishCommits() {
+    try {
+      tide.messages?.publish(state.repos.filter((repo) => repo.commit).map((repo) => ({
+        title: `${repoKey(repo)}：${repo.commit.title || "（无说明的提交）"}`,
+        time: repo.commit.time || "", sender: repo.commit.author || repo.repo,
+      })));
+    } catch {}
   }
 
   async function fetchDoc(repo) {
@@ -483,6 +515,7 @@
     } else repo.error = head.error;
     state.lastAt = Date.now();
     countUnread(repo);
+    publishCommits();
     await state.persist();
     return { ok: true, repo };
   }
@@ -516,6 +549,7 @@
         countUnread(repo);
       }
       state.lastAt = Date.now();
+      publishCommits();
       if (fresh.length) {
         // 一轮只广播一次（多仓库攒成一条），省 PushPlus 频次；广播抛错不许影响抓取
         try {

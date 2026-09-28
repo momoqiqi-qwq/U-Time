@@ -160,6 +160,7 @@
     if (/phpcms|content_list|showid=/i.test(s)) return "PHPCMS";
     if (/joomla|com_content|option=com_/i.test(s)) return "Joomla";
     if (/metinfo|met_[a-z_]+/i.test(s)) return "MetInfo";
+    if (/jeecg|ant-design-vue|ruoyi|若依|vue-admin|uni-app|unipush|__next_data__|__nuxt__|_nuxt\/|_next\/static/i.test(s)) return "前端渲染公告 / 消息栏";
     return "通用高校公告解析";
   }
   const kindOf = (n) => n.kind || tide.util.web.noticeKind(n.title);
@@ -202,12 +203,23 @@
     }
     const rows = tide.util.web.extractNoticeLinks(html, finalUrl, { max: 100 });
     if (rows.length) return { rows, mode: cmsName(html), hint: "" };
+    const embedded = tide.util.web.extractEmbeddedJsonNotices(html, finalUrl, { max: 100 });
+    if (embedded.length) return { rows: embedded, mode: "内嵌 JSON 状态", hint: "" };
+    const apis = tide.util.web.extractNoticeApiCandidates(html, finalUrl, { max: 8 });
+    for (const apiUrl of apis) {
+      try {
+        const res = await fetchPage(site, apiUrl, { headers: { "Accept": "application/json, text/plain, */*", "Referer": finalUrl } });
+        if (res.status >= 400) continue;
+        const got = tide.util.web.parseGenericNoticeJson(res.body, res.finalUrl || apiUrl, { max: 100 });
+        if (got.length) return { rows: got, mode: "自动发现 JSON 列表接口", hint: "" };
+      } catch { /* 下一个候选接口继续试 */ }
+    }
     // 一条都没解析出来时才判「是不是 JS 渲染的空壳」—— 这类站点换列表页也救不了，
     // 必须把原因说清楚，否则用户只会看到「已读取 0 条公告」。
     const spa = tide.util.web.detectSpaShell(html);
     return {
       rows: [], mode: cmsName(html),
-      hint: spa ? `这个页面是 ${spa.framework} 单页应用：HTML 里只有 ${spa.links} 个链接，通知列表由浏览器执行 JS 后才渲染出来，插件读不到。可换成学校的「通知公告」列表页；若该站另有数据接口，反馈给插件做站点适配。` : "",
+      hint: spa ? `这个页面是 ${spa.framework} 单页应用：HTML 里只有 ${spa.links} 个链接，插件已尝试内嵌状态和 ${apis.length} 个疑似公告接口但仍未读到条目。可换成学校的「通知公告」列表页；若该站另有数据接口，反馈给插件做站点适配。` : "",
     };
   }
 
@@ -253,7 +265,7 @@
       let rows = [];
       try {
         const res = await fetchPage(site, url);
-        if (res.status < 400) rows = tide.util.web.extractNoticeLinks(res.body, res.finalUrl || url, { max: MAX_ROWS });
+        if (res.status < 400) rows = (await collectNotices(site, res.body, res.finalUrl || url)).rows;
       } catch { continue; }
       if (!rows.length) continue;
       const before = notices.length;
@@ -313,6 +325,17 @@
     } catch {}
   }
 
+  async function publishCachedNotices() {
+    try {
+      const groups = await Promise.all(sites.map(async (site) => ({
+        site, rows: await tide.storage.get(`notices:${site.id}`, []), hidden: await tide.storage.get(`hidden:${site.id}`, []),
+      })));
+      tide.messages?.publish(groups.flatMap(({ site, rows, hidden }) => (Array.isArray(rows) ? rows : [])
+        .filter((n) => !Array.isArray(hidden) || !hidden.includes(n.url)).slice(0, 20)
+        .map((n) => ({ title: n.title, time: n.date || "", sender: site.name || "", sourceName: `学校通知·${site.name || "网站"}` }))));
+    } catch {}
+  }
+
   async function readNotices(site) {
     const res = await fetchPage(site, site.url);
     if (res.status >= 400) throw new Error(`HTTP ${res.status}`);
@@ -346,6 +369,7 @@
       await walkPages(site, pager, Math.min(...pager.read) + 1, PAGE_ROUND - 1);
     } else pagers.delete(site.id);
     await tide.storage.set(`notices:${site.id}`, notices.slice(0, MAX_ROWS)); await save();
+    await publishCachedNotices();
     // 刷新顺带补图标：升级到「原生抓取」之前的存量站点只有远程地址，
     // 在 APK 上拿不到 —— 用户点一次刷新就把 data URL 补上。
     await ensureIconData(site, false);
@@ -540,6 +564,7 @@
     expanded.delete(n.url); bodies.delete(n.url);
     notices = notices.filter((x) => x.url !== n.url);
     await tide.storage.set(`hidden:${site.id}`, hiddenUrls);
+    await publishCachedNotices();
     paint();
   }
 
@@ -557,6 +582,7 @@
       site.cms = "自动识别"; site.lastFetchedAt = 0; site.iconUrl = ""; site.spaHint = "";
       notices = []; expanded.clear(); bodies.clear(); pagers.delete(site.id);
       await tide.storage.set(`notices:${site.id}`, []);
+      await publishCachedNotices();
     }
     editing = false;
     await save();
@@ -574,7 +600,7 @@
     sites = sites.filter((x) => x.id !== site.id);
     activeId = sites[0]?.id || "";
     notices = activeId ? await tide.storage.get(`notices:${activeId}`, []) : [];
-    await loadHidden(activeId); await save(); paint();
+    await loadHidden(activeId); await save(); await publishCachedNotices(); paint();
   }
 
   // 右键标签页：先把该站点切成当前站点 —— 菜单动作与卡片按钮共用同一套实现，
@@ -641,11 +667,12 @@
 
   function paint() {
     if (!host?.isConnected) return; const site = active(), rows = filtered(), total = matched().length, shown = rows.slice(0, rendered);
-    host.innerHTML = `<div class="sn"><div class="sn-card"><div class="sn-add"><input class="sn-in" data-new-name placeholder="学校名称（可留空自动识别）"><input class="sn-in" data-new-url placeholder="学校通知/公告网站网址"><button class="sn-btn pri" data-add ${busy ? "disabled" : ""}>${busy ? "处理中…" : "添加并自动适配"}</button></div><div class="sn-note">支持常见高校 VSB / VisualSiteBuilder、WordPress、Drupal、DedeCMS 以及通用公告列表结构。登录页面会尝试识别账号、密码、隐藏字段和验证码。</div>${sites.length ? `<div class="sn-sites"><span class="sn-sites-label">站点</span><div class="sn-chips">${sites.map((x) => chipHtml(x, site)).join("")}</div></div>` : ""}</div>${tabMenu ? tabMenuHtml() : ""}${site ? `${sitePanel ? `<section class="sn-card sn-site"><div class="sn-head"><div><h2>${favHtml(site, " big")}<span class="sn-name">${esc(site.name)}</span></h2><div class="sn-meta">${esc(site.url)}<br>适配模式：${esc(site.cms || "自动识别")}</div><input class="sn-in sn-login-url" data-site-login-url value="${esc(site.loginUrl || "")}" placeholder="登录网址（可选；与公告网址不同时填写）">${site.lastFetchedAt ? `<span class="sn-ok">已缓存 · ${new Date(site.lastFetchedAt).toLocaleString()}</span>` : ""}</div><div class="sn-actions"><button class="sn-btn pri" data-refresh ${busy ? "disabled" : ""}>刷新通知</button><button class="sn-btn" data-edit-site>编辑</button><button class="sn-btn" data-login ${loginBusy ? "disabled" : ""}>${loginBusy ? "读取中…" : "登录配置"}</button><button class="sn-btn" data-open-site>打开网站</button><button class="sn-btn" data-remove-site>删除</button></div></div>${editing ? `<div class="sn-add" data-edit-box style="margin-top:12px"><input class="sn-in" data-edit-name value="${esc(site.name)}" placeholder="网站名称"><input class="sn-in" data-edit-url value="${esc(site.url)}" placeholder="通知/公告网站网址"><div style="display:flex;gap:7px"><button class="sn-btn pri" data-save-site ${busy ? "disabled" : ""}>保存</button><button class="sn-btn" data-cancel-edit>取消</button></div></div><div class="sn-note">改名称只影响显示；改网址会作废旧缓存并自动重新读取公告。</div>` : ""}${loginHtml(site)}</section>` : ""}<div class="sn-toolbar"><input class="sn-in" data-search value="${esc(query)}" placeholder="搜索通知"><button class="sn-btn sn-toggle ${onlyNotice ? "on" : ""}" data-toggle-only>${onlyNotice ? "仅通知/公告" : "全部条目"}</button><span class="sn-meta sn-count">${rows.length} / ${total} 条${hiddenUrls.length ? ` · 已删除 ${hiddenUrls.length}` : ""}</span>${pagerHtml(site)}${hiddenUrls.length ? `<button class="sn-btn" data-restore>恢复已删除</button>` : ""}</div><div class="sn-list"${iconStyleAttr(site)}>${shown.map((n, i) => { const kindCode = kindOf(n); const isOpen = expanded.has(n.url); let timeText = n.date || ""; let snip = n.snippet || ""; let cat = ""; if (snip && timeText && snip.includes(timeText)) { const mTime = snip.match(/(\d{1,2}:\d{2})/); const rest = snip.split(timeText).join("").replace(/[，,、·|/\s]+/g, "").replace(/\d{1,2}:\d{2}/, ""); if (mTime && rest.length <= 5) { if (!timeText.includes(mTime[1])) timeText = `${timeText} ${mTime[1]}`; cat = rest.trim(); snip = ""; } } const tagText = kindCode === "notice" ? "通知" : kindCode === "news" ? "新闻资讯" : (cat.slice(0, 12) || ""); return `<article class="sn-item${isOpen ? " open" : ""}" data-notice="${i}"><button class="sn-heading" data-toggle-body aria-expanded="${isOpen}" aria-label="${esc(n.title)}，${isOpen ? "收起正文" : "展开正文"}"><span class="sn-title">${favHtml(site, "", false)}<span>${esc(n.title)}</span></span></button><div class="sn-meta-row">${tagText ? `<span class="sn-tag">${esc(tagText)}</span>` : ""}<span>${esc(timeText)}</span></div>${snip ? `<div class="sn-snip">${esc(snip)}</div>` : ""}<button class="sn-btn sn-expand" data-toggle-body aria-expanded="${isOpen}"><span>${isOpen ? "收起正文" : "展开正文"}</span></button><div class="sn-detail-shell" aria-hidden="${!isOpen}"><div class="sn-detail-clip"><div class="sn-detail">${isOpen ? `<div class="sn-article">${(bodyLoading.has(n.url) ? "正在读取正文…" : esc(bodies.get(n.url) || "未识别到正文，可点「打开原文」查看原网页")).replace(/\n/g, "<br>")}</div>` : ""}<div class="sn-item-acts"><button data-open-notice>打开原文</button><button data-remind>转为提醒</button><button data-dismiss>删除条目</button></div></div></div></div></article>`; }).join("") || `<div class="sn-empty">${loginRuntime.has(site.id) ? "请先完成登录。" : busy ? "正在读取通知…" : lastErrors.has(site.id) ? `读取失败：${esc(lastErrors.get(site.id))}。请检查网络或代理后，再点一次「刷新通知」重试。` : site.spaHint ? esc(site.spaHint) : "暂无可识别通知。可尝试换成学校“通知公告”列表页，而不是门户首页。"}</div>`}${rows.length > shown.length ? `<button class="sn-btn sn-more" data-more-rows>▾ 显示更多（还有 ${rows.length - shown.length} 条）</button>` : ""}</div>` : `<div class="sn-empty">先输入学校通知网站网址。插件会自动识别公告列表；如果站点需要登录，会显示登录配置。</div>`}</div>`;
+    host.innerHTML = `<div class="sn"><div class="sn-card"><div class="sn-add"><input class="sn-in" data-new-name placeholder="学校名称（可留空自动识别）"><input class="sn-in" data-new-url placeholder="学校通知/公告网站网址"><button class="sn-btn pri" data-add ${busy ? "disabled" : ""}>${busy ? "处理中…" : "添加并自动适配"}</button></div><div class="sn-note">支持常见高校 VSB / VisualSiteBuilder、WordPress、Drupal、DedeCMS、Nuxt / Next / Vue 空壳页、内嵌 JSON 状态和通用公告/消息列表接口。登录页面会尝试识别账号、密码、隐藏字段和验证码。</div>${sites.length ? `<div class="sn-sites"><span class="sn-sites-label">站点</span><div class="sn-chips">${sites.map((x) => chipHtml(x, site)).join("")}</div></div>` : ""}</div>${tabMenu ? tabMenuHtml() : ""}${site ? `${sitePanel ? `<section class="sn-card sn-site"><div class="sn-head"><div><h2>${favHtml(site, " big")}<span class="sn-name">${esc(site.name)}</span></h2><div class="sn-meta">${esc(site.url)}<br>适配模式：${esc(site.cms || "自动识别")}</div><input class="sn-in sn-login-url" data-site-login-url value="${esc(site.loginUrl || "")}" placeholder="登录网址（可选；与公告网址不同时填写）">${site.lastFetchedAt ? `<span class="sn-ok">已缓存 · ${new Date(site.lastFetchedAt).toLocaleString()}</span>` : ""}</div><div class="sn-actions"><button class="sn-btn pri" data-refresh ${busy ? "disabled" : ""}>刷新通知</button><button class="sn-btn" data-edit-site>编辑</button><button class="sn-btn" data-login ${loginBusy ? "disabled" : ""}>${loginBusy ? "读取中…" : "登录配置"}</button><button class="sn-btn" data-open-site>打开网站</button><button class="sn-btn" data-remove-site>删除</button></div></div>${editing ? `<div class="sn-add" data-edit-box style="margin-top:12px"><input class="sn-in" data-edit-name value="${esc(site.name)}" placeholder="网站名称"><input class="sn-in" data-edit-url value="${esc(site.url)}" placeholder="通知/公告网站网址"><div style="display:flex;gap:7px"><button class="sn-btn pri" data-save-site ${busy ? "disabled" : ""}>保存</button><button class="sn-btn" data-cancel-edit>取消</button></div></div><div class="sn-note">改名称只影响显示；改网址会作废旧缓存并自动重新读取公告。</div>` : ""}${loginHtml(site)}</section>` : ""}<div class="sn-toolbar"><input class="sn-in" data-search value="${esc(query)}" placeholder="搜索通知"><button class="sn-btn sn-toggle ${onlyNotice ? "on" : ""}" data-toggle-only>${onlyNotice ? "仅通知/公告" : "全部条目"}</button><span class="sn-meta sn-count">${rows.length} / ${total} 条${hiddenUrls.length ? ` · 已删除 ${hiddenUrls.length}` : ""}</span>${pagerHtml(site)}${hiddenUrls.length ? `<button class="sn-btn" data-restore>恢复已删除</button>` : ""}</div><div class="sn-list"${iconStyleAttr(site)}>${shown.map((n, i) => { const kindCode = kindOf(n); const isOpen = expanded.has(n.url); let timeText = n.date || ""; let snip = n.snippet || ""; let cat = ""; if (snip && timeText && snip.includes(timeText)) { const mTime = snip.match(/(\d{1,2}:\d{2})/); const rest = snip.split(timeText).join("").replace(/[，,、·|/\s]+/g, "").replace(/\d{1,2}:\d{2}/, ""); if (mTime && rest.length <= 5) { if (!timeText.includes(mTime[1])) timeText = `${timeText} ${mTime[1]}`; cat = rest.trim(); snip = ""; } } const tagText = kindCode === "notice" ? "通知" : kindCode === "news" ? "新闻资讯" : (cat.slice(0, 12) || ""); return `<article class="sn-item${isOpen ? " open" : ""}" data-notice="${i}"><button class="sn-heading" data-toggle-body aria-expanded="${isOpen}" aria-label="${esc(n.title)}，${isOpen ? "收起正文" : "展开正文"}"><span class="sn-title">${favHtml(site, "", false)}<span>${esc(n.title)}</span></span></button><div class="sn-meta-row">${tagText ? `<span class="sn-tag">${esc(tagText)}</span>` : ""}<span>${esc(timeText)}</span></div>${snip ? `<div class="sn-snip">${esc(snip)}</div>` : ""}<button class="sn-btn sn-expand" data-toggle-body aria-expanded="${isOpen}"><span>${isOpen ? "收起正文" : "展开正文"}</span></button><div class="sn-detail-shell" aria-hidden="${!isOpen}"><div class="sn-detail-clip"><div class="sn-detail">${isOpen ? `<div class="sn-article">${(bodyLoading.has(n.url) ? "正在读取正文…" : esc(bodies.get(n.url) || "未识别到正文，可点「打开原文」查看原网页")).replace(/\n/g, "<br>")}</div>` : ""}<div class="sn-item-acts"><button data-open-notice>打开原文</button><button data-remind>转为提醒</button><button data-dismiss>删除条目</button></div></div></div></div></article>`; }).join("") || `<div class="sn-empty">${loginRuntime.has(site.id) ? "请先完成登录。" : busy ? "正在读取通知…" : lastErrors.has(site.id) ? `读取失败：${esc(lastErrors.get(site.id))}。请检查网络或代理后，再点一次「刷新通知」重试。` : site.spaHint ? esc(site.spaHint) : "暂无可识别通知。可尝试换成学校“通知公告”列表页，而不是门户首页。"}</div>`}${rows.length > shown.length ? `<button class="sn-btn sn-more" data-more-rows>▾ 显示更多（还有 ${rows.length - shown.length} 条）</button>` : ""}</div>` : `<div class="sn-empty">先输入学校通知网站网址。插件会自动识别公告列表；如果站点需要登录，会显示登录配置。</div>`}</div>`;
   }
 
   async function render(el) {
     host = el; styles(); sites = await tide.storage.get("sites", []); if (!Array.isArray(sites)) sites = []; activeId = sites[0]?.id || ""; notices = activeId ? await tide.storage.get(`notices:${activeId}`, []) : []; if (!Array.isArray(notices)) notices = []; sitePanel = false; await loadHidden(activeId); paint();
+    await publishCachedNotices();
     if (activeId && notices.length) setTimeout(() => refresh(false), 0);
     // 存量站点补图标：升级前保存的站点只有远程地址，在 APK 上取不到（详见 favHtml 注释）。
     // 后台逐个补抓，不阻塞首屏；全部跑完再统一重绘一次。

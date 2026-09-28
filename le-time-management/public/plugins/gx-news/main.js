@@ -603,6 +603,11 @@
         const ids = new Set(state.list.map((m) => m.id));
         state.list = state.list.concat(fresh.filter((m) => !ids.has(m.id)));
       }
+      try {
+        tide.messages?.publish(state.list.slice(0, 80).map((m) => ({
+          title: m.title, time: m.time || "", sender: src.name, sourceName: `竞赛消息·${src.name}`,
+        })));
+      } catch {}
       state.page = page;
       state.hasMore = !!hasMore;
       state.fetchedAt = Date.now();

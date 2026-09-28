@@ -70,7 +70,7 @@
   <!-- 轮换值日 -->
   <block wx:if="{{id === 'dorm-duty' && dd}}">
     <view class="card dd-alert" wx:if="{{dd.remindBanner.length}}">
-      <view class="dd-alert-t" wx:for="{{dd.remindBanner}}" wx:key="group">今天轮到「{{item.name}}」{{item.group}}</view>
+      <view class="dd-alert-t" wx:for="{{dd.remindBanner}}" wx:key="group">今天轮到「{{item.name}}」{{item.group}}<text wx:if="{{item.location}}"> · {{item.location}}</text></view>
       <view class="meta">提醒时刻 {{dd.remindBanner[0].time}} · 小程序不常驻后台，只在打开本页时提示</view>
     </view>
 
@@ -104,6 +104,7 @@
           <text class="dd-badge" wx:if="{{dd.swapped}}">临时换人 · 原 {{dd.swapName}}</text>
         </view>
         <view class="meta">本轮 {{dd.cycleText}} · 第 {{dd.cycleIndex}} 轮{{dd.perRound > 1 ? ' · 每轮 ' + dd.perRound + ' 人' : ''}}</view>
+        <view class="meta" wx:if="{{dd.currentLocation}}">今日地点：{{dd.currentLocation}}</view>
       </block>
       <view class="dd-actions">
         <button class="btn small pri" bindtap="onDdAddTask" disabled="{{!dd.current}}">加入今日任务</button>
@@ -130,10 +131,37 @@
     </view>
 
     <view class="card">
+      <view class="section-title">地点轮换</view>
+      <view class="meta" wx:if="{{dd.nextLocationStart}}">{{dd.started ? '下次换地点' : '地点轮换开始'}}：{{dd.nextLocationText}} · {{dd.nextLocationName}}</view>
+      <view class="desc hint">地点和成员分别计时，均从起始日开始。</view>
+      <view class="dd-field">
+        <text class="label">每多少天换</text>
+        <view class="dd-chips">
+          <text class="dd-chip {{item.on ? 'on' : ''}}" wx:for="{{dd.locationPeriods}}" wx:key="days" data-days="{{item.days}}" bindtap="onDdLocationPeriod">{{item.label}}</text>
+          <text class="dd-chip {{dd.locationPeriodCustom ? 'on' : ''}}" bindtap="onDdLocationPeriodCustom">自定义 {{dd.cfg.locationPeriodDays}} 天</text>
+        </view>
+      </view>
+      <view class="dd-mrow" wx:for="{{dd.locations}}" wx:key="index">
+        <text class="dd-mno">{{item.no}}</text>
+        <view class="dd-mname" data-index="{{item.index}}" bindtap="onDdLocationRename">{{item.name}}</view>
+        <view class="dd-mbtns">
+          <button class="btn small dd-mini" data-index="{{item.index}}" bindtap="onDdLocationUp" disabled="{{!item.canUp}}">↑</button>
+          <button class="btn small dd-mini" data-index="{{item.index}}" bindtap="onDdLocationDown" disabled="{{!item.canDown}}">↓</button>
+          <button class="btn small dd-mini danger" data-index="{{item.index}}" bindtap="onDdLocationRemove">移除</button>
+        </view>
+      </view>
+      <view class="dd-add">
+        <input class="dd-in" placeholder="添加地点（如 走廊）" value="{{dd.newLocationName}}" maxlength="24" bindinput="onDdNewLocationInput" confirm-type="done" bindconfirm="onDdAddLocation" />
+        <button class="btn small pri dd-addbtn" bindtap="onDdAddLocation" disabled="{{!dd.canAddLocation}}">添加</button>
+      </view>
+    </view>
+
+    <view class="card">
       <view class="section-title">成员与轮换顺序（{{dd.members.length}}）</view>
-      <view class="desc">按这里的顺序轮换{{dd.perRound > 1 ? '，每轮 ' + dd.perRound + ' 人一起当班' : '，第一个人先当班'}}。</view>
+      <view class="desc">按真实轮换顺序排列；“当班”标记表示今天值日。按住拖拽点或点 ↑↓ 调整顺序{{dd.perRound > 1 ? '，每轮 ' + dd.perRound + ' 人一起当班' : ''}}。</view>
       <view class="dd-mrow" wx:for="{{dd.members}}" wx:key="id">
         <text class="dd-mno">{{item.no}}</text>
+        <text class="dd-drag {{dd.dragMemberId === item.id ? 'on' : ''}}" data-id="{{item.id}}" catchtouchstart="onDdDragStart" catchtouchmove="onDdDragMove" catchtouchend="onDdDragEnd" catchtouchcancel="onDdDragCancel">⋮⋮</text>
         <view class="dd-mname" data-id="{{item.id}}" bindtap="onDdRename">
           <text>{{item.name}}</text>
           <text class="dd-cur" wx:if="{{item.isCurrent}}">当班</text>

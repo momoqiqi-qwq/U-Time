@@ -1,11 +1,11 @@
 {
   "id": "wechat-push",
   "name": "微信提醒推送",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "author": "U-Time内置",
   "icon": "comment-dots",
   "faIcon": "comment-dots",
-  "description": "通过 PushPlus（推荐）把时间块、任务截止与插件收集的新消息推送到微信；推送内容用带图标的多列下拉勾选，插件消息还能细到单个插件（学习通 / 警大门户 / 竞赛消息 / RSS / 学校通知 各勾各的）。插件消息先攒 2 分钟再合并成一条推送，兼容 PushPlus 频次限制。支持 Token、可选 Topic 群组和测试消息，内置 pushplus 官方文档入口与一键获取 Token；兼容旧版 Server酱配置。",
+  "description": "通过 PushPlus 把时间块、任务截止和插件新消息推送到微信，可细选消息源。插件消息攒批 2 分钟合并发送；支持 Token、Topic、测试消息和本地微信消息样式预览，预览复用实际发送的标题与正文格式。兼容旧版 Server酱配置。",
   "permissions": ["ui", "tasks", "blocks", "storage", "notify", "events", "http", "openUrl"],
   "entry": "main.js",
   "order": 10,

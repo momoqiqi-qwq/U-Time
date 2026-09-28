@@ -31,9 +31,9 @@ const context = vm.createContext({
 });
 vm.runInContext(source.replace(
   '  tide.ui.registerView({',
-  '  globalThis.testApi = { parseRepoRef, parseReadmeMeta, atomEntries, atomUrlOf, rawUrlOf, addRepo, syncAll, markSeen, restore, state, repoTitle };\n  tide.ui.registerView({',
+  '  globalThis.testApi = { parseRepoRef, parseReadmeMeta, atomEntries, atomUrlOf, rawUrlOf, fetchHead, addRepo, syncAll, markSeen, restore, state, repoTitle };\n  tide.ui.registerView({',
 ), context);
-const { parseRepoRef, parseReadmeMeta, atomEntries, atomUrlOf, rawUrlOf, addRepo, syncAll, markSeen, restore, state, repoTitle } = context.testApi;
+const { parseRepoRef, parseReadmeMeta, atomEntries, atomUrlOf, rawUrlOf, fetchHead, addRepo, syncAll, markSeen, restore, state, repoTitle } = context.testApi;
 
 /* vm 里造的对象带着 context 的 Object.prototype，deepStrictEqual 会连原型一起比、
    跨 realm 永远不相等。断言前先搬回宿主 realm。 */
@@ -70,6 +70,8 @@ assert.equal(rawUrlOf({ owner: 'o', repo: 'r', branch: 'main', dir: 'docs/', pat
   'https://raw.githubusercontent.com/o/r/main/docs/README.md', '子目录拼进 raw 地址');
 assert.equal(atomUrlOf({ owner: 'o', repo: 'r', branch: 'main', dir: 'docs/', path: 'README.md' }),
   'https://github.com/o/r/commits/main/docs/README.md.atom', 'per-path Atom 地址：变更检测的唯一来源');
+assert.equal(rawUrlOf(nested), 'https://raw.githubusercontent.com/o/r/develop/docs/README.md', 'API 给的完整 path 不能与 dir 重复拼接');
+assert.equal(atomUrlOf(nested), 'https://github.com/o/r/commits/develop/docs/README.md.atom');
 assert.equal(parseReadmeMeta('{"message":"Not Found"}'), null, '仓库没有 README 要能认出来');
 assert.equal(parseReadmeMeta('不是 JSON'), null, '响应体坏了不能抛');
 
@@ -184,6 +186,19 @@ router = (url) => (url.endsWith('.atom') ? { status: 200, body: many } : { statu
 await syncAll();
 assert.equal(state.repos[0].sha, 'c6', '🔴 广播失败也要照常推进 sha（否则下次重播同一批）');
 context.tide.events.emit = (name, data) => { emits.push([name, data]); };
+
+/* GitHub 页面域名不可达时，提交列表 API 是备用路径；只在 Atom 失败时调用。 */
+router = (url) => {
+  if (url.endsWith('.atom')) throw new Error('connection timed out');
+  if (url.includes('/commits?')) return { status: 200, body: JSON.stringify([{
+    sha: 'api-fallback', commit: { message: 'README 修订\n详细内容', author: { date: '2026-09-28T00:00:00Z', name: '张三' } },
+    html_url: 'https://github.com/o/r/commit/api-fallback',
+  }]) };
+  return { status: 404, body: '' };
+};
+const fallback = await fetchHead(REPO);
+assert.equal(fallback.entries[0].sha, 'api-fallback');
+assert.equal(fallback.entries[0].title, 'README 修订');
 
 /* ── 11. 限流与网络错误 ── */
 router = (url) => (url.endsWith('.atom') ? { status: 403, body: 'API rate limit exceeded' } : { status: 200, body: '' });
