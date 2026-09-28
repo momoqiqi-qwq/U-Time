@@ -1057,33 +1057,31 @@ button, .nav { touch-action: manipulation; }
     padding: 3px 2px; border-radius: 10px;
     font-size: calc(10px * var(--ui-text-scale)); line-height: 1.1; text-align: center;
     background: none;
+    color: var(--ink-2);
   }
   .rail .nav button .ic {
     width: var(--nav-ic, 22px); height: var(--nav-ic, 22px); border-radius: 8px;
-    font-size: calc(12px * var(--ui-text-scale)); transition: transform .15s, background .15s, box-shadow .15s;
-    background: rgba(255,255,255,.84);
-    box-shadow: inset 0 0 0 1.15px rgba(8, 12, 16, .72), 0 6px 16px rgba(15, 23, 42, .12);
-    color: #111;
+    font-size: calc(12px * var(--ui-text-scale)); transition: transform .15s, color .15s;
+    background: transparent;
+    box-shadow: none;
+    color: inherit;
   }
   .rail .nav button .ic .icons8-app-icon { display: none; }
   .rail .nav button .ic .app-outline-icon {
     display: block;
-    width: calc(var(--nav-ic, 22px) - 7px);
-    height: calc(var(--nav-ic, 22px) - 7px);
-    fill: #fff;
-    stroke: #111;
-    stroke-width: 34px;
-    stroke-linejoin: round;
-    paint-order: stroke fill;
-    filter: drop-shadow(0 1px 0 rgba(255,255,255,.42));
+    width: calc(var(--nav-ic, 22px) - 3px);
+    height: calc(var(--nav-ic, 22px) - 3px);
+    fill: currentColor;
+    stroke: none;
+    filter: none;
   }
   .nav button .lb { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .nav button.on { background: none; box-shadow: none; color: #fff; font-weight: 600; }
+  .nav button.on { background: none; box-shadow: none; color: var(--deep); font-weight: 600; }
   .nav button.on .ic {
-    color: #111;
-    background: rgba(255,255,255,.96);
-    box-shadow: inset 0 0 0 1.35px rgba(0,0,0,.86), 0 8px 18px rgba(15, 23, 42, .18);
-    transform: translateY(-1px) scale(1.04);
+    color: inherit;
+    background: transparent;
+    box-shadow: none;
+    transform: translateY(-1px);
   }
   .nav .pv-count { display: none; }
   /* v0.44.1：返回按钮跟小框并排。触控区 40px（项目约定 ≥40px），顶栏 54px 装得下；
@@ -1163,6 +1161,11 @@ button, .nav { touch-action: manipulation; }
     -webkit-tap-highlight-color: transparent;
     transition: opacity .16s ease, background .12s ease, color .12s ease, transform .08s ease;
   }
+  /* 底栏由上滑呼出，侧边不再常驻一颗菜单按钮遮挡内容。 */
+  .app.android-runtime .chrome-toggle { display: none; }
+  .app.settings-open .chrome-toggle,
+  .app.settings-open .mobile-back,
+  .app.settings-open .rail { display: none !important; }
   .chrome-toggle:hover { color: var(--ink); }
   .chrome-toggle:active { transform: scale(.94); }
   .chrome-glyph { display: block; font-size: calc(14px * var(--ui-text-scale)); line-height: 1; font-weight: 700; }
@@ -1262,6 +1265,14 @@ button, .nav { touch-action: manipulation; }
     display: flex;
     animation: rail-dock-in .26s cubic-bezier(.22, .8, .26, 1);
   }
+  .rail .rail-dock-btn { color: var(--ink-2); }
+  :root .rail .rail-dock-btn .ic {
+    background: transparent;
+    box-shadow: none;
+    color: inherit;
+  }
+  .rail .rail-dock-btn:hover,
+  .rail .rail-dock-btn.on { color: var(--deep); }
 }
 
 /* 底栏呼出/收起关键帧：位移必须算进 --nav-float（v0.106.0 底栏悬空）。
@@ -4217,11 +4228,7 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   display: block;
   width: 18px;
   height: 18px;
-  fill: #fff;
-  stroke: #111;
-  stroke-width: 34px;
-  stroke-linejoin: round;
-  paint-order: stroke fill;
+  fill: currentColor;
 }
 .rail-bottom > .settings-icon-button .ic .app-icon { width: 18px; height: 18px; }
 /* v0.52.2：左下角深浅色切换按钮，与设置图标按钮共享 .settings-icon-button 尺寸，
@@ -4231,11 +4238,7 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .rail-bottom > .window-focus-btn .ic .fa-ic {
   width: 18px;
   height: 18px;
-  fill: #fff;
-  stroke: #111;
-  stroke-width: 34px;
-  stroke-linejoin: round;
-  paint-order: stroke fill;
+  fill: currentColor;
   display: block;
 }
 /* v0.73.0：深浅色键的图标色必须跟着主题反色。磁贴底色早就走 `color-mix(var(--panel) 86%)`

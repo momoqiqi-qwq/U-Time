@@ -400,7 +400,7 @@ export function renderShell(root) {
     tabindex: 0,
   });
 
-  const appFrame = el("div", { class: "app" }, rail, railResizer, main);
+  const appFrame = el("div", { class: isAndroidRuntime() ? "app android-runtime" : "app" }, rail, railResizer, main);
   root.append(appFrame);
 
   /* ── v0.58.0：侧栏宽度分隔条接线 ──
@@ -1201,6 +1201,7 @@ export function renderShell(root) {
     // 退出设置就该还是呼出态，不该逼用户再点一次 ⋮）。
     if (settingsLayers === 0) railShownBeforeSettings = chromeShown;
     settingsLayers += 1;
+    appFrame.classList.add("settings-open");
     if (chromeShown && mobileQuery.matches) setChromeShown(false);
     document.querySelector(".settings-modal")?._close?.();
     const mask = el("div", { class: "drawer-mask settings-modal-mask", onclick: close });
@@ -1222,6 +1223,7 @@ export function renderShell(root) {
       dismissed = true;
       closeLayer(panel, mask, () => document.removeEventListener("keydown", onKey));
       settingsLayers = Math.max(0, settingsLayers - 1);
+      if (settingsLayers === 0) appFrame.classList.remove("settings-open");
       if (settingsLayers === 0 && railShownBeforeSettings && mobileQuery.matches) {
         railShownBeforeSettings = false;
         setChromeShown(true);
@@ -1460,6 +1462,24 @@ export function renderShell(root) {
     if (e.target.closest(".rail, .chrome-toggle, .mobile-back")) return;
     setChromeShown(false);
   }, true);
+  // 手机上沿内容向上滑一段距离即可呼出底栏；插件里的纵向滚动也会冒泡到 .view。
+  // 只认明显的纵向单指手势，横向课表/返回手势和拖拽排序仍归原来的处理器。
+  let railSwipeStart = null;
+  view.addEventListener("touchstart", (event) => {
+    railSwipeStart = event.touches.length === 1
+      ? { x: event.touches[0].clientX, y: event.touches[0].clientY }
+      : null;
+  }, { passive: true });
+  view.addEventListener("touchcancel", () => { railSwipeStart = null; }, { passive: true });
+  view.addEventListener("touchend", (event) => {
+    const start = railSwipeStart;
+    railSwipeStart = null;
+    if (!start || event.changedTouches.length !== 1 || !mobileQuery.matches || chromeShown || settingsLayers > 0) return;
+    if (document.body.dataset.swipeSuspended === "1") return;
+    const dx = event.changedTouches[0].clientX - start.x;
+    const dy = event.changedTouches[0].clientY - start.y;
+    if (dy <= -72 && Math.abs(dy) > Math.abs(dx) * 1.4) setChromeShown(true);
+  }, { passive: true });
   // v0.108.0：软键盘让路。输入框/可编辑区聚焦 → :root 挂 data-kbd="1"（CSS ≤900px
   // 把两颗悬浮键淡出并停吃点击），失焦摘掉。focusin/focusout 是冒泡版 focus/blur，
   // 输入框之间移动时 focusout 先于 focusin，一删一挂自然收敛到正确状态。

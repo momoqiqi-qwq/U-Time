@@ -108,7 +108,7 @@ assert.match(shell, /appFrame\.classList\.toggle\("chrome-shown", show\)/,
 assert.ok(!/chromeHide/.test(shell),
   "不允许出现「切视图自动收回底栏」的定时器（v0.59.0 起呼出态常驻，只有打开设置才收起）");
 assert.match(shell,
-  /function openSettingsModal\(section = ""\) \{[\s\S]{0,400}setChromeShown\(false\)/,
+  /function openSettingsModal\(section = ""\) \{[\s\S]{0,600}setChromeShown\(false\)/,
   "打开设置必须收回呼出的底栏（窄屏门槛照旧，桌面 .chrome-shown 无视觉效果）");
 // 悬浮返回键与顶栏返回键同一份状态
 assert.match(shell,
@@ -192,5 +192,19 @@ assert.match(shell,
 // 同一个面板可能被关两次（点遮罩后再被 _close 调一次），减回去两次会把记账打乱。
 assert.match(shell, /let dismissed = false;[\s\S]{0,120}if \(dismissed\) return;[\s\S]{0,80}dismissed = true;/,
   "close() 必须幂等（同一层只记一次账）");
+
+// v0.120.0：底栏由上滑呼出，设置页内悬浮控件完全隐藏。
+assert.match(css, /\.app\.android-runtime\s+\.chrome-toggle\s*\{\s*display:\s*none/,
+  "Android 菜单悬浮键不应常驻遮挡内容");
+assert.match(shell, /class: isAndroidRuntime\(\) \? "app android-runtime" : "app"/,
+  "只在 Android 隐藏悬浮菜单键，窄屏浏览器仍可用鼠标打开底栏");
+assert.match(css, /\.app\.settings-open\s+\.mobile-back[\s\S]{0,90}\.app\.settings-open\s+\.rail\s*\{\s*display:\s*none/,
+  "设置页必须隐藏返回悬浮键与底栏");
+assert.match(shell, /appFrame\.classList\.add\("settings-open"\)/,
+  "打开设置要挂 settings-open 标记");
+assert.match(shell, /if \(settingsLayers === 0\) appFrame\.classList\.remove\("settings-open"\)/,
+  "最后一层设置关闭后要清 settings-open 标记");
+assert.match(shell, /view\.addEventListener\("touchend"[\s\S]{0,750}dy <= -72[\s\S]{0,100}setChromeShown\(true\)/,
+  "手机端单指向上滑动足够距离后应显示底栏");
 
 console.log("PASS: immersive chrome shell (default-hidden bars, ⋮ toggle with ✕ swap, persistent bottom dock after navigation that only collapses when settings open and comes back with the same expansion state after closing them, floating back button synced with canGoBack, status-bar safe distances on collapsed state, desktop always hides the floating keys, dock slide in/out animation with rail-hiding orchestration)");
