@@ -1,6 +1,6 @@
 import * as S from "./store.js";
 import { isGroupColor } from "./pluginGroups.js";
-import { appIcon } from "./icons.js";
+import { appIcon, outlineAppIcon } from "./icons.js";
 
 const ACCENTS = ["#7C3AED", "#2563EB", "#0F766E", "#D97706", "#DB2777", "#0891B2", "#65A30D", "#EA580C"];
 
@@ -37,6 +37,13 @@ export function pluginDisplayIcon(id, title = "") {
     icon.src = custom;
     icon.dataset.iconSource = "user customization";
   }
+  return icon;
+}
+
+export function pluginDisplayOutlineIcon(id, title = "") {
+  const icon = outlineAppIcon(id, title);
+  icon.classList.add("plugin-present-icon");
+  icon.style.setProperty("--plugin-accent", pluginAccent(id));
   return icon;
 }
 

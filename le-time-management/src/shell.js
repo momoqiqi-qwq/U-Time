@@ -1,6 +1,6 @@
 // 应用外壳：侧栏导航 + 顶栏 + 视图切换
 import * as S from "./store.js";
-import { appIcon } from "./icons.js";
+import { appIcon, outlineAppIcon } from "./icons.js";
 import { api } from "./api.js";
 import { appConfirm, appPrompt, bottomInsetPx, el, isSelfActivationKey, toast } from "./ui.js";
 import { renderQuadrant } from "./views/quadrant.js";
@@ -10,15 +10,16 @@ import { renderSettings } from "./views/settings.js";
 import { renderInbox } from "./views/inbox.js";
 import { openQuickCapture } from "./capture.js";
 import { pluginViews, onNavChanged, getRegistry, setEnabled, rescan, removeExternalPlugin } from "./pluginHost.js";
-import { getPluginOverride, pluginAccent, pluginColor, pluginDisplayIcon, pluginDisplayName, resetPluginOverride, setPluginColor, setPluginOverride } from "./pluginAppearance.js";
+import { getPluginOverride, pluginAccent, pluginColor, pluginDisplayIcon, pluginDisplayName, pluginDisplayOutlineIcon, resetPluginOverride, setPluginColor, setPluginOverride } from "./pluginAppearance.js";
 import { GROUP_COLORS, groupColorMeta, groupName, groupRuns, isGroupColor, isGroupCollapsed, moveGroupInOrder, normalizePluginOrder, renameGroup, toggleGroupCollapsed } from "./pluginGroups.js";
-import { hasNavOverride, navDisplayIcon, navDisplayName, resetNavOverride, setNavOverride } from "./navAppearance.js";
+import { hasNavOverride, navDisplayIcon, navDisplayName, navDisplayOutlineIcon, resetNavOverride, setNavOverride } from "./navAppearance.js";
 import { PLUGIN_SHORTCUT_MODIFIER, attachPluginShortcutKeys, computePluginShortcutMap, effectivePluginShortcutLetter, getPluginShortcutCustoms, normalizeShortcutLetter, setPluginShortcut } from "./pluginShortcuts.js";
 import { pluginShortcutEntries } from "./pluginShortcutEntries.js";
 import { getUiPreferences, coreViewIds } from "./uiPreferences.js";
 import { listRailActions, normalizeRailActionOrder, registerRailAction, slotIndexFor } from "./railActions.js";
 import { closeLayer, fadeAway, flipByKey, foldClose, foldOpen, observePluginMotion, reducedMotion, removeWithMotion } from "./motion.js";
 import { FOCUS_WINDOW_SIZE, isDesktopRuntime, isFocusWindowActive, toggleFocusWindow } from "./windowSize.js";
+import { isAndroidRuntime } from "./androidNotify.js";
 import { canGoBack, goBack, initBackNav, noteViewChange } from "./backNav.js";
 import { getThemeMode, resolveThemeMode, setThemeMode } from "./theme.js";
 import { RAIL_WIDTH_LIMITS, RAIL_WIDTH_STEP, applyRailWidth, clampRailWidth, normalizeRailWidth, steppedRailWidth } from "./railWidth.js";
@@ -130,6 +131,11 @@ function orderedPluginViews() {
 // 保证「看到的顺序」与「落库的顺序」是同一个口径。
 function currentPluginOrder() {
   return normalizePluginOrder(orderedPluginViews().map((pv) => pv.pluginId), pluginColor);
+}
+
+function railCoreViewIds() {
+  const ids = coreViewIds();
+  return isAndroidRuntime() ? ids.filter((id) => id !== "quadrant" && id !== "timeline") : ids;
 }
 
 // 侧栏 FLIP 的 key：插件项按 data-view 认领（桌面端之外没有 data-plugin-id），颜色卡片与组头按色认领。
@@ -825,8 +831,9 @@ export function renderShell(root) {
 
   function renderNav() {
     nav.replaceChildren();
-    // v0.52.0：导航按平台清单渲染（APK 端 = 四象限 / 时间线 / 插件）
-    for (const id of coreViewIds()) nav.append(navBtn(id));
+    // v0.119.1：APK 底栏隐藏「任务表 / 时间线」，只保留插件入口；
+    // 页面本身仍可被启动页、历史栈和返回键访问，不从 coreViewIds() 的平台清单里移除。
+    for (const id of railCoreViewIds()) nav.append(navBtn(id));
     if (!pluginViews.length) return;
     // 桌面端侧栏仍保留插件直达列表；移动端底栏只留核心入口（.plug-list 被隐藏）
     const box = el("div", { class: "plug-list" },
@@ -1011,8 +1018,10 @@ export function renderShell(root) {
       const rec = pid && getRegistry().find((r) => r.id === pid);
       if (rec) pvLabel = rec.source === "builtin" ? "内置" : "导入";
     }
+    const imgIcon = isPlug ? pluginDisplayIcon(def.pluginView.pluginId, def.title) : navDisplayIcon(id, def.title);
+    const outlineIcon = isPlug ? pluginDisplayOutlineIcon(def.pluginView.pluginId, def.title) : navDisplayOutlineIcon(id, def.title);
     const b = el("button", { class: on ? "on" : "", "data-view": id },
-      el("span", { class: "ic", style: isPlug ? `--plugin-accent:${pluginAccent(def.pluginView?.pluginId)}` : null }, isPlug ? pluginDisplayIcon(def.pluginView.pluginId, def.title) : navDisplayIcon(id, def.title)),
+      el("span", { class: "ic", style: isPlug ? `--plugin-accent:${pluginAccent(def.pluginView?.pluginId)}` : null }, imgIcon, outlineIcon),
       el("span", { class: "lb" }, def.title),
       isPlug ? el("span", { class: "pv-count" }, pvLabel) : null,
       // 快捷键徽标：平时收着（opacity:0），悬停 / 选中 / 键盘聚焦时现形，不挤占常驻空间
@@ -1068,7 +1077,7 @@ export function renderShell(root) {
   registerRailAction({
     id: "settings",
     label: "设置",
-    icon: () => appIcon("settings"),
+    icon: () => outlineAppIcon("settings", "设置"),
     onClick: () => openSettingsModal(),
   });
 
@@ -1491,6 +1500,8 @@ export function renderShell(root) {
       view._unsub = null;
       view.classList.remove("tb-root");
       view.replaceChildren();
+      // .view is shared by every page; retain scroll only when refreshing the same view.
+      if (prevId !== targetId) view.scrollTop = 0;
       const def = viewDef(targetId);
       if (!def) return switchTo("market", dirHint);
       titleEl.textContent = def.title;

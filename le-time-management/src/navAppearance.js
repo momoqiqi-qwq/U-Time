@@ -1,5 +1,5 @@
 import * as S from "./store.js";
-import { appIcon } from "./icons.js";
+import { appIcon, outlineAppIcon } from "./icons.js";
 
 /* ── 核心导航项（任务表 / 时间块 / 收件箱 / 插件 / 时间线）的用户自定义外观 ──
    与 pluginAppearance.js 是同一套思路：只存「用户改过的字段」，缺省回落默认值。
@@ -38,6 +38,10 @@ export function navDisplayIcon(id, title = "") {
     icon.dataset.iconSource = "user customization";
   }
   return icon;
+}
+
+export function navDisplayOutlineIcon(id, title = "") {
+  return outlineAppIcon(id, title);
 }
 
 export function setNavOverride(id, patch) {

@@ -38,6 +38,16 @@ const ICONS8 = { ...NAV_ICONS8, ...PLUGIN_ICONS8 };
 
 const MANIFEST_ICON_KEYS = Object.fromEntries(BUILTIN_PLUGINS.map((plugin) => [plugin.id, plugin.icon || plugin.faIcon || "puzzle-piece"]));
 
+const NAV_FA_ICONS = {
+  quadrant: "table-cells-large",
+  timeline: "timeline",
+  timeblock: "clock",
+  inbox: "inbox",
+  market: "puzzle-piece",
+  settings: "gear",
+  capture: "inbox",
+};
+
 function colorUrl(name) {
   return `https://img.icons8.com/color/96/${name}.png`;
 }
@@ -77,4 +87,16 @@ export function appIcon(key, title = "") {
     img.style.visibility = "hidden";
   }, { once: false });
   return img;
+}
+
+export function outlineAppIcon(name, title = "") {
+  const iconName = NAV_FA_ICONS[name] || MANIFEST_ICON_KEYS[name] || name || "puzzle-piece";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "app-outline-icon fa-ic");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", `/icons/fontawesome/solid.svg#${iconName}`);
+  svg.append(use);
+  return svg;
 }

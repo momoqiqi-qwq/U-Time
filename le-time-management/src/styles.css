@@ -937,7 +937,7 @@ button, .nav { touch-action: manipulation; }
     z-index: 7;
     display: block;
     height: var(--safe-top-anchor);
-    margin: calc(-1 * var(--safe-top-anchor)) 0;
+    margin: calc(-1 * var(--safe-top-anchor)) 0 0;
     background: color-mix(in srgb, var(--panel, #fff) 82%, transparent);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -1026,11 +1026,14 @@ button, .nav { touch-action: manipulation; }
       calc((6px + var(--sar, env(safe-area-inset-right, 0px))) / var(--ui-scale, 1))
       4px
       calc((6px + var(--sal, env(safe-area-inset-left, 0px))) / var(--ui-scale, 1));
-    border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+    border: 1px solid color-mix(in srgb, var(--panel) 62%, var(--line));
     border-radius: 20px;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 90%, transparent), color-mix(in srgb, var(--paper) 86%, var(--panel)));
-    backdrop-filter: blur(18px) saturate(1.12);
-    box-shadow: 0 18px 44px rgba(15, 23, 42, .16), 0 2px 6px rgba(15, 23, 42, .10);
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--panel) 34%, transparent), color-mix(in srgb, var(--panel) 58%, transparent)),
+      color-mix(in srgb, var(--paper) 46%, transparent);
+    backdrop-filter: blur(24px) saturate(1.24);
+    -webkit-backdrop-filter: blur(24px) saturate(1.24);
+    box-shadow: 0 20px 52px rgba(15, 23, 42, .18), 0 2px 8px rgba(15, 23, 42, .12), inset 0 1px 0 rgba(255,255,255,.48);
     /* 固定底栏提升为独立合成层。真机（APK）实测：点开任意插件时底栏会「闪/跳一帧」——
        插件视图挂载与数据到达时，observePluginMotion 对新节点跑 WAAPI 透明度动画 +
        大段 DOM 替换，触发整帧重光栅化；底栏若与内容同层，就会被拖着重绘这一帧。
@@ -1041,9 +1044,11 @@ button, .nav { touch-action: manipulation; }
     transform: translateZ(0);
   }
   .brand { display: none; }
-  .nav { flex: 1; display: flex; flex-direction: row; gap: 0; overflow: visible; }
+  .nav { flex: 1; display: contents; flex-direction: row; gap: 0; overflow: visible; }
   .nav .sec { display: none; }
   .plug-list { display: none; }   /* 插件入口收进「插件市场」页 */
+  .rail-bottom[data-rail-dock] { border-top: 0; padding-top: 0; order: 0; width: auto; display: contents; }
+  .rail-bottom[data-rail-dock] > .rail-dock-btn { width: auto; flex: 1; min-width: 0; }
   /* 特异性高于下方全局 .nav button / .ic 规则（602/605 行），否则 38px 图标与 50px 高会盖回来 */
   .rail .nav button {
     flex: 1; min-width: 0;
@@ -1055,11 +1060,31 @@ button, .nav { touch-action: manipulation; }
   }
   .rail .nav button .ic {
     width: var(--nav-ic, 22px); height: var(--nav-ic, 22px); border-radius: 8px;
-    font-size: calc(12px * var(--ui-text-scale)); transition: transform .15s, background .15s;
+    font-size: calc(12px * var(--ui-text-scale)); transition: transform .15s, background .15s, box-shadow .15s;
+    background: rgba(255,255,255,.84);
+    box-shadow: inset 0 0 0 1.15px rgba(8, 12, 16, .72), 0 6px 16px rgba(15, 23, 42, .12);
+    color: #111;
+  }
+  .rail .nav button .ic .icons8-app-icon { display: none; }
+  .rail .nav button .ic .app-outline-icon {
+    display: block;
+    width: calc(var(--nav-ic, 22px) - 7px);
+    height: calc(var(--nav-ic, 22px) - 7px);
+    fill: #fff;
+    stroke: #111;
+    stroke-width: 34px;
+    stroke-linejoin: round;
+    paint-order: stroke fill;
+    filter: drop-shadow(0 1px 0 rgba(255,255,255,.42));
   }
   .nav button .lb { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav button.on { background: none; box-shadow: none; color: #fff; font-weight: 600; }
-  .nav button.on .ic { color: #17323A; transform: translateY(-1px) scale(1.04); }
+  .nav button.on .ic {
+    color: #111;
+    background: rgba(255,255,255,.96);
+    box-shadow: inset 0 0 0 1.35px rgba(0,0,0,.86), 0 8px 18px rgba(15, 23, 42, .18);
+    transform: translateY(-1px) scale(1.04);
+  }
   .nav .pv-count { display: none; }
   /* v0.44.1：返回按钮跟小框并排。触控区 40px（项目约定 ≥40px），顶栏 54px 装得下；
      负左边距是为了让它贴住标题卡的左内边距，视觉上不把标题往右挤。 */
@@ -1310,6 +1335,7 @@ button, .nav { touch-action: manipulation; }
 
 /* Icons8 / iGoutu iOS Filled icons used by the main navigation and plugin center. */
 .icons8-app-icon { object-fit: contain; opacity: .9; filter: none; user-select: none; -webkit-user-drag: none; }
+.app-outline-icon { display: none; }
 
 /* v0.6 · 左下角设置 + 任务提醒 */
 .rail-bottom { flex: none; border-top: 1px solid rgba(255,255,255,.08); padding-top: 7px; }
@@ -1378,7 +1404,7 @@ button, .nav { touch-action: manipulation; }
   50% { box-shadow: var(--shadow-lg), 0 0 0 4px color-mix(in srgb, var(--danger) 45%, transparent); }
 }
 @media (max-width: 760px) {
-  .rail-bottom { border-top:0; padding-top:0; order:-1; width:20%; display:flex; }
+  .rail-bottom { border-top:0; padding-top:0; order:0; width:auto; display:contents; }
   .rail-bottom > button { display:flex; flex:1; min-width:0; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-height:var(--nav-btn-h, 46px); padding:3px 2px; border-radius:10px; font-size:calc(10px * var(--ui-text-scale)); line-height:1.1; }
   .rail-bottom > button .ic { width:var(--nav-ic, 22px); height:var(--nav-ic, 22px); border-radius:8px; }
   .reminder-picks { max-width:100%; justify-content:flex-start; }
@@ -4187,12 +4213,31 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   height: 28px;
   border-radius: 9px;
 }
+.rail-bottom > .settings-icon-button .ic .app-outline-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  fill: #fff;
+  stroke: #111;
+  stroke-width: 34px;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+}
 .rail-bottom > .settings-icon-button .ic .app-icon { width: 18px; height: 18px; }
 /* v0.52.2：左下角深浅色切换按钮，与设置图标按钮共享 .settings-icon-button 尺寸，
    但图标用 Font Awesome SVG（.fa-ic）而非 .app-icon（PNG <img>），需要单独给尺寸。
    v0.69.0：缩放视图按钮同理（compress / expand 也是 .fa-ic）。 */
 .rail-bottom > .theme-toggle-btn .ic .fa-ic,
-.rail-bottom > .window-focus-btn .ic .fa-ic { width: 18px; height: 18px; fill: currentColor; display: block; }
+.rail-bottom > .window-focus-btn .ic .fa-ic {
+  width: 18px;
+  height: 18px;
+  fill: #fff;
+  stroke: #111;
+  stroke-width: 34px;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+  display: block;
+}
 /* v0.73.0：深浅色键的图标色必须跟着主题反色。磁贴底色早就走 `color-mix(var(--panel) 86%)`
    （上方 .rail-bottom > button .ic 与 2853 行那条），但图标色仍继承 1074 行写死的 #17323A
    ⇒ 深色模式 --panel:#2D2922 上压深字，实测对比 **1.07:1**（改走 --ink 后 11.08:1），
@@ -4809,11 +4854,11 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .qrscan-cancel:active { background: rgba(255, 255, 255, .22); }
 
 
-/* 窄屏：操作条是底栏的一部分（.rail-bottom 那组规则给了 order:-1 / width:20%），
-   按钮必须回到 flex:1 平分 —— 上面的 `.rail-dock > .rail-dock-btn`（0,2,0）压得过
-   `.rail-bottom > button`（0,1,1），不在这里还回去，底栏就只剩两颗 40px 的钮挤在左侧。 */
+/* 窄屏：操作条是底栏的一部分。v0.119.1 起 .nav / .rail-dock 都用 display:contents，
+   核心入口与「深浅色 / 设置」成为 .rail 的同级 flex item；APK 隐藏「任务表 / 时间线」
+   后，剩余按钮会按实际数量自动补位平分。 */
 @media (max-width: 760px) {
-  .rail-bottom.rail-dock { gap: 0; }
+  .rail-bottom.rail-dock { gap: 0; display: contents; }
   .rail-bottom.rail-dock > .rail-dock-btn { width: auto; flex: 1; min-width: 0; }
   .rail-dock-ghost .ic { width: var(--nav-ic, 22px); height: var(--nav-ic, 22px); border-radius: 8px; }
   .rail-dock-ghost .ic .app-icon { width: 15px; height: 15px; }
