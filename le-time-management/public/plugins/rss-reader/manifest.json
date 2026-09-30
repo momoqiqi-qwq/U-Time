@@ -1,7 +1,7 @@
 {
   "id": "rss-reader",
   "name": "RSS 信息流",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "author": "U-Time内置",
   "icon": "rss",
   "faIcon": "rss",

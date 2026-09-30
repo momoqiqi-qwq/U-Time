@@ -5,7 +5,7 @@ import { el, toast } from "../ui.js";
 import { onNavChanged } from "../pluginHost.js";
 import { computePluginShortcutMap, getPluginShortcutCustoms, setPluginShortcut } from "../pluginShortcuts.js";
 import { pluginShortcutEntries } from "../pluginShortcutEntries.js";
-import { DEFAULT_REMINDER_SETTINGS, PRESET_OFFSETS, RING_MAX_OPTIONS, normalizeOffsets, playReminderSound, previewRingSound, reminderLabel } from "../taskReminder.js";
+import { DEFAULT_REMINDER_SETTINGS, PRESET_OFFSETS, RING_MAX_OPTIONS, normalizeOffsets, playReminderSound, previewRingSound, reminderLabel, testTaskReminder } from "../taskReminder.js";
 import { BUILTIN_SOUNDS, CUSTOM_SOUND_ID, DEFAULT_LOOP_SOUND_ID, DEFAULT_SOUND_ID, isLoopableSound, resolveSound } from "../sound.js";
 import { isAndroidRuntime, notifyStatus, askNotifyPermission, openNotifySettings, openExactAlarmSettings } from "../androidNotify.js";
 import { createAboutCard } from "./aboutCard.js";
@@ -162,6 +162,17 @@ export function renderSettings(container, opts = {}) {
 
     reminderCard.append(
       el("div", { class: "setting-row" }, el("span", {}, "启用任务提醒"), enabled),
+      el("div", { class: "setting-row" },
+        el("span", {}, "系统弹窗测试"),
+        el("button", {
+          class: "btn ghost sm", type: "button",
+          onclick: async () => {
+            const result = await testTaskReminder();
+            if (!api.isTauri) return;
+            if (result?.applied === false) toast(`系统弹窗发送失败：${result.error || result.reason || "未知原因"}`);
+            else toast("系统弹窗命令已发送，请查看 Windows 右下角或通知中心");
+          },
+        }, "测试提醒")),
       el("div", { class: "setting-row" }, el("span", {}, "提醒音量"), el("span", { class: "volume-row" }, vol, volText)),
       el("div", { class: "setting-row" }, el("span", {}, "提示音"), sound),
       el("div", { class: "setting-row" }, el("span", {}, "自定义音频"), el("span", { class: "audio-actions" }, audioName, el("button", { class: "btn ghost sm", onclick: () => audioInput.click() }, "导入音频"), el("button", { class: "btn ghost sm", onclick: () => playReminderSound(true) }, "试听"))),

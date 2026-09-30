@@ -46,7 +46,7 @@
     { url: "https://jw.cppu.edu.cn/index.html", label: "教务", icon: "school", children: [
       { view: "cppu-xk", label: "学生选课", icon: "list-check" },
       { view: "cppu-qj", label: "学生请假", icon: "calendar-xmark" },
-      { view: "cppu-credit", label: "警大学分", icon: "graduation-cap" },
+      { view: "cppu-credit", label: "警大成绩", icon: "chart-line" },
       { view: "cppu-cx", label: "创新学分", icon: "medal" },
     ] },
     { url: "https://xg.cppu.edu.cn/XGPhone/Phone/index.html", label: "学工", icon: "id-card" },
@@ -468,6 +468,24 @@
       .jw-cx-project.pending{border-left-color:#E3C384}
       .jw-cx-term{margin-top:12px}.jw-cx-term>summary{display:flex;align-items:baseline;gap:8px;cursor:pointer;color:var(--deep);font-weight:700;padding:10px 2px;border-bottom:1px solid var(--line);list-style:none}.jw-cx-term>summary::-webkit-details-marker,.jw-cx-project>summary::-webkit-details-marker{display:none}.jw-cx-term>summary::before,.jw-cx-project>summary::before{content:"▸";font-size:calc(12px * var(--ui-text-scale));color:var(--ink-3);transition:transform .15s}.jw-cx-term[open]>summary::before,.jw-cx-project[open]>summary::before{transform:rotate(90deg)}.jw-cx-term>summary small{font-size:calc(10.5px * var(--ui-text-scale));font-weight:400;color:var(--ink-3)}.jw-cx-project{margin-top:8px}.jw-cx-project>summary{display:flex;align-items:flex-start;gap:8px;cursor:pointer;list-style:none}.jw-cx-project>summary .jw-card-t{min-width:0;flex:1;overflow-wrap:anywhere}.jw-cx-project>summary .jw-tag{flex:none}.jw-cx-project .pp-meta{margin-top:7px}.jw-cx-project .jw-detail-grid{margin-bottom:2px}
       .jw-cx-project>summary{flex-wrap:wrap}.jw-cx-project>summary .jw-card-t{flex-basis:calc(100% - 24px)}
+      .jg-status{padding:12px 16px 8px;font-size:calc(15px * var(--ui-text-scale));font-weight:700;color:var(--ink);line-height:1.5}
+      .jg-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:6px 0}
+      .jg-card h4{margin:0 0 8px;color:var(--deep);font-size:calc(13.5px * var(--ui-text-scale));font-weight:700}
+      .jg-metrics{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--line-soft)}
+      .jg-metrics>div{display:flex;flex-direction:column;gap:2px;padding:6px 0 10px;min-width:0}
+      .jg-metrics small{color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale))}
+      .jg-metrics b{color:var(--ink);font-size:calc(19px * var(--ui-text-scale))}
+      .jg-divider{height:1px;background:var(--line-soft);margin:4px 0}
+      .jg-note{color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.55;margin:4px 0 7px}
+      .jg-pair,.jg-course{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:calc(12.5px * var(--ui-text-scale))}
+      .jg-pair span{color:var(--ink-3);flex:1;min-width:0}.jg-pair b{color:var(--ink);font-weight:700;text-align:right}
+      .jg-bar-row{padding:4px 0}.jg-bar-row>div:first-child{display:flex;justify-content:space-between;gap:8px;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale))}
+      .jg-bar-row b{font-size:calc(12.5px * var(--ui-text-scale))}.jg-track{height:8px;background:var(--paper);border-radius:4px;overflow:hidden;margin-top:3px}.jg-track i{display:block;height:100%;border-radius:4px;min-width:0}
+      .jg-segments{height:14px;background:var(--paper);border-radius:4px;overflow:hidden;display:flex;margin:2px 0 6px}.jg-segments i{height:100%;display:block}
+      .jg-good{color:#1B7F4B}.jg-mid{color:var(--deep)}.jg-warn{color:#B06A00}.jg-bad{color:#C8102E}.jg-muted{color:var(--ink-3)}
+      .jg-track .jg-good{background:#1B7F4B}.jg-track .jg-mid{background:#1B3A6B}.jg-track .jg-warn{background:#B06A00}.jg-track .jg-bad{background:#C8102E}
+      [data-theme-mode="dark"] .jg-good{color:#4ADE80}[data-theme-mode="dark"] .jg-mid{color:#60A5FA}[data-theme-mode="dark"] .jg-warn{color:#FBBF24}[data-theme-mode="dark"] .jg-bad{color:#F87171}
+      .jg-export{display:block;width:100%;min-height:42px;margin:8px 0 0}.jg-course{border-top:1px solid var(--line-soft);padding:4px 0}.jg-course:first-of-type{border:0}.jg-course span{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--ink)}.jg-course b{width:34px;font-size:calc(13px * var(--ui-text-scale));text-align:right}.jg-course small{width:30px;color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale));text-align:right}
       .yk-frame-shell{margin-top:10px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;min-height:620px;height:calc(100vh - 190px);box-shadow:0 1px 10px rgba(34,48,58,.05)}
       .yk-frame{display:block;width:100%;height:100%;border:0;background:var(--paper)}
       .yk-status{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);line-height:1.7;margin:7px 0 0}
@@ -1263,6 +1281,7 @@
       b.addEventListener("click", () => { state.filter.month = c.id; saveFilter(); paintChips(); paintList(true); });
       return b;
     }));
+    ui.filterSummary.textContent = `筛选${state.filter.kind !== "all" || state.filter.month !== "all" || state.filter.hideSeen ? " · 已设置" : ""}`;
     ui.hs.classList.toggle("on", !!state.filter.hideSeen);
   }
 
@@ -1750,7 +1769,7 @@
   const JW_MENU = {
     xk: "学生服务 › 我的课程表 › 我的选课 › 学生选课",
     qj: "学生服务 › 我的课程表 › 我的课表 › 学生请假申请",
-    credit: "学生服务 › 我的学业 › 成绩 › 我的学分",
+    grades: "学生服务 › 我的学业 › 成绩 › 成绩查询",
     cx: "学生服务 › 综合素质考评 › 创新实践 › 成绩查询(学生)",
   };
   // 校方字典（/je/dd/dd/getDicItemByCodes 的 KCSXDM_1 / KCHJDM_1 / KJDM / QJSQSP / KCMKDM_1）抄一份在用：
@@ -2340,6 +2359,132 @@
     return top + (projects || `<div class="pp-empty">汇总已经发布，但教务暂未返回具体申报项目</div>`);
   }
 
+  // cppu-helper v15.0 的 GradesFragment：卡片顺序、统计口径、分段和学期列表。
+  const gradeNum = (r, key) => Number(r?.[key]) || 0;
+  const gradeSum = (rows, key) => rows.reduce((n, r) => n + gradeNum(r, key), 0);
+  const gradeGpa = (rows) => {
+    const credits = gradeSum(rows, "XF");
+    return credits ? rows.reduce((n, r) => n + gradeNum(r, "XF") * gradeNum(r, "JD"), 0) / credits : 0;
+  };
+  const gradeSemLabel = (code) => {
+    const m = String(code || "").match(/(\d{4})(\d{4})-(\d)/);
+    return m ? `${m[1]}-${m[2]} 学年 · ${m[3] === "1" ? "秋" : "春"}` : String(code || "");
+  };
+  const gradeScoreTone = (n) => n >= 90 ? "good" : n >= 80 ? "mid" : n >= 70 ? "warn" : n > 0 ? "bad" : "muted";
+  const gradeGpaTone = (n) => n >= 3.5 ? "good" : n >= 3 ? "mid" : n >= 2.5 ? "warn" : "bad";
+  const gradeCard = (title, body) => `<section class="jg-card">${title ? `<h4>${title}</h4>` : ""}${body}</section>`;
+  const gradePair = (label, value) => `<div class="jg-pair"><span>${esc(label)}</span><b>${esc(value)}</b></div>`;
+  const gradeBar = (label, value, ratio, tone) => `<div class="jg-bar-row"><div><span>${esc(label)}</span><b class="jg-${tone}">${esc(value)}</b></div><div class="jg-track"><i class="jg-${tone}" style="width:${Math.max(0, Math.min(100, ratio * 100))}%"></i></div></div>`;
+
+  function jwGradesHtml() {
+    const stateBlock = jwStateBlock("grade", "正在读取成绩…");
+    if (stateBlock) return stateBlock;
+    const rows = jwState.data.grade;
+    if (!Array.isArray(rows)) return `<div class="pp-empty">还没有拉取过成绩数据，点上方「刷新」</div>`;
+    if (!rows.length) return `<div class="pp-empty">暂无成绩数据</div>`;
+    const credits = gradeSum(rows, "XF");
+    const gpa = gradeGpa(rows);
+    const scored = rows.filter((r) => gradeNum(r, "ZPCJ") > 0 && gradeNum(r, "XF") > 0);
+    const scoredCredits = gradeSum(scored, "XF");
+    const average = scoredCredits ? scored.reduce((n, r) => n + gradeNum(r, "XF") * gradeNum(r, "ZPCJ"), 0) / scoredCredits : 0;
+    const plainAverage = scored.length ? gradeSum(scored, "ZPCJ") / scored.length : 0;
+    const max = [...rows].sort((a, b) => gradeNum(b, "ZPCJ") - gradeNum(a, "ZPCJ"))[0];
+    const min = [...rows].filter((r) => gradeNum(r, "ZPCJ") > 0).sort((a, b) => gradeNum(a, "ZPCJ") - gradeNum(b, "ZPCJ"))[0];
+    const scoreName = (r) => r ? `${r.KCMC || ""} ${Math.trunc(gradeNum(r, "ZPCJ"))}` : "—";
+    const bySem = new Map();
+    for (const row of rows) if (String(row.XNXQ || "")) {
+      const key = String(row.XNXQ);
+      if (!bySem.has(key)) bySem.set(key, []);
+      bySem.get(key).push(row);
+    }
+    const semAsc = [...bySem].sort(([a], [b]) => a.localeCompare(b));
+    const overview = `<div class="jg-metrics">
+      <div><small>总学分</small><b>${credits.toFixed(1)}</b></div><div><small>已修课程</small><b>${rows.length} 门</b></div>
+      <div><small>平均绩点</small><b>${gpa.toFixed(3)}</b></div><div><small>平均分</small><b>${average.toFixed(1)}</b></div></div>
+      ${Math.abs(plainAverage - average) >= .5 ? `<p class="jg-note">平均分按学分加权（与 GPA 同口径）；学校系统多为算术平均 ${plainAverage.toFixed(1)}</p>` : ""}
+      <div class="jg-divider"></div>${gradePair("最高分", scoreName(max))}${gradePair("最低分", scoreName(min))}`;
+    const trend = semAsc.length > 1 ? gradeCard("📈 GPA 走势", semAsc.map(([sem, list]) => {
+      const n = gradeGpa(list);
+      return gradeBar(gradeSemLabel(sem), n.toFixed(3), n / 5, gradeGpaTone(n));
+    }).join("")) : "";
+    const palette = ["#1B3A6B", "#2C5282", "#3E7CB1", "#5B9BD5", "#7FB3E0", "#A8CCEA"];
+    const progress = gradeCard("🎯 学分进度", `<div class="jg-segments">${semAsc.map(([, list], i) => `<i style="width:${credits ? gradeSum(list, "XF") / credits * 100 : 0}%;background:${palette[Math.min(i, palette.length - 1)]}"></i>`).join("")}</div>
+      ${gradePair("已修学分", credits.toFixed(1))}${gradePair("参考毕业学分", "170（仅供参考）")}${gradePair("完成度", `${Math.min(100, credits / 170 * 100).toFixed(1)}%`)}${gradePair("总学时", String(Math.round(gradeSum(rows, "ZXS"))))}
+      <div class="jg-note">${semAsc.map(([sem, list]) => `${gradeSum(list, "XF").toFixed(1)}  ${esc(gradeSemLabel(sem))}`).join("<br>")}</div>`);
+    const positive = rows.map((r) => gradeNum(r, "ZPCJ")).filter((n) => n > 0);
+    const buckets = [["90+", (n) => n >= 90, "good"], ["80-89", (n) => n >= 80 && n < 90, "mid"], ["70-79", (n) => n >= 70 && n < 80, "warn"], ["60-69", (n) => n >= 60 && n < 70, "bad"], ["60以下", (n) => n < 60, "bad"]];
+    const distribution = gradeCard("📊 成绩分布", buckets.map(([label, test, tone]) => {
+      const count = positive.filter(test).length;
+      return gradeBar(label, `${count} 门`, count / Math.max(positive.length, 1), tone);
+    }).join(""));
+    const categories = new Map();
+    for (const r of rows) {
+      const key = String(r.KCSX || "");
+      if (!categories.has(key)) categories.set(key, []);
+      categories.get(key).push(r);
+    }
+    const category = gradeCard("🎓 课程构成", [...categories].sort(([a], [b]) => a.localeCompare(b)).map(([key, list]) =>
+      gradePair(`${key === "01" ? "必修" : key === "02" ? "选修" : "其他"}（${list.length} 门）`, `${gradeSum(list, "XF").toFixed(1)} 学分 · GPA ${gradeGpa(list).toFixed(3)}`)).join(""));
+    const exportCard = gradeCard("📤 导出成绩单", `<p class="jg-note">生成本机图片（不含账号密码），可直接分享或保存</p><button type="button" class="pp-btn pri jg-export" data-grade-export>生成并分享成绩单图片</button>`);
+    const semesters = [...semAsc].reverse().map(([sem, list]) => gradeCard(`${esc(gradeSemLabel(sem))}　${list.length} 门 · ${gradeSum(list, "XF").toFixed(1)} 学分 · GPA ${gradeGpa(list).toFixed(3)}`,
+      [...list].sort((a, b) => gradeNum(b, "ZPCJ") - gradeNum(a, "ZPCJ")).map((r) => `<div class="jg-course"><span>${esc(r.KCMC || "")}</span><b class="jg-${gradeScoreTone(gradeNum(r, "ZPCJ"))}">${gradeNum(r, "ZPCJ").toFixed(0)}</b><small>${gradeNum(r, "XF").toFixed(1)}</small></div>`).join(""))).join("");
+    return `<div class="jg-status">${jwState.at.grade ? `更新于 ${esc(jwAt("grade").replace("更新于 ", ""))} · ` : ""}共 ${rows.length} 门 · 总学分 ${credits.toFixed(1)} · GPA ${gpa.toFixed(3)}</div>${gradeCard("", overview)}${trend}${progress}${distribution}${category}${exportCard}${semesters}`;
+  }
+
+  async function jwExportGrades() {
+    const rows = jwState.data.grade;
+    if (!Array.isArray(rows) || !rows.length) { tide.notify("成绩还没加载好"); return; }
+    const semesters = [...new Set(rows.map((r) => String(r.XNXQ || "")).filter(Boolean))].sort().reverse();
+    const width = 1080, line = 56, height = 400 + semesters.reduce((n, sem) => n + 94 + rows.filter((r) => String(r.XNXQ || "") === sem).length * line, 0);
+    const canvas = document.createElement("canvas");
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) { tide.notify("当前设备无法生成图片"); return; }
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, width, height);
+    const scored = rows.filter((r) => gradeNum(r, "ZPCJ") > 0 && gradeNum(r, "XF") > 0);
+    const scoredCredits = gradeSum(scored, "XF");
+    const average = scoredCredits ? scored.reduce((n, r) => n + gradeNum(r, "ZPCJ") * gradeNum(r, "XF"), 0) / scoredCredits : 0;
+    ctx.fillStyle = "#1B3A6B"; ctx.font = "bold 44px sans-serif"; ctx.fillText("成绩单", 48, 80);
+    ctx.fillStyle = "#5A6472"; ctx.font = "24px sans-serif";
+    ctx.fillText(state.username || "学生", 48, 126);
+    ctx.fillText(`共 ${rows.length} 门 · 总学分 ${gradeSum(rows, "XF").toFixed(1)} · GPA ${gradeGpa(rows).toFixed(3)} · 平均分 ${average.toFixed(1)}`, 48, 160);
+    ctx.fillStyle = "#6B7684"; ctx.font = "22px sans-serif";
+    ctx.fillText(`导出时间 ${new Date().toLocaleString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).replaceAll("/", "-")}`, 48, 186);
+    ctx.fillStyle = "#1B3A6B"; ctx.fillRect(48, 226, 984, 3);
+    let y = 279;
+    for (const sem of semesters) {
+      const list = rows.filter((r) => String(r.XNXQ || "") === sem).sort((a, b) => gradeNum(b, "ZPCJ") - gradeNum(a, "ZPCJ"));
+      ctx.fillStyle = "#1B3A6B"; ctx.font = "bold 30px sans-serif";
+      ctx.fillText(gradeSemLabel(sem), 48, y);
+      const summary = `${list.length} 门 · ${gradeSum(list, "XF").toFixed(1)} 学分 · GPA ${gradeGpa(list).toFixed(3)}`;
+      ctx.font = "bold 26px sans-serif"; ctx.fillText(summary, 1032 - ctx.measureText(summary).width, y);
+      y += 44;
+      for (const r of list) {
+        ctx.fillStyle = "#1B2027"; ctx.font = "26px sans-serif";
+        let name = String(r.KCMC || "");
+        while (name.length > 1 && ctx.measureText(name).width > 754) name = name.slice(0, -1);
+        if (name !== String(r.KCMC || "")) name = name.slice(0, -1) + "…";
+        ctx.fillText(name, 48, y);
+        ctx.fillStyle = "#1B3A6B"; ctx.font = "bold 26px sans-serif"; ctx.fillText(gradeNum(r, "ZPCJ").toFixed(0), 882, y);
+        ctx.fillStyle = "#6B7684"; ctx.font = "22px sans-serif"; ctx.fillText(gradeNum(r, "XF").toFixed(1), 992, y);
+        y += line;
+      }
+      y += 30;
+    }
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) { tide.notify("图片生成失败"); return; }
+    const name = `成绩单-${new Date().toISOString().slice(0, 10)}.png`;
+    const file = new File([blob], name, { type: "image/png" });
+    if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+      try { await navigator.share({ files: [file], title: "分享成绩单" }); return; } catch (e) { if (e?.name === "AbortError") return; }
+    }
+    // Android / Tauri WebView 的 <a download> 不可靠，落盘走宿主已有的下载桥。
+    try {
+      const path = await tide.assets.saveBase64(name, canvas.toDataURL("image/png").split(",")[1]);
+      tide.notify(`成绩单图片已保存：${path}`);
+    } catch (e) { tide.notify(`保存成绩单失败：${String(e?.message || e)}`); }
+  }
+
   const JW_VIEWS = [
     {
       id: "cppu-xk", title: "警大选课", icon: "list-check", keys: ["xkTask", "xkResult"], menu: JW_MENU.xk,
@@ -2354,10 +2499,11 @@
       body: () => jwLeaveHtml(),
     },
     {
-      id: "cppu-credit", title: "警大学分", icon: "graduation-cap", keys: ["creditPlan", "creditModule", "grade"], menu: JW_MENU.credit,
-      kicker: "教 务 · 学 分 进 度",
-      tip: "按培养计划汇总必修、选修和实践学分；课程是否修完以教务的“是否获得学分”为准。点上面的学分卡，按教务「我的学分」的课程模块看每一类的要求、已获、在修和待修。",
-      body: () => jwAcademicCreditHtml(),
+      // 保留旧视图 id：用户原先的导航入口与快捷键继续有效，内容切到 cppu-helper 成绩页。
+      id: "cppu-credit", title: "警大成绩", icon: "chart-line", keys: ["grade"], menu: JW_MENU.grades,
+      kicker: "教 务 · 成 绩",
+      tip: "课程成绩、学分和 GPA 按教务原始记录汇总。参考毕业学分仅供参考；刷新可重新读取学校数据。",
+      body: () => jwGradesHtml(),
     },
     {
       id: "cppu-cx", title: "警大创新学分", icon: "medal", keys: ["cxCredit", "cxDetail"], menu: JW_MENU.cx,
@@ -2410,6 +2556,7 @@
         tide.notify(`在教务里打开：${cfg.menu}`);
         return;
       }
+      if (e.target.closest("[data-grade-export]")) { await jwExportGrades(); return; }
       if (e.target.closest("[data-jw-task-back]")) {
         jwState.selectedTaskId = "";
         jwPaint();
@@ -3078,13 +3225,15 @@
       <div class="pp-toolbar">
         <button class="pp-btn pri" data-refresh>刷新</button>
         <input class="pp-kw" data-kw type="text" placeholder="关键词过滤：标题 / 发布人 / 单位 / 分类…">
-        <label class="pp-toggle" data-hs><i></i>只看未读</label>
         <label class="pp-toggle" data-ar title="打开插件期间每 10 分钟自动同步一次"><i></i>自动刷新</label>
         <span style="flex:1"></span>
         <button class="pp-btn" data-relogin>重新登录</button>
       </div>
-      <div class="pp-toolbar"><span class="pp-lab">分类</span><div class="pp-chips" data-kinds></div></div>
-      <div class="pp-toolbar"><span class="pp-lab">月份</span><div class="pp-chips" data-months></div></div>
+      <details class="plugin-filter-menu"><summary data-filter-summary>筛选</summary><div class="plugin-filter-menu-panel">
+        <div class="pp-toolbar"><span class="pp-lab">分类</span><div class="pp-chips" data-kinds></div></div>
+        <div class="pp-toolbar"><span class="pp-lab">月份</span><div class="pp-chips" data-months></div></div>
+        <label class="pp-toggle" data-hs><i></i>只看未读</label>
+      </div></details>
       <div class="pp-status" data-status></div>
       <div data-list></div>
       <div style="height:30px"></div>
@@ -3095,6 +3244,7 @@
       status: el.querySelector("[data-status]"),
       kinds: el.querySelector("[data-kinds]"),
       months: el.querySelector("[data-months]"),
+      filterSummary: el.querySelector("[data-filter-summary]"),
       list: el.querySelector("[data-list]"),
       kw: el.querySelector("[data-kw]"),
       hs: el.querySelector("[data-hs]"),
@@ -3194,7 +3344,7 @@
 
   tide.ui.registerView({ id: "cppu-notify", title: "警大通知", icon: 'building-columns', render });
   tide.ui.registerView({ id: "cppu-card", title: "警大一卡通", icon: "credit-card", render: mountCardView });
-  // 教务四个只读视图：侧栏「校园服务」里的选课 / 请假 / 学分 / 创新学分入口直接 navigate 过来
+  // 教务三个只读视图：侧栏「校园服务」里的选课 / 请假 / 成绩 / 创新学分入口直接 navigate 过来
   for (const cfg of JW_VIEWS) {
     tide.ui.registerView({
       id: cfg.id, title: cfg.title, icon: cfg.icon,

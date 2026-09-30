@@ -7,4 +7,5 @@ assert.equal(R.dueAt({due:'2026-09-11',dueTime:'12:30'}), new Date('2026-09-11T1
 assert.deepEqual(R.normalizeOffsets([10,60,10,-1,0,'5']), [60,10,5,0]);
 assert.equal(R.reminderLabel(0), '已到截止时间');
 assert.equal(R.reminderLabel(120), '还有 2 小时截止');
+assert.equal(typeof R.testTaskReminder, 'function', '设置页必须能触发一条端到端测试提醒');
 console.log('task reminder tests passed');

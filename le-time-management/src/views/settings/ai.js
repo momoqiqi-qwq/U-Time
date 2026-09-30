@@ -1,6 +1,12 @@
 import { api } from "../../api.js";
 import { el, toast } from "../../ui.js";
 
+const AI_PROVIDERS = [
+  { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com", model: "deepseek-flash" },
+  { id: "openai", name: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+  { id: "qwen", name: "阿里云百炼（北京）", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen3-vl-plus" },
+];
+
 export async function createAiSettingsCard() {
   const status = await api.aiVaultStatus().catch(() => ({ configured: false, baseUrl: "", model: "", keyMasked: "" }));
   const base = el("input", {
@@ -17,6 +23,19 @@ export async function createAiSettingsCard() {
     autocomplete: "off",
     spellcheck: "false",
   });
+  const provider = el("select", { "aria-label": "选择 AI 供应商" },
+    el("option", { value: "custom" }, "自定义"),
+    ...AI_PROVIDERS.map((p) => el("option", { value: p.id }, p.name)),
+  );
+  const matchProvider = () => AI_PROVIDERS.find((p) => p.baseUrl === base.value.trim().replace(/\/$/, "") && p.model === model.value.trim());
+  provider.value = matchProvider()?.id || "custom";
+  provider.addEventListener("change", () => {
+    const selected = AI_PROVIDERS.find((p) => p.id === provider.value);
+    if (!selected) return;
+    base.value = selected.baseUrl;
+    model.value = selected.model;
+  });
+  for (const input of [base, model]) input.addEventListener("input", () => { provider.value = matchProvider()?.id || "custom"; });
   const key = el("input", {
     type: "password",
     value: "",
@@ -34,6 +53,7 @@ export async function createAiSettingsCard() {
       state,
     ),
     el("div", { class: "ai-settings-grid" },
+      el("label", { class: "ai-field" }, el("span", {}, "供应商"), provider),
       el("label", { class: "ai-field" }, el("span", {}, "Base URL"), base),
       el("label", { class: "ai-field" }, el("span", {}, "模型"), model),
       el("label", { class: "ai-field ai-key-field" }, el("span", {}, "API Key"), key),
@@ -78,6 +98,7 @@ export async function createAiSettingsCard() {
         await api.aiVaultClear();
         base.value = "";
         model.value = "";
+        provider.value = "custom";
         key.value = "";
         key.placeholder = "API Key";
         state.textContent = "未配置";

@@ -4,15 +4,19 @@
 // 完全不知道任务、截止、提前量这些概念 —— 那些在 src/taskReminder.js。
 // 反过来 taskReminder.js 也不碰任何 Android 细节，两边靠「提醒事件」这一份数据对上。
 //
-// 为什么要单独一层：桌面端与纯浏览器调试都必须能安全空转。Rust 侧对非 Android
-// 恒返回 {applied:false} 而不是报错（见 src-tauri/src/notification.rs），
-// 但那条命令在浏览器里根本不存在，所以这里还要挡在 api 之前。
+// 为什么要单独一层：纯浏览器调试必须能安全空转。Android 继续走 Kotlin 通知与
+// AlarmManager；桌面 Tauri 的即时通知走同一个 Rust 命令，但不参与 Android 排期。
 import { api } from "./api.js";
 
 /** 是否需要原生通知（只有 Android APK：桌面走 WebView2，浏览器走 localStorage 调试）。 */
 export function isAndroidRuntime() {
   if (!api.isTauri) return false;
   return /Android/i.test(String(typeof navigator !== "undefined" ? navigator.userAgent : ""));
+}
+
+/** Windows / macOS / Linux Tauri 壳。当前主要消费方是 Windows 任务系统弹窗。 */
+export function isDesktopRuntime() {
+  return Boolean(api.isTauri) && !isAndroidRuntime();
 }
 
 const OFF = { applied: false, reason: "非 Android 平台不使用原生通知" };
@@ -71,6 +75,20 @@ export function clearNativeAlarms() {
  */
 export function postNativeReminder(record, { silent = false } = {}) {
   return call("post", { ...record, silent: !!silent });
+}
+
+/**
+ * 桌面即时系统通知。桌面端没有 AlarmManager，只在网页巡检命中提醒点时调用。
+ * Rust 侧负责把它送进 Windows 通知中心；异常吞掉后仍保留应用内横幅与声音。
+ */
+export async function postDesktopReminder(record) {
+  if (!isDesktopRuntime()) return { ...OFF };
+  try {
+    const r = await api.notification("post", record || {});
+    return r && typeof r === "object" ? r : { applied: true, raw: r };
+  } catch (e) {
+    return { applied: false, error: String(e?.message || e) };
+  }
 }
 
 export function cancelNativeReminder(key) {

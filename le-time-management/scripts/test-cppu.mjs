@@ -9,8 +9,8 @@ const context = vm.createContext({URL,Set,Map,Date,console,setTimeout,clearTimeo
   Image:class{constructor(){this.naturalWidth=0;this.naturalHeight=0;}set src(v){this._src=v;}decode(){return Promise.reject(new Error('cannot decode'));}},
   tide:{ui:{registerView:(def)=>{views.push(def);}},http:{session:async()=>'s1',restoreCookies:async(dump)=>{calls.push(['restore',dump]);return 'restored-sid';},fetch:async(...args)=>{calls.push(args);return typeof response==='function'?response(...args):response;}},storage:{set:async(k,v)=>{storageData[k]=v;},get:async(k,d)=>(k in storageData?storageData[k]:(d===undefined?null:d))},vault:{get:async(key)=>vaultData[key]||null,set:async(key,value)=>{vaultData[key]=value;},del:async(key)=>{delete vaultData[key];}},util:{openUrl:(url)=>opened.push(url),web:{formEncode:(fields)=>Object.entries(fields).map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&'),detectLoginForm:(html,base)=>html.includes('name="uid"')?{action:new URL('/coremail/index.jsp?cus=1',base).href,method:'POST',usernameField:'uid',passwordField:'password',captchaField:'',fields:[{name:'action',value:'login'}]}:null}},notify:(message)=>notices.push(message),assets:{saveBase64:async(name,b64)=>{saved.push([name,b64]);return 'D:/Downloads/'+name;}}}
 });
-vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwInnovationCreditHtml,cardState,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense};\n  tide.ui.registerView({'),context);
-const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwInnovationCreditHtml,cardState,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense}=context.testApi;
+vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense};\n  tide.ui.registerView({'),context);
+const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense}=context.testApi;
 const item={RESOURCE_ID:'test',PIM_TITLE:'Test <notice>',CREATE_TIME:1};
 assert.match(cardHtml(item),/展开正文/);
 assert.match(cardHtml(item),/class="pp-detail-shell" aria-hidden="true"/);
@@ -606,11 +606,16 @@ assert.doesNotMatch(source, /\/je\/doAct|\/je\/develop\/funcInfo\/(save|add|upda
   '教务接入必须只读：写入类端点没实测过就不许出现在插件里');
 assert.ok(source.includes('const JW_LOAD = JWAPP + "/je/load"'), '教务取数端点必须挂在 jw 域，不能混进 sso-jw');
 
-/* 侧栏五个应用内入口 + 六个视图注册 */
+/* 警大学分原入口成为警大成绩，避免教务菜单出现两张重复成绩页。 */
 assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-notify', 'cppu-qj', 'cppu-xk'],
-  '必须注册通知视图 + 选课/请假/警大学分/创新学分/一卡通五个应用内视图');
+  '必须注册通知视图 + 选课/请假/警大成绩/创新学分/一卡通五个应用内视图');
 assert.ok(views.filter((v) => v.id !== 'cppu-notify').every((v) => typeof v.render === 'function'), '插件子视图必须有 render');
 assert.ok(views.some((v) => v.id === 'cppu-cx' && v.title === '警大创新学分'), '创新学分视图要有独立标题');
+assert.ok(views.some((v) => v.id === 'cppu-credit' && v.title === '警大成绩'), '原警大学分视图应以警大成绩注册');
+assert.match(source, /view: "cppu-credit", label: "警大成绩"/, '教务菜单应显示警大成绩');
+assert.match(source, /id: "cppu-credit", title: "警大成绩"[^\n]*keys: \["grade"\][^\n]*menu: JW_MENU\.grades,[\s\S]*?body: \(\) => jwGradesHtml\(\)/,
+  '原警大学分入口必须读取成绩接口并使用 cppu-helper 成绩页及导出功能');
+assert.doesNotMatch(source, /view: "cppu-grades"|id: "cppu-grades"/, '不能保留重复的成绩入口');
 for (const v of ['cppu-xk', 'cppu-qj', 'cppu-credit', 'cppu-cx', 'cppu-card']) assert.ok(source.includes(`view: "${v}"`), `校园服务栏必须有 ${v} 入口`);
 assert.match(source, /url\.startsWith\("view:"\)\) \{ tide\.util\.navigate\("plug:" \+ url\.slice\(5\)\)/,
   'view: 入口必须在插件内切视图，而不是开系统浏览器（教务 SPA 没有 URL 深链）');
@@ -692,6 +697,29 @@ jwState.data.grade = [
   { KCMC: '方案外无模块码的课', XF: 1, KCSX: '02', SFHDXF: '2', ZPCJ: 40, XNXQ: '20252026-2' },
 ];
 assert.equal(jwGradeDone(jwState.data.grade[0]), true);
+assert.equal(gradeSemLabel('20252026-1'), '2025-2026 学年 · 秋');
+assert.equal(gradeGpa([{ XF: 2, JD: 4 }, { XF: 1, JD: 1 }]), 3);
+let gradePage = jwGradesHtml();
+for (const title of ['总学分', '平均绩点', '📈 GPA 走势', '🎯 学分进度', '📊 成绩分布', '🎓 课程构成', '📤 导出成绩单'])
+  assert.ok(gradePage.includes(title), `APK 成绩页应包含 ${title}`);
+assert.ok(gradePage.includes('2025-2026 学年 · 春') && gradePage.includes('高等数学（理）2'), '按学期列出全部课程');
+assert.ok(gradePage.includes('共 5 门 · 总学分 9.0'), '成绩首页须汇总课程数和总学分');
+assert.ok(gradePage.includes('参考毕业学分') && gradePage.includes('170（仅供参考）'), '参考毕业学分口径与 APK 相同');
+assert.ok(gradePage.includes('data-grade-export'), '导出成绩单按钮应可点击');
+const drawn = [];
+context.document.createElement = () => ({
+  getContext: () => ({ fillRect: () => {}, measureText: (s) => ({ width: s.length * 14 }), fillText: (s) => drawn.push(s) }),
+  toBlob: (cb) => cb({}), toDataURL: () => 'data:image/png;base64,UE5H',
+});
+context.File = class { constructor(parts, name) { this.name = name; } };
+context.navigator = {};
+await jwExportGrades();
+assert.ok(drawn.includes('成绩单') && drawn.some((s) => s.includes('平均分')), '导出图应含 APK 的标题和成绩汇总');
+assert.ok(saved.some(([name, data]) => name.startsWith('成绩单-') && data === 'UE5H'), '成绩图片应通过宿主下载桥落盘');
+jwState.data.grade.push({ KCMC: '<img src=x onerror=alert(1)>', XF: 1, JD: 2, ZPCJ: 66, XNXQ: '20262027-2' });
+gradePage = jwGradesHtml();
+assert.ok(!gradePage.includes('<img src=x'), '成绩接口返回的课程名必须转义');
+jwState.data.grade.pop();
 assert.equal(jwDict('KCMK', '28'), '军事教育课程', '模块名必须取教务字典 KCMKDM_1');
 assert.equal(jwDict('KCMK', '01'), '自然科学', '模块码与培养方案里的顺序无关，不能按界面次序排号');
 let academicCredit = jwAcademicCreditHtml();

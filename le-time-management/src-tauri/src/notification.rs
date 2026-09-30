@@ -1,4 +1,4 @@
-//! Android 系统通知与后台闹钟的跨端桥。
+//! 系统通知与 Android 后台闹钟的跨端桥。
 //!
 //! ## 为什么需要
 //!
@@ -17,14 +17,16 @@
 //! 改一边忘另一边的概率远高于只维护一张表。这里 Rust 侧持有一份 `KNOWN_ACTIONS`，
 //! 传错的 action 直接报错而不是静默无操作（与 [`crate::native_schedule`] 同款写法）。
 //!
-//! ## 其他平台
+//! ## 桌面平台
 //!
-//! 桌面端有自己的通知体系（本版本刻意不动，避免把已验证过的托盘行为卷进来），
-//! 所以对非 Android 平台**恒成功返回 `{applied:false}`**，而不是报错 ——
-//! 前端可以在所有平台无脑调用同一套 API，不必到处写平台判断。
+//! Windows / macOS / Linux 的 `post` 走 `tauri-plugin-notification`。Windows 的网页
+//! 定时器在应用进程活着时仍会运行（包括主窗隐藏到托盘），到点后由这里发真正的系统
+//! Toast；浏览器的 `Notification` API 在 WebView2 中不可用，不能拿它当桌面兜底。
 
 use serde_json::{json, Value};
 use tauri::Runtime;
+#[cfg(desktop)]
+use tauri_plugin_notification::NotificationExt;
 // `Manager` 只被 Android 分支用到（`app.state::<T>()`），桌面端不需要 ⇒ 必须按平台门控，
 // 否则 Windows 上会有 unused_imports 警告。
 #[cfg(target_os = "android")]
@@ -87,16 +89,41 @@ pub async fn notification<R: Runtime>(
             .await
             .map_err(|e| e.to_string());
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(desktop)]
     {
-        // 桌面端本版本不接原生通知：无事可做，且不是错误（前端在换主题之外
-        // 的所有地方都会无脑调这条命令）。
-        let _ = (app, action, payload);
-        Ok(json!({
+        if action == "status" {
+            return Ok(json!({
+                "applied": true,
+                "platform": std::env::consts::OS,
+                "supported": true,
+                "granted": true
+            }));
+        }
+        if action == "post" {
+            let args = payload.unwrap_or_else(|| json!({}));
+            let task = args.get("title").and_then(Value::as_str).unwrap_or("任务提醒").trim();
+            let body = args.get("body").and_then(Value::as_str).unwrap_or("任务时间到了").trim();
+            // 限长避免异常导入数据把整段正文塞进 Windows 通知中心。
+            let task = task.chars().take(80).collect::<String>();
+            let body = body.chars().take(240).collect::<String>();
+            app.notification()
+                .builder()
+                .title(format!("U-Time · {}", if task.is_empty() { "任务提醒" } else { &task }))
+                .body(if body.is_empty() { "任务时间到了" } else { &body })
+                .show()
+                .map_err(|e| format!("发送系统通知失败：{e}"))?;
+            return Ok(json!({ "applied": true, "platform": std::env::consts::OS }));
+        }
+        // cancel / Android 闹钟类动作在桌面没有等价物；保持成功空转，不能打断提醒巡检。
+        return Ok(json!({
             "applied": false,
             "platform": std::env::consts::OS,
-            "granted": false,
-            "reason": "当前平台不使用原生通知桥（提醒走应用内横幅）"
-        }))
+            "reason": "当前桌面平台不支持此通知操作"
+        }));
+    }
+    #[cfg(all(not(target_os = "android"), not(desktop)))]
+    {
+        let _ = (app, action, payload);
+        Ok(json!({ "applied": false, "platform": std::env::consts::OS }))
     }
 }

@@ -51,7 +51,7 @@ const plugins = [
   {
     "id": "school-notice",
     "name": "学校通知网站",
-    "version": "1.7.0",
+    "version": "1.7.1",
     "author": "U-Time内置",
     "icon": "school",
     "faIcon": "school",
@@ -123,7 +123,7 @@ const plugins = [
   {
     "id": "rss-reader",
     "name": "RSS 信息流",
-    "version": "1.6.0",
+    "version": "1.6.1",
     "author": "U-Time内置",
     "icon": "rss",
     "faIcon": "rss",
@@ -150,7 +150,7 @@ const plugins = [
   {
     "id": "gx-news",
     "name": "竞赛消息雷达",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "author": "U-Time内置",
     "icon": "trophy",
     "faIcon": "trophy",
@@ -177,7 +177,7 @@ const plugins = [
   {
     "id": "chaoxing-notify",
     "name": "学习通",
-    "version": "2.15.0",
+    "version": "2.15.2",
     "author": "基于 dsh-user/chaoxing-notify-skill v2.0.0 · U-Time适配",
     "icon": "graduation-cap",
     "faIcon": "graduation-cap",
@@ -204,11 +204,11 @@ const plugins = [
   {
     "id": "cppu-notify",
     "name": "警大门户通知",
-    "version": "1.28.0",
+    "version": "1.30.0",
     "author": "基于 dsh-user/cppu-notify-skill v1.2.1 · U-Time适配（1.26.1 教务查询遇网络抖动自动重发，报错摊平真实成因）",
     "icon": "building-columns",
     "faIcon": "building-columns",
-    "description": "智慧警大门户通知：登录一次后全程自动登录——优先恢复门户票据，主 SSO 有效时自动补全 bridge 链路，票据过期则自动识别验证码完成登录。左侧「校园服务」栏提供 WebVPN、教育邮箱、教务、学工、我的请假、一网通办、一卡通等入口，其中「教务」是带子菜单的父项：整行仍然免密换票打开教务首页，右侧箭头展开后直达学生选课、学生请假、警大学分和创新学分四个页面。这四个页面均为 U-Time 自有页面，且和通知页共用同一份登录代码：直接点进来就会自动恢复会话、自动换票建立教务登录态，认不出验证码时才在页面内摆出登录卡，不必先绕去警大通知手工登录。选课任务显示状态并将过期任务置灰；警大学分组合培养计划、教务「我的学分」的课程模块进度与课程成绩，按必修、选修、实践显示目标与已获学分，展开后按教务自己的课程模块名分组，显示每个模块的要求、已获、在修和待修学分（方案里还没课的模块也会列出还欠多少），可隐藏已修完课程；创新学分按学期显示真实申报项目、级别、奖项、认定学分与审核状态。教务写操作最终仍回学校系统确认。「教育邮箱」复用加密保存的警大密码自动登录；「一卡通」使用独立 OAuth 自动登录并读取平台流水，显示总充值、已花费和实时余额（校园卡账户与电子账户合并计算），并可按年、月、日切换查看充值或消费统计。通知支持每 10 分钟自动刷新、考试/比赛/通知分类、正文阅读、附件显示与应用内下载、转为提醒及微信推送联动。",
+    "description": "智慧警大门户通知：登录一次后自动恢复门户与教务会话。左侧「校园服务」提供 WebVPN、教育邮箱、教务、学工、我的请假、一网通办、一卡通等入口；「教务」子菜单可进入学生选课、学生请假、警大成绩和创新学分。警大成绩参考 cppu-helper 成绩页，展示总览、平均分与 GPA、分学期走势、学分进度、成绩分布、课程构成和课程列表，支持刷新、离线缓存及生成分享成绩单图片。创新学分按学期显示申报项目、级别、奖项、认定学分与审核状态。教务写操作仍由学校系统确认。教育邮箱和一卡通支持独立自动登录；一卡通可查看充值、消费与余额。通知支持自动刷新、分类、正文与附件阅读、转为提醒和微信推送联动。",
     "permissions": [
       "ui",
       "tasks",
@@ -280,7 +280,7 @@ const plugins = [
   {
     "id": "exam-calendar",
     "name": "考试日历",
-    "version": "0.3.2",
+    "version": "0.3.3",
     "author": "your-name",
     "icon": "calendar-check",
     "faIcon": "calendar-check",
@@ -329,7 +329,7 @@ const plugins = [
   {
     "id": "inbox-drop",
     "name": "拖入消息收纳",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "U-Time内置",
     "icon": "inbox",
     "faIcon": "inbox",
@@ -405,7 +405,7 @@ const plugins = [
   {
     "id": "plugin-guide",
     "name": "插件使用说明",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "author": "U-Time内置",
     "icon": "circle-question",
     "faIcon": "circle-question",

@@ -915,34 +915,9 @@ button, .nav { touch-action: manipulation; }
        同名的沉浸档选择器 —— test-immersive-view.mjs 以子串计数断言它全文件恰好出现一次。 */
     --safe-top-anchor: calc((2px + var(--sat, env(safe-area-inset-top, 0px))) / var(--ui-scale, 1));
   }
-  /* v0.107.0：滚动安全锚。上面的 padding 只保证「未滚动」时内容不顶进状态栏 ——
-     Android edge-to-edge 的状态栏是透明浮层，一滚动内容就从 padding 底下穿进状态栏
-     （课程表「时间与学期」这类长表单子页必现；sticky 的约束矩形是 scrollport，含
-     padding 区，插件里 top:0 的吸顶栏滚起来会一直钉到状态栏底下）。两层防御，
-     全部只由宿主写（安全区唯一负责人是宿主，v0.38.2 约定；插件侧再碰 var(--sat,…)
-     会被 scripts/test-plugin-safe-area.mjs 的「单一负责人」断言拦下）：
-     ① --safe-top-anchor = .view 顶部的「内容起始线」：常规页是 46px 让位 + 安全区，
-        沉浸式（.rail-hidden，课程表）是 2px 缝 + 安全区 —— 与两条 padding 规则
-        逐字同源。吸顶头钉在这条线上 = 未滚动的自然位置，滚动态与静态无缝衔接。
-     ② .view::before 滚动保护带：一条 sticky 毛玻璃，未滚动时靠负 margin 恰好铺满
-        padding 空档、不占布局空间；滚动时钉在 scrollport 顶 —— 任何页面（核心页
-        与插件页）的内容滚进顶部都从带底下过，而不是从状态栏底下过。
-        pointer-events:none，纯视觉层，绝不拦点击。仅在 ≤900px 生效：桌面没有
-        状态栏浮层，.view 也不吃顶部 padding，这条带毫无意义。 */
+  /* 插件吸顶头使用内容起始线避开状态栏；保留安全锚，但不再给普通页面
+     添加 .view::before 毛玻璃层。那层在 APK 插件中心会盖住顶部筛选项。 */
   .view { --safe-top-anchor: calc((46px + var(--sat, env(safe-area-inset-top, 0px))) / var(--ui-scale, 1)); }
-  .view::before {
-    content: "";
-    position: sticky;
-    top: 0;
-    z-index: 7;
-    display: block;
-    height: var(--safe-top-anchor);
-    margin: calc(-1 * var(--safe-top-anchor)) 0 0;
-    background: color-mix(in srgb, var(--panel, #fff) 82%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    pointer-events: none;
-  }
   /* 插件子页头（‹ 返回 + 标题，「时间与学期」等全部子页与「我的」「今日课表」主头）
      吸顶时钉在内容起始线上。插件样式表挂在宿主样式之后（<style> 在文档更深处），
      同特异性会赢，所以这里用 .plugview 前缀抬高一级。 */
@@ -1829,6 +1804,18 @@ button.about-list-row:hover { background:color-mix(in srgb,var(--deep) 5%,transp
 
 /* ── v0.10 · 插件权限与设置工具 ── */
 .plugin-search-row{display:flex;gap:8px;align-items:center;margin:10px 0}.plugin-search-input{flex:1;min-width:0;height:36px;border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:0 10px;color:var(--ink);font:inherit}.plugin-filter-select{height:36px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);padding:0 8px}
+/* 插件筛选统一收进原生 details：summary 是唯一常驻按钮，选项只在展开时占位。 */
+.plugin-filter-menu{position:relative;display:inline-block;max-width:100%;vertical-align:middle}
+.plugin-filter-menu>summary{list-style:none;display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:7px 13px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font-size:calc(12px * var(--ui-text-scale));font-weight:650;cursor:pointer;user-select:none}
+.plugin-filter-menu>summary::-webkit-details-marker{display:none}
+.plugin-filter-menu>summary::after{content:"⌄";font-size:calc(15px * var(--ui-text-scale));line-height:1;transition:transform .16s ease}
+.plugin-filter-menu[open]>summary{border-color:var(--deep);color:var(--deep)}
+.plugin-filter-menu[open]>summary::after{transform:rotate(180deg)}
+.plugin-filter-menu>summary:focus-visible{outline:2px solid var(--deep);outline-offset:2px}
+.plugin-filter-menu-panel{display:flex;flex-direction:column;gap:10px;min-width:min(300px,calc(var(--ui-vw, 100vw) - 40px));max-width:min(520px,calc(var(--ui-vw, 100vw) - 40px));padding:12px;margin-top:6px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:var(--shadow)}
+.plugin-filter-menu:not([open])>.plugin-filter-menu-panel{display:none}
+.plugin-filter-menu-panel .pp-toolbar,.plugin-filter-menu-panel .gx-toolbar,.plugin-filter-menu-panel .rss-toolbar{margin:0}
+.plugin-filter-menu-panel .pp-chips,.plugin-filter-menu-panel .gx-chips,.plugin-filter-menu-panel .rss-chips,.plugin-filter-menu-panel .ecal-chips,.plugin-filter-menu-panel .cx2-chips,.plugin-filter-menu-panel .cx2-tabs{display:flex;flex-wrap:wrap;gap:7px;margin:0}
 
 /* ── v0.10 · 冲突预览 ── */
 .conflict-preview{border:1px solid color-mix(in srgb,var(--sun) 50%,var(--line));background:color-mix(in srgb,var(--sun) 9%,var(--panel));border-radius:10px;padding:9px 10px;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2);line-height:1.55}.conflict-preview.ok{border-color:color-mix(in srgb,var(--mint) 40%,var(--line));background:color-mix(in srgb,var(--mint) 8%,var(--panel))}.conflict-alts{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}

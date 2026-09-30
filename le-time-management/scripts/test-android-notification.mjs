@@ -124,11 +124,15 @@ assert.match(notifyRs, /register_android_plugin\("com\.yile\.letime",\s*"Notific
   "原生类名必须与 Kotlin 侧完全一致");
 assert.match(notifyRs, /run_mobile_plugin_async\(&action, args\)/, "必须按 action 路由到同名 Kotlin 命令");
 assert.match(notifyRs, /未知通知操作/, "未知 action 必须报错，不能静默无操作");
-const nonAndroid = notifyRs.split('#[cfg(not(target_os = "android"))]')[1] ?? "";
-assert.ok(nonAndroid, "notification.rs 必须有非 Android 分支");
-assert.match(nonAndroid, /Ok\(json!\(\{/, "非 Android 平台必须恒成功返回（前端在所有平台无脑调用）");
-assert.doesNotMatch(nonAndroid, /\bErr(?:::[^\s(]*)?\s*\(/,
-  "非 Android 分支绝不能有错误出口：桌面端每次巡检都会调它，一旦返错就是提醒链路整条打断");
+const desktop = notifyRs.split('#[cfg(desktop)]')[2]?.split('#[cfg(all(not(target_os = "android"), not(desktop)))]')[0] ?? "";
+assert.ok(desktop, "notification.rs 必须有桌面分支");
+assert.match(desktop, /action == "post"[\s\S]*\.show\(\)/,
+  "桌面 post 必须发送系统通知，不能继续空转");
+assert.match(desktop, /Ok\(json!\(\{/, "桌面不支持的 Android 专属动作必须成功空转");
+const unsupported = notifyRs.split('#[cfg(all(not(target_os = "android"), not(desktop)))]')[1] ?? "";
+assert.ok(unsupported, "notification.rs 必须保留非 Android、非桌面平台的安全降级分支");
+assert.doesNotMatch(unsupported, /\bErr(?:::[^\s(]*)?\s*\(/,
+  "未支持平台不能有错误出口，否则通知巡检会被打断");
 
 /* ⑥ api 层与桥接层：非 Tauri / 非 Android 必须安全空转。 */
 assert.match(api, /async notification\(action, payload\)\s*\{/, "api.js 必须暴露 notification(action, payload)");

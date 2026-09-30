@@ -2328,6 +2328,9 @@ pub fn run() {
             }
         }));
         builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+        // 桌面系统通知：任务到点时即使主窗口被托盘隐藏，也要进入 Windows 通知中心。
+        // 前端不直接依赖插件 JS 包，而是统一走 notification 命令（见 notification.rs）。
+        builder = builder.plugin(tauri_plugin_notification::init());
         // 「点关闭按钮隐藏到托盘」：只拦主窗口，教务导入窗等子窗口照常直接关。
         // 行为设置存前端 data.json 的 settings.closeToTray（默认 true），关闭时现读，改完立即生效。
         // ⚠️ 托盘图标本身被关掉（settings.trayEnabled=false）时必须直接退出，

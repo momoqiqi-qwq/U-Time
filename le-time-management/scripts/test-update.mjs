@@ -187,6 +187,32 @@ assert.deepEqual({ ...U.DEFAULT_UPDATE_SETTINGS }, { autoCheck: true, notify: tr
 assert.equal(U.getUpdateSettings().autoCheck, true);
 assert.equal(U.getUpdateSettings().notify, true);
 
+/* 首次安装 / 覆盖更新完成：按实际运行版本只提示一次。 */
+const memoryStorage = (seed = {}) => {
+  const data = new Map(Object.entries(seed));
+  return {
+    getItem: (key) => data.has(key) ? data.get(key) : null,
+    setItem: (key, value) => data.set(key, String(value)),
+    removeItem: (key) => data.delete(key),
+    data,
+  };
+};
+const firstInstallStorage = memoryStorage();
+assert.deepEqual(U.recordInstalledVersion('0.124.0', firstInstallStorage),
+  { kind: 'installed', current: '0.124.0', previous: '' },
+  '第一次安装应识别为 installed');
+assert.equal(U.recordInstalledVersion('0.124.0', firstInstallStorage), null,
+  '同一版本重复启动不能反复弹安装完成');
+const upgradedStorage = memoryStorage({
+  [U.INSTALLED_VERSION_KEY]: '0.123.0',
+  [U.PENDING_UPDATE_VERSION_KEY]: '0.124.0',
+});
+assert.deepEqual(U.recordInstalledVersion('0.124.0', upgradedStorage),
+  { kind: 'updated', current: '0.124.0', previous: '0.123.0' },
+  '安装器重启后版本变化应识别为 updated');
+assert.equal(upgradedStorage.data.has(U.PENDING_UPDATE_VERSION_KEY), false,
+  '安装结果检测后必须清掉 pending 标记');
+
 const settings = S.getState().settings;
 settings.update = { autoCheck: "no", notify: 0, skipVersion: 12345, lastCheckAt: "abc" };
 const normalized = U.getUpdateSettings();

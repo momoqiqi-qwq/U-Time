@@ -30,6 +30,64 @@ import { observeStack, refreshStack } from "./notifyStack.js";
 const CHECK_THROTTLE_MS = 6 * 60 * 60 * 1000;
 /** 启动后延迟多久才去检查：让首屏渲染、插件加载先跑完，别抢带宽。 */
 const STARTUP_DELAY_MS = 8000;
+/** 本机上一次成功启动的应用版本；localStorage 会跨覆盖安装保留。 */
+export const INSTALLED_VERSION_KEY = "letime-installed-version";
+/** 点过「关闭并安装」后写入的目标版本，用于安装器重启后的精确确认。 */
+export const PENDING_UPDATE_VERSION_KEY = "letime-pending-update-version";
+
+function versionStorage() {
+  try { return globalThis.localStorage || globalThis.window?.localStorage || null; } catch { return null; }
+}
+
+/**
+ * 记录本次实际运行版本，并判断这是首次安装、升级成功，还是普通重复启动。
+ * storage 参数可注入，既方便单测，也让禁用 DOM storage 的极端环境安全退化。
+ */
+export function recordInstalledVersion(currentVersion, storage = versionStorage()) {
+  const current = String(currentVersion || "").trim();
+  if (!storage || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(current)) return null;
+  let previous = "";
+  let pending = "";
+  try {
+    previous = String(storage.getItem(INSTALLED_VERSION_KEY) || "").trim();
+    pending = String(storage.getItem(PENDING_UPDATE_VERSION_KEY) || "").trim();
+    storage.setItem(INSTALLED_VERSION_KEY, current);
+    storage.removeItem(PENDING_UPDATE_VERSION_KEY);
+  } catch {
+    return null;
+  }
+  if (previous === current) return null;
+  if (pending === current || previous) return { kind: "updated", current, previous };
+  return { kind: "installed", current, previous: "" };
+}
+
+/** 启动完成后的右下角安装结果回执。 */
+export async function showInstalledVersionNotice() {
+  if (!api.isTauri) return null;
+  const info = await api.appInfo().catch(() => null);
+  const result = recordInstalledVersion(info?.version);
+  if (!result) return null;
+  const message = result.kind === "updated"
+    ? result.previous
+      ? `U-Time 已成功更新：v${result.previous} → v${result.current}`
+      : `U-Time 已成功更新至 v${result.current}`
+    : `U-Time v${result.current} 已安装完成，欢迎使用`;
+  toast(message, { ms: 8000, class: "install-success" });
+  return result;
+}
+
+function rememberPendingUpdate(version) {
+  const storage = versionStorage();
+  const target = String(version || "").trim();
+  if (!storage || !target) return;
+  try { storage.setItem(PENDING_UPDATE_VERSION_KEY, target); } catch {}
+}
+
+function forgetPendingUpdate() {
+  const storage = versionStorage();
+  if (!storage) return;
+  try { storage.removeItem(PENDING_UPDATE_VERSION_KEY); } catch {}
+}
 
 export const DEFAULT_UPDATE_SETTINGS = Object.freeze({
   /** 启动时是否去查一次（关掉后仍可在「关于 › 软件更新」手动检查）。 */
@@ -594,11 +652,13 @@ export async function installUpdate() {
   );
   if (!ok) return false;
   patchState({ phase: "installing", error: "", errorStage: "" });
+  rememberPendingUpdate(state.info?.latest);
   try {
     await api.updateInstall(state.downloadedPath);
     return true;
   } catch (error) {
     // 能走到这里说明应用还活着 —— 那是真失败（权限被拒 / 文件被清理）。
+    forgetPendingUpdate();
     patchState({ phase: "error", errorStage: "install", error: String(error?.message || error || "安装失败") });
     return false;
   }
@@ -648,5 +708,7 @@ export function initUpdateChecker() {
   if (!isUpdaterSupported()) return;
   getUpdateSettings();
   bindProgress();
+  // 不等 8 秒的联网检查：这是本地版本比对，首屏出现后即可给出安装成功回执。
+  showInstalledVersionNotice().catch(() => {});
   setTimeout(() => { silentUpdateCheck().catch(() => {}); }, STARTUP_DELAY_MS);
 }

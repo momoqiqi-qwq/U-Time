@@ -466,7 +466,7 @@ const JUYA = `<?xml version='1.0' encoding='utf-8'?>
   assert.equal(manifest.id, 'rss-reader');
   /* 版本号**故意钉死具体值**：插件内容改了（哪怕只是换一条预置源）就必须来这里确认一次。
      别把它改成 /^\d+\.\d+\.\d+$/ 之类的格式检查 —— 那样「改了内容却忘升版本」就再也拦不住了。 */
-  assert.equal(manifest.version, '1.6.0');
+  assert.equal(manifest.version, '1.6.1');
   for (const perm of ['ui', 'storage', 'notify', 'http', 'openUrl', 'tasks', 'blocks', 'timeParse', 'events']) {
     assert.ok(manifest.permissions.includes(perm), 'manifest 必须声明 ' + perm);
   }
@@ -856,7 +856,7 @@ const JUYA = `<?xml version='1.0' encoding='utf-8'?>
   const hero = (src.match(/<div class="rss-hero[\s\S]*?<div data-list/) || [''])[0];
   assert.ok(hero, '没在 .rss-hero 到列表之间找到视图骨架（顶栏结构是不是动了？）');
   assert.match(hero, /<button class="rss-add-src" data-add-src type="button"/, '顶栏必须有一颗真的 <button> 加源入口（不是 span/chip）');
-  assert.match(hero, /data-chips><\/div><button class="rss-add-src"/, '入口要挂在「来源」那一行的行尾');
+  assert.match(hero, /data-chips><\/div>[\s\S]*?<\/details><button class="rss-add-src"/, '入口要挂在「筛选」按钮那一行的行尾');
   assert.match(hero, /title="[^"]*添加订阅源/, '触屏没有 hover 提示，但读屏要能念出来 —— title 不能省');
 
   /* ③ 行为：展开 <details> 并把光标放到地址框上。focus 必须 preventScroll ——

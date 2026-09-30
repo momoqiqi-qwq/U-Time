@@ -9,7 +9,8 @@ import * as S from "./store.js";
 import { toast } from "./ui.js";
 import { playSound, startAlarmLoop, stopAlarmLoop, alarmRinging, DEFAULT_LOOP_SOUND_ID } from "./sound.js";
 import {
-  isAndroidRuntime, notifyStatus, askNotifyPermission, postNativeReminder, cancelNativeReminder,
+  isAndroidRuntime, isDesktopRuntime, notifyStatus, askNotifyPermission, postNativeReminder,
+  postDesktopReminder, cancelNativeReminder,
   setNativeRingActive, syncNativeAlarms, clearNativeAlarms, takeNativeActions,
 } from "./androidNotify.js";
 
@@ -209,7 +210,8 @@ function startRing(ev, c = cfg()) {
   startAlarmLoop({ sound: c.ringSound, volume: c.volume, customAudio: c.customAudio });
   // 告诉原生别在退后台时冻结页面定时器（见 MainActivity.onPause），并把这条升级成常驻通知
   setNativeRingActive(true);
-  postNativeReminder(reminderRecord(ev));
+  if (isAndroidRuntime()) postNativeReminder(reminderRecord(ev));
+  else if (isDesktopRuntime()) postDesktopReminder(reminderRecord(ev));
   const maxMs = Math.max(5000, Number(c.ringMaxMs) || DEFAULT_RING_MAX_MS);
   ring = { ev, banner, maxTimer: setTimeout(() => stopRing(), maxMs), poll: setInterval(() => { drainNativeActions(); }, 1000) };
 }
@@ -290,11 +292,38 @@ function notifyEvent(ev) {
   } else {
     playReminderSound();
     if (isAndroidRuntime()) postNativeReminder(reminderRecord(ev));
+    else if (isDesktopRuntime()) postDesktopReminder(reminderRecord(ev));
     else if ("Notification" in window && Notification.permission === "granted") {
       // 桌面浏览器调试才走得到：Tauri（WebView2 与 Android WebView）都不实现 Notification API。
       try { new Notification("U-Time · 任务提醒", { body: text }); } catch {}
     }
   }
+}
+
+/**
+ * 设置页的端到端测试入口：应用内横幅、提示音和当前平台系统通知各走一遍。
+ * 用提前预警档而不是到点档，避免测试时触发持续长鸣。
+ */
+export async function testTaskReminder() {
+  const now = Date.now();
+  const ev = {
+    task: { id: "notification-test", title: "测试任务提醒", dueTime: "" },
+    offset: 5,
+    at: now,
+    due: now + 5 * 60000,
+    key: `notification-test:${now}:5`,
+  };
+  toast("测试任务提醒 · 这是应用内右下角横幅");
+  await playReminderSound(true);
+  if (isAndroidRuntime()) return postNativeReminder(reminderRecord(ev));
+  if (isDesktopRuntime()) return postDesktopReminder(reminderRecord(ev));
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification("U-Time · 测试任务提醒", { body: reminderBody(ev.task, ev.offset) });
+      return { applied: true, platform: "browser" };
+    } catch {}
+  }
+  return { applied: false, reason: "当前环境不支持系统通知" };
 }
 
 let timer = null;

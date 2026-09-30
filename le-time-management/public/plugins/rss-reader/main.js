@@ -928,6 +928,8 @@
       chips.push(b);
     }
     ui.chips.replaceChildren(...chips);
+    ui.filterSummary.textContent = state.prefs.feed === "all" && !state.prefs.unreadOnly && !state.prefs.starOnly
+      ? "筛选" : "筛选 · 已设置";
 
     ui.unreadToggle.classList.toggle("on", !!state.prefs.unreadOnly);
     ui.starToggle.classList.toggle("on", !!state.prefs.starOnly);
@@ -1309,13 +1311,11 @@
         </div>
         <div class="rss-toolbar">
           <input class="rss-input" data-kw type="text" placeholder="关键词过滤：标题与摘要…">
-          <span class="rss-toggle" data-unread-toggle><i></i>只看未读</span>
-          <span class="rss-toggle" data-star-toggle><i></i>只看收藏</span>
           <select class="rss-select" data-auto title="自动刷新间隔"></select>
           <span class="rss-seg" data-seg role="group" aria-label="条目显示样式"></span>
           <span class="rss-toggle" data-cover-toggle title="卡片档是否显示封面图"><i></i>封面图</span>
         </div>
-        <div class="rss-toolbar"><span class="rss-lab">来源</span><div class="rss-chips" data-chips></div><button class="rss-add-src" data-add-src type="button" aria-expanded="false" title="添加订阅源（展开「订阅管理」并把光标放到地址框）">＋<span>添加源</span></button></div>
+        <div class="rss-toolbar"><details class="plugin-filter-menu"><summary data-filter-summary>筛选</summary><div class="plugin-filter-menu-panel"><div class="rss-chips" data-chips></div><span class="rss-toggle" data-unread-toggle><i></i>只看未读</span><span class="rss-toggle" data-star-toggle><i></i>只看收藏</span></div></details><button class="rss-add-src" data-add-src type="button" aria-expanded="false" title="添加订阅源（展开「订阅管理」并把光标放到地址框）">＋<span>添加源</span></button></div>
         <div class="rss-status" data-status></div>
       </div>
       <details class="rss-manage" data-manage>
@@ -1338,6 +1338,7 @@
       wrap,
       status: wrap.querySelector("[data-status]"),
       chips: wrap.querySelector("[data-chips]"),
+      filterSummary: wrap.querySelector("[data-filter-summary]"),
       list: wrap.querySelector("[data-list]"),
       srcs: wrap.querySelector("[data-srcs]"),
       suggest: wrap.querySelector("[data-suggest]"),

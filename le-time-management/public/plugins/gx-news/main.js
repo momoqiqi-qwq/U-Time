@@ -768,6 +768,8 @@
     chipRow(ui.months, [{ id: "all", label: "全部" }, ...months.map((mo) => ({ id: mo, label: monthLabel(mo) }))],
       state.filter.month, (id) => { state.filter.month = id; savePrefs(); paintChips(); paintList(true); });
 
+    ui.filterSummary.textContent = `筛选${state.filter.type !== "all" || state.filter.month !== "all" || state.filter.hideSeen ? " · 已设置" : ""}`;
+
     ui.hideSeen.classList.toggle("on", !!state.filter.hideSeen);
     ui.showCover.classList.toggle("on", !!state.filter.showCover);
     ui.auto.classList.toggle("on", !!state.filter.auto);
@@ -1052,17 +1054,19 @@
     wrap.className = "gx-wrap";
     wrap.innerHTML = `
       <div style="font-size:calc(11px * var(--ui-text-scale));letter-spacing:.3em;color:#7E8B94;margin:16px 0 4px">竞 赛 消 息 雷 达 · 内 置 插 件</div>
-      <div class="gx-toolbar"><span class="gx-lab">源</span><div class="gx-chips" data-sources></div>
-        <button class="gx-link" data-home>打开源站 ↗</button></div>
+      <div class="gx-toolbar"><button class="gx-link" data-home>打开源站 ↗</button></div>
       <div class="gx-toolbar">
         <button class="gx-refresh">刷新</button>
         <input class="gx-kw" type="text" placeholder="关键词过滤：如 答辩 / 数学 / 报名 / 截止…">
-        <label class="gx-toggle hide-seen"><i></i>只看未读</label>
         <label class="gx-toggle show-cover"><i></i>封面图</label>
         <label class="gx-toggle auto"><i></i>每 10 分钟自动刷新</label>
       </div>
-      <div class="gx-toolbar" data-type-bar><span class="gx-lab">类型</span><div class="gx-chips" data-chips></div></div>
-      <div class="gx-toolbar"><span class="gx-lab">月份</span><div class="gx-chips" data-months></div></div>
+      <details class="plugin-filter-menu"><summary data-filter-summary>筛选</summary><div class="plugin-filter-menu-panel">
+        <div class="gx-toolbar"><span class="gx-lab">源</span><div class="gx-chips" data-sources></div></div>
+        <div class="gx-toolbar" data-type-bar><span class="gx-lab">类型</span><div class="gx-chips" data-chips></div></div>
+        <div class="gx-toolbar"><span class="gx-lab">月份</span><div class="gx-chips" data-months></div></div>
+        <label class="gx-toggle hide-seen"><i></i>只看未读</label>
+      </div></details>
       <div class="gx-status"></div>
       <div data-list></div>
       <div style="height:30px"></div>
@@ -1076,6 +1080,7 @@
       typeBar: wrap.querySelector("[data-type-bar]"),
       chips: wrap.querySelector("[data-chips]"),
       months: wrap.querySelector("[data-months]"),
+      filterSummary: wrap.querySelector("[data-filter-summary]"),
       list: wrap.querySelector("[data-list]"),
       kw: wrap.querySelector(".gx-kw"),
       hideSeen: wrap.querySelector(".hide-seen"),

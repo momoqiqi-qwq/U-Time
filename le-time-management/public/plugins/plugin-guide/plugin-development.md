@@ -1,6 +1,6 @@
 # U-Time · 插件开发文档
 
-> 适用于 U-Time v0.52.x 的 Windows / Android Tauri 插件宿主。`permissions` 是运行时权限闸门：调用未声明的能力时宿主直接抛错。
+> 适用于 U-Time v0.121.0 的 Windows / Android Tauri 插件宿主。`permissions` 是运行时权限闸门：调用未声明的能力时宿主直接抛错。
 
 ## 1. 最小插件结构
 
@@ -321,6 +321,22 @@ const y = Math.max(8 + sat, Math.min(rawY, window.innerHeight - sab - MENU_H));
 - 网络请求提供加载、失败、重试和空状态。
 - 会产生任务或时间块的操作，在执行前明确说明影响范围。
 - 不要把密钥、Cookie、Token 写进源码或示例仓库。
+
+### 4.4 筛选菜单（Windows / APK）
+
+分类、月份、学年、来源等筛选条件超过一项时，页面只常驻一个“筛选”按钮。宿主提供 `.plugin-filter-menu` 样式，用原生 `<details>` 就能展开下拉区域，不需要固定定位遮罩；已选条件仍由插件自己的状态管理和 `tide.storage` 保存。
+
+```html
+<details class="plugin-filter-menu">
+  <summary>筛选</summary>
+  <div class="plugin-filter-menu-panel">
+    <label>分类 <select aria-label="筛选分类"><option>全部</option></select></label>
+    <label>月份 <select aria-label="筛选月份"><option>全部</option></select></label>
+  </div>
+</details>
+```
+
+选择条件后同步更新列表、计数和按钮的“已设置”提示；列表重渲染时保留当前筛选状态。搜索输入框、刷新按钮及“添加源”等操作仍放在菜单外。使用 `<summary>` 的键盘与触屏开合能力，不用自建全屏遮罩；下拉内容在窄屏允许换行，避免把通知列表挤到多屏之后。内置实现可参考 `cppu-notify/main.js`、`gx-news/main.js` 和 `rss-reader/main.js`。
 
 ## 5. 安全说明
 

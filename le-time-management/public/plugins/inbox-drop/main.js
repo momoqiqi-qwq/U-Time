@@ -808,6 +808,7 @@
       .id-btn:disabled{opacity:.45;cursor:not-allowed}
       .id-preview{margin-top:10px;max-height:260px;object-fit:contain;border-radius:12px;border:1px solid var(--line,#E4DFD6);background:var(--panel,#fff);align-self:flex-start}
       .id-filters{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:16px 0 10px}
+      .id-filter-options{display:flex;gap:7px;flex-wrap:wrap}
       .id-chip{height:30px;padding:0 12px;border-radius:999px;border:1px solid var(--line,#DCD6CB);background:var(--panel,#fff);
         cursor:pointer;font-size:calc(12px * var(--ui-text-scale));font-family:inherit;color:var(--ink-2,#59656D)}
       .id-chip.on{background:var(--deep,#0F4C5C);border-color:var(--deep,#0F4C5C);color:var(--on-deep,#fff)}
@@ -870,7 +871,7 @@
         .id-ta{height:auto;min-height:88px}
         .id-zone{min-height:126px;padding:17px 14px}
         .id-filters{margin-top:13px}
-        .id-filters .id-muted{margin-left:0;width:100%}
+        .id-filters .id-muted{margin-left:0}
       }
     `;
     document.head.append(st);
@@ -942,8 +943,10 @@
     const total = state.drops.length;
     const chip = (key, label, n) => `<button class="id-chip${state.activeKind === key ? " on" : ""}" data-kind="${key}" type="button" aria-pressed="${state.activeKind === key ? "true" : "false"}">${esc(label)}${n ? ` ${n}` : ""}</button>`;
     return `<div class="id-filters">
-      ${chip("all", "全部", total)}
-      ${DROP_KINDS.map((k) => chip(k, kindMeta(k).label, counts[k] || 0)).join("")}
+      <details class="plugin-filter-menu"><summary>筛选${state.activeKind === "all" ? "" : " · 已设置"}</summary><div class="plugin-filter-menu-panel"><div class="id-filter-options">
+        ${chip("all", "全部", total)}
+        ${DROP_KINDS.map((k) => chip(k, kindMeta(k).label, counts[k] || 0)).join("")}
+      </div></div></details>
       <span class="id-muted" style="margin-left:auto">共 ${total} 条</span>
     </div>`;
   }

@@ -1595,7 +1595,17 @@
       await render(el);
     });
     chips.append(onlyBtn);
-    tools.append(chips);
+    const filterMenu = document.createElement("details");
+    filterMenu.className = "plugin-filter-menu";
+    const filterLabel = document.createElement("summary");
+    filterLabel.textContent = settings.examFilter === "all" && !settings.onlyConfirmed
+      ? "筛选考试"
+      : `筛选考试 · ${EXAM_FILTERS.find((x) => x.id === settings.examFilter)?.short || "全部"}${settings.onlyConfirmed ? " · 官方" : ""}`;
+    const filterPanel = document.createElement("div");
+    filterPanel.className = "plugin-filter-menu-panel";
+    filterPanel.append(chips);
+    filterMenu.append(filterLabel, filterPanel);
+    tools.append(filterMenu);
 
     const search = document.createElement("input");
     search.className = "ecal-search";

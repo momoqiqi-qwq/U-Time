@@ -401,6 +401,17 @@ const x = Math.max(8 + sal, Math.min(rawX, window.innerWidth - sar - MENU_W));
 const y = Math.max(8 + sat, Math.min(rawY, window.innerHeight - sab - MENU_H));</code></pre>
         <p class="intro">真机自检：APK 装好后把手机转成横屏（挖孔跑到左侧）打开插件页，内容左边缘应留出挖孔宽度；再开一个弹层，确认它既不压状态栏也不被导航栏吃掉。</p>
 
+        <h3>筛选菜单（Windows / APK）</h3>
+        <p class="intro">分类、月份、学年、来源等条件不要在手机上铺成多排胶囊。宿主提供 <code>.plugin-filter-menu</code>：页面常驻一个“筛选”按钮，点开后显示选项；搜索、刷新和添加源留在菜单外。条件变化后同步刷新列表、计数与按钮的“已设置”提示，原有筛选状态继续用插件私有存储保存。</p>
+        <pre><code>&lt;details class="plugin-filter-menu"&gt;
+  &lt;summary&gt;筛选&lt;/summary&gt;
+  &lt;div class="plugin-filter-menu-panel"&gt;
+    &lt;label&gt;分类 &lt;select aria-label="筛选分类"&gt;&lt;option&gt;全部&lt;/option&gt;&lt;/select&gt;&lt;/label&gt;
+    &lt;label&gt;月份 &lt;select aria-label="筛选月份"&gt;&lt;option&gt;全部&lt;/option&gt;&lt;/select&gt;&lt;/label&gt;
+  &lt;/div&gt;
+&lt;/details&gt;</code></pre>
+        <p class="intro">原生 <code>details/summary</code> 支持键盘与触屏开合，下拉区域在文档流中展开，无需额外遮罩或固定定位。示例见 <code>cppu-notify/main.js</code>、<code>gx-news/main.js</code>、<code>rss-reader/main.js</code>。</p>
+
         <h3>任务与时间块</h3>
         <div class="table-wrap"><table>
           <thead><tr><th>API</th><th>说明</th></tr></thead>

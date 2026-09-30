@@ -1,7 +1,7 @@
 {
   "id": "inbox-drop",
   "name": "拖入消息收纳",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "U-Time内置",
   "icon": "inbox",
   "faIcon": "inbox",
