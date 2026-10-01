@@ -58,7 +58,7 @@ assert.match(rust, /window\.open = function \(url\)[\s\S]*return openHere\(url\)
   "应用内网页必须把 window.open 转为当前窗口跳转，避免学习通作业入口点击无响应");
 assert.match(rust, /target\.closest\("a\[target\]"\)[\s\S]*event\.preventDefault\(\)[\s\S]*location\.href = href/,
   "应用内网页必须接管 target=_blank 链接并留在当前窗口打开");
-assert.match(rust, /\.initialization_script_for_all_frames\(INTERNAL_BROWSER_BOOTSTRAP\)/,
+assert.match(rust, /\.initialization_script_for_all_frames\(format!\("window\.__leBrowserContent=true;\{\}", INTERNAL_BROWSER_BOOTSTRAP\)\)/,
   "应用内 WebView 必须在主框架和子框架都装载新窗口兼容脚本");
 assert.match(rust, /\.on_new_window\(\|_, _\| tauri::webview::NewWindowResponse::Deny\)/,
   "漏出的新窗口请求必须拒绝，不能创建与旧窗口绑定生命周期的关联子窗口");

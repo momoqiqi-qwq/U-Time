@@ -1,6 +1,9 @@
 package com.yile.letime
 
 import android.app.Activity
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -41,6 +44,10 @@ import org.json.JSONObject
   ]
 )
 class NotificationPlugin(private val host: Activity) : Plugin(host) {
+  private val permissionPrefs get() = host.getSharedPreferences("letime-notification-permission", Context.MODE_PRIVATE)
+
+  private fun runtimeGranted(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+    host.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
   private fun argsOf(invoke: Invoke): JSObject = try {
     invoke.getArgs()
@@ -77,6 +84,8 @@ class NotificationPlugin(private val host: Activity) : Plugin(host) {
         put("platform", "android")
         put("api", Build.VERSION.SDK_INT)
         put("granted", ReminderHub.notificationsEnabled(host))
+        put("permissionAsked", permissionPrefs.getBoolean("asked", false))
+        put("canRequest", Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !runtimeGranted())
         put("exact", ReminderHub.canScheduleExact(host))
         put("scheduled", ReminderHub.loadAlarms(host).size)
         put("ringing", ReminderHub.ringActive)
@@ -93,9 +102,10 @@ class NotificationPlugin(private val host: Activity) : Plugin(host) {
    */
   @Command
   fun askPermission(invoke: Invoke) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+    if (runtimeGranted()) {
       return resolvePermission(invoke)
     }
+    permissionPrefs.edit().putBoolean("asked", true).apply()
     requestPermissionForAliases(arrayOf("notifications"), invoke, "permissionDone")
   }
 
@@ -177,8 +187,11 @@ class NotificationPlugin(private val host: Activity) : Plugin(host) {
   fun post(invoke: Invoke) {
     val a = argsOf(invoke)
     val rec = recordOf(a) ?: return invoke.reject("缺少通知标识 key")
-    ReminderHub.postReminder(host, rec, silent = a.optBoolean("silent", false))
-    invoke.resolve(JSObject().apply { put("posted", true); put("key", rec.key); put("ongoing", rec.urgent) })
+    val posted = ReminderHub.postReminder(host, rec, silent = a.optBoolean("silent", false), taskActions = a.optBoolean("taskActions", true))
+    invoke.resolve(JSObject().apply {
+      put("posted", posted); put("applied", posted); put("key", rec.key); put("ongoing", rec.urgent)
+      if (!posted) put("reason", "通知未发送：请检查系统通知权限及通知渠道")
+    })
   }
 
   /** 撤掉一条通知（网页处理完提醒后收尾用）。 */

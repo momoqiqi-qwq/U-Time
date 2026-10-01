@@ -43,18 +43,19 @@ assert.match(
   "pluginHost.js 必须把 def.immersive 规整为布尔后透传（undefined → false）",
 );
 
-/* ── ③ shell 按当前视图切换 .rail-hidden；判定必须绑定 pluginView.immersive，
- *      不许出现按插件 id 硬编码的写法（shiguang-schedule 字样不该出现在 shell.js） ── */
+/* ── ③ shell 按当前视图切换 .rail-hidden；判定必须绑定 pluginView.immersive。
+ *      APK 底栏可直达课程表，因此只检查 switchTo 实现不按插件 id 特判沉浸态。 ── */
 const shell = read("src/shell.js");
+const switchToSource = shell.slice(shell.indexOf("function switchTo("), shell.indexOf("function renderMarket("));
 assert.match(
   shell,
   /classList\.toggle\(\s*["']rail-hidden["']\s*,\s*def\.pluginView\?\.immersive\s*===\s*true\s*\)/,
   "shell.js 的 switchTo 必须按 def.pluginView?.immersive === true 切换 .rail-hidden",
 );
 assert.doesNotMatch(
-  shell,
+  switchToSource,
   /shiguang-schedule/,
-  "shell.js 不许硬编码插件 id（沉浸与否由插件自己声明）",
+  "switchTo 不许按插件 id 硬编码沉浸态（由插件自己声明）",
 );
 
 /* ── ④ styles.css：两条规则成对出现，且都只在 ≤900px 媒体块内。

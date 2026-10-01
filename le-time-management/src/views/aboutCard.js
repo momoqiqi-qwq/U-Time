@@ -4,6 +4,7 @@ import { PROJECT_LINKS } from "../projectLinks.js";
 import { ABOUT_DOCS, FRAMEWORKS, OPEN_SOURCE_PROJECTS, RELEASE_NOTES } from "../aboutData.js";
 import { createUpdateSettingsPanel } from "./settings/update.js";
 import { createUninstallPanel } from "./settings/uninstall.js";
+import { createDisclaimerContent } from "../disclaimer.js";
 
 function sectionTitle(text) {
   return el("h3", { class: "about-section-title" }, text);
@@ -86,6 +87,8 @@ export function createAboutCard(info, registry = []) {
   // 面板为什么在浏览器调试里也画 —— 手机 UI 的预览与录屏都跑在 :1420，隐藏了就截不到图。
   const uninstallPanel = createUninstallPanel({ version: currentVersion });
   if (uninstallPanel) card.append(sectionTitle("卸载应用"), uninstallPanel);
+
+  card.append(sectionTitle("使用说明与免责声明"), createDisclaimerContent());
 
   const releaseList = el("ul", { class: "about-bullets" });
   RELEASE_NOTES.forEach((text) => releaseList.append(el("li", {}, text)));

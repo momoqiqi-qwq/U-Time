@@ -14,6 +14,7 @@ mod notification;
 mod system_bar;
 mod uninstaller;
 mod update;
+mod browser;
 
 /// 应用数据目录（Windows: %APPDATA%，Linux: ~/.local/share，Android: 应用内部存储）
 fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -1388,10 +1389,29 @@ fn open_url_with_shell_execute(url: &str) -> Result<(), String> {
 /// 照常泵消息。教务导入窗口（`school_import_open`）一直是这么写的，所以没踩到。
 static BROWSER_WINDOW_SEQ: AtomicU64 = AtomicU64::new(1);
 
-const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
+pub(crate) const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
 (function () {
   if (window.__leInternalBrowserBootstrap) return;
   window.__leInternalBrowserBootstrap = true;
+  const tools = window.__leBrowserToolbar;
+  const invokeTool = (action, extra = {}) => window.__TAURI_INTERNALS__.invoke("browser_tool_action", { action, ...extra });
+  let currentUrl = tools?.url || location.href;
+  const pageUrl = () => tools ? currentUrl : location.href;
+  const navigatePage = (url) => tools ? invokeTool("navigate", { url }) : (location.href = url);
+  // 教务深链使用本地已验证菜单 id；登录跳转后仍可恢复目标菜单。
+  if (location.hostname === "jw.cppu.edu.cn") {
+    const menu = new URLSearchParams(location.hash.slice(1)).get("utime-menu");
+    const known = ["37mz91XBnBIljahBQSs", "RMX4lNNDjXaz3b2oz8B"];
+    if (known.includes(menu)) sessionStorage.setItem("__utime_jw_menu", menu);
+    let tries = 0;
+    const jump = setInterval(() => {
+      const target = sessionStorage.getItem("__utime_jw_menu");
+      if (!target || ++tries > 600) { clearInterval(jump); return; }
+      if (typeof window.JE?.openFuncById === "function" && Object.values(window.JE._MENUS || {}).some((item) => item.id === target)) {
+        sessionStorage.removeItem("__utime_jw_menu"); clearInterval(jump); window.JE.openFuncById(target);
+      }
+    }, 500);
+  }
 
   const toHttpUrl = (raw) => {
     try {
@@ -1431,7 +1451,7 @@ const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
   }, true);
 
   // 侧边栏只挂在最外层网页；all-frames 注入仍保留给上面的 window.open 兼容处理。
-  if (window.top === window) {
+  if (window.top === window) { if (window.__leBrowserContent) return;
     const mountToolbox = () => {
       if (!document.documentElement || !document.body || document.getElementById("__utime-browser-tools")) return;
       const host = document.createElement("div");
@@ -1451,7 +1471,7 @@ const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
           #favorite[aria-pressed="true"] { color: #ffd66e; }
           .spacer { flex: 1; min-height: 10px; }
           .zoom-readout { width: 38px; color: #aeb2bd; font-size: 10px; text-align: center; font-variant-numeric: tabular-nums; }
-          .panel { position: absolute; right: 54px; top: 10px; width: min(290px, calc(100vw - 72px)); max-height: min(70vh, 560px); overflow: auto; padding: 13px; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: #202127; color: #f2f3f6; box-shadow: 0 12px 36px rgba(0,0,0,.38); pointer-events: auto; }
+          .panel { position: absolute; right: 54px; top: 10px; width: min(280px, calc(100vw - 60px)); max-height: min(70vh, 560px); overflow: auto; padding: 13px; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: #202127; color: #f2f3f6; box-shadow: 0 12px 36px rgba(0,0,0,.38); pointer-events: auto; }
           .panel[hidden] { display: none; }
           .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-size: 13px; font-weight: 700; }
           .panel-head button { width: 28px; height: 28px; font-size: 18px; }
@@ -1466,10 +1486,10 @@ const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
         </style>
         <nav class="rail" role="toolbar" aria-label="网页工具箱"></nav>
         <section class="panel" aria-label="收藏网页" hidden>
-          <div class="panel-head"><span>此网站的收藏</span><button type="button" data-close aria-label="关闭收藏面板" title="关闭">×</button></div>
+          <div class="panel-head"><span>收藏网页</span><button type="button" data-close aria-label="关闭收藏面板" title="关闭">×</button></div>
           <button class="save-current" type="button" data-save-current>＋ 收藏当前页</button>
           <div class="saved-list"></div>
-          <p class="note">收藏保存在当前网站的 WebView 数据中。</p>
+          <p class="note">收藏保存在本机。教务收藏需先完成学校登录。</p>
         </section>`;
       const rail = shadow.querySelector(".rail");
       const panel = shadow.querySelector(".panel");
@@ -1479,7 +1499,8 @@ const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
       let zoom = 1;
       const applyZoom = () => {
         zoom = Math.max(.75, Math.min(1.5, Math.round(zoom * 100) / 100));
-        document.documentElement.style.zoom = String(zoom);
+        if (tools) invokeTool("zoom", { zoom });
+        else document.documentElement.style.zoom = String(zoom);
         zoomReadout.textContent = `${Math.round(zoom * 100)}%`;
       };
       const addButton = (id, label, icon, action) => {
@@ -1498,17 +1519,30 @@ const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
         return button;
       };
       const icon = (paths) => `<svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
-      addButton("refresh", "刷新网页", icon('<path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0 2 5"/>'), () => location.reload());
-      addButton("back", "后退", icon('<path d="m14 6-6 6 6 6"/><path d="M8 12h12"/>'), () => history.back());
-      addButton("forward", "前进", icon('<path d="m10 6 6 6-6 6"/><path d="M16 12H4"/>'), () => history.forward());
+      addButton("refresh", "刷新网页", icon('<path d="M20 7v5h-5"/><path d="M20 12a8 8 0 1 0 2 5"/>'), () => tools ? invokeTool("refresh") : location.reload());
+      addButton("back", "后退", icon('<path d="m14 6-6 6 6 6"/><path d="M8 12h12"/>'), () => tools ? invokeTool("back") : history.back());
+      addButton("forward", "前进", icon('<path d="m10 6 6 6-6 6"/><path d="M16 12H4"/>'), () => tools ? invokeTool("forward") : history.forward());
+      const key = "__utime_browser_favorites_v1";
+      try {
+        if (!localStorage.getItem("__utime_browser_defaults_v2")) {
+          const old = JSON.parse(localStorage.getItem(key) || "[]");
+          const saved = Array.isArray(old) ? old : [];
+          for (const item of [
+            { title: "选课", url: "https://jw.cppu.edu.cn/index.html#utime-menu=37mz91XBnBIljahBQSs" },
+            { title: "我的学分", url: "https://jw.cppu.edu.cn/index.html#utime-menu=RMX4lNNDjXaz3b2oz8B" },
+          ]) if (!saved.some((entry) => entry?.url === item.url)) saved.push(item);
+          localStorage.setItem(key, JSON.stringify(saved));
+          localStorage.setItem("__utime_browser_defaults_v2", "1");
+        }
+      } catch (_) {}
       const favorite = addButton("favorite", "收藏当前页", icon('<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9L12 3Z"/>'), () => {
         const key = "__utime_browser_favorites_v1";
         try {
           const saved = JSON.parse(localStorage.getItem(key) || "[]");
           const items = Array.isArray(saved) ? saved : [];
-          const current = items.findIndex((item) => item && item.url === location.href);
+          const current = items.findIndex((item) => item && item.url === pageUrl());
           if (current >= 0) items.splice(current, 1);
-          else items.unshift({ url: location.href, title: (document.title || location.hostname).slice(0, 140), savedAt: Date.now() });
+          else items.unshift({ url: pageUrl(), title: (tools ? new URL(pageUrl()).hostname : document.title || location.hostname).slice(0, 140), savedAt: Date.now() });
           localStorage.setItem(key, JSON.stringify(items.slice(0, 100)));
           updateFavoriteState();
           if (!panel.hidden) renderFavorites();
@@ -1517,7 +1551,7 @@ const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
       const updateFavoriteState = () => {
         try {
           const saved = JSON.parse(localStorage.getItem("__utime_browser_favorites_v1") || "[]");
-          const active = Array.isArray(saved) && saved.some((item) => item && item.url === location.href);
+          const active = Array.isArray(saved) && saved.some((item) => item && item.url === pageUrl());
           favorite.setAttribute("aria-pressed", String(active));
           favorite.setAttribute("aria-label", active ? "取消收藏" : "收藏当前页");
           favorite.title = active ? "取消收藏" : "收藏当前页";
@@ -1544,7 +1578,7 @@ const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
           open.className = "saved-open";
           open.textContent = item.title || item.url;
           open.title = item.url;
-          open.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); location.href = item.url; });
+          open.addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); navigatePage(item.url); });
           const remove = document.createElement("button");
           remove.type = "button";
           remove.className = "saved-remove";
@@ -1563,14 +1597,15 @@ const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
       };
       addButton("saved-list", "查看收藏", icon('<path d="M5 4h14v17l-7-4-7 4V4Z"/><path d="M8 8h8M8 11h6"/>'), () => {
         panel.hidden = !panel.hidden;
+        if (tools) invokeTool("panel", { expanded: !panel.hidden });
         if (!panel.hidden) renderFavorites();
       });
       addButton("copy-url", "复制网页地址", icon('<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>'), async () => {
         try {
-          await navigator.clipboard.writeText(location.href);
+          await navigator.clipboard.writeText(pageUrl());
         } catch (_) {
           const input = document.createElement("textarea");
-          input.value = location.href;
+          input.value = pageUrl();
           input.style.position = "fixed"; input.style.opacity = "0";
           document.body.appendChild(input); input.select();
           try { document.execCommand("copy"); } catch (_) {}
@@ -1588,16 +1623,41 @@ const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"
         zoom = Math.min(1.5, zoom + .1); applyZoom();
       });
       shadow.querySelector("[data-save-current]").addEventListener("click", () => favorite.click());
-      shadow.querySelector("[data-close]").addEventListener("click", () => { panel.hidden = true; });
+      const closePanel = () => { panel.hidden = true; if (tools) invokeTool("panel", { expanded: false }); };
+      shadow.querySelector("[data-close]").addEventListener("click", closePanel);
       document.addEventListener("click", (event) => {
-        if (event.target !== host && !host.contains(event.target)) panel.hidden = true;
+        if (event.target !== host && !host.contains(event.target)) closePanel();
       }, true);
       document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape" && !panel.hidden) panel.hidden = true;
+        if (event.key === "Escape" && !panel.hidden) closePanel();
       }, true);
       document.documentElement.appendChild(host);
       applyZoom();
       updateFavoriteState();
+      if (tools) {
+        let importedOrigin = "";
+        const poll = async () => {
+          try {
+            const state = await invokeTool("status"); currentUrl = state.url; updateFavoriteState();
+            const origin = new URL(currentUrl).origin;
+            const imported = JSON.parse(localStorage.getItem("__utime_browser_imported_origins_v1") || "[]");
+            if (/^https?:/.test(currentUrl) && origin !== importedOrigin && !imported.includes(origin)) {
+              const legacy = await invokeTool("legacyFavorites");
+              const old = legacy.items;
+              if (legacy.origin === origin && Array.isArray(old)) {
+                const saved = JSON.parse(localStorage.getItem(key) || "[]");
+                for (const entry of old.slice(0, 100)) if (entry && /^https?:/i.test(entry.url || "") && !saved.some((item) => item.url === entry.url))
+                  saved.push({ url: entry.url, title: String(entry.title || entry.url).slice(0, 140) });
+                localStorage.setItem(key, JSON.stringify(saved.slice(0, 200)));
+                localStorage.setItem("__utime_browser_imported_origins_v1", JSON.stringify([...imported, origin]));
+                importedOrigin = origin;
+              }
+            }
+          } catch (_) {}
+          setTimeout(poll, 1000);
+        };
+        poll();
+      }
     };
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mountToolbox, { once: true });
     else mountToolbox();
@@ -1613,8 +1673,12 @@ async fn open_internal(app: AppHandle, url: String) -> Result<(), String> {
     }
     let seq = BROWSER_WINDOW_SEQ.fetch_add(1, Ordering::Relaxed);
     let label = format!("browser-{seq}");
+    #[cfg(desktop)]
+    { browser::open(&app, &label, parsed, Vec::new())?; return Ok(()); }
+    #[cfg(target_os = "android")]
+    {
     let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
-        .initialization_script_for_all_frames(INTERNAL_BROWSER_BOOTSTRAP)
+        .initialization_script_for_all_frames(format!("window.__leBrowserContent=true;{}", INTERNAL_BROWSER_BOOTSTRAP))
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
         .title("U-Time · 网页")
         .inner_size(1100.0, 780.0);
@@ -1626,6 +1690,7 @@ async fn open_internal(app: AppHandle, url: String) -> Result<(), String> {
         .build()
         .map_err(|e| format!("应用内打开网页失败: {e}"))?;
     Ok(())
+    }
 }
 
 fn is_chaoxing_host(host: &str) -> bool {
@@ -1763,11 +1828,16 @@ async fn open_internal_with_http_session(
         let session = sessions.get(&sid).ok_or("学习通会话不存在或已过期，请刷新插件登录")?;
         chaoxing_webview_cookies(session, &parsed)?
     };
+    #[cfg(target_os = "android")]
     let blank: Url = "about:blank".parse().map_err(|e| format!("空白页地址无效: {e}"))?;
     let seq = BROWSER_WINDOW_SEQ.fetch_add(1, Ordering::Relaxed);
     let label = format!("browser-{seq}");
+    #[cfg(desktop)]
+    { browser::open(&app, &label, parsed, cookies)?; return Ok(()); }
+    #[cfg(target_os = "android")]
+    {
     let builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(blank))
-        .initialization_script_for_all_frames(INTERNAL_BROWSER_BOOTSTRAP)
+        .initialization_script_for_all_frames(format!("window.__leBrowserContent=true;{}", INTERNAL_BROWSER_BOOTSTRAP))
         .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny)
         .title("U-Time · 网页")
         .inner_size(1100.0, 780.0);
@@ -1788,6 +1858,7 @@ async fn open_internal_with_http_session(
     }
     window.navigate(parsed).map_err(|e| format!("带登录态导航失败: {e}"))?;
     Ok(())
+    }
 }
 /* ── 局域网联动：手机/小程序作为遥控端 ── */
 
@@ -2391,6 +2462,7 @@ pub fn run() {
             http_get_icon,
             open_external,
             open_internal,
+            browser::browser_tool_action,
             open_internal_with_http_session,
             des_ecb_encrypt_hex,
             http_session_new,

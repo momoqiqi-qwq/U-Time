@@ -10,13 +10,13 @@
 
 | key | 生效 slug | 说明 | sha256 |
 |---|---|---|---|
-| `quadrant` | `four-squares` | 四象限 / 田字格 | `37585dbcdc4c74af…` |
-| `timeline` | `timeline` | 时间线 / 垂直时间轴（v0.52.0 新增，APK 端核心视图） | `8074baa850a95f84…` |
-| `timeblock` | `clock` | 时间块 / 时钟 | `1bdcbd1576ce1162…` |
-| `inbox` | `inbox` | 收件箱 / 收件托盘 | `ea16388e2a54e4cd…` |
-| `market` | `puzzle` | 插件中心 / 拼图 | `97a33df64947a367…` |
-| `settings` | `settings` | 设置 / 齿轮 | `0594c463efa631a3…` |
-| `capture` | `inbox` | 快速捕获（与收件箱同形） | `ea16388e2a54e4cd…` |
+| `quadrant` | `four-squares` | 四象限 / 田字格 | `87f8d428b956369e…` |
+| `timeline` | `timeline` | 时间线 / 垂直时间轴（v0.52.0 新增，APK 端核心视图） | `da49b96098a2e683…` |
+| `timeblock` | `clock` | 时间块 / 时钟 | `dca38110e1ddb25b…` |
+| `inbox` | `inbox` | 收件箱 / 收件托盘 | `8ddd590b416ac546…` |
+| `market` | `puzzle` | 插件中心 / 拼图 | `9066968d72c032de…` |
+| `settings` | `settings` | 设置 / 齿轮 | `52e0a8b0eec63461…` |
+| `capture` | `inbox` | 快速捕获（与收件箱同形） | `8ddd590b416ac546…` |
 
 ## 许可与消费方
 

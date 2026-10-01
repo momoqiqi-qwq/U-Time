@@ -3,7 +3,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "shiguang-schedule",
     "name": "课程表",
-    "version": "3.12.0",
+    "version": "3.12.1",
     "author": "基于 XingHeYuZhuan/shiguangschedule · U-Time适配",
     "icon": "calendar-days",
     "faIcon": "calendar-days",
@@ -204,11 +204,11 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "cppu-notify",
     "name": "警大门户通知",
-    "version": "1.30.0",
+    "version": "1.34.0",
     "author": "基于 dsh-user/cppu-notify-skill v1.2.1 · U-Time适配（1.26.1 教务查询遇网络抖动自动重发，报错摊平真实成因）",
     "icon": "building-columns",
     "faIcon": "building-columns",
-    "description": "智慧警大门户通知：登录一次后自动恢复门户与教务会话。左侧「校园服务」提供 WebVPN、教育邮箱、教务、学工、我的请假、一网通办、一卡通等入口；「教务」子菜单可进入学生选课、学生请假、警大成绩和创新学分。警大成绩参考 cppu-helper 成绩页，展示总览、平均分与 GPA、分学期走势、学分进度、成绩分布、课程构成和课程列表，支持刷新、离线缓存及生成分享成绩单图片。创新学分按学期显示申报项目、级别、奖项、认定学分与审核状态。教务写操作仍由学校系统确认。教育邮箱和一卡通支持独立自动登录；一卡通可查看充值、消费与余额。通知支持自动刷新、分类、正文与附件阅读、转为提醒和微信推送联动。",
+    "description": "智慧警大门户通知：登录一次后自动恢复门户与教务会话。左侧「校园服务」提供 WebVPN、教育邮箱、教务、学工、我的请假、一网通办、一卡通等入口；「教务」子菜单可进入学生选课、学生请假、警大成绩、创新学分和独立警大校历插件。警大成绩参考 cppu-helper 成绩页，展示总览、平均分与 GPA、分学期走势、学分进度、成绩分布、课程构成和课程列表，支持刷新、离线缓存及生成分享成绩单图片。创新学分按学期显示申报项目、级别、奖项、认定学分与审核状态。教务写操作仍由学校系统确认。教育邮箱和一卡通支持独立自动登录；一卡通可查看充值、消费与余额。通知支持自动刷新、分类、正文与附件阅读、转为提醒和微信推送联动。",
     "permissions": [
       "ui",
       "tasks",
@@ -223,6 +223,48 @@ export const BUILTIN_PLUGINS = [
     ],
     "entry": "main.js",
     "order": 9,
+    "platforms": {
+      "windows": "full",
+      "android": "full",
+      "miniprogram": "unavailable"
+    }
+  },
+  {
+    "id": "cppu-calendar",
+    "name": "警大校历",
+    "version": "0.2.0",
+    "author": "U-Time内置",
+    "icon": "calendar-days",
+    "faIcon": "calendar-days",
+    "description": "显示学期推算结束日、红色当前教学周、本周课次与总节数（依据课程表当前课表）；支持同步教务学期、个人事项和离线查看。推算结束日不是官方放假安排。",
+    "permissions": [
+      "ui",
+      "storage",
+      "events",
+      "notify"
+    ],
+    "entry": "main.js",
+    "order": 9.5,
+    "platforms": {
+      "windows": "full",
+      "android": "full",
+      "miniprogram": "unavailable"
+    }
+  },
+  {
+    "id": "cppu-webvpn",
+    "name": "警大 WebVPN / 网站",
+    "version": "0.1.0",
+    "author": "U-Time内置",
+    "icon": "shield-halved",
+    "faIcon": "shield-halved",
+    "description": "独立校园网站界面。Windows / Android 使用应用内网页窗口完成官方 WebVPN 登录并访问校内资源；另设警大官网页。不会读取或复用门户密码、Cookie，网页调试环境使用浏览器窗口。",
+    "permissions": [
+      "ui",
+      "openUrl"
+    ],
+    "entry": "main.js",
+    "order": 9.6,
     "platforms": {
       "windows": "full",
       "android": "full",
@@ -380,11 +422,11 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "github-readme",
     "name": "GitHub 文档",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "author": "U-Time",
     "icon": "code-branch",
     "faIcon": "code-branch",
-    "description": "追踪 GitHub 仓库 README：支持 owner/repo 或仓库链接，正文按 GitHub Markdown 风格安全渲染。可改卡片名称、备注和图标。新提交可推送消息，首次加入不推历史；优先读取 GitHub 提交订阅，失败时使用 commits API 备用路径，错误只影响对应仓库。README 子目录路径自动处理。只读 README，不含 release、issue 和文件树。",
+    "description": "追踪 GitHub 仓库 README：支持 owner/repo 或仓库链接，正文按 GitHub Markdown 风格安全渲染。提供主题化页内编辑，一起修改名称、备注和图标；移除前确认，保存失败保留草稿。新提交可推送消息，首次加入不推历史；优先读取 GitHub 提交订阅，失败时使用 commits API 备用路径，错误只影响对应仓库。README 子目录路径自动处理。只读 README，不含 release、issue 和文件树。",
     "permissions": [
       "ui",
       "tasks",

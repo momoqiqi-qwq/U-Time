@@ -131,7 +131,7 @@ assert.ok(calls.slice(1).every(c=>c[3].followRedirects===false),'一次性 ticke
 /* ── 8. 自动登录：加密凭据、会话恢复、验证码识别重试链路 ── */
 assert.ok(source.includes('tide.vault'), '插件必须通过 tide.vault 存取加密凭据');
 assert.ok(source.includes('exportCookies') && source.includes('restoreCookies'), '登录态必须能导出/恢复以跨重启');
-assert.ok(source.includes('AUTO_ATTEMPTS'), '验证码识别失败必须有换图重试');
+assert.ok(source.includes('runLoginAttempts') && source.includes('cleanLoginRetries'), '验证码识别失败必须走可配置的统一重试流程（行为覆盖见 test-cppu-campus）');
 assert.ok(source.includes('验证码自动识别 ✓'), '登录界面自动登录状态必须如实展示');
 const cppuManifest = JSON.parse(fs.readFileSync(new URL('../public/plugins/cppu-notify/manifest.json', import.meta.url), 'utf8'));
 /* 不钉死具体版本号：插件每次改动都要升版本，钉死了就变成「升一次改两处」。
@@ -147,8 +147,10 @@ assert.ok(cppuBlock.includes(`"${cppuManifest.version}"`), `pluginCatalog 必须
 assert.match(cppuBlock, /"vault"/, 'pluginCatalog 必须同步 vault 权限');
 assert.match(cppuBlock, /"openUrl"/, 'pluginCatalog 必须同步 openUrl 权限');
 
+assert.match(source, /view: "cppu-webvpn"/, "WebVPN 必须进入独立插件视图");
+
 /* ── 左侧校园服务栏：十个入口（含一网通办、一卡通、我的请假）+ 标题/图标自动识别 ── */
-for (const url of ['https://webvpn.cppu.edu.cn/', 'https://mail.cppu.edu.cn/', 'https://jw.cppu.edu.cn/index.html', 'https://xg.cppu.edu.cn/XGPhone/Phone/index.html', 'https://xg.cppu.edu.cn/XGPhone/Phone/index.html#/StuDailyLeaveList', 'https://service.cppu.edu.cn/fe/site/service']) {
+for (const url of ['https://mail.cppu.edu.cn/', 'https://jw.cppu.edu.cn/index.html', 'https://xg.cppu.edu.cn/XGPhone/Phone/index.html', 'https://xg.cppu.edu.cn/XGPhone/Phone/index.html#/StuDailyLeaveList', 'https://service.cppu.edu.cn/fe/site/service']) {
   assert.ok(source.includes(url), `校园服务栏必须包含 ${url}`);
 }
 assert.match(source, /\{\s*view:\s*"cppu-card"[^}]*label:\s*"一卡通"[^}]*icon:\s*"credit-card"/,
@@ -176,7 +178,7 @@ assert.equal(cardIsRecharge({typeFrom:'1',resume:'微信支付转账',turnoverTy
 assert.equal(cardIsRecharge({typeFrom:'0',resume:'食堂消费'}), false, '消费流水不得计入充值量');
 assert.equal(cardIsRecharge({typeFrom:'1',resume:'助学金补助'}), false, '补助入账不得误算成充值');
 const normalizedBill=cardNormalizeBill({orderId:'bill-1',effectdateStr:'2026-09-22 08:30:00',tranamt:12345,resume:'校园卡充值'});
-assert.deepEqual({...normalizedBill},{id:'bill-1',date:'2026-09-22',amount:123.45,note:'校园卡充值',kind:'in',at:Date.parse('2026-09-22 08:30:00')});
+assert.deepEqual({...normalizedBill},{id:'bill-1',date:'2026-09-22',amount:123.45,note:'校园卡充值',merchant:'',kind:'in',at:Date.parse('2026-09-22 08:30:00')});
 assert.equal(cardNormalizeBill({orderId:'bill-9',effectdateStr:'2026-09-21 12:00:00',tranamt:1250,resume:'食堂消费'},'out').kind,'out','支出流水必须打上消费方向');
 cardState.rows=[normalizedBill,{...normalizedBill,id:'bill-2',date:'2026-08-01',amount:50},{id:'pay-1',date:'2026-09-20',amount:30,note:'食堂消费',kind:'out',at:0},{id:'pay-2',date:'2026-08-05',amount:7.5,note:'超市消费',kind:'out',at:0}];
 cardState.mode='month';
@@ -607,8 +609,8 @@ assert.doesNotMatch(source, /\/je\/doAct|\/je\/develop\/funcInfo\/(save|add|upda
 assert.ok(source.includes('const JW_LOAD = JWAPP + "/je/load"'), '教务取数端点必须挂在 jw 域，不能混进 sso-jw');
 
 /* 警大学分原入口成为警大成绩，避免教务菜单出现两张重复成绩页。 */
-assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-notify', 'cppu-qj', 'cppu-xk'],
-  '必须注册通知视图 + 选课/请假/警大成绩/创新学分/一卡通五个应用内视图');
+assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-login-settings', 'cppu-notify', 'cppu-qj', 'cppu-xk'],
+  '必须注册通知、登录设置及五个教务/一卡通视图');
 assert.ok(views.filter((v) => v.id !== 'cppu-notify').every((v) => typeof v.render === 'function'), '插件子视图必须有 render');
 assert.ok(views.some((v) => v.id === 'cppu-cx' && v.title === '警大创新学分'), '创新学分视图要有独立标题');
 assert.ok(views.some((v) => v.id === 'cppu-credit' && v.title === '警大成绩'), '原警大学分视图应以警大成绩注册');
@@ -808,7 +810,8 @@ state.sid = null; state.token = '';
 storageData.username = '2025290058'; vaultData.secret = JSON.stringify({ password: 'pw' });
 calls = []; response = jwDead;
 assert.equal(await ensureJwLogin(), false, '验证码一张都没认出来时不能谎报已登录');
-assert.equal(calls.filter((c) => String(c[2]).includes('/tpass/captcha.jpg')).length, 6, '自动登录必须把换图重试的次数用满');
+assert.equal(calls.filter((c) => String(c[2]).includes('/tpass/captcha.jpg')).length, state.loginRetries + 2, '按设置准备首次及重试验证码，耗尽后另准备一张人工表单验证码（不额外提交）');
+assert.equal(calls.filter(c=>c[1]==='POST' && String(c[2]).includes('/tpass/login')).length, 0, 'OCR 未识别时不能提交空验证码');
 await assert.rejects(() => jeLoad('cxCredit'), /登录/, '登录没成就要明确报错，不能静默交空列表');
 
 // ④ 既没 Cookie 也没密码：不去白抓验证码，直接判需要人工登录

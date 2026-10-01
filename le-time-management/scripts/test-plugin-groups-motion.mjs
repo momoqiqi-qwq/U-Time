@@ -172,7 +172,7 @@ assert.match(shell, /"data-card-id": rec\.id/, "FLIP 需要卡片的稳定 key")
 // 侧栏拖拽：按缩放系数换算（与 toolbarDrag.js 同一口径）
 const drag = between("function attachPluginListDrag", "function attachRailDockDrag");
 assert.match(drag, /st\.scale = getUiScaleFactor\(\) \|\| 1;/);
-assert.match(drag, /translate\(\$\{\(st\.x - st\.gx\) \/ st\.scale\}px, \$\{\(st\.y - st\.gy\) \/ st\.scale\}px\)/, "浮起项要按缩放系数跟手");
+assert.match(drag, /translate3d\(\$\{\(st\.x - st\.gx\) \/ st\.scale\}px, \$\{\(st\.y - st\.gy\) \/ st\.scale\}px, 0\)/, "浮起项要按缩放系数跟手");
 assert.match(drag, /st\.ghost\.style\.width = `\$\{rect\.width \/ st\.scale\}px`/, "浮起项尺寸要换回 CSS 像素");
 assert.match(drag, /const dy = \(before\.get\(node\) - node\.getBoundingClientRect\(\)\.top\) \/ st\.scale;/);
 

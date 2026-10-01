@@ -1,6 +1,6 @@
 # public/icons/plugins 素材台账（内置插件图标）
 
-共 17 个图标：15 个来自 **Icons8 / iGoutu** 的 **Color 彩色风格**（`wechat-push`、`github-readme` 用 `3d-fluency` 风格，因为 Color 风格没有微信标志与 GitHub 猫标志）；0 个为印章式文字图标（`风格` 列为 `text`，由本脚本代码绘制，非 Icons8 素材、无需署名）。
+共 19 个图标：19 个来自 **Icons8 / iGoutu** 的 **Color 彩色风格**（`wechat-push` 用 `3d-fluency` 风格，因为 Color 风格没有微信标志）；0 个为印章式文字图标（`风格` 列为 `text`，由本脚本代码绘制，非 Icons8 素材、无需署名）。
 
 图标集入口：<https://igoutu.cn/icons/set/标志--style-color> ｜ CDN 直链格式：`https://img.icons8.com/<style>/96/<slug>.png`
 
@@ -8,22 +8,24 @@
 
 | 插件 ID | 风格 | slug | 说明 | sha256 |
 |---|---|---|---|---|
-| `plugin-guide` | color | `help` | 插件使用说明 / 帮助 | `4373b076e9d7c4c3…` |
-| `pomodoro` | color | `tomato` | 番茄专注 / 番茄 | `78c87fc7be087e32…` |
-| `cppu-notify` | color | `university` | 警大门户通知 / 大学建筑 | `4ece1f4d547e61ef…` |
-| `gx-news` | color | `trophy` | 竞赛消息雷达 / 奖杯 | `fb567054f63980b7…` |
-| `rss-reader` | color | `rss` | RSS 信息流 / RSS 信号波 | `c53cc754702a43f9…` |
-| `exam-calendar` | color | `test-passed` | 考试日历 / 考核清单 | `0b6469d179a28f1f…` |
-| `shiguang-schedule` | color | `timetable` | 课程表 / 日历+时钟 | `8385f70b66b57eb5…` |
-| `web-collector` | color | `bookmark-ribbon` | 网页收集 / 书签 | `1622bbd5e2c8c069…` |
-| `wechat-push` | 3d-fluency | `wechat` | 微信提醒推送 / 微信标志 | `602bb415b23545c4…` |
-| `chaoxing-notify` | color | `books` | 学习通 / 一摞书 | `c6ea4c46000bc04c…` |
-| `school-notice` | color | `school` | 学校通知网站 / 校舍 | `3a18d8b68b02120f…` |
-| `cn-holiday` | color | `lantern` | 中国节假日 / 中式灯笼 | `15f911412b757f4b…` |
-| `weekly-report` | color | `statistics` | 周度报告 / 数据看板 | `e1bac31ac1bf7621…` |
-| `dorm-duty` | color | `broom` | 轮换值日 / 扫帚 | `17eaff49519fce69…` |
-| `inbox-drop` | color | `downloading-updates` | 拖入消息收纳 / 箭头入托盘 | `8e6c606ae009cbb6…` |
-| `ai-chat` | color | `artificial-intelligence` | AI 对话 / 智能大脑 | `9483174aa8c3f8f0…` |
+| `plugin-guide` | color | `help` | 插件使用说明 / 帮助 | `b45b6fcda0f60ca0…` |
+| `pomodoro` | color | `tomato` | 番茄专注 / 番茄 | `c803c064b51d6b32…` |
+| `cppu-notify` | color | `university` | 警大门户通知 / 大学建筑 | `9748e58bb1ab3556…` |
+| `cppu-calendar` | color | `calendar` | 警大校历 / 月历 | `3f9a3a3fb500fa6d…` |
+| `cppu-webvpn` | color | `university` | 警大 WebVPN / 校园网站 | `9748e58bb1ab3556…` |
+| `gx-news` | color | `trophy` | 竞赛消息雷达 / 奖杯 | `c95ce1bdbb0caa2a…` |
+| `rss-reader` | color | `rss` | RSS 信息流 / RSS 信号波 | `d0cb8af12b2efed0…` |
+| `exam-calendar` | color | `test-passed` | 考试日历 / 考核清单 | `5c6a420b295a8a06…` |
+| `shiguang-schedule` | color | `timetable` | 课程表 / 日历+时钟 | `6c3547736cc6ff77…` |
+| `web-collector` | color | `bookmark-ribbon` | 网页收集 / 书签 | `e5f48953ff3a87e3…` |
+| `wechat-push` | 3d-fluency | `wechat` | 微信提醒推送 / 微信标志 | `c7f899200f70060f…` |
+| `chaoxing-notify` | color | `books` | 学习通 / 一摞书 | `ff41e74a03cb03ea…` |
+| `school-notice` | color | `school` | 学校通知网站 / 校舍 | `24fffc6a25afd359…` |
+| `cn-holiday` | color | `lantern` | 中国节假日 / 中式灯笼 | `cddd17742bd90416…` |
+| `weekly-report` | color | `statistics` | 周度报告 / 数据看板 | `d351ec1dbd72a67f…` |
+| `dorm-duty` | color | `broom` | 轮换值日 / 扫帚 | `77c8854e41ff2dbe…` |
+| `inbox-drop` | color | `downloading-updates` | 拖入消息收纳 / 箭头入托盘 | `b0a69a328dcf6b3e…` |
+| `ai-chat` | color | `artificial-intelligence` | AI 对话 / 智能大脑 | `548f46d8d4c146e1…` |
 | `github-readme` | 3d-fluency | `github` | GitHub 文档 / GitHub 猫标志 | `0d0027483c6df026…` |
 
 ## 许可

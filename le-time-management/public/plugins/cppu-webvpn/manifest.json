@@ -1,0 +1,20 @@
+{
+  "id": "cppu-webvpn",
+  "name": "警大 WebVPN / 网站",
+  "version": "0.1.0",
+  "author": "U-Time内置",
+  "icon": "shield-halved",
+  "faIcon": "shield-halved",
+  "description": "独立校园网站界面。Windows / Android 使用应用内网页窗口完成官方 WebVPN 登录并访问校内资源；另设警大官网页。不会读取或复用门户密码、Cookie，网页调试环境使用浏览器窗口。",
+  "permissions": [
+    "ui",
+    "openUrl"
+  ],
+  "entry": "main.js",
+  "order": 9.6,
+  "platforms": {
+    "windows": "full",
+    "android": "full",
+    "miniprogram": "unavailable"
+  }
+}

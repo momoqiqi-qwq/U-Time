@@ -2,6 +2,7 @@
 import { api } from "./api.js";
 import * as S from "./store.js";
 import { toast } from "./ui.js";
+import { isAndroidRuntime, postNativeReminder } from "./androidNotify.js";
 import { parseWhen, guessCategory, guessQuad } from "./timeParser.js";
 import { BUILTIN_IDS, BUILTIN_PLUGINS } from "./pluginCatalog.js";
 import { normalizeWebUrl, resolveWebUrl, parseSiteMeta, inferSiteIconName, extractNoticeLinks, extractPager, noticeKind, extractArticleText, detectLoginForm, formEncode, detectSpaShell, matchJsonSiteAdapter, buildJsonSiteListUrl, parseJsonSiteList, parseGenericNoticeJson, extractEmbeddedJsonNotices, extractNoticeApiCandidates } from "./webContent.js";
@@ -105,6 +106,7 @@ export function collectNotice(payload, fromPluginId) {
   const items = Array.isArray(p.items) ? p.items : [];
   const source = String(p.source || fromPluginId || "unknown");
   const sourceName = String(p.sourceName || source);
+  const fresh = [];
   items.forEach((raw) => {
     const it = raw && typeof raw === "object" ? raw : {};
     const title = String(it.title || "").trim();
@@ -113,8 +115,14 @@ export function collectNotice(payload, fromPluginId) {
     const key = `${source}|${time}|${title}`;
     if (MESSAGE_SEEN.has(key)) return;
     MESSAGE_SEEN.add(key);
+    fresh.push(title);
     MESSAGE_FEED.push({ source, sourceName, title, time, sender: String(it.sender || "").trim(), at: Date.now() });
   });
+  if (fresh.length && isAndroidRuntime()) {
+    postNativeReminder({ key: `plugin-notice:${fromPluginId || source}`, at: Date.now(),
+      title: `U-Time · ${sourceName.slice(0, 60)} · ${fresh.length} 条新消息`,
+      body: fresh.slice(0, 3).map((title) => title.slice(0, 180)).join("\n"), urgent: false, taskActions: false });
+  }
   // 去重集合跟着队列一起裁，否则跑久了 Set 只增不减。
   if (MESSAGE_FEED.length > MESSAGE_MAX) {
     MESSAGE_FEED.splice(0, MESSAGE_FEED.length - MESSAGE_MAX);
@@ -384,6 +392,16 @@ function makeApi(man, source) {
     util: {
       today: S.todayStr, addDays: S.addDays, mmOf: S.mmOf, hhmmOf: S.hhmmOf, durLabel: S.durLabel,
       openUrl: (url) => { requirePermission(man, pid, "openUrl"); return api.openUrl(url); },
+      openCampusSite: (site) => {
+        requirePermission(man, pid, "openUrl");
+        if (pid !== "cppu-webvpn") throw new Error("校园网站窗口仅对警大 WebVPN 插件开放");
+        return api.openCampusSite(site);
+      },
+      openCardPage: (url) => {
+        requirePermission(man, pid, "openUrl");
+        if (pid !== "cppu-notify") throw new Error("一卡通网页窗口仅对警大插件开放");
+        return api.openCardPage(url);
+      },
       openUrlWithSession: (url, sid) => {
         requirePermission(man, pid, "openUrl");
         requirePermission(man, pid, "http");

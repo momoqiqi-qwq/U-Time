@@ -550,6 +550,8 @@ export function renderShell(root) {
   let pendingIconTarget = null; // { kind: "plugin" | "nav", id }
   // 插件中心挂着时由 renderMarket 填上「就地重排」入口；没挂着时调用也什么都不做（见 renderMarket）。
   let repaintMarket = null;
+  let refreshMarketState = null;
+  const marketTogglePending = new Set();
   let navFlips = 0; // 在飞的侧栏 FLIP 数：全部落定才摘 .nav-flip
   const pluginZipInput = el("input", { type: "file", accept: ".zip,application/zip", multiple: true, hidden: true });
   const pluginIconInput = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp,image/gif,image/svg+xml", hidden: true });
@@ -831,9 +833,27 @@ export function renderShell(root) {
 
   function renderNav() {
     nav.replaceChildren();
-    // v0.119.1：APK 底栏隐藏「任务表 / 时间线」，只保留插件入口；
+    // APK 底栏保留插件中心，并固定提供成绩、课表两个直达入口。
     // 页面本身仍可被启动页、历史栈和返回键访问，不从 coreViewIds() 的平台清单里移除。
     for (const id of railCoreViewIds()) nav.append(navBtn(id));
+    if (isAndroidRuntime()) {
+      for (const [id, label, icon] of [
+        ["plug:cppu-credit", "成绩", "chart-line"],
+        ["plug:shiguang-schedule", "课表", "calendar-days"],
+      ]) {
+        const btn = el("button", {
+          class: activeView === id ? "on" : "",
+          type: "button",
+          "data-view": id,
+          "aria-label": label,
+        }, el("span", { class: "ic" }, faIcon(icon)), el("span", { class: "lb" }, label));
+        btn.addEventListener("click", () => {
+          if (viewDef(id)) switchTo(id);
+          else { toast(`请先在插件中心启用${label}插件`); switchTo("market"); }
+        });
+        nav.append(btn);
+      }
+    }
     if (!pluginViews.length) return;
     // 桌面端侧栏仍保留插件直达列表；移动端底栏只留核心入口（.plug-list 被隐藏）
     const box = el("div", { class: "plug-list" },
@@ -1055,12 +1075,13 @@ export function renderShell(root) {
   registerRailAction({
     id: "theme-toggle",
     label: "切换深浅模式",
+    mobileLabel: "主题",
     className: "theme-toggle-btn",
     icon: () => faIcon(themeModeGlyph()),
     onMount: (btn) => {
       const update = () => {
         const dark = resolveThemeMode() === "dark";
-        btn.replaceChildren(el("span", { class: "ic" }, faIcon(themeModeGlyph())));
+        btn.querySelector(".ic")?.replaceChildren(faIcon(themeModeGlyph()));
         btn.title = dark ? "切换到浅色模式" : "切换到深色模式";
       };
       update(); // 首次同步（icon() 已给过图标，这里顺手把 title 也写对）
@@ -1134,6 +1155,7 @@ export function renderShell(root) {
     btn.append(ic);
     if (def.onClick) btn.addEventListener("click", (event) => def.onClick(event, btn));
     def.onMount?.(btn);
+    if (isAndroidRuntime()) btn.append(el("span", { class: "rail-dock-label" }, def.mobileLabel || def.label));
     return btn;
   }
 
@@ -1152,7 +1174,7 @@ export function renderShell(root) {
   }
   renderRailDock();
 
-  attachRailDockDrag(railDock, () => {
+  if (!isAndroidRuntime()) attachRailDockDrag(railDock, () => {
     // 落库：DOM 序就是用户拖出的序。走 normalize 而不是直接赋值 ——
     // 归一化保证落库的永远是「当前注册表的一个完整排列」（不多不少不重复）。
     S.getState().settings.railActionOrder = normalizeRailActionOrder(
@@ -1435,6 +1457,7 @@ export function renderShell(root) {
   let railHideTimer = 0;
   const RAIL_HIDE_ANIM_MS = 220; // CSS rail-dock-out .18s + 事件/帧余量
   function setChromeShown(show) {
+    if (isAndroidRuntime()) show = true;
     if (railHideTimer) { clearTimeout(railHideTimer); railHideTimer = 0; }
     appFrame.classList.remove("rail-hiding");
     const wasShown = chromeShown;
@@ -1450,6 +1473,7 @@ export function renderShell(root) {
     chromeToggle.setAttribute("aria-expanded", String(show));
     chromeToggle.title = show ? "收起菜单" : "显示菜单";
   }
+  if (isAndroidRuntime()) setChromeShown(true);
   // v0.108.0：呼出态点空白即收起。此前底栏只跟着「再按 ⋮ / 打开设置」消失，用户
   // 点内容区没有任何反馈，还得再找那颗 ⋮ —— 与 Android「弹出的面板，点外部即收」
   // 的肌肉记忆相悖。捕获阶段监听 pointerdown：不 preventDefault、不 stopPropagation，
@@ -1457,6 +1481,7 @@ export function renderShell(root) {
   // ⋮ 自带 toggle onclick（排除避免先收起再被点击重新呼出），‹ 是返回（返回后底栏
   // 保留是既有语义）。
   document.addEventListener("pointerdown", (e) => {
+    if (isAndroidRuntime()) return;
     if (!chromeShown || !mobileQuery.matches) return;
     if (!(e.target instanceof Element)) return;
     if (e.target.closest(".rail, .chrome-toggle, .mobile-back")) return;
@@ -1472,6 +1497,7 @@ export function renderShell(root) {
   }, { passive: true });
   view.addEventListener("touchcancel", () => { railSwipeStart = null; }, { passive: true });
   view.addEventListener("touchend", (event) => {
+    if (isAndroidRuntime()) return;
     const start = railSwipeStart;
     railSwipeStart = null;
     if (!start || event.changedTouches.length !== 1 || !mobileQuery.matches || chromeShown || settingsLayers > 0) return;
@@ -1594,6 +1620,31 @@ export function renderShell(root) {
     const count = el("span", { class: "market-count" });
     const filterBox = el("div", { class: "market-filters" });
     const grid = el("div", { class: "market-grid" });
+    const cardRefreshers = new Map();
+    let registrySnapshot = [], visibleIds = new Set();
+    // 启停只同步现有节点；导入/删除或筛选成员变化才执行 FLIP 重排。
+    refreshMarketState = () => {
+      if (!grid.isConnected) return;
+      const regs = getRegistry();
+      const matched = regs.filter(match);
+      const membershipChanged = regs.length !== registrySnapshot.length
+        || regs.some((rec, i) => rec !== registrySnapshot[i])
+        || matched.length !== visibleIds.size || matched.some((rec) => !visibleIds.has(rec.id));
+      if (membershipChanged) {
+        const focusedId = document.activeElement?.closest?.(".mcard")?.dataset.cardId;
+        paintCards({ flip: true });
+        if (focusedId) {
+          const remaining = [...grid.querySelectorAll(".mcard")].find((node) => node.dataset.cardId === focusedId);
+          (remaining?.querySelector(".market-plugin-switch") || search).focus({ preventScroll: true });
+        }
+      } else {
+        cardRefreshers.forEach((refresh) => refresh());
+      }
+      // 不重建筛选按钮，避免点击开关时重置焦点。
+      [...filterBox.children].forEach((button, i) => {
+        button.querySelector(".market-filter-count").textContent = String(countFor(filters[i][0]));
+      });
+    };
 
     const filters = [
       ["all", "全部"], ["enabled", "已启用"], ["disabled", "已停用"], ["builtin", "内置"], ["user", "用户插件"],
@@ -1603,7 +1654,7 @@ export function renderShell(root) {
       const q = query.trim().toLowerCase();
       return getRegistry().filter((rec) => {
         const man = rec.manifest || {};
-        const enabled = S.pluginState(rec.id).enabled !== false;
+        let enabled = S.pluginState(rec.id).enabled !== false;
         if (id === "enabled" && !enabled) return false;
         if (id === "disabled" && enabled) return false;
         if (id === "builtin" && rec.source !== "builtin") return false;
@@ -1661,6 +1712,9 @@ export function renderShell(root) {
       else paintCards({ flip: true });
     };
     function fillCards(entrance) {
+      cardRefreshers.clear();
+      registrySnapshot = getRegistry();
+      visibleIds = new Set(registrySnapshot.filter(match).map((rec) => rec.id));
       const customOrder = pluginOrderState();
       const rank = new Map(customOrder.map((id, index) => [id, index]));
       const sorted = getRegistry().filter(match).sort((a, b) => {
@@ -1715,8 +1769,18 @@ export function renderShell(root) {
         if (hiddenSection) continue;
         const man = rec.manifest || {};
         const pluginName = pluginDisplayName(rec.id, man.name || rec.id);
-        const enabled = S.pluginState(rec.id).enabled !== false;
-        const pv = pluginViews.find((v) => v.pluginId === rec.id);
+        let enabled = S.pluginState(rec.id).enabled !== false;
+        const cardViews = pluginViews.filter((v) => v.pluginId === rec.id);
+        let pv = cardViews[0];
+        // APK 没有桌面插件侧栏，多视图插件必须在插件中心暴露全部入口。
+        let viewLinks = isAndroidRuntime() && cardViews.length > 1
+          ? el("div", { class: "market-view-links", "aria-label": `${pluginName} 功能入口` },
+            cardViews.map((item) => el("button", {
+              class: "btn ghost sm", type: "button", disabled: !enabled ? true : null,
+              "data-plugin-view": item.id,
+              onclick: (e) => { e.stopPropagation(); switchTo(`plug:${item.id}`); },
+            }, faIcon(item.icon || "puzzle-piece"), el("span", {}, item.title))))
+          : null;
         const open = el("button", { class: "btn pri sm", disabled: !enabled || !pv ? true : null, onclick: () => {
           if (!enabled) return toast("请先开启这个插件");
           if (pv) switchTo(`plug:${pv.id}`);
@@ -1724,30 +1788,32 @@ export function renderShell(root) {
         } }, pv ? "打开" : "无视图");
         const toggle = el("button", {
           class: `switch market-plugin-switch${enabled ? " on" : ""}`,
+          "data-motion": "off", // 使用滑块自身过渡，不叠加通用按钮波纹/回弹。
           role: "switch",
           "aria-checked": String(enabled),
           "aria-label": `${enabled ? "关闭" : "开启"}${pluginName}`,
           title: enabled ? "关闭插件" : "开启插件",
           onclick: async (e) => {
             e.stopPropagation();
+            if (marketTogglePending.has(rec.id)) return;
             const next = !enabled;
-            const btn = e.currentTarget;
-            btn.classList.toggle("on", next);
-            btn.setAttribute("aria-checked", String(next));
-            btn.closest(".market-switch-control")?.querySelector(".market-switch-text")?.replaceChildren(next ? "已开启" : "已关闭");
+            marketTogglePending.add(rec.id);
+            // 按插件 ID 锁定，快速重复点击/筛选重建也不会发出并行启停请求。
+            refreshCard();
             try {
               await setEnabled(rec.id, next);
-              toast(next ? `已开启「${pluginName}」` : `已关闭「${pluginName}」`);
-              setTimeout(() => renderMarket(container), 120);
+              if (next && rec.error) toast(`「${pluginName}」加载失败：${rec.error}`);
             } catch (err) {
-              btn.classList.toggle("on", enabled);
-              btn.setAttribute("aria-checked", String(enabled));
               toast(`切换失败：${err.message || err}`);
+            } finally {
+              marketTogglePending.delete(rec.id);
+              // 以宿主实际状态为准，不把已经失败的加载伪装成可打开。
+              refreshMarketState?.();
             }
           },
         });
         const switchControl = el("div", { class: "market-switch-control" },
-          el("span", { class: "market-switch-text" }, enabled ? "已开启" : "已关闭"),
+          el("span", { class: "market-switch-text", "aria-live": "polite", "aria-atomic": "true" }, enabled ? "已开启" : "已关闭"),
           toggle,
         );
         const card = el("div", {
@@ -1759,11 +1825,12 @@ export function renderShell(root) {
           tabindex: pv ? "0" : null,
           onclick: (e) => {
             if (e.target.closest?.("button, input, select, a")) return;
+            if (marketTogglePending.has(rec.id) || rec.error) return;
             if (!enabled) return toast("请先开启这个插件");
             if (pv) switchTo(`plug:${pv.id}`);
           },
           onkeydown: (e) => {
-            if (!pv || !enabled || !isSelfActivationKey(e)) return;
+            if (marketTogglePending.has(rec.id) || rec.error || !pv || !enabled || !isSelfActivationKey(e)) return;
             e.preventDefault();
             switchTo(`plug:${pv.id}`);
           },
@@ -1775,6 +1842,7 @@ export function renderShell(root) {
           el("p", { class: "market-card-desc" }, man.description || "（无描述）"),
           el("div", { class: "market-card-meta" }, `${man.author ? `作者 ${man.author}` : rec.source === "builtin" ? "内置扩展" : "用户插件"}${rec.error ? " · 加载失败" : ""}`),
           rec.error ? el("div", { class: "perr" }, rec.error) : null,
+          viewLinks,
           el("div", { class: "market-card-actions" }, open, switchControl, el("button", {
             class: "market-card-more",
             type: "button",
@@ -1783,6 +1851,55 @@ export function renderShell(root) {
             onclick: (e) => { e.stopPropagation(); openPluginContextMenu(e, rec.id); },
           }, "⋯")),
         );
+        let viewSignature = cardViews.map((item) => `${item.id}:${item.title}:${item.icon}`).join("|");
+        const refreshCard = () => {
+          const before = enabled;
+          enabled = S.pluginState(rec.id).enabled !== false;
+          const busy = marketTogglePending.has(rec.id);
+          const views = pluginViews.filter((item) => item.pluginId === rec.id);
+          pv = views[0];
+          const signature = views.map((item) => `${item.id}:${item.title}:${item.icon}`).join("|");
+          if (signature !== viewSignature) {
+            viewSignature = signature;
+            viewLinks?.remove();
+            viewLinks = isAndroidRuntime() && views.length > 1
+              ? el("div", { class: "market-view-links", "aria-label": `${pluginName} 功能入口` },
+                views.map((item) => el("button", {
+                  class: "btn ghost sm", type: "button", "data-plugin-view": item.id,
+                  onclick: (e) => { e.stopPropagation(); if (!marketTogglePending.has(rec.id) && S.pluginState(rec.id).enabled !== false) switchTo(`plug:${item.id}`); },
+                }, faIcon(item.icon || "puzzle-piece"), el("span", {}, item.title)))) : null;
+            if (viewLinks) card.insertBefore(viewLinks, card.querySelector(".market-card-actions"));
+          }
+          viewLinks?.querySelectorAll("button").forEach((button) => { button.disabled = busy || !enabled; });
+          card.classList.toggle("disabled", !enabled);
+          card.classList.toggle("plugin-toggle-pending", busy);
+          card.setAttribute("aria-busy", String(busy));
+          // 停用的是“打开”入口，不对包含可用开关的整张卡片标 aria-disabled。
+          if (pv) { card.setAttribute("role", "button"); card.setAttribute("tabindex", "0"); }
+          else { card.removeAttribute("role"); card.removeAttribute("tabindex"); }
+          open.disabled = busy || !enabled || !pv || Boolean(rec.error);
+          open.textContent = pv ? "打开" : "无视图";
+          // 不用 disabled 摘走键盘焦点；处理函数的 pending 守卫阻止重复请求。
+          toggle.setAttribute("aria-disabled", String(busy));
+          toggle.classList.toggle("on", enabled);
+          toggle.setAttribute("aria-checked", String(enabled));
+          toggle.setAttribute("aria-label", `${enabled ? "关闭" : "开启"}${pluginName}`);
+          toggle.title = enabled ? "关闭插件" : "开启插件";
+          const label = switchControl.querySelector(".market-switch-text");
+          const status = busy ? "切换中…" : enabled && rec.error ? "加载失败" : enabled ? "已开启" : "已关闭";
+          if (label.textContent !== status) label.textContent = status;
+          if (before !== enabled && !reducedMotion() && label.animate) {
+            label.getAnimations().forEach((animation) => animation.cancel());
+            label.animate([{ opacity: .65, transform: "translateY(2px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 180, easing: "ease-out" });
+          }
+          let error = card.querySelector(".perr");
+          if (rec.error) {
+            if (!error) { error = el("div", { class: "perr" }); card.insertBefore(error, card.querySelector(".market-card-actions")); }
+            error.textContent = rec.error;
+          } else error?.remove();
+        };
+        cardRefreshers.set(rec.id, refreshCard);
+        refreshCard();
         card.addEventListener("contextmenu", (event) => openPluginContextMenu(event, rec.id));
         grid.append(card);
       }
@@ -1868,7 +1985,8 @@ export function renderShell(root) {
     const missingActivePlugin = activeView.startsWith("plug:") && !viewDef(activeView);
     renderNav();
     if (missingActivePlugin) switchTo("market", undefined, { history: false });
-    else if (activeView.startsWith("plug:") || activeView === "market") switchTo(activeView, undefined, { history: false });
+    else if (activeView === "market") refreshMarketState?.();
+    else if (activeView.startsWith("plug:")) switchTo(activeView, undefined, { history: false });
   });
   // 捕获/插件可请求跳转视图
   window.addEventListener("tide:navigate", (e) => switchTo(e.detail));
@@ -1909,13 +2027,22 @@ function attachPluginListDrag(list, onCommit) {
   const clearLong = (st) => { if (st.longTimer) { clearTimeout(st.longTimer); st.longTimer = null; } };
   const detachDoc = (st) => {
     document.removeEventListener("pointerup", st.docUp, true);
+    document.removeEventListener("pointermove", st.docMove, true);
+    document.removeEventListener("scroll", st.docScroll, true);
+    window.removeEventListener("blur", st.docCancel);
+    window.removeEventListener("resize", st.docCancel);
     document.removeEventListener("pointercancel", st.docCancel, true);
   };
-  const moveGhost = (st) => st.ghost?.style.setProperty("transform", `translate(${(st.x - st.gx) / st.scale}px, ${(st.y - st.gy) / st.scale}px) scale(1.025)`);
+  const moveGhost = (st) => st.ghost?.style.setProperty("transform", `translate3d(${(st.x - st.gx) / st.scale}px, ${(st.y - st.gy) / st.scale}px, 0)`);
   const stopFrame = (st) => { if (st.frame) cancelAnimationFrame(st.frame); st.frame = 0; };
   const endSession = (st) => {
     clearLong(st); stopFrame(st); detachDoc(st);
+    st.flips?.forEach(animation => animation.cancel()); st.flips?.clear();
     st.ghost?.remove(); st.ghost = null;
+    if (st.originOrder) {
+      if (st.motionBefore === undefined) delete st.card.dataset.motion;
+      else st.card.dataset.motion = st.motionBefore;
+    }
     st.card?.classList.remove("nav-dragging");
     list.classList.remove("plugin-drag-live");
     try { st.card?.releasePointerCapture(st.pointerId); } catch { /* document 兜底已覆盖 */ }
@@ -1929,9 +2056,10 @@ function attachPluginListDrag(list, onCommit) {
     endSession(st);
   };
   const computeSlot = (st, y) => {
-    let top = st.contentTop;
+    // 祖先滚动后只读取容器位置；条目高度仍来自稳定缓存，不受 FLIP transform 污染。
+    let top = list.getBoundingClientRect().top + st.contentInset;
     const mids = [];
-    for (const item of items().filter((node) => node !== st.card)) {
+    for (const item of st.peers) {
       const height = st.heights.get(item) ?? item.getBoundingClientRect().height;
       mids.push(top + height / 2);
       top += height + st.gap;
@@ -1939,24 +2067,33 @@ function attachPluginListDrag(list, onCommit) {
     return slotIndexFor(mids, y);
   };
   const reorderDOM = (st, slot) => {
-    const peers = items().filter((node) => node !== st.card);
+    const peers = st.peers;
     const before = new Map(peers.map((node) => [node, node.getBoundingClientRect().top]));
+    // 先取当前视觉位置，再取消旧让位动画，避免快速反向时动画叠加、越拖越滞后。
+    st.flips.forEach(animation => animation.cancel()); st.flips.clear();
     list.insertBefore(st.card, peers[slot] ?? null);
     if (reducedMotion()) return;
     for (const node of peers) {
       const dy = (before.get(node) - node.getBoundingClientRect().top) / st.scale;
-      if (dy) node.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }],
-        { duration: 185, easing: "cubic-bezier(.22,.8,.22,1)" });
+      if (dy) st.flips.set(node, node.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }],
+        { duration: 120, easing: "cubic-bezier(.22,.8,.22,1)" }));
     }
   };
   const frame = (st) => {
+    st.frame = 0;
     if (!st.active) return;
+    if (!list.isConnected || !list.contains(st.card)) { cancel(st); return; }
     moveGhost(st);
     const slot = computeSlot(st, st.y);
     if (slot !== st.slot) { st.slot = slot; reorderDOM(st, slot); }
-    st.frame = requestAnimationFrame(() => frame(st));
+  };
+  const queueFrame = (st) => {
+    if (st.active && !st.frame) st.frame = requestAnimationFrame(() => frame(st));
   };
   const finish = (st) => {
+    if (!st.active) return;
+    // 松手前同步最后一次落点，即使 pointerup 早于下一帧也不能丢掉最终移动。
+    stopFrame(st); frame(st);
     if (!st.active) return;
     st.active = false;
     const ghostRect = st.ghost?.getBoundingClientRect();
@@ -1966,9 +2103,9 @@ function attachPluginListDrag(list, onCommit) {
     if (ghostRect && !reducedMotion()) {
       const landed = st.card.getBoundingClientRect();
       st.card.animate([
-        { transform: `translate(${(ghostRect.left - landed.left) / st.scale}px, ${(ghostRect.top - landed.top) / st.scale}px) scale(1.025)` },
+        { transform: `translate(${(ghostRect.left - landed.left) / st.scale}px, ${(ghostRect.top - landed.top) / st.scale}px)` },
         { transform: "none" },
-      ], { duration: 210, easing: "cubic-bezier(.22,.8,.22,1)" });
+      ], { duration: 140, easing: "cubic-bezier(.22,.8,.22,1)" });
     }
     endSession(st);
   };
@@ -1976,36 +2113,57 @@ function attachPluginListDrag(list, onCommit) {
     if (!list.contains(st.card) || st.active) return;
     st.active = true; clearLong(st);
     st.originOrder = [...list.children];
+    st.motionBefore = st.card.dataset.motion; st.card.dataset.motion = "off";
+    st.card.getAnimations?.().forEach(animation => animation.cancel());
+    st.flips = new Map();
+    st.peers = items().filter(node => node !== st.card);
     st.scale = getUiScaleFactor() || 1;
     const rect = st.card.getBoundingClientRect();
-    st.gx = st.x - rect.left; st.gy = st.y - rect.top;
+    st.gx = st.startX - rect.left; st.gy = st.startY - rect.top;
     st.gap = (parseFloat(getComputedStyle(list).rowGap) || 0) * st.scale;
-    st.contentTop = items()[0]?.getBoundingClientRect().top || list.getBoundingClientRect().top;
+    st.contentInset = (items()[0]?.getBoundingClientRect().top ?? list.getBoundingClientRect().top) - list.getBoundingClientRect().top;
     // 按节点缓存视觉高度：多视图插件的几个按钮 data-plugin-id 相同，按 ID 缓存会互相覆盖
     st.heights = new Map(items().map((node) => [node, node.getBoundingClientRect().height]));
     st.card.classList.add("nav-dragging"); list.classList.add("plugin-drag-live");
-    if (!reducedMotion()) {
+    { // 跟手副本属于交互反馈；减少动效只跳过让位/落位动画，不隐藏拖动内容。
       st.ghost = st.card.cloneNode(true);
       st.ghost.classList.remove("nav-dragging", "on");
       st.ghost.classList.add("plugin-nav-ghost");
+      st.ghost.setAttribute("aria-hidden", "true");
+      st.ghost.tabIndex = -1;
+      st.ghost.removeAttribute("id");
       st.ghost.removeAttribute("data-plugin-id");
       st.ghost.style.width = `${rect.width / st.scale}px`; st.ghost.style.height = `${rect.height / st.scale}px`;
       document.body.append(st.ghost);
+      moveGhost(st); // 激活当次就定位，不先在左上角出现一帧。
     }
     navigator.vibrate?.(10);
     st.swallowClick = (event) => { event.preventDefault(); event.stopPropagation(); };
     document.addEventListener("click", st.swallowClick, true);
     try { st.card.setPointerCapture(st.pointerId); } catch { /* document 兜底 */ }
-    st.docUp = (event) => { if (event.pointerId === st.pointerId) finish(st); };
-    st.docCancel = (event) => { if (event.pointerId === st.pointerId) cancel(st); };
+    st.docMove = (event) => {
+      if (event.pointerId !== st.pointerId || !st.active) return;
+      st.x = event.clientX; st.y = event.clientY;
+      event.preventDefault();
+      moveGhost(st); // 指针事件直接写 transform；排序/测量合并到下一帧。
+      queueFrame(st);
+    };
+    st.docScroll = () => queueFrame(st);
+    st.docUp = (event) => { if (event.pointerId === st.pointerId) { st.x = event.clientX; st.y = event.clientY; finish(st); } };
+    st.docCancel = (event) => { if (event.pointerId == null || event.pointerId === st.pointerId) cancel(st); };
+    document.addEventListener("pointermove", st.docMove, { capture: true, passive: false });
+    document.addEventListener("scroll", st.docScroll, true);
+    window.addEventListener("blur", st.docCancel);
+    window.addEventListener("resize", st.docCancel);
     document.addEventListener("pointerup", st.docUp, true);
     document.addEventListener("pointercancel", st.docCancel, true);
-    st.slot = computeSlot(st, st.y);
-    st.frame = requestAnimationFrame(() => frame(st));
+    st.slot = items().indexOf(st.card);
+    queueFrame(st);
   };
 
   list.addEventListener("pointerdown", (event) => {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (event.isPrimary === false || pd?.active || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (pd) cancel(pd);
     const card = event.target.closest?.("button[data-plugin-id]");
     if (!card || !list.contains(card)) return;
     pd = { card, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, scale: 1, active: false, longTimer: null, frame: 0, ghost: null, swallowClick: null, docUp: null, docCancel: null };
@@ -2018,7 +2176,7 @@ function attachPluginListDrag(list, onCommit) {
     if (st.active) { event.preventDefault(); return; }
     const dx = st.x - st.startX, dy = st.y - st.startY;
     if (st.longTimer) { if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearLong(st); return; }
-    if (event.pointerType === "mouse" && Math.hypot(dx, dy) >= 6) begin(st);
+    if (event.pointerType === "mouse" && Math.hypot(dx, dy) >= 4) begin(st);
   });
   list.addEventListener("pointerup", (event) => {
     const st = pd; if (!st || event.pointerId !== st.pointerId) return;
@@ -2027,6 +2185,8 @@ function attachPluginListDrag(list, onCommit) {
   list.addEventListener("pointercancel", (event) => { if (pd && event.pointerId === pd.pointerId) cancel(pd); });
   list.addEventListener("touchmove", (event) => { if (pd?.active) event.preventDefault(); }, { passive: false });
   list.addEventListener("keydown", (event) => {
+    if (pd?.active && event.key === "Escape") { event.preventDefault(); cancel(pd); return; }
+    if (pd?.active) return;
     if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
     const card = event.target.closest?.("button[data-plugin-id]");
     const order = items(); const at = order.indexOf(card); const to = at + (event.key === "ArrowDown" ? 1 : -1);

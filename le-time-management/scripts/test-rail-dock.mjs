@@ -140,7 +140,7 @@ assert.match(dockBlock, /flex-direction: row;/, "操作条必须横排（左右�
 assert.match(dockBlock, /flex-wrap: nowrap;/,
   "不许折行 —— 落点推演按单行算，折行会让槽位判定失效");
 
-const dockBtnRule = styles.slice(styles.indexOf(".rail-dock > .rail-dock-btn {"), styles.indexOf(".rail-dock.drag-live"));
+const dockBtnRule = styles.match(/^\.rail-dock > \.rail-dock-btn \{[^}]*\}/m)?.[0] || "";
 assert.ok(dockBtnRule.length > 0, "没找到操作条按钮规则");
 assert.match(dockBtnRule, /width: 40px;/, "横排按钮必须定宽");
 assert.match(dockBtnRule, /flex: none;/, "按钮必须禁止伸缩（否则被 flex 拉伸变形）");

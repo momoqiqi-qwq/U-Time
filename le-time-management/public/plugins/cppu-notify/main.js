@@ -36,10 +36,11 @@
   // 标题与图标不写死：进入插件时抓一次网页元信息（<title> / favicon / 图标名），
   // 抓不到（内网、未登录、断网）就退回下面的 label 与 icon，因此离线也不会空着。
   const QUICK_LINKS = [
-    { url: "https://webvpn.cppu.edu.cn/", label: "WebVPN", icon: "shield-halved" },
+    { view: "cppu-webvpn", label: "WebVPN / 警大网站", icon: "shield-halved" },
+    { view: "cppu-login-settings", label: "登录设置", icon: "gear" },
     { url: "https://mail.cppu.edu.cn/", label: "教育邮箱", icon: "envelope" },
     // 「教务」是唯一的父项：右侧箭头展开 / 收起，行本身仍是换票开教务（与升级前行为一致）。
-    // 这四个教务模块走 `view:`（在 U-Time 里开视图）而不是换票开浏览器：
+    // 教务子项走 `view:`（在 U-Time 里开视图）而不是换票开浏览器：
     // 教务 SPA 完全没有 URL 深链（je-app/je-main/je-core 三个 bundle 都不解析
     // location.hash / location.search，开任何功能地址栏都停在 index.html），
     // 做成链接的话四个入口只会统统落回教务首页，等于同一个入口抄四遍。
@@ -48,6 +49,7 @@
       { view: "cppu-qj", label: "学生请假", icon: "calendar-xmark" },
       { view: "cppu-credit", label: "警大成绩", icon: "chart-line" },
       { view: "cppu-cx", label: "创新学分", icon: "medal" },
+      { view: "cppu-calendar", label: "警大校历", icon: "calendar-days" },
     ] },
     { url: "https://xg.cppu.edu.cn/XGPhone/Phone/index.html", label: "学工", icon: "id-card" },
     // 「我的请假」与「学工」同源，只是该 SPA 的 hash 路由（实测路由表里有 /StuDailyLeaveList）。
@@ -102,7 +104,7 @@
   }
 
   const state = {
-    sid: null, token: "", username: "", rememberUsername: true, autoLogin: true, autoRefresh: true,
+    sid: null, token: "", username: "", rememberUsername: true, autoLogin: true, autoRefresh: true, loginRetries: 2,
     notices: [], page: 1, hasMore: true,
     fetching: false, error: null, fetchedAt: 0,
     expanded: new Set(),
@@ -487,6 +489,7 @@
       [data-theme-mode="dark"] .jg-good{color:#4ADE80}[data-theme-mode="dark"] .jg-mid{color:#60A5FA}[data-theme-mode="dark"] .jg-warn{color:#FBBF24}[data-theme-mode="dark"] .jg-bad{color:#F87171}
       .jg-export{display:block;width:100%;min-height:42px;margin:8px 0 0}.jg-course{border-top:1px solid var(--line-soft);padding:4px 0}.jg-course:first-of-type{border:0}.jg-course span{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--ink)}.jg-course b{width:34px;font-size:calc(13px * var(--ui-text-scale));text-align:right}.jg-course small{width:30px;color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale));text-align:right}
       .yk-frame-shell{margin-top:10px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;min-height:620px;height:calc(100vh - 190px);box-shadow:0 1px 10px rgba(34,48,58,.05)}
+      [data-card-web][hidden],[data-card-stats][hidden]{display:none!important}
       .yk-frame{display:block;width:100%;height:100%;border:0;background:var(--paper)}
       .yk-status{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);line-height:1.7;margin:7px 0 0}
       .yk-status.warn{color:#8A6420}
@@ -575,6 +578,7 @@
     state.rememberUsername = await tide.storage.get("rememberUsername", true) !== false;
     state.autoLogin = await tide.storage.get("autoLogin", true) !== false;
     state.autoRefresh = await tide.storage.get("autoRefresh", true) !== false;
+    state.loginRetries = cleanLoginRetries(await tide.storage.get("loginRetries", 2));
     state.seen = new Set(await tide.storage.get("seen", []));
     if (state.autoLogin && typeof tide.vault?.get === "function") {
       try { state.savedPassword = JSON.parse((await tide.vault.get("secret")) || "null")?.password || ""; } catch { state.savedPassword = ""; }
@@ -896,59 +900,90 @@
   })();
 
   /* ── 自动登录：恢复票据 → 静默续期 → 密码 + 验证码识别兜底 ── */
-  const AUTO_ATTEMPTS = 6;
-  let loginHint = null;              // 自动登录没成时要摆给人工看的那句话 + 最后一次识别结果
+  // retry 次数不含首次提交；只读一次设置，进行中的操作不受设置修改影响。
+  const cleanLoginRetries = value => Number.isInteger(Number(value)) && Number(value) >= 0 && Number(value) <= 5 ? Number(value) : 2;
+  let loginBusy = false;
+  let loginHint = null;
+  const loginErrorText = e => String(e?.fatal || e?.retry || e?.message || "登录未成功");
 
-  /* 密码 + 验证码自动识别登录。刻意不碰任何 DOM：警大的六个视图共用这一份登录代码，
-     谁都能在自己页面里把它跑完，不必绕道「警大通知」。失败原因留在 loginHint，
-     由调用方决定画在哪。 */
+  async function runLoginAttempts({ username, password, code = "", onRetry = () => {}, isActive = () => true }) {
+    if (loginBusy) throw { fatal: "已有登录正在进行，请稍候" };
+    loginBusy = true;
+    const retries = cleanLoginRetries(state.loginRetries);
+    let samples = null, recognized = false;
+    const checkActive = () => { if (!isActive()) throw { fatal: "登录页面已关闭，已停止后续重试" }; };
+    try {
+      for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+          checkActive();
+          if (attempt || !code) {
+            if (attempt) {
+              onRetry(`登录未成功，正在准备第 ${attempt}/${retries} 次自动重试…`);
+              await new Promise(resolve => setTimeout(resolve, Math.min(800 * 2 ** (attempt - 1), 4000)));
+              checkActive();
+            }
+            // 每次自动尝试均使用新的 Cookie、execution 和验证码，绝不重放旧 POST。
+            state.sid = null; await newSession(); checkActive();
+            state.pending = { username, password, execution: await fetchLoginHtml() };
+            await fetchCaptcha(); checkActive();
+            const ocr = await OCR.recognize(state.captcha);
+            if (!ocr?.code) throw { retry: "验证码未识别，请手动填写", retryable: true };
+            code = ocr.code; samples = ocr.samples; recognized = true;
+          } else {
+            state.pending = { username, password, execution: state.pending?.execution };
+          }
+          checkActive();
+          await submitLogin(code);
+          if (recognized && samples) OCR.confirmSamples(samples);
+          return { recognized };
+        } catch (error) {
+          if (error?.fatal || error?.retryable === false || attempt === retries || !isActive()) {
+            // 耗尽后仍准备可用的人工表单；不额外提交登录请求，也不覆盖原始错误。
+            if (isActive()) {
+              try { state.sid = null; await newSession(); state.pending = { execution: await fetchLoginHtml() }; await fetchCaptcha(); } catch { state.pending = null; state.captcha = ""; }
+            }
+            throw error;
+          }
+        }
+      }
+    } finally {
+      if (state.pending) delete state.pending.password;
+      loginBusy = false;
+    }
+  }
+
+  /* 密码兜底与人工按钮共享重试边界、退避和全新会话流程。 */
   async function passwordAutoLogin() {
     loginHint = null;
     if (!state.autoLogin || !state.username || !state.savedPassword) return false;
-    // 残留会话是登录 HTTP 500 的常见来源——恢复的旧 JSESSIONID / 过期票据会让 CAS
-    // 对 POST 里的 execution 校验错乱（服务端异常而非验证码错误）。登录前丢弃
-    // 恢复的会话，用全新 Cookie 走完整链路：登录页 → execution → 验证码 → 提交。
-    state.sid = null;
-    await newSession();
-    let lastOcr = "";
-    let confirmed = null;
-    for (let attempt = 1; attempt <= AUTO_ATTEMPTS; attempt++) {
-      try {
-        // pending 必须带全 username/password：submitLogin 直接从这里读取提交体字段
-        state.pending = { username: state.username, password: state.savedPassword, execution: await fetchLoginHtml() };
-        await fetchCaptcha();
-      } catch (e) {
-        loginHint = { msg: String(e.message || e), code: "" };
-        return false;
-      }
-      const ocr = await OCR.recognize(state.captcha);
-      if (!ocr.code) continue;           // 没认出来：换一张再来
-      lastOcr = ocr.code;
-      confirmed = ocr.samples;
-      try {
-        await submitLogin(ocr.code);
-        // 登录成功 → 密码/票据入库 + 本次识别样本确认
-        await persistCredentials(state.savedPassword);
-        OCR.confirmSamples(confirmed);
-        await saveCookies();
-        tide.notify("已自动完成登录（含验证码识别）");
-        return true;
-      } catch (e) {
-        if (e && e.fatal) break;         // 密码不对：自动登录无解，转人工表单
-        if (e && e.status >= 500) {
-          // 服务端 5xx：会话可能已被污染，换全新会话再试剩余次数
-          state.sid = null;
-          await newSession();
-        }
-        // 其余失败（多半是验证码）：换图重试
-      }
+    try {
+      await runLoginAttempts({ username: state.username, password: state.savedPassword });
+      await persistCredentials(state.savedPassword);
+      await saveCookies();
+      tide.notify("已自动完成登录（含验证码识别）");
+      return true;
+    } catch (error) {
+      loginHint = { msg: `${loginErrorText(error)}；请核对账号和验证码后重试`, code: "" };
+      return false;
     }
-    loginHint = { msg: "自动登录未成功，已填好账号密码，请核对验证码后点「登 录」", code: lastOcr };
-    return false;
+  }
+
+  function loginSettingsHtml() {
+    return `<details style="margin:14px 0"><summary>登录设置</summary><label style="display:block;margin:12px 0">失败后自动重试次数 <select data-login-retries aria-label="失败后自动重试次数">${[0,1,2,3,4,5].map(n => `<option value="${n}" ${n === state.loginRetries ? "selected" : ""}>${n === 0 ? "0 次（关闭重试）" : `${n} 次`}</option>`).join("")}</select></label><p>默认重试 2 次（加上首次，最多尝试 3 次）。适用于门户手动及自动登录；密码错误、账号锁定、请求过频不重试。WebVPN 官方页面不受此设置影响。</p><p data-retry-status role="status"></p></details>`;
+  }
+  function bindLoginSettings(el) {
+    el.querySelector("[data-login-retries]")?.addEventListener("change", async event => {
+      const input = event.currentTarget, value = cleanLoginRetries(input.value), previous = state.loginRetries;
+      input.disabled = true;
+      try { await tide.storage.set("loginRetries", value); state.loginRetries = value; el.querySelector("[data-retry-status]").textContent = "已保存，下次登录生效"; }
+      catch { input.value = String(previous); el.querySelector("[data-retry-status]").textContent = "保存失败，请重试"; }
+      finally { input.disabled = false; }
+    });
   }
 
   // 人工登录表单要能立刻提交，得先把 execution 和一张验证码抓回来
   async function prepareLoginForm() {
+    if (loginBusy) return;
     try {
       await newSession();
       state.pending = { execution: await fetchLoginHtml() };
@@ -1041,7 +1076,7 @@
         followRedirects: false,
       });
     } catch (e) {
-      throw { retry: explainHttpError(e) };
+      throw { retry: explainHttpError(e), retryable: true };
     }
     if (await finishPortalLogin(res)) { state.pending = null; return; }
     const body = res.body || "";
@@ -1050,17 +1085,17 @@
     const plain = cleanText(body);
     const mm = plain.match(/((?:验证码|密码|账号|用户名|锁定|禁止|失败|不正确|不允许|过期)[^\n。；;]{0,40})/);
     if (mm) msg = mm[1].trim();
-    // 失败后 execution 已失效：重置登录页（新 execution + 新验证码）
-    state.pending.execution = await fetchLoginHtml();
-    await fetchCaptcha();
+    // 由统一重试控制器刷新会话，避免这里刷新失败掩盖原始 HTTP 状态。
+    if (res.status === 429 || /账号.{0,10}(锁定|冻结|停用)|账户.{0,10}(锁定|冻结|停用)|尝试次数|操作频繁|禁止登录/.test(plain)) throw { fatal: msg || "账号受限或请求过频，请稍后手动登录" };
     const isServerErr = res.status >= 500;
     const diag = isServerErr
-      ? `诊断：HTTP ${res.status} · 服务端会话异常（残留会话或 execution 失效），自动登录会换新会话重试`
+      ? `诊断：HTTP ${res.status} · 服务端异常（可能与会话或 execution 有关），将按设置换新会话重试`
       : `诊断：HTTP ${res.status} · 登录未建立，请核对验证码`;
     throw {
-      retry: msg || `登录未通过（HTTP ${res.status}），已重置登录页，请重试`,
+      retry: msg || `登录未通过（HTTP ${res.status}），请核对验证码或稍后重试`,
       diag,
       status: res.status,
+      retryable: isServerErr || res.status === 302 || (res.status === 200 && /验证码|过期|execution/i.test(msg || plain)),
     };
   }
 
@@ -1950,6 +1985,19 @@
     return jwState.term;
   }
 
+  // 校历插件只接收学期边界数据；统一身份认证和 Cookie 始终留在本插件。
+  tide.events?.on?.("cppu:term-request", (request) => {
+    if (!request || typeof request.id !== "string") return;
+    const previous = jwState.term;
+    loadJwTerm(true).then((term) => {
+      tide.events.emit("cppu:term-response", { id: request.id,
+        term: term && term !== previous ? { name: term.name, jxStart: term.jxStart, weeks: term.weeks } : null,
+        error: term === previous ? "本次未能刷新教务学期；请检查警大门户登录" : "教务暂未返回学期信息" });
+    }).catch((error) => {
+      tide.events.emit("cppu:term-response", { id: request.id, error: String(error?.message || "教务学期暂不可用") });
+    });
+  });
+
   async function jwSaveCache() {
     const keep = {};
     for (const k of ["xkTask", "xkResult", "qjRecord", "creditPlan", "creditModule", "grade", "cxCredit", "cxDetail"]) if (Array.isArray(jwState.data[k])) keep[k] = jwState.data[k];
@@ -2660,8 +2708,18 @@
   const cardState = {
     rows: [], mode: "month", kind: "in", sid: null, username: "", password: "", accessToken: "",
     tokenType: "bearer", refreshToken: "", expiresAt: 0, loading: false, syncedAt: 0, error: "",
-    balance: null, balanceAt: 0, balanceError: "",
+    balance: null, balanceAt: 0, balanceError: "", billsPartial: false,
   };
+  let cardAveragePanel = null, cardAverageLoading = null, cardAverageError = "";
+  function loadCardAveragePanel(root) {
+    if (!cardAverageLoading) {
+      cardAverageLoading = import("/plugins/cppu-notify/card-averages.js")
+        .then(module => module.createCardAverages(tide.storage))
+        .then(panel => { cardAveragePanel = panel; cardAverageError = ""; })
+        .catch(() => { cardAverageError = "日均统计模块加载失败，请重新打开一卡通重试"; cardAverageLoading = null; });
+    }
+    cardAverageLoading.then(() => { if (root?.isConnected !== false) cardPaintStats(root); });
+  }
   const cardMoney = (n) => `¥${(Number(n) || 0).toFixed(2)}`;
   const cardPeriodKey = (date, mode) => {
     const s = String(date || "");
@@ -2687,6 +2745,7 @@
       date: /^\d{4}-\d{2}-\d{2}$/.test(String(r.date || "")) ? String(r.date) : "",
       amount: Math.max(0, Math.round((Number(r.amount) || 0) * 100) / 100),
       note: String(r.note || "").slice(0, 80),
+      merchant: String(r.merchant || "").slice(0, 160),
       kind: r.kind === "out" ? "out" : "in",
       at: Number(r.at || 0),
     })).filter((r) => r.date && r.amount > 0).sort((a, b) => String(b.date).localeCompare(String(a.date)) || b.at - a.at).slice(0, 5000);
@@ -2713,7 +2772,8 @@
     const amount = Math.abs(Number(row?.tranamt || 0)) / 100;
     const note = cardRecordText(row) || (kind === "out" ? "一卡通消费" : "一卡通充值");
     const id = String(row?.orderId || row?.id || row?.serialNo || `${date}-${amount}-${note}`);
-    return { id, date, amount, note, kind: kind === "out" ? "out" : "in", at: Date.parse(rawDate.replaceAll("/", "-")) || 0 };
+    const merchant = [row?.merchantName, row?.mername, row?.shopName, row?.merchant, row?.terminalName].filter(value => typeof value === "string").join(" ").slice(0,160);
+    return { id, date, amount, note, merchant, kind: kind === "out" ? "out" : "in", at: Date.parse(rawDate.replaceAll("/", "-")) || 0 };
   }
   function cardTotals(mode = cardState.mode) {
     const groups = { in: new Map(), out: new Map() };
@@ -2759,12 +2819,17 @@
       <div class="yk-balance"><small>当前余额</small><b>${cardState.balance == null ? "--" : esc(cardMoney(cardState.balance))}</b><span>一卡通平台实时余额（校园卡账户 + 电子账户，含未结算金额） · ${esc(balanceSynced)}${cardState.balanceError ? ` · ${esc(cardState.balanceError)}` : ""}</span></div>
       <div class="yk-account"><span>账单来源：<b>一卡通平台</b></span><span>最后同步：${esc(synced)}</span>${cardState.error ? `<span class="warn">${esc(cardState.error)}</span>` : ""}</div>
     </div>
+    <div data-card-averages><p>${esc(cardAverageError || "正在载入日均餐费统计…")}</p></div>
     <div class="yk-groups"><div class="yk-group-head"><b>流水统计</b><div class="pp-chips">${kindChips}</div><div class="pp-chips">${modeChips}</div></div><div class="yk-bars${cardState.kind === "out" ? " out" : ""}">${bars}</div></div>
     <div class="yk-ledger">${rows}</div>`;
   }
   function cardPaintStats(root) {
     const box = root?.querySelector?.("[data-card-stats]");
-    if (box) box.innerHTML = cardStatsHtml();
+    if (box) {
+      box.innerHTML = cardStatsHtml();
+      try { cardAveragePanel?.render(box.querySelector("[data-card-averages]"), cardState.rows, { syncedAt: cardState.syncedAt, partial: cardState.billsPartial }); }
+      catch { const panel=box.querySelector("[data-card-averages]"); if(panel)panel.textContent="日均统计暂不可用，不影响账单和工具栏操作"; }
+    }
   }
   function cardPaintLogin(root) {
     const box = root?.querySelector?.("[data-card-login-box]");
@@ -2787,10 +2852,11 @@
     status.classList.toggle("warn", warn);
   }
   function cardAuthedUrl(url) {
-    if (!cardState.accessToken) return url;
-    const clean = String(url).replace(/([?&])synjones-auth=[^&#]*&?/i, (all, lead) => lead === "?" ? "?" : "").replace(/[?&]$/, "");
-    const sep = clean.includes("?") ? "&" : "?";
-    return `${clean}${sep}synjones-auth=${encodeURIComponent(cardState.accessToken)}`;
+    const parsed = new URL(url, CARD_ORIGIN);
+    if (parsed.origin !== CARD_ORIGIN || parsed.username || parsed.password) throw new Error("仅支持一卡通官方站点");
+    parsed.searchParams.delete("synjones-auth");
+    if (cardState.accessToken && cardState.expiresAt > Date.now()) parsed.searchParams.set("synjones-auth", cardState.accessToken);
+    return parsed.href;
   }
   async function cardSaveSecret() {
     await tide.vault.set(CARD_VAULT_KEY, JSON.stringify({
@@ -2897,6 +2963,7 @@
       const records = Array.isArray(page.records) ? page.records : [];
       all.push(...records);
       const pages = Number(page.pages || Math.ceil(Number(page.total || records.length) / CARD_PAGE_SIZE) || 1);
+      if (current === CARD_MAX_PAGES && pages > current) cardState.billsPartial = true;
       if (!records.length || current >= pages) break;
     }
     return all;
@@ -2906,7 +2973,9 @@
     /* 平台用 type 区分方向：1 入账、2 支出。不传 type 时两类混在一起翻页，
        页数上限会把其中一类挤掉，所以收支各查一趟；
        方向最终以流水自带的 typeFrom 为准，参数被服务端忽略也不会记错。 */
+    cardState.billsPartial = false;
     const raw = [...await cardFetchTurnover(1), ...await cardFetchTurnover(2)];
+    if (raw.length > 5000) cardState.billsPartial = true;
     const income = raw.filter(cardIsRecharge).map((row) => cardNormalizeBill(row, "in"));
     const expense = raw.filter(cardIsExpense).map((row) => cardNormalizeBill(row, "out"));
     const seen = new Set();
@@ -2944,15 +3013,15 @@
       cardState.syncedAt = Date.now();
       await tide.storage.set(CARD_CACHE_KEY, {
         rows: cardState.rows, syncedAt: cardState.syncedAt,
-        balance: cardState.balance, balanceAt: cardState.balanceAt,
+        balance: cardState.balance, balanceAt: cardState.balanceAt, billsPartial: cardState.billsPartial,
       });
-      const frame = root?.querySelector?.("[data-card-frame]");
-      if (frame) frame.src = cardAuthedUrl(CARD_BILLING);
       const { inCount, outCount } = cardTotals();
       cardSetStatus(root, `已自动登录并同步 ${cardState.rows.length} 笔一卡通流水（充值 ${inCount} 笔 / 消费 ${outCount} 笔）。`);
+      return true;
     } catch (error) {
       cardState.error = error?.message || String(error);
       cardSetStatus(root, `${cardState.error}。请核对一卡通密码，或确认当前网络能访问校园一卡通。`, true);
+      return false;
     } finally {
       cardState.loading = false;
       cardPaintLogin(root);
@@ -2967,98 +3036,158 @@
       <div class="jw-kicker">校 园 服 务 · 一 卡 通</div>
       <div class="jw-head"><h3>一卡通</h3><span>慧新易校 / 新中新 H5</span></div>
       <div class="pp-toolbar">
-        <button class="pp-btn pri" data-card-billing>账单</button>
-        <button class="pp-btn" data-card-sync>同步账单</button>
-        <button class="pp-btn" data-card-home>首页</button>
-        <button class="pp-btn" data-card-recharge>充值</button>
-        <button class="pp-btn" data-card-center>账户中心</button>
-        <button class="pp-btn" data-card-reload>刷新</button>
-        <button class="pp-btn" data-card-open>应用内新窗打开</button>
-        <button class="pp-btn" data-card-back>回通知</button>
+        <button type="button" class="pp-btn pri" data-card-summary>统计</button>
+        <button type="button" class="pp-btn" data-card-billing>账单</button>
+        <button type="button" class="pp-btn" data-card-sync>同步账单</button>
+        <button type="button" class="pp-btn" data-card-home>首页</button>
+        <button type="button" class="pp-btn" data-card-recharge>充值</button>
+        <button type="button" class="pp-btn" data-card-center>账户中心</button>
+        <button type="button" class="pp-btn" data-card-reload>刷新</button>
+        <button type="button" class="pp-btn" data-card-open>应用内新窗打开</button>
+        <button type="button" class="pp-btn" data-card-back>回通知</button>
         <span style="flex:1"></span>
       </div>
       <div class="jw-tip">U-Time 会自动登录一卡通并读取平台账单，总充值、已花费及年/月/日统计均来自平台流水；当前余额读平台实时值，校园卡账户与电子账户合并计算。首次登录成功后凭据加密保存在本机，下次无需再次输入。</div>
+      <div class="yk-status" data-card-status role="status" aria-live="polite">正在恢复一卡通登录信息…</div>
       <div data-card-login-box></div>
+      <div data-card-web hidden><p class="jw-tip">当前为官方网页。若空白或未授权，请用“应用内新窗打开”完成官方登录；点击“统计”返回本地流水与日均统计。</p><div class="yk-frame-shell"><iframe class="yk-frame" data-card-frame src="about:blank" title="一卡通官方网页"></iframe></div></div>
       <div data-card-stats>${cardStatsHtml()}</div>
-      <div class="yk-status" data-card-status>正在恢复一卡通登录信息…</div>
-      <div class="yk-frame-shell"><iframe class="yk-frame" data-card-frame src="${esc(CARD_BILLING)}" title="一卡通账单"></iframe></div>
       <div style="height:30px"></div>
       </div></div>
     </div>`;
   }
 
   function mountCardView(el) {
-    ensureStyle();
-    el.innerHTML = cardShellHtml();
-    bindSide(el);
-    loadLinkMeta(el);
-    const frame = el.querySelector("[data-card-frame]");
-    const status = el.querySelector("[data-card-status]");
-    const go = (url, text) => {
-      if (!frame) return;
-      if (status) { status.textContent = text || "正在载入…"; status.classList.remove("warn"); }
-      frame.src = cardAuthedUrl(url);
+    el._cardViewDispose?.();
+    ensureStyle(); el.innerHTML = cardShellHtml();
+    let alive = true, page = 'summary', currentUrl = CARD_BILLING, navSequence = 0, frameTimer = null, syncFlight = null;
+    const frame = el.querySelector('[data-card-frame]');
+    const shell = el.querySelector('[data-card-web]');
+    const stats = el.querySelector('[data-card-stats]');
+    const message = (text, warn = false) => { if (alive) cardSetStatus(el, text, warn); };
+    const clearFrameTimer = () => { if (frameTimer) clearTimeout(frameTimer); frameTimer = null; };
+    const selectPage = name => {
+      page = name;
+      if (shell) shell.hidden = name === 'summary';
+      if (stats) stats.hidden = name !== 'summary';
+      for (const key of ['summary','billing','home','recharge','center']) {
+        const button = el.querySelector(`[data-card-${key}]`);
+        button?.classList.toggle('pri', name === key); button?.setAttribute('aria-pressed', String(name === key));
+      }
+      if (name === 'summary') clearFrameTimer();
     };
-    frame?.addEventListener("load", () => {
-      if (status) {
-        status.textContent = cardState.accessToken ? "一卡通页面已在 U-Time 内打开，并已携带自动登录令牌。" : "一卡通页面已打开，正在等待自动登录。";
-        status.classList.remove("warn");
-      }
-    });
-    frame?.addEventListener("error", () => {
-      if (status) {
-        status.textContent = "一卡通页面没有载入成功；可以点「应用内新窗打开」使用独立 WebView 再试。";
-        status.classList.add("warn");
-      }
-    });
-    el.addEventListener("click", (e) => {
-      if (e.target.closest("[data-card-billing]")) { go(CARD_BILLING, "正在打开一卡通账单…"); return; }
-      if (e.target.closest("[data-card-sync]")) { cardSync(el); return; }
-      if (e.target.closest("[data-card-home]")) { go(CARD_HOME, "正在打开一卡通首页…"); return; }
-      if (e.target.closest("[data-card-recharge]")) { go(CARD_RECHARGE, "正在进入一卡通充值页…"); return; }
-      if (e.target.closest("[data-card-center]")) { go(CARD_CENTER, "正在进入一卡通账户中心…"); return; }
-      if (e.target.closest("[data-card-reload]")) { go(frame?.src || CARD_BILLING, "正在刷新当前一卡通页面…"); return; }
-      if (e.target.closest("[data-card-open]")) { tide.util.openUrl(frame?.src || cardAuthedUrl(CARD_BILLING)); return; }
-      if (e.target.closest("[data-card-back]")) { tide.util.navigate("plug:cppu-notify"); return; }
-      if (e.target.closest("[data-card-login]")) {
-        cardState.username = el.querySelector("[data-card-user]")?.value?.trim() || "";
-        cardState.password = el.querySelector("[data-card-pass]")?.value || "";
-        cardSync(el, true);
-        return;
-      }
-      if (e.target.closest("[data-card-change]")) {
-        cardState.accessToken = "";
-        cardState.password = "";
-        cardState.error = "请输入新的账号和密码";
-        tide.vault?.del?.(CARD_VAULT_KEY).catch?.(() => {});
-        cardPaintLogin(el);
-        return;
-      }
-      const modeBtn = e.target.closest("[data-card-mode]");
-      if (modeBtn) {
-        cardState.mode = modeBtn.dataset.cardMode || "month";
-        cardPaintStats(el);
-        return;
-      }
-      const kindBtn = e.target.closest("[data-card-kind]");
-      if (kindBtn) {
-        cardState.kind = kindBtn.dataset.cardKind === "out" ? "out" : "in";
-        cardPaintStats(el);
-        return;
-      }
-    });
-    (async () => {
-      const cache = await tide.storage.get(CARD_CACHE_KEY, null);
-      cardState.rows = cardCleanRows(cache?.rows || []);
-      cardState.syncedAt = Number(cache?.syncedAt || 0);
-      cardState.balance = Number.isFinite(Number(cache?.balance)) && cache?.balance != null ? Number(cache.balance) : null;
-      cardState.balanceAt = Number(cache?.balanceAt || 0);
-      await cardRestoreSecret();
-      cardPaintLogin(el);
-      cardPaintStats(el);
-      if (cardState.username && cardState.password) await cardSync(el);
-      else cardSetStatus(el, "首次使用请输入一卡通学/工号和密码；成功后将自动保存并在下次完全自动登录。", true);
+    const showWeb = (name, url) => {
+      if (!alive) return;
+      if (!frame || !shell) { message('内嵌网页容器不可用，请使用“应用内新窗打开”', true); return; }
+      currentUrl = url; selectPage(name); clearFrameTimer();
+      message('正在载入官方页面；若出现空白或未授权，请使用“应用内新窗打开”在官方页面登录。');
+      frame.src = cardAuthedUrl(url);
+      frameTimer = setTimeout(() => { if (alive && page !== 'summary') message('网页仍未确认载入，可能受网络或内嵌限制影响；请使用“应用内新窗打开”', true); }, 15000);
+    };
+    const onFrameLoad = () => {
+      if (!alive || page === 'summary') return;
+      clearFrameTimer();
+      // 跨域 iframe 的 load 不能证明网站可用或认证成功（拦截页也可能触发）。
+      message('官方网页已触发载入；登录状态以网页为准。若空白、未授权或无法操作，请改用应用内新窗。');
+    };
+    const onFrameError = () => { clearFrameTimer(); if (page !== 'summary') message('官方页面未能载入，请检查网络或使用“应用内新窗打开”', true); };
+    const setSyncBusy = busy => {
+      for (const key of ['sync','login']) { const button=el.querySelector(`[data-card-${key}]`); if(button){button.disabled=busy;button.setAttribute('aria-busy',String(busy));} }
+      const button=el.querySelector('[data-card-sync]');if(button)button.textContent=busy?'正在同步…':'同步账单';
+    };
+    const sync = (force = false) => {
+      if (syncFlight) return syncFlight;
+      if (cardState.loading) { message('已有账单同步正在进行，请稍候再试'); return Promise.resolve(false); }
+      setSyncBusy(true); message('正在登录并同步账单…');
+      syncFlight = Promise.resolve().then(() => cardSync(el, force)).catch(() => { message('账单同步未完成，请检查网络与登录信息后重试', true); return false; })
+        .finally(() => { syncFlight=null; if(alive)setSyncBusy(false); });
+      return syncFlight;
+    };
+    const captureCredentials = () => {
+      const user=el.querySelector('[data-card-user]'), pass=el.querySelector('[data-card-pass]');
+      if (user) cardState.username=user.value.trim();
+      if (pass) cardState.password=pass.value;
+    };
+    const click = async event => {
+      const target=event.target?.closest ? event.target : event.target?.parentElement;
+      if (!alive || !target) return;
+      const names=['summary','billing','sync','home','recharge','center','reload','open','back','login','change','mode','kind'];
+      const name=names.find(key=>target.closest(`[data-card-${key}]`));
+      if (!name) return;
+      const button=target.closest(`[data-card-${name}]`);
+      if (!el.contains(button) || button.disabled) return;
+      event.preventDefault();
+      try {
+        // 返回和页面切换不依赖网络、缓存或可选的日均模块。
+        if (name==='back') { navSequence++; tide.util.navigate('plug:cppu-notify'); return; }
+        if (name==='summary') { navSequence++; selectPage('summary'); cardPaintStats(el); message('已切回本地账单与统计；需要最新数据请点“同步账单”'); return; }
+        if (name==='home') { navSequence++; showWeb('home',CARD_HOME); return; }
+        if (name==='open') {
+          // 必须在点击栈内调用，Web 调试环境才不会因异步等待被拦截弹窗。
+          const authenticated=!!cardState.accessToken && cardState.expiresAt>Date.now();
+          const target=authenticated?(page==='summary'?CARD_BILLING:currentUrl):CARD_HOME;
+          const opening=tide.util.openCardPage(cardAuthedUrl(target));
+          button.disabled=true;
+          try { const result=await opening; message(result?.mode==='browser'?'浏览器环境：已打开官方站点窗口，请在窗口内完成登录。':'已打开应用内官方网页窗口，请在窗口内继续操作。'); }
+          finally { if(alive)button.disabled=false; }
+          return;
+        }
+        if(name==='mode'){cardState.mode=button.dataset.cardMode||'month';cardPaintStats(el);return;}
+        if(name==='kind'){cardState.kind=button.dataset.cardKind==='out'?'out':'in';cardPaintStats(el);return;}
+        if(name==='reload' && page!=='summary'){navSequence++;showWeb(page,currentUrl);return;}
+        const sequence=++navSequence;
+        await ready;
+        if(!alive||sequence!==navSequence)return;
+        if(name==='change'){
+          if(cardState.loading){message('正在同步，请完成后再更换账号');return;}
+          cardState.accessToken='';cardState.password='';cardState.error='请输入新的账号和密码';
+          await tide.vault?.del?.(CARD_VAULT_KEY);cardPaintLogin(el);message('请输入新账号与密码，然后点击“登录并自动同步”');return;
+        }
+        captureCredentials();
+        if(name==='sync'||name==='login'||name==='reload'){
+          selectPage('summary');
+          if(!cardState.username||!cardState.password){cardPaintLogin(el);message('请先填写一卡通学/工号和密码，再点击“登录并自动同步”',true);el.querySelector('[data-card-user]')?.focus();return;}
+          await sync(name==='login');return;
+        }
+        if(name==='billing'||name==='recharge'||name==='center'){
+          if(syncFlight)await syncFlight;
+          if(!alive||sequence!==navSequence)return;
+          if(!cardState.accessToken||cardState.expiresAt<=Date.now()){
+            if(!cardState.username||!cardState.password){message('请先登录一卡通，再进入账单、充值或账户中心；也可在应用内新窗完成官方登录。',true);el.querySelector('[data-card-user]')?.focus();return;}
+            await sync(true);
+          }
+          if(!alive||sequence!==navSequence)return;
+          if(!cardState.accessToken||cardState.expiresAt<=Date.now()){message('登录尚未成功，未打开受保护页面；请检查账号或使用应用内新窗',true);return;}
+          showWeb(name,name==='billing'?CARD_BILLING:name==='recharge'?CARD_RECHARGE:CARD_CENTER);
+        }
+      } catch { message('操作未完成，请检查网络、客户端与登录状态后重试；网页版请允许打开弹窗。',true); }
+    };
+    // 先接线，再启动任何可能失败的辅助初始化；重复挂载先移除旧事件。
+    el.addEventListener('click',click);
+    frame?.addEventListener('load',onFrameLoad);frame?.addEventListener('error',onFrameError);
+    selectPage('summary');
+    const ready=(async()=>{
+      try {
+        const cache=await tide.storage.get(CARD_CACHE_KEY,null);
+        if(!alive)return;
+        cardState.rows=cardCleanRows(cache?.rows||[]);cardState.syncedAt=Number(cache?.syncedAt||0);
+        cardState.billsPartial=!!cache?.billsPartial||(cache?.rows?.length||0)>=5000;
+        cardState.balance=Number.isFinite(Number(cache?.balance))&&cache?.balance!=null?Number(cache.balance):null;
+        cardState.balanceAt=Number(cache?.balanceAt||0);
+      } catch { message('本地账单缓存读取失败，可填写账号后手动同步；工具栏仍可使用。',true); }
+      try { if(alive)await cardRestoreSecret(); } catch { message('登录信息恢复失败，请手动填写一卡通账号和密码',true); }
+      if(!alive)return;
+      cardPaintLogin(el);cardPaintStats(el);
     })();
+    ready.then(()=>{
+      if(!alive)return;
+      if(cardState.username&&cardState.password)return sync();
+      message('首次使用请填写一卡通学/工号和密码；首页、应用内新窗和回通知无需等待登录。');
+    }).catch(()=>message('一卡通初始化未完成，请手动同步或重新打开本页',true));
+    Promise.resolve().then(()=>{if(alive){bindSide(el);return loadLinkMeta(el);}}).catch(()=>{});
+    Promise.resolve().then(()=>{if(alive)return loadCardAveragePanel(el);}).catch(()=>message('日均模块未能载入，工具栏和账单操作仍可使用',true));
+    const dispose=()=>{alive=false;navSequence++;clearFrameTimer();el.removeEventListener('click',click);frame?.removeEventListener('load',onFrameLoad);frame?.removeEventListener('error',onFrameError);if(el._cardViewDispose===dispose)delete el._cardViewDispose;};
+    el._cardViewDispose=dispose;return dispose;
   }
 
   /* ── 登录界面 ── */
@@ -3085,6 +3214,7 @@
         <span data-switchuser style="font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;cursor:pointer">清除上次账号</span>
         ${state.autoLogin && canVault ? `<span data-clearauth style="font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;cursor:pointer">清除保存的密码</span>` : ""}
       </div>
+      ${loginSettingsHtml()}
       <button class="submit" data-go style="width:100%;height:40px;border-radius:10px;background:#0F4C5C;color:#fff;font-size:calc(14px * var(--ui-text-scale));font-weight:600;margin-top:14px;cursor:pointer">登 录</button>
       <div class="err" data-err>${esc(errMsg || "")}</div>
       <div class="sec">开启「记住密码并自动登录」后，密码与门户会话票据会加密保存在本机密钥库（AES-256-GCM），下次打开自动登录、直达通知列表；不会进入数据备份、同步或其他插件。关闭后只记住账号，密码仅本次内存使用。</div>
@@ -3100,8 +3230,9 @@
     const passEl = el.querySelector("[data-p]");
     const rememberEl = el.querySelector("[data-remember]");
     const autoEl = el.querySelector("[data-autologin]");
-    const prefillSamples = opts.ocrSamples || null;
+    bindLoginSettings(el);
     el.querySelector("[data-capbox]").addEventListener("click", async () => {
+      if (loggingIn || loginBusy) return;
       errEl.textContent = "正在换验证码…";
       try {
         const url = await fetchCaptcha();
@@ -3119,12 +3250,14 @@
       }
     });
     rememberEl.addEventListener("click", () => {
+      if (loggingIn || loginBusy) return;
       state.rememberUsername = !state.rememberUsername;
       rememberEl.classList.toggle("on", state.rememberUsername);
       tide.storage.set("rememberUsername", state.rememberUsername);
       if (!state.rememberUsername) tide.storage.set("username", "");
     });
     if (autoEl) autoEl.addEventListener("click", () => {
+      if (loggingIn || loginBusy) return;
       state.autoLogin = !state.autoLogin;
       autoEl.classList.toggle("on", state.autoLogin);
       tide.storage.set("autoLogin", state.autoLogin);
@@ -3132,12 +3265,14 @@
       tide.notify(state.autoLogin ? "已开启记住密码并自动登录" : "已关闭自动登录，并清除保存的密码");
     });
     el.querySelector("[data-switchuser]").addEventListener("click", () => {
+      if (loggingIn || loginBusy) return;
       state.username = "";
       tide.storage.set("username", "");
       userEl.value = "";
       userEl.focus();
     });
     el.querySelector("[data-clearauth]")?.addEventListener("click", async () => {
+      if (loggingIn || loginBusy) return;
       await clearSavedLogin();
       passEl.value = "";
       tide.notify("已清除保存的密码与会话票据");
@@ -3145,25 +3280,31 @@
 
     let loggingIn = false;
     const doLogin = async () => {
-      if (loggingIn) return;
+      if (loggingIn || loginBusy) return;
       const username = userEl.value.trim();
       const password = passEl.value;
       const code = codeEl.value.trim();
       if (!username || !password || !code) { errEl.textContent = "请填写学号、密码和验证码"; return; }
       if (!state.pending?.execution) { errEl.textContent = "登录页尚未准备好，请稍候再试"; return; }
       loggingIn = true; el.querySelector("[data-go]").disabled = true;
+      for (const input of [userEl, passEl, codeEl]) input.disabled = true;
       errEl.textContent = "正在走 SSO 链路（登录 → bridge → 门户）…";
       try {
-        state.pending = { username, password, execution: state.pending?.execution };
-        await submitLogin(code);
+        const loginResult = await runLoginAttempts({ username, password, code,
+          onRetry: message => { errEl.textContent = message; },
+          isActive: () => el.isConnected !== false && el.querySelector("[data-err]") === errEl });
+        if (el.isConnected === false || el.querySelector("[data-err]") !== errEl) return;
         state.username = username;
         if (state.rememberUsername) tide.storage.set("username", username);
         else tide.storage.set("username", "");
         await persistCredentials(password);
         await saveCookies();
         // 验证码若来自自动识别且登录成功 → 样本确认，后续识别更准
-        if (prefillSamples && code === (opts.prefillCode || "")) OCR.confirmSamples(prefillSamples);
-        else if (state._manualSamples && code === state._manualCode) OCR.confirmSamples(state._manualSamples);
+        // 自动重试所用验证码样本已由统一流程确认；首次人工提交保留原有学习行为。
+        if (!loginResult.recognized) {
+          if (opts.ocrSamples && code === opts.prefillCode) OCR.confirmSamples(opts.ocrSamples);
+          else if (state._manualSamples && code === state._manualCode) OCR.confirmSamples(state._manualSamples);
+        }
         state.savedPassword = state.autoLogin ? password : "";
         passEl.value = "";
         // onDone：登录卡是六个视图共用的，教务视图摆出来的那张登完要回它自己那一页
@@ -3172,22 +3313,26 @@
         buildMain(el);
         loadPage(1);
       } catch (e2) {
+        if (el.isConnected === false || el.querySelector("[data-err]") !== errEl) return;
+        if (capImg) capImg.src = state.captcha || "";
         if (e2 && e2.fatal) { errEl.textContent = e2.fatal; }
         else {
         errEl.innerHTML = esc((e2 && e2.retry) || e2.message || "登录失败") +
           (e2 && e2.diag ? `<br><span style="font-size:calc(10.5px * var(--ui-text-scale));color:#A9B2BA;word-break:break-all">${e2.diag}</span>` : "");
-        // 失败后 submitLogin 已重置登录页并换了新验证码：顺手再自动识别预填一次
+        }
+        // 控制器已准备新 execution 和验证码；即使账号错误也不能重用旧表单。
         const ocr = await OCR.recognize(state.captcha).catch(() => null);
+        codeEl.value = "";
         if (ocr?.code) {
           codeEl.value = ocr.code;
           state._manualSamples = ocr.samples;
           state._manualCode = ocr.code;
         }
-        }
       } finally {
         loggingIn = false;
+        for (const input of [userEl, passEl, codeEl]) input.disabled = false;
         const button = el.querySelector("[data-go]"); if (button) button.disabled = false;
-        if (state.pending) delete state.pending.password;
+        // pending 密码由 runLoginAttempts 在其互斥区域内清理，不能影响之后发起的登录。
       }
     };
     el.querySelector("[data-go]").addEventListener("click", doLogin);
@@ -3202,11 +3347,15 @@
     // 首次进入：拉登录页 + 验证码，并自动识别预填
     (async () => {
       try {
+        if (loginBusy || loggingIn) return;
         await newSession();
+        if (loginBusy || loggingIn) return;
         if (!state.pending?.execution || !state.captcha) {
           state.pending = { execution: await fetchLoginHtml() };
           await fetchCaptcha();
         }
+        if (el.isConnected === false || el.querySelector("[data-code]") !== codeEl) return;
+        if (capImg) capImg.src = state.captcha || "";
         if (!codeEl.value) {
           const ocr = await OCR.recognize(state.captcha).catch(() => null);
           if (ocr?.code) { codeEl.value = ocr.code; state._manualSamples = ocr.samples; state._manualCode = ocr.code; }
@@ -3343,8 +3492,14 @@
   }
 
   tide.ui.registerView({ id: "cppu-notify", title: "警大通知", icon: 'building-columns', render });
+  tide.ui.registerView({ id: "cppu-login-settings", title: "警大登录设置", icon: "gear", render: async el => {
+    state.loginRetries = cleanLoginRetries(await tide.storage.get("loginRetries", 2));
+    el.innerHTML = `<section style="max-width:680px;margin:24px auto;padding:20px;color:var(--ink)"><h2>警大登录设置</h2>${loginSettingsHtml()}</section>`;
+    el.querySelector("details").open = true;
+    bindLoginSettings(el);
+  } });
   tide.ui.registerView({ id: "cppu-card", title: "警大一卡通", icon: "credit-card", render: mountCardView });
-  // 教务三个只读视图：侧栏「校园服务」里的选课 / 请假 / 成绩 / 创新学分入口直接 navigate 过来
+  // 教务只读视图：侧栏「校园服务」里的选课 / 请假 / 成绩 / 创新学分入口直接 navigate 过来
   for (const cfg of JW_VIEWS) {
     tide.ui.registerView({
       id: cfg.id, title: cfg.title, icon: cfg.icon,

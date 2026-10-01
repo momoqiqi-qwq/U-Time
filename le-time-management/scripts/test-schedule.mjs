@@ -21,8 +21,8 @@ const savedBlocks=[];
    ingest:courses（AI 解析出的课程并进课表）。少了 events，ui.js 在**模块求值阶段**
    就抛 `Cannot read properties of undefined (reading 'on')`，下面所有断言一行都跑不到。
    storage 用来让导入链路真的走一遍 loadState → merge → persist。 */
-const ingestHandlers={};const savedTables=[];
-const uiContext=vm.createContext({TextEncoder,modelScope:{ShiguangModel:M},tide:{ui:{registerView(){}},util:{today:()=> '2026-09-09'},notify(){},events:{on:(name,fn)=>{ingestHandlers[name]=fn;}},storage:{get:async(k,def)=>k==='tables'?[{id:'t1',name:'我的课表',createdAt:1,data:table}]:k==='currentTableId'?'t1':k==='table'?table:def,set:async(k,v)=>{if(k==='tables'){savedTables.length=0;savedTables.push(...v);}}},blocks:{list:date=>savedBlocks.filter(b=>b.date===date),create:b=>{const block={...b,id:'block-'+savedBlocks.length};savedBlocks.push(block);return block;},remove:id=>{const i=savedBlocks.findIndex(b=>b.id===id);if(i>=0)savedBlocks.splice(i,1);}}}});
+const ingestHandlers={};const savedTables=[];const emittedEvents=[];
+const uiContext=vm.createContext({TextEncoder,modelScope:{ShiguangModel:M},tide:{ui:{registerView(){}},util:{today:()=> '2026-09-09'},notify(){},events:{on:(name,fn)=>{ingestHandlers[name]=fn;},emit:(name,payload)=>{emittedEvents.push({name,payload});}},storage:{get:async(k,def)=>k==='tables'?[{id:'t1',name:'我的课表',createdAt:1,data:table}]:k==='currentTableId'?'t1':k==='table'?table:def,set:async(k,v)=>{if(k==='tables'){savedTables.length=0;savedTables.push(...v);}}},blocks:{list:date=>savedBlocks.filter(b=>b.date===date),create:b=>{const block={...b,id:'block-'+savedBlocks.length};savedBlocks.push(block);return block;},remove:id=>{const i=savedBlocks.findIndex(b=>b.id===id);if(i>=0)savedBlocks.splice(i,1);}}}});
 const ui=fs.readFileSync(new URL('../public/plugins/shiguang-schedule/ui.js',import.meta.url),'utf8');
 for(const marker of ['今日课表','课程管理','课表管理','个性化配置','rename-table','import-all','pointerdown','prefers-reduced-motion'])assert.ok(ui.includes(marker),`missing embedded Shiguang feature: ${marker}`);
 const pluginHost=fs.readFileSync(new URL('../src/pluginHost.js',import.meta.url),'utf8');
@@ -626,3 +626,14 @@ await assert.rejects(ingestCourses({ courses: [] }), /没有可导入的课程/)
 // 节次必须按**当前课表**的节次表校验：默认 10 节，第 11 节要被拒绝而不是静默接受
 await assert.rejects(ingestCourses({ courses: [{ name: '越界课', day: 1, weeks: [1], startSection: 11, endSection: 12 }] }));
 console.log('PASS: AI 解析导入课程 —— 插件自己 merge+persist、字段映射、重复幂等、空载荷与越界节次被拒');
+
+// 校历只读事件同时覆盖实际模块注册与当前内存课表（不是测试替代实现）。
+assert.ok(emittedEvents.some(event=>event.name==='schedule:changed'), '保存导入课表后必须通知校历刷新');
+await ingestHandlers['schedule:week-request']({id:'calendar-test',date:'2026-09-09'});
+const weekResponse=emittedEvents.findLast(event=>event.name==='schedule:week-response').payload;
+assert.equal(weekResponse.id,'calendar-test');
+assert.equal(weekResponse.available,true);
+const activeData=M.normalize(savedTables[0].data);
+assert.equal(weekResponse.occurrences,M.occurrences(activeData,M.weekOf(activeData.config.semesterStartDate,'2026-09-09')).length);
+assert.equal(weekResponse.courses,undefined,'只传播统计，不泄漏课程明细');
+console.log('PASS: timetable saves broadcast changes and actual calendar query uses the active in-memory table');

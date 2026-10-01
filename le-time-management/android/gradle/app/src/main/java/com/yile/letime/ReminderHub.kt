@@ -209,9 +209,12 @@ object ReminderHub {
    * @param silent  静默更新。降级那条必须走这条：换渠道重发会按新渠道再响一次铃，
    *                用户刚点「停止响铃」就又响一声，等于按钮没起作用。
    */
-  fun postReminder(ctx: Context, rec: ReminderRecord, ongoing: Boolean = rec.urgent, silent: Boolean = false) {
+  fun postReminder(ctx: Context, rec: ReminderRecord, ongoing: Boolean = rec.urgent, silent: Boolean = false, taskActions: Boolean = true): Boolean {
     ensureChannels(ctx)
     val channelId = if (rec.urgent) CHANNEL_ALARM else CHANNEL_REMINDER
+    if (!notificationsEnabled(ctx)) return false
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+      ctx.getSystemService(NotificationManager::class.java).getNotificationChannel(channelId)?.importance == NotificationManager.IMPORTANCE_NONE) return false
     val builder = NotificationCompat.Builder(ctx, channelId)
       .setSmallIcon(R.drawable.ic_stat_letime)
       .setContentTitle(rec.title)
@@ -229,12 +232,14 @@ object ReminderHub {
     if (ongoing) {
       builder.addAction(R.drawable.ic_stat_letime, "停止响铃", actionIntent(ctx, rec.key, ACTION_STOP))
     }
-    builder.addAction(R.drawable.ic_stat_letime, "标记完成", actionIntent(ctx, rec.key, ACTION_DONE))
-    try {
+    if (taskActions) builder.addAction(R.drawable.ic_stat_letime, "标记完成", actionIntent(ctx, rec.key, ACTION_DONE))
+    return try {
       manager(ctx).notify(idOf(rec.key), builder.build())
+      true
     } catch (_: Throwable) {
       // 没通知权限（用户在系统里刚关掉）或系统通知服务异常：
       // 闹钟链路不能因此把广播接收器拖崩，最坏是这一次不响。
+      false
     }
   }
 

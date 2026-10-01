@@ -54,7 +54,7 @@ assert.match(hubKt, /PendingIntent\.FLAG_IMMUTABLE/,
   "targetSdk 31+ 起 PendingIntent 必须显式声明可变性，缺了运行时直接崩");
 assert.match(hubKt, /private fun idOf\(key: String\)/,
   "通知 id 必须由 key 推出：这是「应用活着时把原生那条升级成常驻版」而不是多出一条的前提");
-assert.match(hubKt, /fun postReminder\(ctx: Context, rec: ReminderRecord, ongoing: Boolean = rec\.urgent, silent: Boolean = false\)/,
+assert.match(hubKt, /fun postReminder\(ctx: Context, rec: ReminderRecord, ongoing: Boolean = rec\.urgent, silent: Boolean = false, taskActions: Boolean = true\): Boolean/,
   "postReminder 必须带 silent：刚点「停止响铃」又响一声，用户会以为按钮没生效");
 assert.match(hubKt, /setOngoing\(ongoing\)/, "到点那条必须常驻（滑不掉），否则用户一划就丢了催办");
 assert.match(hubKt, /areNotificationsEnabled\(\)/, "授权状态必须问 areNotificationsEnabled（含用户手动关渠道的情况）");
@@ -171,8 +171,10 @@ assert.match(taskReminder, /if \(!c\.enabled \|\| !c\.nativeAlarm\) return \[\]/
 assert.match(taskReminder, /await clearNativeAlarms\(\)/, "排期为空必须显式清空原生侧，不能只留着不管");
 assert.match(taskReminder, /if \(item\.action === "done"\)[\s\S]*S\.updateTask\(task\.id, \{ done: true \}\)/,
   "通知上的「标记完成」必须真的改任务状态");
-assert.match(taskReminder, /if \(isAndroidRuntime\(\)\)\s*\{\s*notifyStatus\(\)\.then/,
-  "Android 上没通知权限时必须提示一次去开启：应用内提醒照常响，用户看不出任何异常");
+assert.match(read("../src/main.js"), /await initAndroidNotifications\(\)/,
+  "启动时必须初始化系统通知授权");
+assert.match(bridge, /if \(!status\.granted\) toast\([\s\S]*action: openNotifySettings/,
+  "未授权时必须保留系统设置入口");
 
 /* ⑧ 长鸣音效：零资产 + 无缝循环的两个前提。 */
 assert.match(sound, /\{ id: "clock", label: "时钟长鸣"[\s\S]*loop: \{/, "必须有「时钟长鸣」可循环预设");

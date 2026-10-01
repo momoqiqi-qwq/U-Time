@@ -1,6 +1,6 @@
 [package]
 name = "letime"
-version = "0.125.0"
+version = "0.137.0"
 description = "Le时间管理 · 时间块与四象限"
 authors = ["yile"]
 edition = "2021"
@@ -14,7 +14,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 # tray-icon：桌面端系统托盘（feature 本身被 tauri 用 cfg(desktop) 门控，Android 构建不受影响）
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "unstable"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

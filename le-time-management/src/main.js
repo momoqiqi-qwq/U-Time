@@ -15,6 +15,8 @@ import { initAutomation } from "./automation.js";
 import { initMotionInteractions, reducedMotion } from "./motion.js";
 import { initLanPushGate } from "./lanPushGate.js";
 import { initUpdateChecker } from "./updateChecker.js";
+import { showStartupDisclaimer } from "./disclaimer.js";
+import { initAndroidNotifications } from "./androidNotify.js";
 
 // 首次启动的初始数据 —— 刻意全空，让空状态引导用户自己建第一条（对接 Rust seed_data()）。
 // ⚠️ 这里不要再塞示例任务：首启四象限/时间块该是干净的。样例请做成显式入口（如「恢复示例数据」）。
@@ -49,6 +51,8 @@ async function boot() {
   initMotionInteractions();
   renderShell(document.getElementById("app"));
   await revealAppWindow();
+  await showStartupDisclaimer();
+  await initAndroidNotifications();
   initCapture();
   initTaskReminders();
   initCommandPalette();

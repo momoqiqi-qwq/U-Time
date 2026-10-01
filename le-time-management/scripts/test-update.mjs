@@ -86,20 +86,21 @@ class FakeNode {
   remove() { if (this.parentNode) { this.parentNode.children = this.parentNode.children.filter((x) => x !== this); this.parentNode = null; } }
   get textContent() { return this.children.map((c) => c.textContent ?? "").join(""); }
   set textContent(value) { for (const c of this.children) c.parentNode = null; this.children = [new FakeText(value)]; this.children[0].parentNode = this; }
-  querySelector(selector) {
+  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+  querySelectorAll(selector) {
     const classes = String(selector).replace(/^\./, "").split(".").filter(Boolean);
+    const results = [];
     const walk = (node) => {
       for (const child of node.children) {
         if (child.nodeType !== 1) continue;
-        if (classes.every((c) => child._classes.has(c))) return child;
-        const found = walk(child);
-        if (found) return found;
+        if (classes.every((c) => child._classes.has(c))) results.push(child);
+        walk(child);
       }
-      return null;
     };
-    return walk(this);
+    walk(this);
+    return results;
   }
-  focus() {}
+  focus() { document.activeElement = this; }
   blur() {}
   select() {}
 }
@@ -114,6 +115,7 @@ globalThis.document = {
   addEventListener() {},
   removeEventListener() {},
   querySelector: () => null,
+  querySelectorAll: (selector) => document.body.querySelectorAll(selector),
 };
 
 const dispatched = [];

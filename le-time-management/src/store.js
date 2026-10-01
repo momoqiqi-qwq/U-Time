@@ -171,27 +171,44 @@ export function deleteTaskUndoable(id) {
   };
 }
 
-// 一键清理已完成任务。整批走 batchChanges：一次刷新 + 一次写盘，而不是 N 条任务各触发一遍。
+// 一键清理已完成任务：按 ID 建索引，一次分组、一次删除，避免每个任务扫描全部排程。
 // 撤销按「任务 + 它自己的排程」成对放回，且只恢复已经不存在的条目，避免覆盖用户事后重建的任务。
 export function deleteDoneTasksUndoable() {
   const done = state.tasks.filter((t) => t.done);
   if (!done.length) return null;
-  const snapshot = structuredClone(done.map((t) => ({
-    task: t,
-    blocks: state.blocks.filter((b) => b.taskId === t.id),
-  })));
-  batchChanges(() => { done.forEach((t) => removeTask(t.id)); });
+  const blocksByTask = new Map(done.map((t) => [t.id, []]));
+  const affectedDates = new Set();
+  for (const block of state.blocks) {
+    const group = blocksByTask.get(block.taskId);
+    if (group) {
+      group.push(block);
+      affectedDates.add(block.date);
+    }
+  }
+  // 先生成快照，克隆失败时不改变当前数据。
+  const snapshot = structuredClone(done.map((t) => ({ task: t, blocks: blocksByTask.get(t.id) })));
+  state.tasks = state.tasks.filter((t) => !blocksByTask.has(t.id));
+  state.blocks = state.blocks.filter((b) => !blocksByTask.has(b.taskId));
+  affectedDates.forEach(invalidateBlockIndex);
+  changed();
   return () => {
+    const taskIds = new Set(state.tasks.map((t) => t.id));
+    const blockIds = new Set(state.blocks.map((b) => b.id));
     const tasks = [], blocks = [];
     for (const entry of snapshot) {
-      if (taskById(entry.task.id)) continue;
+      if (taskIds.has(entry.task.id)) continue;
+      taskIds.add(entry.task.id);
       tasks.push(entry.task);
-      blocks.push(...entry.blocks.filter((b) => !state.blocks.some((x) => x.id === b.id)));
+      for (const block of entry.blocks) {
+        if (blockIds.has(block.id)) continue;
+        blockIds.add(block.id);
+        blocks.push(block);
+      }
     }
     if (!tasks.length) return;
-    state.tasks.unshift(...tasks);
-    state.blocks.push(...blocks);
-    blocks.forEach((b) => invalidateBlockIndex(b.date));
+    state.tasks = tasks.concat(state.tasks);
+    state.blocks = state.blocks.concat(blocks);
+    new Set(blocks.map((b) => b.date)).forEach(invalidateBlockIndex);
     changed();
   };
 }

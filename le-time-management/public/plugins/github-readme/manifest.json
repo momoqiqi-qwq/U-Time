@@ -1,10 +1,10 @@
 {
   "id": "github-readme",
   "name": "GitHub 文档",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "U-Time",
   "icon": "code-branch",
-  "description": "追踪 GitHub 仓库 README：支持 owner/repo 或仓库链接，正文按 GitHub Markdown 风格安全渲染。可改卡片名称、备注和图标。新提交可推送消息，首次加入不推历史；优先读取 GitHub 提交订阅，失败时使用 commits API 备用路径，错误只影响对应仓库。README 子目录路径自动处理。只读 README，不含 release、issue 和文件树。",
+  "description": "追踪 GitHub 仓库 README：支持 owner/repo 或仓库链接，正文按 GitHub Markdown 风格安全渲染。提供主题化页内编辑，一起修改名称、备注和图标；移除前确认，保存失败保留草稿。新提交可推送消息，首次加入不推历史；优先读取 GitHub 提交订阅，失败时使用 commits API 备用路径，错误只影响对应仓库。README 子目录路径自动处理。只读 README，不含 release、issue 和文件树。",
   "permissions": [
     "ui",
     "tasks",

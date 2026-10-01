@@ -507,6 +507,7 @@
    await tide.storage.set('tables',tables);
    await tide.storage.set('currentTableId',currentTableId);
    await tide.storage.set('table',table); // 兼容 2.2.0 及更早版本
+   tide.events.emit('schedule:changed', {});
  }
  async function persist(next){table=next;loaded=true;await saveTables();}
  async function switchTable(id){const pack=tables.find(x=>x.id===id);if(!pack)return;currentTableId=id;table=M.normalize(pack.data);week=currentWeek();await saveTables();}
@@ -873,6 +874,30 @@ async function render(el){
    为什么不让核心直接写 tide.storage：`tables` / `table` 在本文件里是**内存副本**，
    核心写盘之后插件下一次 saveTables() 会把旧副本覆盖回去 —— 新课程凭空消失。
    所以必须由插件自己 normalize → merge → persist，走和「教务导入」同一条链路。 */
+// 只读周统计：未打开课表时直接读取存储快照，不初始化/写入默认课表。
+// 只发布计数与日期范围，课程名称、教师和地点不跨插件传播。
+async function calendarWeekStats(date) {
+  M.monday(date);
+  let current=table, name=activePack()?.name || '当前课表';
+  if(!loaded || !current){
+    const [packs,id,legacy]=await Promise.all([tide.storage.get('tables',null),tide.storage.get('currentTableId',''),tide.storage.get('table',null)]);
+    const pack=Array.isArray(packs) ? packs.find(p=>String(p.id||p.tableId)===id)||packs[0] : null;
+    const raw=pack ? pack.data||pack.tableData : legacy;
+    if(!raw)return {available:false};
+    current=M.normalize(raw);name=String(pack?.name||pack?.tableName||'当前课表');
+  }
+  if(!current.courses.length)return {available:false,name};
+  const week=M.weekOf(current.config.semesterStartDate,date), start=M.monday(date);
+  const rows=week>=1&&week<=current.config.semesterTotalWeeks ? M.occurrences(current,week) : [];
+  return {available:true,name,start,end:M.addDays(start,6),semesterStart:current.config.semesterStartDate,
+    occurrences:rows.length,periods:rows.reduce((n,c)=>n+(c.isCustomTime?0:c.endSection-c.startSection+1),0),
+    unknownPeriods:rows.filter(c=>c.isCustomTime).length};
+}
+tide.events.on('schedule:week-request',async request=>{
+  if(!request||typeof request.id!=='string'||typeof request.date!=='string')return;
+  try {tide.events.emit('schedule:week-response',{id:request.id,...await calendarWeekStats(request.date)});}
+  catch {tide.events.emit('schedule:week-response',{id:request.id,available:false,error:'课表数据读取失败，请先检查课程表'});}
+});
 tide.events.on('ingest:courses',async(payload)=>{
   const incoming=Array.isArray(payload&&payload.courses)?payload.courses:[];
   if(!incoming.length)throw new Error('没有可导入的课程');

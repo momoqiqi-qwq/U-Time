@@ -1,0 +1,6 @@
+{
+  "identifier": "browser-tools",
+  "description": "本地独立网页工具栏，远程内容不在此范围内",
+  "webviews": ["browser-tools-*"],
+  "permissions": ["core:default"]
+}

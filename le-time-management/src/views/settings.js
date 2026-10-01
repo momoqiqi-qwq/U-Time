@@ -142,7 +142,7 @@ export function renderSettings(container, opts = {}) {
       });
       async function paintNotifyState() {
         const st = await notifyStatus();
-        permState.textContent = st.applied === false && st.supported === false ? "原生桥不可用（请更新 APK）" : st.granted ? "已授权" : "未授权";
+        permState.textContent = !st.supported ? "原生桥不可用（请更新 APK）" : st.granted ? "已授权" : "未授权";
         permState.dataset.on = st.granted ? "1" : "0";
         exactState.textContent = st.exact ? "已授权（准点）" : "未授权：深睡时最坏晚几分钟";
         exactState.dataset.on = st.exact ? "1" : "0";
@@ -513,7 +513,7 @@ export function renderSettings(container, opts = {}) {
       { id: "lan", node: lanCard, label: "局域网联动", icon: "network-wired", hint: "手机联动与二维码", keywords: "手机 WiFi 二维码 端口 配对" },
       { id: "plugins", node: plugCard, label: "插件管理", icon: "puzzle-piece", hint: "启用 / 导入 / 导出", keywords: "插件 权限 导入 ZIP 启用 停用 开发文档" },
       // 更新入口在「关于」里（软件更新）：关键词挂这儿，搜「更新 / 升级」也能落到关于。
-      { id: "about", node: aboutCard, label: "关于", icon: "circle-info", hint: "版本 / 软件更新 / 卸载应用 / 开源信息", keywords: "版本 更新 升级 检查更新 自动更新 弹窗提示 忽略此版本 卸载 卸载应用 清除数据 删除数据 卸载 U-Time 开源 框架 GitHub 发布 下载 Releases 插件开发 API 文档 项目仓库" },
+      { id: "about", node: aboutCard, label: "关于", icon: "circle-info", hint: "版本 / 软件更新 / 免责声明 / 开源信息", keywords: "免责声明 使用说明 隐私 数据 官方 权限 版本 更新 升级 检查更新 自动更新 弹窗提示 忽略此版本 卸载 卸载应用 清除数据 删除数据 卸载 U-Time 开源 框架 GitHub 发布 下载 Releases 插件开发 API 文档 项目仓库" },
     ];
     for (const entry of settingEntries) {
       entry.node.classList.add("settings-section");

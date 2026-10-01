@@ -7,6 +7,7 @@
 // 为什么要单独一层：纯浏览器调试必须能安全空转。Android 继续走 Kotlin 通知与
 // AlarmManager；桌面 Tauri 的即时通知走同一个 Rust 命令，但不参与 Android 排期。
 import { api } from "./api.js";
+import { toast } from "./ui.js";
 
 /** 是否需要原生通知（只有 Android APK：桌面走 WebView2，浏览器走 localStorage 调试）。 */
 export function isAndroidRuntime() {
@@ -38,7 +39,33 @@ async function call(action, payload) {
 export async function notifyStatus() {
   if (!isAndroidRuntime()) return { ...OFF, supported: false, granted: false, exact: false };
   const r = await call("status");
-  return { ...r, supported: true, granted: !!r.granted, exact: !!r.exact };
+  return { ...r, supported: !r.error && r.applied !== false, granted: !!r.granted, exact: !!r.exact };
+}
+
+let permissionInit = null;
+/** 每次安装自动申请一次；拒绝后保留手动入口，不在每次启动时重弹。 */
+export function initAndroidNotifications() {
+  if (!isAndroidRuntime()) return Promise.resolve({ ...OFF });
+  if (permissionInit) return permissionInit;
+  permissionInit = (async () => {
+    let status = await notifyStatus();
+    if (!status.supported) {
+      toast("系统通知连接失败，请在设置中检查或更新 APK");
+      return status;
+    }
+    if (!status.granted && status.canRequest && !status.permissionAsked) {
+      await askNotifyPermission();
+      status = await notifyStatus();
+    }
+    if (!status.granted) toast("系统通知未开启，任务和插件消息暂时只能在应用内显示", {
+      ms: 9000, actionLabel: "通知设置", action: openNotifySettings,
+    });
+    if (!status.exact) toast("后台准点提醒需要允许「闹钟和提醒」", {
+      ms: 9000, actionLabel: "去开启", action: openExactAlarmSettings,
+    });
+    return status;
+  })();
+  return permissionInit;
 }
 
 /** 弹 Android 13+ 的通知授权框。用户拒过第二次系统不再弹，只能走 openNotifySettings。 */

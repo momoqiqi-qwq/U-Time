@@ -65,19 +65,37 @@ export function toast(msg, opts = {}) {
 }
 
 /* ── 应用内对话框：替代 window.prompt / window.confirm（Tauri 里原生弹窗样式突兀）── */
-function appDialog({ title, message, label, value = "", placeholder = "", confirmText = "确定", cancelText = "取消", danger = false, input = false, timeoutMs = 0, timeoutNote = "不操作" }) {
+function appDialog({ title, message, label, value = "", placeholder = "", confirmText = "确定", cancelText = "取消", danger = false, input = false, timeoutMs = 0, timeoutNote = "不操作", dialogClass = "", focusMessage = false }) {
   return new Promise((resolve) => {
     let tick = null;
+    let closed = false;
+    const previousFocus = document.activeElement;
+    const isTopDialog = () => [...document.querySelectorAll(".app-dialog-mask")].at(-1) === mask;
     const close = (result) => {
+      if (closed) return;
+      closed = true;
+      const restoreFocus = isTopDialog();
       document.removeEventListener("keydown", onKey, true);
       if (tick) clearInterval(tick);
       mask.remove();
+      if (restoreFocus && previousFocus?.isConnected) previousFocus.focus();
       resolve(result);
     };
     const onKey = (e) => {
+      if (!isTopDialog()) return;
       if (e.key === "Escape") {
-        e.stopPropagation();
+        e.preventDefault();
+        e.stopImmediatePropagation();
         close(input ? null : false);
+      } else if (e.key === "Tab") {
+        const targets = [...box.querySelectorAll('button, input, select, textarea, a[href], [tabindex="0"]')]
+          .filter((node) => !node.disabled && node.getClientRects().length);
+        const first = targets[0], last = targets.at(-1);
+        if (!first) return;
+        if (!box.contains(document.activeElement) || (e.shiftKey ? document.activeElement === first : document.activeElement === last)) {
+          e.preventDefault();
+          (e.shiftKey ? last : first).focus();
+        }
       }
     };
     const field = input
@@ -89,9 +107,9 @@ function appDialog({ title, message, label, value = "", placeholder = "", confir
       ? el("p", { class: "app-dialog-countdown" })
       : null;
     const submit = () => close(input ? field.value.trim() : true);
-    const box = el("div", { class: "app-dialog", role: "dialog", "aria-modal": "true", "aria-label": title },
+    const box = el("div", { class: `app-dialog${dialogClass ? ` ${dialogClass}` : ""}`, role: "dialog", "aria-modal": "true", "aria-label": title },
       el("h3", {}, title),
-      message ? el("p", { class: "app-dialog-msg" }, message) : null,
+      message ? (message.nodeType ? message : el("p", { class: "app-dialog-msg" }, message)) : null,
       countdown,
       field,
       el("div", { class: "app-dialog-actions" },
@@ -120,6 +138,7 @@ function appDialog({ title, message, label, value = "", placeholder = "", confir
       tick = setInterval(paint, 1000);
     }
     if (field) { field.focus(); field.select(); }
+    else if (focusMessage && message?.focus) message.focus();
     else box.querySelector(".app-dialog-btn.pri")?.focus();
   });
 }

@@ -1240,6 +1240,23 @@ button, .nav { touch-action: manipulation; }
     display: flex;
     animation: rail-dock-in .26s cubic-bezier(.22, .8, .26, 1);
   }
+  /* APK 底栏常驻且不播放进出场位移；沉浸式课表也必须为它留足空间。 */
+  .app.android-runtime .rail { display: flex; animation: none; }
+  .app.android-runtime.rail-hidden .view {
+    padding-bottom: calc((var(--nav-btn-h, 46px) + 8px + var(--nav-float, 10px) + 12px + var(--sab, env(safe-area-inset-bottom, 0px))) / var(--ui-scale, 1));
+  }
+  .app.android-runtime .rail-dock > .rail-dock-btn {
+    width: auto; flex: 1; min-width: 0;
+    flex-direction: column; justify-content: center; gap: 2px;
+    min-height: var(--nav-btn-h, 46px);
+    padding: 3px 2px;
+    touch-action: manipulation; cursor: pointer;
+  }
+  .app.android-runtime .rail-dock-label {
+    font-size: calc(10px * var(--ui-text-scale));
+    line-height: 1.1;
+    white-space: nowrap;
+  }
   .rail .rail-dock-btn { color: var(--ink-2); }
   :root .rail .rail-dock-btn .ic {
     background: transparent;
@@ -2493,6 +2510,18 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .plugin-enable-switch { margin-top: 0; }
 .plugin-card-controls { margin-left: auto; }
 
+/* 插件启停是状态切换，不重播列表入场或整卡闪光。 */
+.market-manage-card { transition: opacity 220ms ease, border-color 220ms ease, background-color 220ms ease; }
+.market-manage-card.disabled { opacity: .78; }
+.market-manage-card .market-switch-text { min-width: 5em; text-align: right; transition: color 180ms ease; }
+.market-manage-card:not(.disabled) .market-switch-text { color: var(--deep); }
+.market-manage-card.plugin-toggle-pending .market-plugin-switch { cursor: progress; }
+:root[data-ui-motion="reduced"] .market-manage-card,
+:root[data-ui-motion="reduced"] .market-switch-text { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .market-manage-card, .market-switch-text { transition: none; }
+}
+
 @media (max-width: 700px) {
   .market-card-actions { align-items: center; }
   .market-switch-text, .plugin-switch-label { display: none; }
@@ -3449,11 +3478,16 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .plug-seg.plugin-drag-live { cursor: grabbing; user-select: none; -webkit-user-select: none; }
 .plug-seg.plugin-drag-live > button[data-plugin-id] { cursor: grabbing; }
 .nav .plug-seg > button.nav-dragging {
-  opacity: .18;
-  background: color-mix(in srgb, var(--deep) 7%, transparent);
-  outline: 1.5px dashed color-mix(in srgb, var(--deep) 48%, transparent);
-  outline-offset: -3px;
+  opacity: 1;
+  color: var(--ink);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--deep) 18%, var(--panel));
+  outline: 2px solid var(--deep);
+  outline-offset: -2px;
+  box-shadow: inset 3px 0 0 var(--deep);
+  transition: none;
 }
+.plug-seg.plugin-drag-live > button[data-plugin-id] { transition: none; }
 
 /* ── v0.102 插件颜色分组 ──
    --gc 由 shell.js 从 pluginGroups.GROUP_COLORS 写在 .plug-group 上。
@@ -3597,9 +3631,11 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .plugin-nav-ghost {
   position: fixed; left: 0; top: 0; z-index: 1200; box-sizing: border-box;
   display: flex; align-items: center; gap: 9px; padding: 7px 9px;
-  border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--ink);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, .24); pointer-events: none;
-  font: inherit; font-size: calc(13px * var(--ui-text-scale)); opacity: .97; will-change: transform;
+  border: 2px solid var(--deep); border-radius: 9px;
+  background: color-mix(in srgb, var(--deep) 18%, var(--panel)); color: var(--ink);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, .24); pointer-events: none;
+  font: inherit; font-weight: 600; font-size: calc(13px * var(--ui-text-scale));
+  opacity: 1; will-change: transform; transition: none; animation: none; transform-origin: top left;
 }
 .plugin-nav-ghost .ic { width: 30px; height: 30px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .plugin-nav-ghost .ic .app-icon { width: 22px; height: 22px; }
@@ -4264,6 +4300,8 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   padding: calc(20px + var(--sat, env(safe-area-inset-top, 0px))) calc(20px + var(--sar, env(safe-area-inset-right, 0px))) calc(20px + var(--sab, env(safe-area-inset-bottom, 0px))) calc(20px + var(--sal, env(safe-area-inset-left, 0px))); }
 .app-dialog {
   width: 340px; max-width: 92vw;
+  max-height: calc(var(--ui-vh, 100dvh) - 40px - var(--sat, env(safe-area-inset-top, 0px)) - var(--sab, env(safe-area-inset-bottom, 0px)));
+  overflow-y: auto;
   background: var(--panel); color: var(--ink);
   border: 1px solid var(--line); border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
@@ -4292,6 +4330,21 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .app-dialog-btn.pri { background: var(--deep); border-color: var(--deep); color: var(--on-deep); font-weight: 600; }
 .app-dialog-btn.pri:hover { color: var(--on-deep); filter: brightness(1.08); }
 .app-dialog-btn.pri.danger { background: var(--coral); border-color: var(--coral); }
+
+/* 重要说明不是辅助描述：不要复用会被“无描述”模式隐藏的 .set-hint。 */
+.disclaimer-content { color: var(--ink-2); font-size: calc(13px * var(--ui-text-scale)); line-height: 1.8; overflow-wrap: anywhere; }
+.disclaimer-content p { margin: 0 0 12px; }
+.disclaimer-summary { color: var(--ink); font-weight: 600; }
+.disclaimer-meta { font-size: calc(12px * var(--ui-text-scale)); }
+.disclaimer-section { margin: 16px 0; }
+.disclaimer-section h4 { margin: 0 0 6px; color: var(--ink); font-size: calc(14px * var(--ui-text-scale)); }
+.disclaimer-note { border-top: 1px solid var(--line); padding-top: 12px; }
+.app-dialog.disclaimer-dialog { width: 620px; max-width: 100%; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
+.disclaimer-dialog > h3, .disclaimer-dialog > .app-dialog-actions { flex-shrink: 0; }
+.disclaimer-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 8px; }
+.disclaimer-scroll:focus-visible { outline: 2px solid var(--deep); outline-offset: -2px; }
+.disclaimer-dialog .app-dialog-actions { flex-wrap: wrap; }
+.disclaimer-dialog .app-dialog-btn { min-height: 44px; height: auto; padding: 8px 14px; }
 
 .plugin-context-menu {
   position: fixed;
@@ -4863,3 +4916,8 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 /* 引导卡里的按钮在"还没到那一步"时是 disabled 的（比如没连上电脑之前的「拉回本机」）。
    不给个灰态，它看起来就是主操作，人会以为可以直接点 —— 与 .update-actions / .plugin-toolbar 同一口径。 */
 .sync-card .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.market-view-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.market-view-links .btn { min-height: 44px; justify-content: flex-start; gap: 8px; white-space: normal; text-align: left; }
+.market-view-links .fa-ic { width: 16px; height: 16px; flex-shrink: 0; }
+.market-view-links .btn:disabled { opacity: .45; cursor: not-allowed; }

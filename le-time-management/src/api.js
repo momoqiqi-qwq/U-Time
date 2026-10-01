@@ -168,6 +168,36 @@ export const api = {
     return api.openExternal(url);
   },
 
+  /** 校园网站插件使用原生网页窗口：官方认证与资源访问在同一浏览器中完成。
+   * 不导出 Cookie，不代理/重写登录页，不绕过官方页面的 CSP / X-Frame-Options。
+   * 与普通链接偏好分离，失败时明确报错，不悄悄切到不共享会话的外部浏览器。
+   */
+  async openCampusSite(site) {
+    const urls = { webvpn: "https://webvpn.cppu.edu.cn/", website: "https://www.cppu.edu.cn/" };
+    if (!Object.hasOwn(urls, site)) throw new Error("不支持的校园网站入口");
+    const url = urls[site];
+    if (isTauri) { await invoke("open_internal", { url }); return { mode: "native" }; }
+    const win = window.open(url, "_blank");
+    if (!win) throw new Error("浏览器拦截了弹窗，请允许此页面打开窗口后重试");
+    win.opener = null;
+    return { mode: "browser" };
+  },
+
+  /** 一卡通固定站点的应用内窗口；不受普通链接打开偏好影响。 */
+  async openCardPage(url) {
+    let parsed;
+    try { parsed = new URL(url); } catch { throw new Error("一卡通网页地址无效"); }
+    if (parsed.origin !== "https://yktcard.cppu.edu.cn" || parsed.username || parsed.password || !parsed.pathname.startsWith("/campus-card/")) throw new Error("仅支持一卡通官方页面");
+    if (isTauri) {
+      try { await invoke("open_internal", { url: parsed.href }); } catch { throw new Error("应用内网页窗口打开失败，请重试"); }
+      return { mode: "native" };
+    }
+    const win = window.open(parsed.href, "_blank");
+    if (!win) throw new Error("请允许打开弹窗后重试");
+    win.opener = null;
+    return { mode: "browser" };
+  },
+
   /** 插件专用会话打开：Rust 原生端从指定 HTTP Cookie Jar 注入后再打开 WebView。 */
   async openUrlWithHttpSession(url, sid) {
     if (!isTauri) return api.openUrl(url);

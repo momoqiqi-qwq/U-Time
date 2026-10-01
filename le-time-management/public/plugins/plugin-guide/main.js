@@ -1,6 +1,6 @@
 (function(){
   const groups=[
-    {name:"学习与校园",ids:["shiguang-schedule","school-notice","chaoxing-notify","cppu-notify","exam-calendar"]},
+    {name:"学习与校园",ids:["shiguang-schedule","school-notice","chaoxing-notify","cppu-notify","cppu-calendar","exam-calendar"]},
     {name:"效率与专注",ids:["pomodoro","weekly-report"]},
     {name:"信息与提醒",ids:["gx-news","cn-holiday","wechat-push"]},
     {name:"生活与工具",ids:["dorm-duty","web-collector","inbox-drop"]},
@@ -10,6 +10,7 @@
     "school-notice":["填写学校通知/公告网址并检测","公开网站可直接同步；需登录时填写登录信息","图片验证码需要本人查看后手动输入"],
     "chaoxing-notify":["使用账号密码或 Cookie 登录学习通","同步通知并查看完整正文","识别到截止时间后可转为 Le 提醒"],
     "cppu-notify":["打开插件进入智慧警大登录流程","自动恢复会话或自动识别验证码登录，认不出时才手工核对","筛选通知并按需转成提醒"],
+    "cppu-calendar":["点击同步教务学期，或手动填写教学起始日与周数","按月查看教学周次","点选日期添加自己的考试、返校等事项"],
     "exam-calendar":["选择考试类别或时间范围","查看考试节点和来源说明","把需要关注的日期加入计划"],
     "pomodoro":["选择预设时间或输入自定义倒计时","选择已有任务，或直接新建一个专注任务","开始计时；完成后自动累计专注统计"],
     "weekly-report":["打开后自动读取任务与时间块","查看每天投入、分类占比和完成情况","用周报复盘下一周安排"],

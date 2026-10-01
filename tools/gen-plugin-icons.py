@@ -54,6 +54,8 @@ ICONS = {
     "plugin-guide":      ("color",      "help",             "插件使用说明 / 帮助"),
     "pomodoro":          ("color",      "tomato",           "番茄专注 / 番茄"),
     "cppu-notify":       ("color",      "university",       "警大门户通知 / 大学建筑"),
+    "cppu-calendar":     ("color",      "calendar",         "警大校历 / 月历"),
+    "cppu-webvpn":       ("color",      "university",       "警大 WebVPN / 校园网站"),
     "gx-news":           ("color",      "trophy",           "竞赛消息雷达 / 奖杯"),
     "rss-reader":        ("color",      "rss",              "RSS 信息流 / RSS 信号波"),
     "exam-calendar":     ("color",      "test-passed",      "考试日历 / 考核清单"),

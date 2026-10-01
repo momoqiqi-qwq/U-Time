@@ -9,7 +9,7 @@ import * as S from "./store.js";
 import { toast } from "./ui.js";
 import { playSound, startAlarmLoop, stopAlarmLoop, alarmRinging, DEFAULT_LOOP_SOUND_ID } from "./sound.js";
 import {
-  isAndroidRuntime, isDesktopRuntime, notifyStatus, askNotifyPermission, postNativeReminder,
+  isAndroidRuntime, isDesktopRuntime, postNativeReminder,
   postDesktopReminder, cancelNativeReminder,
   setNativeRingActive, syncNativeAlarms, clearNativeAlarms, takeNativeActions,
 } from "./androidNotify.js";
@@ -366,17 +366,6 @@ export function initTaskReminders() {
   const onVisibility = () => { if (!document.hidden) { if (timer) clearTimeout(timer); tick(); } };
   const unsub = S.subscribe(() => schedule(250));
   document.addEventListener("visibilitychange", onVisibility);
-  // Android 上没给通知权限时提一次去开启：没有权限，原生通知与闹钟全都是哑的，
-  // 而这件事用户在设置页里看不到任何异常（应用内提醒照常响，很容易以为已经提醒过了）。
-  if (isAndroidRuntime()) {
-    notifyStatus().then((st) => {
-      if (!disposed && st.supported && !st.granted) {
-        toast("任务提醒还需要「通知」权限，开启后才能进下拉栏", {
-          ms: 9000, actionLabel: "去开启", action: () => askNotifyPermission(),
-        });
-      }
-    });
-  }
   tick();
   return () => {
     disposed = true;

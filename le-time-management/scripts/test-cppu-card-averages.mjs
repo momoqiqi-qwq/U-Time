@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {stamp,periodRange,shiftAnchor,averageSummary,classifyExpense,validAcademicStart,cleanPreferences,createCardAverages} from '../public/plugins/cppu-notify/card-averages.js';
+assert.ok(Number.isFinite(stamp('2024-02-29')));assert.ok(Number.isNaN(stamp('2025-02-29')));assert.ok(Number.isNaN(stamp('2026-13-01')));
+for(const value of ['09-01','08-25','01-01','12-31'])assert.equal(validAcademicStart(value),true);
+for(const value of ['02-29','02-30','13-01','9-1',''])assert.equal(validAcademicStart(value),false);
+assert.equal(cleanPreferences(null).academicStart,'09-01');assert.equal(cleanPreferences({mode:'bad',scope:'bad',academicStart:'bad'}).mode,'month');
+let range=periodRange('week','2026-01-01','09-01','2026-10-01');assert.equal(range.start,'2025-12-29');assert.equal(range.end,'2026-01-04');assert.equal(range.calendarDays,7);
+range=periodRange('month','2024-02-20','09-01','2026-10-01');assert.equal(range.calendarDays,29);
+range=periodRange('month','2026-10-20','09-01','2026-10-01');assert.equal(range.calendarDays,1);assert.equal(range.effectiveEnd,'2026-10-01');
+range=periodRange('year','2024-02-20','09-01','2026-10-01');assert.equal(range.calendarDays,366);
+range=periodRange('academic','2026-08-31','09-01','2026-10-01');assert.equal(range.start,'2025-09-01');assert.equal(range.end,'2026-08-31');assert.equal(range.calendarDays,365);
+range=periodRange('academic','2026-08-25','08-25','2026-10-01');assert.equal(range.start,'2026-08-25');assert.equal(range.end,'2027-08-24');assert.equal(range.calendarDays,38);
+range=periodRange('academic','2026-08-24','08-25','2026-10-01');assert.equal(range.start,'2025-08-25');
+range=periodRange('month','2027-03-01','09-01','2026-10-01');assert.equal(range.future,true);assert.equal(range.calendarDays,0);
+assert.equal(shiftAnchor('month','2026-01-31',1),'2026-02-01');assert.equal(shiftAnchor('week','2026-01-01',-1),'2025-12-22');assert.equal(shiftAnchor('academic','2026-01-01',1),'2026-09-01');
+assert.throws(()=>periodRange('week','2026-02-30'),/有效/);assert.throws(()=>periodRange('year','1899-01-01'),/年份/);
+const expense=(date,amount,note='食堂消费',extra={})=>({date,amount,note,kind:'out',...extra});
+const rows=[expense('2024-02-01',10),expense('2024-02-01',5),expense('2024-02-03',15),expense('2024-02-02',20,'超市消费'),expense('2024-02-02',4,'普通消费'),expense('2024-02-01',100,'充值',{kind:'in'}),expense('2024-02-01',5,'食堂退款'),expense('2024-02-30',90),expense('2024-02-01',Infinity),expense('2024-02-01',-12),expense('2024-03-01',90)];
+let result=averageSummary(rows,{anchor:'2024-02-03',mode:'month',today:'2026-10-01'});
+assert.equal(result.totalCents,3000);assert.equal(result.count,3);assert.equal(result.activeDays,2);assert.equal(result.activeAverage,15);assert.equal(result.calendarAverage,30/29);assert.equal(result.allCents,5400);assert.equal(result.unknownCount,1);assert.equal(result.unknownCents,400);
+result=averageSummary(rows,{scope:'all',anchor:'2024-02-03',mode:'month',today:'2026-10-01'});assert.equal(result.totalCents,5400);assert.equal(result.activeDays,3);assert.equal(result.activeAverage,18);
+result=averageSummary([],{anchor:'2024-02-03',today:'2026-10-01'});assert.equal(result.activeAverage,null);assert.equal(result.calendarAverage,null);
+result=averageSummary([expense('2026-10-01',0.1),expense('2026-10-01',0.2),expense('2026-10-02',100)],{anchor:'2026-10-01',today:'2026-10-01'});assert.equal(result.totalCents,30);assert.equal(result.calendarAverage,0.3);
+assert.equal(classifyExpense(expense('2026-10-01',10,'消费',{merchant:'第一食堂'})),'dining');assert.equal(classifyExpense(expense('2026-10-01',10,'食堂旁超市')),'other');assert.equal(classifyExpense(expense('2026-10-01',10,'洗浴')),'other');assert.equal(classifyExpense(expense('2026-10-01',10,'消费')),'unknown');assert.equal(classifyExpense(expense('2026-10-01',10,'消费',{merchant:'东苑一楼'}),'东苑一楼'),'dining');
+// Actual panel wiring, preferences persistence and safe text rendering without a browser dependency.
+const styles=new Map();globalThis.document={getElementById:id=>styles.get(id),createElement:()=>({}),head:{append(node){styles.set(node.id,node);}}};
+function root(){let html='',nodes=new Map();return {isConnected:true,get innerHTML(){return html;},set innerHTML(value){html=value;nodes=new Map();},querySelector(selector){if(!nodes.has(selector))nodes.set(selector,{});return nodes.get(selector);},querySelectorAll(selector){const name=selector.slice(1,-1),key=name.slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase());return [...html.matchAll(new RegExp(name+'="([^"]+)"','g'))].map(m=>{const id=name+'='+m[1];if(!nodes.has(id))nodes.set(id,{dataset:{[key]:m[1]}});return nodes.get(id);});}};}
+const saved=[];const panel=await createCardAverages({get:async()=>({scope:'all',mode:'month',academicStart:'08-25'}),set:async(key,value)=>{saved.push({key,value});}});const el=root();panel.render(el,rows,{partial:true,syncedAt:1});
+el.querySelector('[data-ca-anchor]').onchange({target:{value:'2024-02'}});
+assert.match(el.innerHTML,/¥18.00/);assert.match(el.innerHTML,/29 个日历日/);assert.match(el.innerHTML,/历史可能不完整/);assert.match(el.innerHTML,/08-25/);
+el.querySelectorAll('[data-ca-scope]')[0].onclick();assert.match(el.innerHTML,/¥15.00/);await new Promise(resolve=>setImmediate(resolve));assert.equal(saved.at(-1).value.scope,'dining');
+const settings=el.querySelector('[data-ca-settings]');await settings.onsubmit({preventDefault(){},currentTarget:{elements:{namedItem:name=>({value:name==='academicStart'?'07-15':'食堂,<img src=x>'})}}});assert.equal(saved.at(-1).value.academicStart,'07-15');assert.match(el.innerHTML,/&lt;img src=x&gt;/);assert.doesNotMatch(el.innerHTML,/<img src=x>/);
+const broken=await createCardAverages({get:async()=>null,set:async()=>{throw Error('offline');}});const brokenRoot=root();broken.render(brokenRoot,[]);brokenRoot.querySelectorAll('[data-ca-scope]')[1].onclick();await new Promise(resolve=>setImmediate(resolve));assert.match(brokenRoot.innerHTML,/保存失败/);
+const source=fs.readFileSync(new URL('../public/plugins/cppu-notify/main.js',import.meta.url),'utf8');assert.match(source,/import\("\/plugins\/cppu-notify\/card-averages.js"\)/);assert.match(source,/cardAveragePanel\?\.render/);assert.match(source,/merchant: String\(r.merchant/);assert.match(source,/billsPartial: cardState.billsPartial/);
+console.log('PASS: card dining/all averages, calendar/active days, week/month/year/academic boundaries, keyword classification, missing history, rounding, panel and settings persistence');
