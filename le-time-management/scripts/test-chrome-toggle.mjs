@@ -198,8 +198,10 @@ assert.match(css, /\.app\.android-runtime\s+\.chrome-toggle\s*\{\s*display:\s*no
   "Android 菜单悬浮键不应常驻遮挡内容");
 assert.match(shell, /class: isAndroidRuntime\(\) \? "app android-runtime" : "app"/,
   "只在 Android 隐藏悬浮菜单键，窄屏浏览器仍可用鼠标打开底栏");
-assert.match(css, /\.app\.settings-open\s+\.mobile-back[\s\S]{0,90}\.app\.settings-open\s+\.rail\s*\{\s*display:\s*none/,
-  "设置页必须隐藏返回悬浮键与底栏");
+assert.match(css, /\.app\.settings-open\s+\.mobile-back\s*\{\s*display:\s*none/,
+  "设置页必须隐藏返回悬浮键");
+assert.match(css, /\.app\.settings-open:not\(\.android-runtime\)\s+\.rail\s*\{\s*display:\s*none/,
+  "只有非 Android 设置页隐藏底栏");
 assert.match(shell, /appFrame\.classList\.add\("settings-open"\)/,
   "打开设置要挂 settings-open 标记");
 assert.match(shell, /if \(settingsLayers === 0\) appFrame\.classList\.remove\("settings-open"\)/,

@@ -4,6 +4,8 @@ import { THEMES, getThemeMode, resolveThemeMode, setTheme, setThemeMode } from "
 import {
   DEFAULT_UI_PREFERENCES,
   NAVBAR_SIZE_OPTIONS,
+  NAV_WIDTH_LIMITS,
+  NAV_TRANSPARENCY_LIMITS,
   STARTUP_VIEW_OPTIONS,
   TEXT_SCALE_LIMITS,
   WINDOW_SIZE_OPTIONS,
@@ -60,6 +62,18 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
       onclick: () => { setUiPreferences({ navGlass: id }); rerender(); },
     }, label));
   }
+  const navRange = (key, label, limits) => {
+    const input = el("input", { type: "range", min: String(limits.min), max: String(limits.max), step: String(limits.step), value: String(prefs[key]), "aria-label": label });
+    const output = el("output", {}, `${prefs[key]}%`);
+    input.addEventListener("input", () => {
+      output.textContent = `${input.value}%`;
+      setUiPreferences({ [key]: Number(input.value) }, { persist: false });
+    });
+    input.addEventListener("change", () => setUiPreferences({ [key]: Number(input.value) }));
+    return el("span", { class: "pref-range" }, input, output);
+  };
+  const navWidthRange = navRange("navWidth", "底栏宽度", NAV_WIDTH_LIMITS);
+  const navTransparencyRange = navRange("navTransparency", "底栏透明度", NAV_TRANSPARENCY_LIMITS);
   // v0.110.0：悬浮键（‹ 返回 / ⋮ 菜单）垂直档位；互换用开关。
   const fabHeightBox = el("div", { class: "pref-choice", role: "group", "aria-label": "悬浮键高度" });
   for (const [id, label] of [[35, "偏低"], [45, "居中"], [55, "偏高"]]) {
@@ -444,6 +458,8 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "底栏高度")), navBarBox),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "底栏形态")), navDockBox),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "底栏材质")), navGlassBox),
+    el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "底栏宽度"), el("small", {}, "居中显示，小屏保留按钮可点空间")), navWidthRange),
+    el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "底栏透明度"), el("small", {}, "在当前材质上增加透明度，图标和文字保持清晰")), navTransparencyRange),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "悬浮键高度")), fabHeightBox),
     toggleRow("悬浮键左右互换（‹ 在右 · ⋮ 在左）", prefs.fabSwap, (value) => setUiPreferences({ fabSwap: value })),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "文字大小")), el("span", { class: "pref-range" }, textScale, textScaleOut)),

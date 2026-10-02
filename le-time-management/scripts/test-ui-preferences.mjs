@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import { DEFAULT_UI_PREFERENCES, TEXT_SCALE_LIMITS, normalizeUiPreferences } from "../src/uiPreferences.js";
 
 assert.deepEqual(normalizeUiPreferences({}), DEFAULT_UI_PREFERENCES);
+for (const [raw, width, transparency] of [
+  [{ navWidth: 20, navTransparency: -1 }, 60, 0],
+  [{ navWidth: 180, navTransparency: 200 }, 100, 100],
+  [{ navWidth: "83", navTransparency: "42" }, 83, 42],
+  [{ navWidth: null, navTransparency: "bad" }, 100, 0],
+]) {
+  const prefs = normalizeUiPreferences(raw);
+  assert.equal(prefs.navWidth, width);
+  assert.equal(prefs.navTransparency, transparency);
+}
 assert.equal(normalizeUiPreferences({ density: "weird" }).density, "compact");
 assert.equal(normalizeUiPreferences({ motion: "none" }).motion, "system");
 assert.equal(normalizeUiPreferences({ startupView: "settings" }).startupView, "last");

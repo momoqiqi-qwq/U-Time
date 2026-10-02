@@ -6,6 +6,7 @@ import { pluginDisplayName, pluginDisplayIcon } from "../pluginAppearance.js";
 import { openTaskDrawer } from "./drawer.js";
 import { reducedMotion } from "../motion.js";
 import { getKeywordHighlights, highlightedText } from "../keywordHighlights.js";
+import { getTaskPreferences } from "../taskPreferences.js";
 
 // 展开状态跨重渲染保持
 const expandedCards = new Set();
@@ -524,8 +525,9 @@ function quadrantCell(def, matches) {
     Object.assign(el("input", { placeholder: "要做什么？回车保存", type: "text" }), {}),
     (() => {
       const s = el("select", { class: "estsel", title: "预估时长" });
-      for (const m of [15, 30, 45, 60, 90, 120]) s.append(el("option", { value: m }, S.durLabel(m)));
-      s.value = "30"; return s;
+      const duration = getTaskPreferences(S.getState().settings).defaultEstMin;
+      for (const m of [...new Set([15, 30, 45, 60, 90, 120, duration])].sort((a, b) => a - b)) s.append(el("option", { value: m }, S.durLabel(m)));
+      s.value = String(duration); return s;
     })(),
   );
   const input = form.querySelector("input");

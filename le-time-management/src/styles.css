@@ -962,7 +962,7 @@ button, .nav { touch-action: manipulation; }
     border-bottom-width: 0;
   }
   :root[data-nav-glass="solid"] .rail {
-    background: var(--panel, #fff);
+    background: color-mix(in srgb, var(--panel, #fff) calc(100% * var(--nav-surface-alpha, 1)), transparent);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -1004,10 +1004,10 @@ button, .nav { touch-action: manipulation; }
     border: 1px solid color-mix(in srgb, var(--panel) 62%, var(--line));
     border-radius: 20px;
     background:
-      linear-gradient(180deg, color-mix(in srgb, var(--panel) 34%, transparent), color-mix(in srgb, var(--panel) 58%, transparent)),
-      color-mix(in srgb, var(--paper) 46%, transparent);
-    backdrop-filter: blur(24px) saturate(1.24);
-    -webkit-backdrop-filter: blur(24px) saturate(1.24);
+      linear-gradient(180deg, color-mix(in srgb, var(--panel) calc(34% * var(--nav-surface-alpha, 1)), transparent), color-mix(in srgb, var(--panel) calc(58% * var(--nav-surface-alpha, 1)), transparent)),
+      color-mix(in srgb, var(--paper) calc(46% * var(--nav-surface-alpha, 1)), transparent);
+    backdrop-filter: blur(calc(24px * var(--nav-surface-alpha, 1))) saturate(1.24);
+    -webkit-backdrop-filter: blur(calc(24px * var(--nav-surface-alpha, 1))) saturate(1.24);
     box-shadow: 0 20px 52px rgba(15, 23, 42, .18), 0 2px 8px rgba(15, 23, 42, .12), inset 0 1px 0 rgba(255,255,255,.48);
     /* 固定底栏提升为独立合成层。真机（APK）实测：点开任意插件时底栏会「闪/跳一帧」——
        插件视图挂载与数据到达时，observePluginMotion 对新节点跑 WAAPI 透明度动画 +
@@ -1017,6 +1017,12 @@ button, .nav { touch-action: manipulation; }
        ⚠️ 改这条规则时别把它换成 will-change 或删掉：backdrop-filter 已经另起一层，
        但真机那一帧抖动是这张条子自己的合成层治的，两回事。 */
     transform: translateZ(0);
+  }
+  :root[data-nav-width] .rail {
+    --nav-available-width: calc(var(--ui-vw, 100vw) - 2 * var(--nav-float, 10px) / var(--ui-scale, 1));
+    --nav-custom-width: min(var(--nav-available-width), max(calc(240px / var(--ui-scale, 1)), calc(var(--nav-available-width) * var(--nav-width, 1))));
+    left: calc((var(--ui-vw, 100vw) - var(--nav-custom-width)) / 2);
+    right: calc((var(--ui-vw, 100vw) - var(--nav-custom-width)) / 2);
   }
   .brand { display: none; }
   .nav { flex: 1; display: contents; flex-direction: row; gap: 0; overflow: visible; }
@@ -1139,8 +1145,11 @@ button, .nav { touch-action: manipulation; }
   /* 底栏由上滑呼出，侧边不再常驻一颗菜单按钮遮挡内容。 */
   .app.android-runtime .chrome-toggle { display: none; }
   .app.settings-open .chrome-toggle,
-  .app.settings-open .mobile-back,
-  .app.settings-open .rail { display: none !important; }
+  .app.settings-open .mobile-back { display: none !important; }
+  .app.settings-open:not(.android-runtime) .rail { display: none !important; }
+  .app.android-runtime.settings-open .rail { z-index: 1902; }
+  .app.android-settings-dock { position: fixed; inset: 0; z-index: 1902; pointer-events: none; }
+  .app.android-settings-dock .rail { pointer-events: auto; }
   .chrome-toggle:hover { color: var(--ink); }
   .chrome-toggle:active { transform: scale(.94); }
   .chrome-glyph { display: block; font-size: calc(14px * var(--ui-text-scale)); line-height: 1; font-weight: 700; }
@@ -1245,6 +1254,15 @@ button, .nav { touch-action: manipulation; }
   .app.android-runtime.rail-hidden .view {
     padding-bottom: calc((var(--nav-btn-h, 46px) + 8px + var(--nav-float, 10px) + 12px + var(--sab, env(safe-area-inset-bottom, 0px))) / var(--ui-scale, 1));
   }
+  .app.android-runtime.chrome-shown .view {
+    padding-bottom: calc(var(--android-dock-clearance, 100px) / var(--ui-scale, 1));
+  }
+  /* 与底栏使用相同断点，横屏设置页也为真实底栏边界让位。 */
+  .settings-modal.android-settings-modal {
+    bottom: calc(var(--android-dock-clearance, 100px) / var(--ui-scale, 1));
+  }
+  .android-settings-modal .settings-modal-body { padding-bottom: 0; }
+  .settings-modal-mask.android-settings-mask { background: var(--bg); backdrop-filter: none; }
   .app.android-runtime .rail-dock > .rail-dock-btn {
     width: auto; flex: 1; min-width: 0;
     flex-direction: column; justify-content: center; gap: 2px;

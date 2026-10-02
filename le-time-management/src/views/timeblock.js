@@ -3,10 +3,10 @@ import * as S from "../store.js";
 import { el, popmenu, toast, pointerDrag } from "../ui.js";
 import { openTaskDrawer } from "./drawer.js";
 import { previewSchedule } from "../scheduleConflict.js";
+import { getTaskPreferences } from "../taskPreferences.js";
 import { closeLayer, reducedMotion } from "../motion.js";
 import { createTimeViewSwitcher, createTimeViewZoom, attachViewZoomGestures, renderTimeView } from "./timeViews.js";
 
-const DAY_START = 7 * 60;    // 07:00
 const DAY_END = 24 * 60;     // 24:00
 const HOUR_PX = 62;
 const PX_PER_MIN = HOUR_PX / 60;
@@ -20,6 +20,7 @@ const CAT_COLOR = {
 };
 
 export function renderTimeblock(container) {
+  let DAY_START = 7 * 60;
   let curDate = S.getState().settings.lastDate || S.todayStr();
   container.classList.add("tb-root");
   let viewMode = S.getState().settings.timeViewMode || "day";
@@ -120,13 +121,17 @@ export function renderTimeblock(container) {
   const timeline = el("div", { class: "timeline" }, tlHead, scroll);
 
   const quickInput = el("input", { placeholder: "加一段空白时间，如「午休」；回车放到第一个空闲位" });
+  const addBlankBlock = (title) => {
+    const cfg = getTaskPreferences(S.getState().settings);
+    return autoPlace({ title, estMin: cfg.blankBlockMin, id: null, __cat: cfg.blankBlockCategory });
+  };
   quickInput.addEventListener("keydown", (e) => {
     if (e.key !== "Enter" || e.isComposing) return;
     const v = quickInput.value.trim();
     if (!v) return;
-    if (autoPlace({ title: v, estMin: 30, id: null, __cat: "rest" })) quickInput.value = "";
+    if (addBlankBlock(v)) quickInput.value = "";
   });
-  const addbar = el("div", { class: "tl-addbar" }, quickInput, el("button", { class: "btn pri sm", onclick: () => { const title = quickInput.value.trim(); if (!title) { quickInput.focus(); toast("先写时间块名称"); return; } if (autoPlace({ title, estMin: 30, id: null, __cat: "rest" })) quickInput.value = ""; } }, "添加"));
+  const addbar = el("div", { class: "tl-addbar" }, quickInput, el("button", { class: "btn pri sm", onclick: () => { const title = quickInput.value.trim(); if (!title) { quickInput.focus(); toast("先写时间块名称"); return; } if (addBlankBlock(title)) quickInput.value = ""; } }, "添加"));
   timeline.append(addbar);
 
   const hint = el("div", { class: "drop-hint", style: "display:none" });
@@ -297,6 +302,13 @@ export function renderTimeblock(container) {
   }
 
   function renderCanvas() {
+    // 自动排程和已有凌晨安排都必须落在可见范围，按整点扩展时间轴。
+    let earliest = Math.min(420, S.mmOf(getTaskPreferences(S.getState().settings).autoScheduleStart));
+    for (const block of S.blocksOf(curDate)) {
+      const start = S.mmOf(block.start);
+      if (Number.isFinite(start) && start >= 0) earliest = Math.min(earliest, start);
+    }
+    DAY_START = Math.floor(earliest / 60) * 60;
     hideHint();
     canvas.replaceChildren(hint);
     for (let m = DAY_START; m <= DAY_END; m += 60) {

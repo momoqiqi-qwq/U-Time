@@ -94,9 +94,13 @@
       <block wx:if="{{dd.empty}}">
         <view class="desc">还没有成员。先在下面「成员与轮换顺序」里添加成员，第一个人先当班。</view>
       </block>
+      <block wx:elif="{{dd.paused}}">
+        <view class="hero-status">假期 / 节日暂停中</view>
+        <view class="meta">暂停期间不排班、不提醒，轮换停止计时。{{dd.nextStartText}}恢复，由 {{dd.nextWhoName}} 继续当班。</view>
+      </block>
       <block wx:elif="{{!dd.started}}">
         <view class="hero-status">还没开始</view>
-        <view class="meta">起始日 {{dd.cfg.startDate}}，到那天才开始轮换。</view>
+        <view class="meta">{{dd.nextStartText}}开始轮换。</view>
       </block>
       <block wx:else>
         <view class="dd-who">
@@ -209,6 +213,15 @@
         </view>
       </view>
       <view class="desc hint" wx:if="{{dd.perRound > 1}}">每轮按名单顺序 {{dd.perRound}} 人一起当班（如 3 人每轮 2 人：A、B → C、A → B、C），到点会一起提醒。</view>
+      <view class="section-title">假期 / 节日暂停</view>
+      <view class="desc hint">添加放假日期段（含首尾日期）。期间不值日、不提醒，成员和地点轮换均不计时；结束后接着原顺序继续。相邻或重叠日期自动合并。</view>
+      <view class="dd-field" wx:for="{{dd.pauseRanges}}" wx:key="start">
+        <text>{{item.start}} → {{item.end}}</text>
+        <button class="btn small danger" data-index="{{index}}" bindtap="onDdPauseRemove">移除</button>
+      </view>
+      <view class="dd-field"><text class="label">开始日期</text><picker mode="date" value="{{dd.pauseStart}}" data-field="pauseStart" bindchange="onDdPauseDate"><view class="dd-pick">{{dd.pauseStart || '选择日期'}}</view></picker></view>
+      <view class="dd-field"><text class="label">结束日期</text><picker mode="date" value="{{dd.pauseEnd}}" data-field="pauseEnd" bindchange="onDdPauseDate"><view class="dd-pick">{{dd.pauseEnd || '选择日期'}}</view></picker></view>
+      <button class="btn small" bindtap="onDdPauseAdd">添加暂停</button>
       <view class="dd-field">
         <text class="label">到点提醒</text>
         <switch checked="{{dd.cfg.remindEnabled}}" bindchange="onDdRemindToggle" color="#0F4C5C" />

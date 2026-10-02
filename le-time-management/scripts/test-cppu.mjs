@@ -660,7 +660,7 @@ jwState.data.xkResult = [
   { KCMC: '反邪教研究', KCSX: '02', XKBMC: '选_2', XF: 1, SKDD: 'A204', KKXNXQ: '20262027-1', KKXNXQNAME: '2026年秋季学期', OPERATERCODE: '8712c0c67d92ff2fe5da1e36591bb80d' },
 ];
 const resultHtml = jwResultHtml();
-assert.ok(resultHtml.includes('2026年秋季学期 · 2 门 · 2 学分'), '已选课程按学期分组并合计学分');
+assert.ok(resultHtml.replace(/<[^>]*>/g, '').includes('2026年秋季学期 · 2 门 · 2 学分'), '已选课程按学期分组并合计学分');
 assert.ok(resultHtml.includes('本人自选') && resultHtml.includes('教务代选'), 'OPERATERCODE 是学号=本人自选，是 uuid=教务代选');
 jwState.data.xkTask = [
   { ID: 'active-task', XKRWMC: '2026年秋季学期线上选修课（慕课）选课', KKXNXQ: '20262027-1', LC: '2', XKRWZT: '2' },

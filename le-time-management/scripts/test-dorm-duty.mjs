@@ -1338,3 +1338,58 @@ assert.match(miniWxml, /bindtap="onDdGroupMenu"/, 'WXML 标签上必须有「⋯
 }
 
 console.log('PASS: dorm-duty 多套轮换互不串台、旧数据迁移不丢字段、轮换切段（周期 1/3/7/14）、换人只影响本轮、逐组提醒且各自去重、坏时刻不再静默失效、双实例与停用自终止、组增删改与上限、空态与多组渲染、多人值日（perRound 滑动窗口 + override 双格式 + 多人提醒/任务/渲染）、标签右键菜单（整组复制换新 id + 清换人记录 + 按名字去重导入 + 长按与夹取）');
+
+/* 假期暂停：跨端数学必须逐日一致，且暂停不消耗轮次。 */
+{
+  const mini = createRequire(import.meta.url)('../../miniprogram/core/pluginRuntime.js');
+  const { fx, setToday } = bootPlugin({ today: '2026-09-20', seed: quietSeed() });
+  const g = fx.normalizeGroup(GROUP({
+    periodDays: 3, perRound: 2, locations: ['走廊', '厨房'], locationPeriodDays: 2,
+    pauseRanges: [
+      { start: '2026-09-19', end: '2026-09-21' },
+      { start: '2026-09-20', end: '2026-09-22' },
+      { start: '2026-09-23', end: '2026-09-23' },
+      { start: '2026-10-01', end: '2026-10-07' },
+      { start: '2026-02-30', end: '2026-03-04' },
+      { start: '2026-11-02', end: '2026-11-01' },
+    ],
+  }), '2026-09-20');
+  const mg = mini.ddNormalizeGroup(JSON.parse(JSON.stringify(g)), '2026-09-20');
+  assert.equal(g.pauseRanges.length, 2, '重叠相邻段合并，非法日期和逆序段丢弃');
+  assert.equal(g.pauseRanges[0].end, '2026-09-23');
+  assert.deepEqual(JSON.parse(JSON.stringify(g.pauseRanges)), mg.pauseRanges);
+  for (let i = 0; i < 50; i++) {
+    const day = new Date(Date.UTC(2026, 8, 15 + i)).toISOString().slice(0, 10);
+    setToday(day);
+    const a = fx.snapshot(g), b = mini.ddSnapshot(day, mg);
+    assert.equal(a.cycle || '', b.cycle, day + ' 轮次起始日跨端一致');
+    assert.equal(a.currentAll.map(m => m.id).join(','), b.currentIds.join(','), day + ' 当班人跨端一致');
+    assert.equal(a.currentLocation, b.currentLocation, day + ' 地点跨端一致');
+    assert.equal(a.nextStart, b.nextStart, day + ' 下次轮换跨端一致');
+    assert.deepEqual(JSON.parse(JSON.stringify(a.rows.map(r => [r.start,r.end,r.index]))), b.rows.map(r => [r.start,r.end,r.index]));
+  }
+  setToday('2026-09-20');
+  const paused = fx.snapshot(g);
+  assert.equal(paused.paused, true);
+  assert.equal(paused.current, null);
+  assert.equal(paused.currentLocation, '');
+  assert.equal(paused.nextStart, '2026-09-24');
+  assert.equal(paused.rows[0].end, '2026-09-24', '恢复后先完成原轮次剩余的一天');
+  assert.equal(paused.rows[1].start, '2026-09-25', '下一轮不会从恢复日重新计算完整周期');
+  assert.equal(fx.cycleStartOf(g, '2026-09-24'), '2026-09-17');
+  assert.equal(fx.cycleStartOf(g, '2026-09-25'), '2026-09-25');
+  assert.match(fx.heroHtml(paused), /暂停中/);
+  const daily = fx.normalizeGroup(GROUP({ periodDays: 1, pauseRanges: g.pauseRanges }), '2026-09-20');
+  assert.equal(fx.reminderDue(daily, '2026-09-20', 600), false);
+  assert.equal(mini.ddReminderDue(daily, '2026-09-20', 600), null);
+  assert.equal(fx.reminderDue(daily, '2026-09-24', 600), true);
+  assert.ok(mini.ddReminderDue(daily, '2026-09-24', 600));
+  assert.equal(fx.assigneeFor(daily, '2026-09-24').id, MEMBERS[2].id, '假期不消耗成员顺序');
+  const startsPaused = fx.normalizeGroup(GROUP({ startDate: '2026-09-20', pauseRanges: g.pauseRanges }), '2026-09-20');
+  assert.equal(fx.cycleStartOf(startsPaused, '2026-09-24'), '2026-09-24', '起始日在假期内时延至首个有效日');
+  assert.equal(fx.cycleIndexAt(startsPaused, '2026-09-24'), 0);
+  const untouched = fx.normalizeGroup(GROUP(), '2026-09-20');
+  assert.equal(fx.assigneeFor(untouched, '2026-09-20').id, MEMBERS[0].id, '其他组不受影响');
+  assert.equal(fx.normalizeGroup(GROUP({ pauseRanges: 'bad' }), '2026-09-20').pauseRanges.length, 0);
+  console.log('PASS: 假期暂停首尾、交叠合并、非法日期、原轮次续排、成员地点顺延、提醒停止及跨端逐日一致');
+}

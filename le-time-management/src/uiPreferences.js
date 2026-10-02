@@ -17,6 +17,8 @@ export function coreViewIds() {
  *  只动 font-size 不动盒模型，拉宽区间也不会撑破布局；与界面缩放（uiScale）同区间同步进，
  *  两个滑杆的手感一致。设置页滑杆的 min/max/step 必须从这里取，不许再写死。 */
 export const TEXT_SCALE_LIMITS = Object.freeze({ min: 80, max: 150, step: 5 });
+export const NAV_WIDTH_LIMITS = Object.freeze({ min: 60, max: 100, step: 1 });
+export const NAV_TRANSPARENCY_LIMITS = Object.freeze({ min: 0, max: 100, step: 1 });
 
 export const DEFAULT_UI_PREFERENCES = Object.freeze({
   // 默认紧凑：小屏与笔记本上信息密度优先；想要宽松的用户可在设置里切回「舒适」
@@ -45,6 +47,9 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   // v0.108.0：手机底栏形态 —— float = 悬空玻璃（默认，四周留缝浮起）；
   // docked = 贴底通宽（v0.105 之前的形态：悬浮量归零、压平四角）。
   navDock: "float",
+  navWidth: 100,
+  // 在当前材质上增加透明度，0 保留已有毛玻璃或实色效果，100 为透明背景。
+  navTransparency: 0,
   // v0.110.0：悬浮键（‹ 返回 / ⋮ 菜单）垂直锚点档位（35 / 45 / 55，百分比）。
   // 默认 45 = v0.52.1 实测对各类视图遮挡最少的档位；互换只对调两颗键的左右。
   fabHeight: 45,
@@ -106,6 +111,12 @@ export function normalizeUiPreferences(raw = {}) {
   if (!NAVBAR_SIZES.has(next.navBarSize)) next.navBarSize = DEFAULT_UI_PREFERENCES.navBarSize;
   if (!NAV_DOCKS.has(next.navDock)) next.navDock = DEFAULT_UI_PREFERENCES.navDock;
   if (!NAV_GLASSES.has(next.navGlass)) next.navGlass = DEFAULT_UI_PREFERENCES.navGlass;
+  for (const [key, limits] of [["navWidth", NAV_WIDTH_LIMITS], ["navTransparency", NAV_TRANSPARENCY_LIMITS]]) {
+    const value = next[key];
+    next[key] = value === null || value === "" || !Number.isFinite(Number(value))
+      ? DEFAULT_UI_PREFERENCES[key]
+      : Math.round(clamp(value, limits.min, limits.max));
+  }
   next.fabHeight = FAB_HEIGHTS.has(next.fabHeight) ? next.fabHeight : DEFAULT_UI_PREFERENCES.fabHeight;
   next.fabSwap = next.fabSwap === true;
   if (!STARTUP_VIEWS.has(next.startupView)) next.startupView = DEFAULT_UI_PREFERENCES.startupView;
@@ -148,6 +159,9 @@ export function applyUiPreferences(raw = null, { animate = false } = {}) {
   // 连字符，与上一行 data-navbar 同一批 CSS 消费方，见 styles.css 的 ≤900px 媒体块）
   root.dataset.navDock = cfg.navDock;
   root.dataset.navGlass = cfg.navGlass;
+  root.dataset.navWidth = String(cfg.navWidth);
+  root.style.setProperty("--nav-width", String(cfg.navWidth / 100));
+  root.style.setProperty("--nav-surface-alpha", String(1 - cfg.navTransparency / 100));
   // 悬浮键档位（data-fab-v）与左右互换（data-fab-swap）：styles.css ≤900px 媒体块消费
   root.dataset.fabV = String(cfg.fabHeight);
   root.dataset.fabSwap = cfg.fabSwap ? "on" : "off";

@@ -272,7 +272,8 @@
     const st = document.createElement("style");
     st.id = "pp-notify-style";
     st.textContent = `
-      .pp-wrap{max-width:880px;margin:0 auto}
+      .pp-wrap{--campus-green:#18783C;max-width:880px;margin:0 auto}
+      [data-theme-mode="dark"] .pp-wrap{--campus-green:#72D698}
       .pp-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
       .pp-lab{font-size:calc(11px * var(--ui-text-scale));color:#A9B2BA;letter-spacing:.14em;flex:none;width:34px}
       .pp-chips{display:flex;gap:8px;flex-wrap:wrap;flex:1}
@@ -428,6 +429,8 @@
       [data-theme-mode="dark"] .jw-tag.ok{background:color-mix(in srgb,var(--mint) 18%,var(--panel));border-color:color-mix(in srgb,var(--mint) 42%,transparent);color:color-mix(in srgb,var(--mint) 55%,var(--ink))}
       [data-theme-mode="dark"] .jw-tag.warn{background:color-mix(in srgb,var(--sun) 18%,var(--panel));border-color:color-mix(in srgb,var(--sun) 42%,transparent);color:color-mix(in srgb,var(--sun) 55%,var(--ink))}
       [data-theme-mode="dark"] .jw-tag.live{background:color-mix(in srgb,var(--danger) 18%,var(--panel));border-color:color-mix(in srgb,var(--danger) 42%,transparent);color:color-mix(in srgb,var(--danger) 55%,var(--ink))}
+      .jw-tag.credit,[data-theme-mode="dark"] .jw-tag.credit{color:var(--campus-green);background:color-mix(in srgb,var(--campus-green) 12%,var(--panel));border-color:color-mix(in srgb,var(--campus-green) 36%,var(--line))}
+      .jw-credit-value,.jg-metrics b.jw-credit-value{color:var(--campus-green)}
       .jw-task-card{display:block;width:100%;font:inherit;text-align:left;color:inherit;cursor:pointer;transition:border-color .16s ease,background .16s ease,opacity .16s ease;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
       .jw-task-card:hover{border-color:var(--deep);background:var(--paper)}
       .jw-task-card:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
@@ -447,7 +450,7 @@
       .jw-detail-cell b{display:block;color:var(--ink-3);font-size:calc(10px * var(--ui-text-scale));font-weight:500;margin-bottom:3px}
       .jw-detail-cell span{display:block;color:var(--ink);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.55;overflow-wrap:anywhere}
       .jw-sum{display:flex;align-items:baseline;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:6px 0 10px}
-      .jw-sum b{font-size:calc(30px * var(--ui-text-scale));color:var(--deep);line-height:1}
+      .jw-sum b{font-size:calc(30px * var(--ui-text-scale));color:var(--campus-green);line-height:1}
       .jw-sum span{font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-3)}
       .jw-credit-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:8px 0 4px}
       .jw-credit-stat{display:block;width:100%;font:inherit;text-align:left;color:inherit;cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0;transition:border-color .16s ease,background .16s ease;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
@@ -455,7 +458,7 @@
       .jw-credit-stat:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
       .jw-credit-stat.on{border-color:#2EC4B6;background:var(--paper)}
       .jw-credit-stat small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));margin-bottom:5px}
-      .jw-credit-stat b{display:block;color:var(--deep);font-size:calc(22px * var(--ui-text-scale));line-height:1.2}
+      .jw-credit-stat b{display:block;color:var(--campus-green);font-size:calc(22px * var(--ui-text-scale));line-height:1.2}
       .jw-credit-stat span{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));margin-top:4px}
       .jw-credit-stat em{display:block;color:var(--ink-3);font-style:normal;font-size:calc(10px * var(--ui-text-scale));margin-top:7px}
       .jw-credit-detail{animation:jw-credit-in .26s ease both}
@@ -497,12 +500,9 @@
       .yk-total,.yk-spent,.yk-balance{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
       .yk-total small,.yk-spent small,.yk-balance small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));margin-bottom:4px}
       .yk-total b,.yk-spent b,.yk-balance b{display:block;color:var(--deep);font-size:calc(30px * var(--ui-text-scale));line-height:1.15}
-      .yk-spent b{color:#8A6420}
-      /* 「已消费」这三处同样是浅色硬编码的 #8A6420（深色 --panel 上 2.6~3.0:1）；
-         它们直接落在面板上，不需要掺底色，只把文字混亮。 */
-      [data-theme-mode="dark"] .yk-status.warn,
-      [data-theme-mode="dark"] .yk-spent b,
-      [data-theme-mode="dark"] .yk-ledger-row.out b{color:color-mix(in srgb,var(--sun) 55%,var(--ink))}
+      .yk-balance b{color:var(--campus-green)}
+      .yk-spent b{color:var(--danger)}
+      [data-theme-mode="dark"] .yk-status.warn{color:color-mix(in srgb,var(--sun) 55%,var(--ink))}
       .yk-total span,.yk-spent span,.yk-balance span{display:block;color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale));line-height:1.7;margin-top:4px}
       .yk-login{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;display:grid;grid-template-columns:minmax(140px,1fr) minmax(160px,1fr) auto;gap:8px;align-items:center}
       .yk-login input{min-width:0;height:36px;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--ink);padding:0 10px;font:inherit;font-size:calc(12px * var(--ui-text-scale))}
@@ -515,13 +515,14 @@
       .yk-bars{display:flex;flex-direction:column;gap:6px}
       .yk-bar{display:grid;grid-template-columns:92px 1fr 88px;align-items:center;gap:8px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink)}
       .yk-bar i{display:block;height:9px;border-radius:99px;background:linear-gradient(90deg,#2EC4B6,#0F4C5C);min-width:2px}
-      .yk-bars.out .yk-bar i{background:linear-gradient(90deg,#E3C384,#8A6420)}
+      .yk-bars.out .yk-bar i{background:var(--danger)}
+      .yk-bars.out .yk-bar span:last-child{color:var(--danger)}
       .yk-bar span:last-child{text-align:right;color:var(--deep);font-weight:650}
       .yk-ledger{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
       .yk-ledger-row{display:grid;grid-template-columns:100px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line-soft);font-size:calc(11.5px * var(--ui-text-scale))}
       .yk-ledger-row:first-child{border-top:0}
       .yk-ledger-row b{color:var(--deep)}
-      .yk-ledger-row.out b{color:#8A6420}
+      .yk-ledger-row.out b{color:var(--danger)}
       .yk-empty{color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.7}
       @media(max-width:600px){.jw-card-t{font-size:calc(14.5px * var(--ui-text-scale))}.jw-head h3{font-size:calc(17px * var(--ui-text-scale))}.jw-sum b{font-size:calc(26px * var(--ui-text-scale))}.jw-row small{min-width:0;flex-basis:100%}.jw-credit-overview{grid-template-columns:1fr}}
       @media(max-width:820px){
@@ -2039,7 +2040,7 @@
   }
 
   /* ── 视图渲染 ── */
-  function jwTag(text, cls) { return text ? `<span class="jw-tag${cls ? " " + cls : ""}">${esc(text)}</span>` : ""; }
+  function jwTag(text, cls) { if (/^[\d.]+ 学分$/.test(text)) cls = "credit"; return text ? `<span class="jw-tag${cls ? " " + cls : ""}">${esc(text)}</span>` : ""; }
   function jwAt(key) {
     const at = Number(jwState.at[key]) || 0;
     return at ? `更新于 ${new Date(at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "尚未拉取";
@@ -2155,7 +2156,7 @@
     let html = "";
     for (const [term, list] of byTerm) {
       const xf = list.reduce((n, r) => n + (Number(r.XF) || 0), 0);
-      html += `<div class="jw-group">${esc(term)} · ${list.length} 门 · ${xf} 学分</div>`;
+      html += `<div class="jw-group">${esc(term)} · ${list.length} 门 · <span class="jw-credit-value">${xf} 学分</span></div>`;
       html += list.map((r) => {
         const self = String(r.OPERATERCODE || "") === String(state.username || "");
         return `<div class="jw-card">
@@ -2447,7 +2448,7 @@
     }
     const semAsc = [...bySem].sort(([a], [b]) => a.localeCompare(b));
     const overview = `<div class="jg-metrics">
-      <div><small>总学分</small><b>${credits.toFixed(1)}</b></div><div><small>已修课程</small><b>${rows.length} 门</b></div>
+      <div><small>总学分</small><b class="jw-credit-value">${credits.toFixed(1)}</b></div><div><small>已修课程</small><b>${rows.length} 门</b></div>
       <div><small>平均绩点</small><b>${gpa.toFixed(3)}</b></div><div><small>平均分</small><b>${average.toFixed(1)}</b></div></div>
       ${Math.abs(plainAverage - average) >= .5 ? `<p class="jg-note">平均分按学分加权（与 GPA 同口径）；学校系统多为算术平均 ${plainAverage.toFixed(1)}</p>` : ""}
       <div class="jg-divider"></div>${gradePair("最高分", scoreName(max))}${gradePair("最低分", scoreName(min))}`;

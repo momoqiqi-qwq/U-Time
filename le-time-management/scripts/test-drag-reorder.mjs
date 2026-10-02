@@ -41,8 +41,8 @@ assert.ok(moveBlock.length > 0, "没找到 moveTaskRelative 代码块");
 const moveCode = moveBlock.replace(/\/\/[^\n]*/g, ""); // 剥行注释：函数内的解释注释含「createdAt」字样属正常文档
 assert.ok(!/createdAt/.test(moveCode),
   "moveTaskRelative 的 seq 排序键不得掺 createdAt —— 必须与 tasksOfQuad（done→order→due）完全一致，回填基准才是渲染序");
-assert.match(moveBlock, /Number\(a\.done\) - Number\(b\.done\)/,
-  "moveTaskRelative 的 seq 排序第一键必须是 done（与渲染一致）");
+assert.equal((moveBlock.match(/\.sort\(compareTasks\)/g) || []).length, 2,
+  "同象限与跨象限拖拽必须复用显示列表的排序规则");
 // 探针抓到的第 2 个坑：FLIP 让位动画进行中，卡片的 getBoundingClientRect 含残余 transform，
 // 槽位判定会被污染到动画中间态（落点跳位）→ computeSlot 只许 offsetHeight + rowGap 几何推演
 const slotBlock = quadrantJs.slice(
@@ -72,7 +72,8 @@ assert.match(quadrantJs, /document\.removeEventListener\("pointercancel", st\.do
 assert.match(quadrantJs, /detachDoc\(st\)/, "endSession 必须经 detachDoc 摘除兜底监听");
 assert.match(quadrantJs, /try \{ st\.card\.setPointerCapture\(st\.pointerId\); \} catch/,
   "setPointerCapture 必须包 try/catch（部分环境拿不到 capture，靠 document 兜底）");
-const sortBlock = storeJs.slice(storeJs.indexOf("export function tasksOfQuad"), storeJs.indexOf("export function moveTaskRelative"));
+const sortBlock = storeJs.slice(storeJs.indexOf("function compareTasks"), storeJs.indexOf("export function moveTaskRelative"));
+assert.match(sortBlock, /\.sort\(compareTasks\)/, "tasksOfQuad 必须使用共享排序规则");
 assert.match(sortBlock, /\(a\.order \?\? Infinity\) - \(b\.order \?\? Infinity\)/,
   "tasksOfQuad 排序必须先比显式 order（无 order 兜底 Infinity 落回 due 规则）");
 assert.match(sortBlock, /Number\(a\.done\) - Number\(b\.done\)/,
@@ -151,8 +152,9 @@ assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\s*\.plug-card
 console.log("PASS: 四象限拖拽排序（store order 懒回填 / 幽灵卡 + FLIP 动画 / swipe 让路 / 长按守卫 / 键盘重排 / reducedMotion）");
 
 /* ── ⑦ 行为面：把 store 的 moveTaskRelative / tasksOfQuad 真跑起来 ──
- * api.js 在 Node 下自动降级：loadData 抛错 → initStore 用 seed；saveData 抛错被 scheduleSave 吞掉。
- * 所以这里不需要任何 mock，直接动态 import 源码即可。 */
+ * 使用内存 localStorage，加载空数据时回退 seed，保存也可正常完成。 */
+const memory = new Map();
+globalThis.localStorage = { getItem: (k) => memory.get(k), setItem: (k, v) => memory.set(k, v) };
 const S = await import("../src/store.js?behavior=1");
 await S.initStore({
   tasks: [
@@ -202,4 +204,5 @@ S.moveTaskToQuad("tD", 2);
 assert.deepEqual(S.tasksOfQuad(2).map((t) => t.id), ["tA", "tE", "tD"], "跨象限后完成项仍沉底");
 assert.deepEqual(ids(), ["tC", "tB", "tF"], "原象限不应再保留已移走的卡片");
 
+await S.saveNow();
 console.log("PASS: moveTaskRelative / tasksOfQuad 行为面真跑（懒回填 / 前后插 / 跨组拒绝 / 新任务沉底）");

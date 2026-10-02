@@ -18,6 +18,7 @@ import { createPluginSettingsCard, isPluginBatchBusy } from "./settings/plugins.
 import { createAiSettingsCard } from "./settings/ai.js";
 import { createSyncCard } from "./settings/sync.js";
 import { createKeywordHighlightsCard } from "./settings/highlights.js";
+import { createTaskSettingsCard } from "./settings/tasks.js";
 import { toggleSwitch } from "../switchControl.js";
 import {
   getUpdateSettings, setUpdateSettings, getUpdateState, subscribeUpdateState,
@@ -69,8 +70,23 @@ export function renderSettings(container, opts = {}) {
 
     /* 外观与交互：拆成独立模块，避免设置主文件继续膨胀 */
     const uiCard = createInterfaceCard({ rerender: render });
+    if (api.isTauri && info?.os === "windows") {
+      uiCard.append(
+        el("div", { class: "setting-row" },
+          el("span", { class: "setting-copy" }, el("b", {}, "手机版测试")),
+          el("button", {
+            class: "btn ghost sm", type: "button",
+            onclick: async () => {
+              try { await api.openExternal("http://127.0.0.1:1420/"); }
+              catch (error) { toast(`打开手机版测试失败：${error.message || error}`); }
+            },
+          }, "打开手机版地址")),
+        el("p", { class: "set-hint" }, "在系统浏览器打开 http://127.0.0.1:1420/，需先启动本机网页服务；缩窄浏览器窗口即可查看手机版布局。"),
+      );
+    }
     const themeCard = createThemeCard();
     const highlightCard = createKeywordHighlightsCard();
+    const taskCard = createTaskSettingsCard();
 
     /* 任务提醒 */
     settings.taskReminder ??= structuredClone(DEFAULT_REMINDER_SETTINGS);
@@ -502,6 +518,7 @@ export function renderSettings(container, opts = {}) {
     const aboutCard = createAboutCard(info, regs);
 
     const settingEntries = [
+      { id: "tasks", node: taskCard, label: "任务与排程", icon: "sliders", hint: "新建默认值 / 自动排程", keywords: "任务 象限 预估 时长 截止 提醒 自动排程 起始时间 空白时间块 分类 默认" },
       { id: "ui", node: uiCard, label: "界面与交互", icon: "sliders", hint: "密度 / 字号 / 缩放 / 动效 / 窗口", keywords: "密度 文字 字号 缩放 界面大小 整体缩放 放大 缩小 太大 太小 看不清 动效 手势 滑动 启动页 窗口 大小 尺寸 最大化 分辨率 顶部统计 副标题 托盘 关闭 退出 最小化" },
       { id: "theme", node: themeCard, label: "主题", icon: "palette", hint: "配色与阅读模式", keywords: "颜色 夜间 深海 樱花 松林 暮光 极简" },
       { id: "highlights", node: highlightCard, label: "关键词标注", icon: "highlighter", hint: "时间标红 / 字体 / 背景", keywords: "关键词 重点 标注 高亮 时间 日期 红色 字体 背景 颜色" },

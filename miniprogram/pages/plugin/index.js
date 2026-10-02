@@ -629,6 +629,19 @@ Page({
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { this.loadDormDuty(); return; }
     this.ddCommit((g) => runtime.ddGroupPatch(g, { startDate: v }));
   },
+  onDdPauseDate(e) {
+    const field = e.currentTarget.dataset.field;
+    if (field === "pauseStart" || field === "pauseEnd") this.setData({ ["dd." + field]: e.detail.value });
+  },
+  onDdPauseAdd() {
+    const dd = this.data.dd || {}, start = dd.pauseStart, end = dd.pauseEnd;
+    if (!start || !end || start > end) { wx.showToast({ title: "请选择有效的起止日期", icon: "none" }); return; }
+    this.ddCommit(g => runtime.ddGroupPatch(g, { pauseRanges: g.pauseRanges.concat([{ start, end }]) }));
+  },
+  onDdPauseRemove(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    this.ddCommit(g => runtime.ddGroupPatch(g, { pauseRanges: g.pauseRanges.filter((r,i) => i !== index) }));
+  },
   onDdRemindToggle(e) {
     this.ddCommit((g) => runtime.ddGroupPatch(g, { remindEnabled: !!e.detail.value }));
   },

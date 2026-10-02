@@ -290,7 +290,11 @@ const DD_MEMBER_MAX = 16;   // 成员名
 const DD_LOCATION_MAX = 12;
 const DD_LOCATION_NAME_MAX = 24;
 
-function ddValidDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")); }
+function ddValidDate(s) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s || ""))) return false;
+  const [y,m,d] = s.split("-").map(Number);
+  return new Date(Date.UTC(y,m-1,d)).toISOString().slice(0,10) === s;
+}
 /** 合法时刻 → "HH:MM"；非法返回 null。
     只校验 /^\d{2}:\d{2}$/ 是不够的："25:99" 能过格式校验，换算成分钟是 1599，
     超过一天的最大值 1439 —— 于是「还没到点」永远成立，提醒被**静默关掉**（不报错不提示）。
@@ -334,6 +338,46 @@ function ddLocations(raw) {
   const names = (Array.isArray(raw) ? raw : []).map((v) => String(v || "").trim().slice(0, DD_LOCATION_NAME_MAX)).filter(Boolean);
   return names.filter((v, i) => names.indexOf(v) === i).slice(0, DD_LOCATION_MAX);
 }
+
+  // 暂停段包含首尾日期；合并交叠日期，避免同一天重复扣除。
+  function ddPauseRanges(raw) {
+    const ranges = (Array.isArray(raw) ? raw : []).filter(r => r && ddValidDate(r.start) && ddValidDate(r.end) && r.start <= r.end)
+      .map(r => ({ start: r.start, end: r.end })).sort((a,b) => a.start.localeCompare(b.start));
+    const out = [];
+    for (const r of ranges) {
+      const last = out[out.length - 1];
+      if (last && dayDiff(last.end, r.start) <= 1) { if (r.end > last.end) last.end = r.end; }
+      else out.push(r);
+    }
+    return out;
+  }
+  function ddPausedAt(g, date) { return ddPauseRanges(g.pauseRanges).some(r => r.start <= date && date <= r.end); }
+  // [起始日, date) 中真正计入轮换的天数。
+  function ddActiveDays(g, date) {
+    let days = dayDiff(g.startDate, date);
+    for (const r of ddPauseRanges(g.pauseRanges)) {
+      const a = r.start < g.startDate ? g.startDate : r.start;
+      const b = r.end < date ? store.addDays(r.end, 1) : date;
+      if (a < b) days -= dayDiff(a, b);
+    }
+    return days;
+  }
+  // 有效日序号反解为自然日期，按日期段跳过，可处理多年假期。
+  function ddActiveDate(g, index) {
+    let date = store.addDays(g.startDate, index);
+    for (const r of ddPauseRanges(g.pauseRanges)) {
+      if (r.end < g.startDate) continue;
+      const start = r.start < g.startDate ? g.startDate : r.start;
+      if (start > date) break;
+      date = store.addDays(date, dayDiff(start, r.end) + 1);
+    }
+    return date;
+  }
+  function ddShiftActive(g, date, days) { return ddActiveDate(g, ddActiveDays(g, date) + days); }
+  function ddCycleEndOf(g, date, period) {
+    return ddActiveDate(g, (Math.floor(ddActiveDays(g, date) / period) + 1) * period - 1);
+  }
+
 function ddUid(prefix) { return (prefix || "m") + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
 /* ── 轮换组的归一化 / 迁移 ── */
@@ -345,6 +389,7 @@ function ddDefaultGroup(today, name) {
     startDate: ddValidDate(today) ? today : store.todayStr(),
     periodDays: 7,
     perRound: 1,
+    pauseRanges: [],
     locations: [],
     locationPeriodDays: 7,
     remindEnabled: true,
@@ -364,6 +409,7 @@ function ddNormalizeGroup(raw, today) {
   g.periodDays = Math.min(365, Math.max(1, Math.round(Number(g.periodDays) || 7)));
   g.locationPeriodDays = Math.min(365, Math.max(1, Math.round(Number(g.locationPeriodDays) || 7)));
   g.locations = ddLocations(g.locations);
+  g.pauseRanges = ddPauseRanges(g.pauseRanges);
   // 每轮人数：1 = 单人（历史默认）。不 clamp 到当前成员数（成员会变），计算时用模运算兜底。
   g.perRound = Math.min(DD_MEMBER_MAX, Math.max(1, Math.round(Number(g.perRound) || 1)));
   g.remindTime = ddNormalizeTime(g.remindTime) || "08:00";
@@ -426,21 +472,23 @@ const ddPerRound = (g) => Math.max(1, Math.round(Number(g && g.perRound) || 1));
 function ddCycleStartOf(g, date) {
   const start = g && g.startDate;
   if (!ddValidDate(start) || !ddValidDate(date)) return null;
-  const diff = dayDiff(start, date);
+  const diff = ddActiveDays(g, date);
   if (diff < 0) return null;
-  return store.addDays(start, Math.floor(diff / ddPeriod(g)) * ddPeriod(g));
+  if (ddPausedAt(g, date)) return null;
+  return ddActiveDate(g, Math.floor(diff / ddPeriod(g)) * ddPeriod(g));
 }
-const ddCycleIndexAt = (g, cycleStart) => Math.round(dayDiff(g.startDate, cycleStart) / ddPeriod(g));
+const ddCycleIndexAt = (g, cycleStart) => Math.floor(ddActiveDays(g, cycleStart) / ddPeriod(g));
 function ddLocationCycleStartOf(g, date) {
   if (!ddValidDate(g.startDate) || !ddValidDate(date)) return null;
-  const diff = dayDiff(g.startDate, date);
+  const diff = ddActiveDays(g, date);
   if (diff < 0) return null;
-  return store.addDays(g.startDate, Math.floor(diff / g.locationPeriodDays) * g.locationPeriodDays);
+  if (ddPausedAt(g, date)) return null;
+  return ddActiveDate(g, Math.floor(diff / g.locationPeriodDays) * g.locationPeriodDays);
 }
 function ddLocationAt(g, date) {
   if (!g.locations.length) return "";
   const start = ddLocationCycleStartOf(g, date);
-  return start ? g.locations[Math.round(dayDiff(g.startDate, start) / g.locationPeriodDays) % g.locations.length] : "";
+  return start ? g.locations[Math.floor(ddActiveDays(g, start) / g.locationPeriodDays) % g.locations.length] : "";
 }
 const ddIsCycleStartDay = (g, date) => ddCycleStartOf(g, date) === date;
 /** 某一轮「正常轮换」该当班的一批人（不看临时换人）：成员环上取 perRound 人的滑动窗口。 */
@@ -698,22 +746,23 @@ function ddSnapshot(today, group) {
   const started = !!cycle;
   const current = ddAssigneeFor(g, today);
   const currentAll = ddAssigneesFor(g, today);
-  const nextStart = cycle ? store.addDays(cycle, period) : (ddValidDate(g.startDate) ? g.startDate : null);
+  const paused = today >= g.startDate && ddPausedAt(g, today);
+  const nextStart = paused ? ddShiftActive(g, today, 0) : cycle ? ddShiftActive(g, cycle, period) : ddActiveDate(g, 0);
   const locationCycle = ddLocationCycleStartOf(g, today);
-  const nextLocationStart = g.locations.length ? (locationCycle ? store.addDays(locationCycle, g.locationPeriodDays) : g.startDate) : null;
+  const nextLocationStart = g.locations.length ? (paused ? ddShiftActive(g, today, 0) : locationCycle ? ddShiftActive(g, locationCycle, g.locationPeriodDays) : ddActiveDate(g, 0)) : null;
 
   const rows = [];
   for (let i = 0; i < DD_UPCOMING && nextStart; i++) {
-    const start = store.addDays(nextStart, i * period);
+    const start = i === 0 ? nextStart : ddShiftActive(g, ddCycleStartOf(g, nextStart), i * period);
     const whoAll = ddAssigneesFor(g, start);
     const names = whoAll.map((m) => m.name).join("、");
     rows.push({
       start,
-      end: store.addDays(start, period - 1),
+      end: ddCycleEndOf(g, start, period),
       // 周几要标出来，但别重复：单日轮次写成「9月18日（周五）」，
       // 多日轮次写成「9月14日 → 9月20日 · 周五起」。与桌面端文案一致。
       range: period > 1
-        ? ddRangeText(ddMonthDay(start), ddMonthDay(store.addDays(start, period - 1))) + " · " + weekday(start) + "起"
+        ? ddRangeText(ddMonthDay(start), ddMonthDay(ddCycleEndOf(g, start, period))) + " · " + weekday(start) + "起"
         : ddMonthDay(start) + "（" + weekday(start) + "）",
       whoId: whoAll.length ? whoAll[0].id : "",
       whoName: names || "—",
@@ -746,11 +795,13 @@ function ddSnapshot(today, group) {
     hasMembers: g.members.length > 0,
     empty: g.members.length === 0,
     started,
+    paused,
+    pauseRanges: g.pauseRanges,
     cycle: cycle || "",
     cycleIndex: cycle ? ddCycleIndexAt(g, cycle) + 1 : 0,
     cycleText: cycle
       ? (period > 1
-        ? ddMonthDay(cycle) + " — " + ddMonthDay(store.addDays(cycle, period - 1)) + " · " + weekday(cycle) + " 起"
+        ? ddMonthDay(cycle) + " — " + ddMonthDay(ddCycleEndOf(g, cycle, period)) + " · " + weekday(cycle) + " 起"
         : ddMonthDay(cycle) + "（" + weekday(cycle) + "）")
       : "还没开始",
     current: current ? { id: current.id, name: current.name } : null,
@@ -775,7 +826,7 @@ function ddSnapshot(today, group) {
     nextWhoName: nextAll.map((m) => m.name).join("、") || "—",
     nextBigEm: nextDiff <= 0 ? "今天" : nextDiff === 1 ? "明天" : String(nextDiff),
     nextBigUnit: nextDiff <= 0 ? "" : nextDiff === 1 ? "" : " 天后",
-    nextVerb: started ? "换人" : "开始",
+    nextVerb: paused ? "恢复" : started ? "换人" : "开始",
     rows,
     members: ddMembersInDateOrder(g, today).map((m, i) => {
       const baseIndex = g.members.findIndex((item) => item.id === m.id);

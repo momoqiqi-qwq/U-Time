@@ -14,7 +14,7 @@ const { pinyinInitialsOf } = await import("../src/pinyinInitial.js");
 
 assert.ok(SETTINGS_SEARCH_ENTRIES.length >= 70, "设置索引必须覆盖到具体选项，不能只列十个分区");
 assert.deepEqual(new Set(SETTINGS_SEARCH_ENTRIES.map((x) => x.section)),
-  new Set(["ui", "theme", "highlights", "reminders", "data", "sync", "ai", "shortcuts", "lan", "plugins", "about"]),
+  new Set(["tasks", "ui", "theme", "highlights", "reminders", "data", "sync", "ai", "shortcuts", "lan", "plugins", "about"]),
   "每个设置分区都必须进入全局索引");
 for (const required of ["界面与交互", "界面密度", "界面缩放", "关键词标注", "日期和时间自动标红", "背景标注", "API Key", "WebDAV", "系统托盘", "插件快捷键", "检查更新"]) {
   assert.ok(SETTINGS_SEARCH_ENTRIES.some((x) => `${x.title} ${x.keywords}`.includes(required)), `全局设置索引缺少：${required}`);

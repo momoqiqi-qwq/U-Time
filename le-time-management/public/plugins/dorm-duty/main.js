@@ -69,7 +69,7 @@
   const fromUTC = (t) => new Date(t).toISOString().slice(0, 10);
   const addDays = (s, n) => fromUTC(toUTC(s) + n * DAY_MS);
   const diffDays = (a, b) => Math.round((toUTC(b) - toUTC(a)) / DAY_MS);
-  const validDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && !Number.isNaN(toUTC(s));
+  const validDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && !Number.isNaN(toUTC(s)) && fromUTC(toUTC(s)) === s;
   const weekday = (s) => `周${WEEK_CN[new Date(toUTC(s)).getUTCDay()]}`;
   const fmt = (s) => `${Number(s.slice(5, 7))}月${Number(s.slice(8, 10))}日`;
   const esc = (s) => String(s == null ? "" : s)
@@ -119,6 +119,46 @@
     const names = Array.isArray(raw) ? raw.map((v) => String(v || "").trim().slice(0, LOCATION_NAME_MAX)).filter(Boolean) : [];
     return [...new Set(names)].slice(0, LOCATION_MAX);
   }
+
+  // 暂停段包含首尾日期；合并交叠日期，避免同一天重复扣除。
+  function pauseRanges(raw) {
+    const ranges = (Array.isArray(raw) ? raw : []).filter(r => r && validDate(r.start) && validDate(r.end) && r.start <= r.end)
+      .map(r => ({ start: r.start, end: r.end })).sort((a,b) => a.start.localeCompare(b.start));
+    const out = [];
+    for (const r of ranges) {
+      const last = out[out.length - 1];
+      if (last && diffDays(last.end, r.start) <= 1) { if (r.end > last.end) last.end = r.end; }
+      else out.push(r);
+    }
+    return out;
+  }
+  function pausedAt(g, date) { return pauseRanges(g.pauseRanges).some(r => r.start <= date && date <= r.end); }
+  // [起始日, date) 中真正计入轮换的天数。
+  function activeDays(g, date) {
+    let days = diffDays(g.startDate, date);
+    for (const r of pauseRanges(g.pauseRanges)) {
+      const a = r.start < g.startDate ? g.startDate : r.start;
+      const b = r.end < date ? addDays(r.end, 1) : date;
+      if (a < b) days -= diffDays(a, b);
+    }
+    return days;
+  }
+  // 有效日序号反解为自然日期，按日期段跳过，可处理多年假期。
+  function activeDate(g, index) {
+    let date = addDays(g.startDate, index);
+    for (const r of pauseRanges(g.pauseRanges)) {
+      if (r.end < g.startDate) continue;
+      const start = r.start < g.startDate ? g.startDate : r.start;
+      if (start > date) break;
+      date = addDays(date, diffDays(start, r.end) + 1);
+    }
+    return date;
+  }
+  function shiftActive(g, date, days) { return activeDate(g, activeDays(g, date) + days); }
+  function cycleEndOf(g, date, period) {
+    return activeDate(g, (Math.floor(activeDays(g, date) / period) + 1) * period - 1);
+  }
+
   /** 一套轮换的默认值。 */
   function defaultGroup(today, name) {
     return {
@@ -127,6 +167,7 @@
       startDate: validDate(today) ? today : tide.util.today(),
       periodDays: 7,
       perRound: 1,
+      pauseRanges: [],
       locations: [],
       locationPeriodDays: 7,
       remindEnabled: true,
@@ -148,6 +189,7 @@
     g.periodDays = Math.min(365, Math.max(1, Math.round(Number(g.periodDays) || 7)));
     g.locationPeriodDays = Math.min(365, Math.max(1, Math.round(Number(g.locationPeriodDays) || 7)));
     g.locations = normalizeLocations(g.locations);
+    g.pauseRanges = pauseRanges(g.pauseRanges);
     // 每轮人数：1 = 单人（历史默认）。上限对齐 MEMBER_MAX —— 成员数可能随时变，
     // 这里不能 clamp 到当前成员数（否则移除一个人会偷偷改掉排班规则），计算时用模运算兜底。
     g.perRound = Math.min(MEMBER_MAX, Math.max(1, Math.round(Number(g.perRound) || 1)));
@@ -254,13 +296,14 @@
   function cycleStartOf(g, date) {
     const start = g && g.startDate;
     if (!validDate(start) || !validDate(date)) return null;
-    const diff = diffDays(start, date);
+    const diff = activeDays(g, date);
     if (diff < 0) return null;
     const p = periodOf(g);
-    return addDays(start, Math.floor(diff / p) * p);
+    if (pausedAt(g, date)) return null;
+    return activeDate(g, Math.floor(diff / p) * p);
   }
   /** 轮次序号（从 0 起）。 */
-  const cycleIndexAt = (g, cycleStart) => Math.round(diffDays(g.startDate, cycleStart) / periodOf(g));
+  const cycleIndexAt = (g, cycleStart) => Math.floor(activeDays(g, cycleStart) / periodOf(g));
   /** 某一轮的临时换人名单里**真的还在名单里**的人（保序、去重）。
       override 值是双格式：单人 = 字符串 id（历史格式），多人 = id 数组。
       指向已被移除的人要过滤掉 —— 全部失效时返回空数组，由调用方退回正常排班，
@@ -310,14 +353,15 @@
   const isCycleStartDay = (g, date) => cycleStartOf(g, date) === date;
   function locationCycleStartOf(g, date) {
     if (!validDate(g.startDate) || !validDate(date)) return null;
-    const diff = diffDays(g.startDate, date);
+    const diff = activeDays(g, date);
     if (diff < 0) return null;
-    return addDays(g.startDate, Math.floor(diff / g.locationPeriodDays) * g.locationPeriodDays);
+    if (pausedAt(g, date)) return null;
+    return activeDate(g, Math.floor(diff / g.locationPeriodDays) * g.locationPeriodDays);
   }
   function locationAt(g, date) {
     if (!g.locations.length) return "";
     const start = locationCycleStartOf(g, date);
-    return start ? g.locations[Math.round(diffDays(g.startDate, start) / g.locationPeriodDays) % g.locations.length] : "";
+    return start ? g.locations[Math.floor(activeDays(g, start) / g.locationPeriodDays) % g.locations.length] : "";
   }
   /** 某组此刻是否该提醒。纯函数 —— 任意「今天 / 当前分钟」都能真跑。
       五个条件缺一不可：开着提醒 + 有成员 + 今天是本轮第一天 + 已过设定时刻 + 这一轮还没提醒过。 */
@@ -505,16 +549,17 @@
     const started = !!cycle;
     const current = assigneeFor(g, today);
     const currentAll = assigneesFor(g, today);
-    const nextStart = cycle ? addDays(cycle, p) : (validDate(g.startDate) ? g.startDate : null);
+    const paused = today >= g.startDate && pausedAt(g, today);
+    const nextStart = paused ? shiftActive(g, today, 0) : cycle ? shiftActive(g, cycle, p) : activeDate(g, 0);
     const locationCycle = locationCycleStartOf(g, today);
-    const nextLocationStart = g.locations.length ? (locationCycle ? addDays(locationCycle, g.locationPeriodDays) : g.startDate) : null;
+    const nextLocationStart = g.locations.length ? (paused ? shiftActive(g, today, 0) : locationCycle ? shiftActive(g, locationCycle, g.locationPeriodDays) : activeDate(g, 0)) : null;
     const rows = [];
     for (let i = 0; i < UPCOMING && nextStart; i++) {
-      const start = addDays(nextStart, i * p);
+      const start = i === 0 ? nextStart : shiftActive(g, cycleStartOf(g, nextStart), i * p);
       const whoAll = assigneesFor(g, start);
       rows.push({
         start,
-        end: addDays(start, p - 1),
+        end: cycleEndOf(g, start, p),
         who: whoAll[0] || null,
         whoAll,
         index: cycleIndexAt(g, start) + 1,
@@ -523,7 +568,7 @@
       });
     }
     return {
-      g, today, cycle, started,
+      g, today, cycle, started, paused,
       current, currentAll, per,
       nextStart,
       currentLocation: locationAt(g, today),
@@ -538,7 +583,7 @@
   /** 「下次换人」大数字：没开始的阶段说的是「开始」而不是「换人」。 */
   function nextBigText(s) {
     const d = diffDays(s.today, s.nextStart);
-    const verb = s.started ? "换人" : "开始";
+    const verb = s.paused ? "恢复" : s.started ? "换人" : "开始";
     if (d <= 0) return `<em>今天</em>${verb}`;
     if (d === 1) return `<em>明天</em>${verb}`;
     return `<em>${d}</em>天后${verb}`;
@@ -550,7 +595,7 @@
       const names = assigneesFor(g, tide.util.today()).map((m) => m.name).join("、");
       const on = g.id === state.activeId;
       return `<button class="dd-gchip${on ? " on" : ""}" data-group="${esc(g.id)}" type="button" aria-pressed="${on ? "true" : "false"}" title="切到「${esc(g.name)}」（右键或长按可重命名 / 复制 / 导入成员）">
-        <span>${esc(g.name)}</span><em class="dd-gwho">${esc(names || "未排班")}</em>
+        <span>${esc(g.name)}</span><em class="dd-gwho">${esc(pausedAt(g, tide.util.today()) ? "暂停中" : names || "未排班")}</em>
       </button>`;
     }).join("");
   }
@@ -563,18 +608,19 @@
         <div class="dd-who"><b>先添加成员</b></div>
         <div class="dd-range">在下面的「成员」里按顺序填写名字，第一个人先当班；<br>之后按你设定的周期自动轮换，到点会提醒当班的人。</div>`;
     }
+    if (s.paused) return `<div class="dd-kicker">${kicker}</div><div class="dd-who"><b>假期 / 节日暂停中</b></div><div class="dd-range">暂停期间不排班、不提醒，成员和地点轮换均停止计时。<br>${fmt(s.nextStart)}恢复，继续由 ${esc(s.nextWhoAll.map(m => m.name).join("、") || "—")} 当班。</div>`;
     if (!s.started) {
       const firstNames = (s.rows[0]?.whoAll || []).map((m) => m.name).join("、");
       return `<div class="dd-kicker">${kicker}</div>
         <div class="dd-who"><b>轮换还没开始</b><span class="dd-badge warn">未开始</span></div>
-        <div class="dd-range">将于 <b>${fmt(g.startDate)}（${weekday(g.startDate)}）</b> 开始，第一批是 <b>${esc(firstNames || "—")}</b>。<br>想从今天开始就把下面的「起始日期」改成今天。</div>`;
+        <div class="dd-range">将于 <b>${fmt(s.nextStart)}（${weekday(s.nextStart)}）</b> 开始，第一批是 <b>${esc(firstNames || "—")}</b>。<br>想从今天开始就把下面的「起始日期」改成今天。</div>`;
     }
     const onSwitch = s.cycle === s.today;
     const names = s.currentAll.map((m) => m.name).join("、");
     // 「已换人 · 原 X」里的 X 是**正常轮换本该当班的那批人**，不是换上去的 ——
     // overrideHits() 返回的是替补，别直接拿来当「原」。
     const normalNames = normalAssignees(g, s.cycle).map((m) => m.name).join("、");
-    const rangeEnd = addDays(s.cycle, s.period - 1);
+    const rangeEnd = cycleEndOf(g, s.cycle, s.period);
     return `<div class="dd-kicker">${kicker}</div>
       <div class="dd-who"><b${s.currentAll.length > 1 ? ' class="dd-multi"' : ""}>${esc(names)}</b>${onSwitch ? '<span class="dd-badge">今天换人</span>' : ""}${overrideHits(g, s.cycle).length ? `<span class="dd-badge warn">已换人 · 原 ${esc(normalNames)}</span>` : ""}</div>
       <div class="dd-range">本轮 ${fmt(s.cycle)}${s.period > 1 ? ` — ${fmt(rangeEnd)}` : `（${weekday(s.cycle)}）`}${s.period > 1 ? ` · ${weekday(s.cycle)}起` : ""} · 第 ${cycleIndexAt(g, s.cycle) + 1} 轮${s.currentLocation ? `<br>今日地点：<b>${esc(s.currentLocation)}</b>` : ""}</div>`;
@@ -748,6 +794,13 @@
       </div>`;
   }
 
+  function pauseHtml(g) {
+    return `<div class="dd-title" style="margin-top:16px">假期 / 节日暂停</div>
+      <div class="dd-note">添加放假日期段（含首尾日期）；期间不值日、不提醒，也不累计成员和地点轮换天数。结束后接着原顺序继续。重叠或相邻日期会自动合并。</div>
+      ${g.pauseRanges.map((r,i) => `<div class="dd-inline">${esc(r.start)} → ${esc(r.end)}<button class="dd-mini danger" data-pause-del="${i}" type="button">移除</button></div>`).join("")}
+      <div class="dd-chips"><input class="dd-in" type="date" data-pause-start aria-label="暂停开始日期" style="max-width:170px"><span>至</span><input class="dd-in" type="date" data-pause-end aria-label="暂停结束日期" style="max-width:170px"><button class="dd-btn" data-pause-add type="button">添加暂停</button></div>`;
+  }
+
   function remindHtml(s) {
     const g = s.g;
     const opts = state.soundPresets
@@ -791,7 +844,7 @@
           ${s.current ? swapHtml(s) : ""}
         </section>
         <section class="dd-card">
-          <div class="dd-kicker">${s.started ? "下次换人" : "轮换开始"}</div>
+          <div class="dd-kicker">${s.paused ? "恢复值日" : s.started ? "下次换人" : "轮换开始"}</div>
           ${g.members.length && s.nextStart ? `<div class="dd-big">${nextBigText(s)}</div>
           <div class="dd-muted">${fmt(s.nextStart)} ${weekday(s.nextStart)} · 轮到 <b>${esc(s.nextWhoAll.map((m) => m.name).join("、") || "—")}</b></div>` : `<div class="dd-muted">${g.members.length ? "还没有可排的轮次。" : "还没有成员，无法排班。"}</div>`}
         </section>
@@ -816,6 +869,7 @@
         <section class="dd-card">
           <div class="dd-title">${faIcon("arrows-rotate")}轮换规则</div>
           ${rulesHtml(s)}
+          ${pauseHtml(g)}
         </section>
         <section class="dd-card">
           <div class="dd-title">${faIcon("bell")}提醒</div>
@@ -1118,6 +1172,14 @@
     if (!g) return;
     const commit = async (mutate) => { mutate(); await save(); await paint(); };
 
+    q("[data-pause-add]")?.addEventListener("click", async () => {
+      const start = q("[data-pause-start]").value, end = q("[data-pause-end]").value;
+      if (!validDate(start) || !validDate(end) || start > end) { tide.notify("请选择有效的开始和结束日期，结束不能早于开始"); return; }
+      await commit(() => { g.pauseRanges = pauseRanges([...g.pauseRanges, { start, end }]); });
+    });
+    root.querySelectorAll("[data-pause-del]").forEach(btn => btn.addEventListener("click", async () => {
+      await commit(() => { g.pauseRanges.splice(Number(btn.dataset.pauseDel), 1); });
+    }));
     // 切换 / 新建 / 改名 / 删除轮换
     root.querySelectorAll("[data-group]").forEach((btn) => btn.addEventListener("click", async () => {
       if (longPressed) { longPressed = false; return; }   // 长按弹过菜单，这个 click 是它的尾巴

@@ -100,7 +100,7 @@ assert.match(decl("width"), /auto/, "窄屏必须把基础的 --rail-w 宽度清
 
 /* ── ② 玻璃：半透明表面 + 磨砂，且只跟主题 token ── */
 assert.match(railMobile, /background:[^;]*color-mix\([^;]*transparent/, "底栏表面必须半透明（color-mix … transparent）");
-assert.match(railMobile, /backdrop-filter:[^;]*blur\(\s*(\d+)px/, "底栏必须有 backdrop-filter 磨砂");
+assert.match(railMobile, /backdrop-filter:[^;]*blur\(calc\(24px \* var\(--nav-surface-alpha, 1\)\)\)/, "底栏磨砂必须随背景透明度变化，默认保持 24px");
 assert.doesNotMatch(railMobile, /#[0-9A-Fa-f]{3,6}/, "底栏表面不许写死十六进制色 —— 必须跟主题 token 走，深色模式才自动跟随");
 
 /* ── ③ 收口：整圈描边 + 圆角，旧的单条 border-top 必须消失 ── */

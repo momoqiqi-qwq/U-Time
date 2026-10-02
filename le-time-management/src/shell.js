@@ -402,6 +402,24 @@ export function renderShell(root) {
 
   const appFrame = el("div", { class: isAndroidRuntime() ? "app android-runtime" : "app" }, rail, railResizer, main);
   root.append(appFrame);
+  // Android 所有视图共用底栏真实占位，设置页也直接读取此变量。
+  const updateDockClearance = () => {
+    if (!rail.isConnected) return;
+    const value = isAndroidRuntime() && mobileQuery.matches
+      ? `${Math.max(0, window.innerHeight - rail.getBoundingClientRect().top) + 12}px` : "";
+    const style = document.documentElement.style;
+    if (style.getPropertyValue("--android-dock-clearance") !== value) {
+      if (value) style.setProperty("--android-dock-clearance", value);
+      else style.removeProperty("--android-dock-clearance");
+    }
+  };
+  if (isAndroidRuntime()) {
+    new ResizeObserver(updateDockClearance).observe(rail);
+    new MutationObserver(updateDockClearance).observe(document.documentElement, { attributes: true });
+    window.addEventListener("resize", updateDockClearance);
+    window.addEventListener("tide:ui-preferences-changed", updateDockClearance);
+    updateDockClearance();
+  }
 
   /* ── v0.58.0：侧栏宽度分隔条接线 ──
    * 拖动实时改宽（rAF 合帧），松手落盘 settings.railWidth；pointercancel 回滚到
@@ -1217,17 +1235,17 @@ export function renderShell(root) {
 
   function openSettingsModal(section = "") {
     const target = arguments[1] || "";
-    // v0.59.0：设置是底栏呼出态唯一的「让位」出口 —— 弹窗要占满屏，菜单先收回去。
-    // 桌面宽屏下 .chrome-shown 无视觉效果，仍然门槛一下，免得 ⋮ 的 title 被无关路径改掉。
-    // 这一让不是单程的：close() 里按 railShownBeforeSettings 恢复（点 ⋮ 呼出后再进设置，
-    // 退出设置就该还是呼出态，不该逼用户再点一次 ⋮）。
+    // Android 底栏常驻，设置页为底栏预留空间；其他窄屏环境保留收起与恢复行为。
     if (settingsLayers === 0) railShownBeforeSettings = chromeShown;
     settingsLayers += 1;
     appFrame.classList.add("settings-open");
-    if (chromeShown && mobileQuery.matches) setChromeShown(false);
+    if (chromeShown && mobileQuery.matches && !isAndroidRuntime()) setChromeShown(false);
     document.querySelector(".settings-modal")?._close?.();
-    const mask = el("div", { class: "drawer-mask settings-modal-mask", onclick: close });
-    const panel = el("section", { class: "settings-modal", role: "dialog", "aria-modal": "true", "aria-label": "设置" },
+    const androidSettings = isAndroidRuntime() && mobileQuery.matches;
+    // 启动动画会让 app 保留层叠上下文；设置期间把同一条底栏放到独立层，避免被 body 遮罩挡住。
+    const dockLayer = androidSettings ? el("div", { class: "app android-runtime android-settings-dock" }, rail) : null;
+    const mask = el("div", { class: `drawer-mask settings-modal-mask${androidSettings ? " android-settings-mask" : ""}`, onclick: close });
+    const panel = el("section", { class: `settings-modal${androidSettings ? " android-settings-modal" : ""}`, role: "dialog", "aria-modal": String(!androidSettings), "aria-label": "设置" },
       el("header", { class: "settings-modal-head", "data-tauri-drag-region": dragRegion },
         el("div", {},
           el("h2", {}, "设置"),
@@ -1243,17 +1261,25 @@ export function renderShell(root) {
     function close() {
       if (dismissed) return;
       dismissed = true;
+      if (dockLayer) {
+        railResizer.before(rail);
+        dockLayer.remove();
+      }
       closeLayer(panel, mask, () => document.removeEventListener("keydown", onKey));
       settingsLayers = Math.max(0, settingsLayers - 1);
       if (settingsLayers === 0) appFrame.classList.remove("settings-open");
+      if (settingsLayers === 0) settingsDockBtn?.classList.remove("on");
       if (settingsLayers === 0 && railShownBeforeSettings && mobileQuery.matches) {
         railShownBeforeSettings = false;
         setChromeShown(true);
       }
     }
     panel._close = close;
+    settingsDockBtn?.classList.add("on");
     document.addEventListener("keydown", onKey);
     document.body.append(mask, panel);
+    if (dockLayer) document.body.append(dockLayer);
+    updateDockClearance();
     renderSettings(panel.querySelector(".settings-modal-body"), { section, target });
   }
 
@@ -1525,6 +1551,7 @@ export function renderShell(root) {
       openSettingsModal();
       return;
     }
+    if (isAndroidRuntime() && settingsLayers > 0) document.querySelector(".settings-modal")?._close?.();
     // v0.52.0：APK 端收到「时间块 / 收件箱」导航（命令面板「今天的时间块」、
     // 快速捕获排程后的「查看」、插件联动等历史入口）一律落到时间线 ——
     // 它是移动端唯一的按日期视图；桌面端不受影响。

@@ -1,6 +1,7 @@
 // 全局状态 + 持久化 + 派生数据
 import { api } from "./api.js";
 import { migrateState } from "./migrations.js";
+import { getTaskPreferences } from "./taskPreferences.js";
 
 let state = null;
 const subs = new Set();
@@ -119,9 +120,10 @@ export async function batchChanges(fn) {
 
 /* ── 任务 ── */
 export function addTask(patch) {
+  const defaults = getTaskPreferences(state.settings);
   const t = {
-    id: uid("t"), title: "新任务", note: "", quad: 1, done: false, estMin: 30,
-    tags: [], project: "", due: null, dueTime: "23:59", reminderEnabled: true, reminderOffsets: null,
+    id: uid("t"), title: "新任务", note: "", quad: defaults.defaultQuad, done: false, estMin: defaults.defaultEstMin,
+    tags: [], project: "", due: null, dueTime: defaults.defaultDueTime, reminderEnabled: defaults.defaultReminderEnabled, reminderOffsets: null,
     createdAt: Date.now(), isNew: true, ...patch,
   };
   state.tasks.unshift(t); changed(); return t;
@@ -130,7 +132,9 @@ export function updateTask(id, patch) {
   const t = state.tasks.find((x) => x.id === id);
   if (t) {
     Object.assign(t, patch);
-    if (patch.title !== undefined) state.blocks.filter((b) => b.taskId === id).forEach((b) => { b.title = t.title; });
+    if (patch.title !== undefined) {
+      for (const b of state.blocks) if (b.taskId === id) b.title = t.title;
+    }
     changed();
   }
   return t;
@@ -139,8 +143,12 @@ export function removeTask(id) {
   const i = state.tasks.findIndex((x) => x.id === id);
   if (i < 0) return null;
   const [t] = state.tasks.splice(i, 1);
-  const affectedDates = new Set(state.blocks.filter((b) => b.taskId === id).map((b) => b.date));
-  state.blocks = state.blocks.filter((b) => b.taskId !== id);
+  const affectedDates = new Set();
+  state.blocks = state.blocks.filter((b) => {
+    if (b.taskId !== id) return true;
+    affectedDates.add(b.date);
+    return false;
+  });
   affectedDates.forEach(invalidateBlockIndex);
   changed(); return t;
 }
@@ -164,9 +172,15 @@ export function deleteTaskUndoable(id) {
   removeTask(id);
   return () => {
     if (taskById(id)) return;
+    const blockIds = new Set(state.blocks.map((b) => b.id));
+    const restored = snapshot.blocks.filter((b) => {
+      if (blockIds.has(b.id)) return false;
+      blockIds.add(b.id);
+      return true;
+    });
     state.tasks.unshift(snapshot.task);
-    state.blocks.push(...snapshot.blocks.filter((b) => !state.blocks.some((x) => x.id === b.id)));
-    snapshot.blocks.forEach((b) => invalidateBlockIndex(b.date));
+    state.blocks = state.blocks.concat(restored);
+    new Set(restored.map((b) => b.date)).forEach(invalidateBlockIndex);
     changed();
   };
 }
@@ -216,7 +230,7 @@ export function deleteDoneTasksUndoable() {
 export function placeTask(t, date, startMin = null, cat = "work") {
   const dur = Math.max(15, Number(t.estMin) || 30);
   const busy = blocksOf(date).filter((b) => !t.id || b.taskId !== t.id);
-  let cursor = startMin ?? 420;
+  let cursor = startMin ?? mmOf(getTaskPreferences(state.settings).autoScheduleStart);
   if (startMin === null) {
     for (const b of busy) {
       const start = mmOf(b.start), end = start + b.durMin;
@@ -286,12 +300,15 @@ export function taskById(id) { return state.tasks.find((t) => t.id === id); }
 /* ── 象限取任务 ── */
 // v0.52.0 拖拽排序：显式 order 优先（无 order 兜底 Infinity → 落回原 due 规则），
 // done 仍是最外层分组键（完成的永远沉底），order 只在「同象限 + 同完成态」内生效。
+function compareTasks(a, b) {
+  return Number(a.done) - Number(b.done) ||
+    ((a.order ?? Infinity) - (b.order ?? Infinity)) ||
+    (a.due || "9999").localeCompare(b.due || "9999");
+}
 export function tasksOfQuad(q) {
   return state.tasks
     .filter((t) => t.quad === q)
-    .sort((a, b) => Number(a.done) - Number(b.done) ||
-      ((a.order ?? Infinity) - (b.order ?? Infinity)) ||
-      (a.due || "9999").localeCompare(b.due || "9999"));
+    .sort(compareTasks);
 }
 
 // 拖拽落点：把 dragId 的任务移到 overId 的前/后。
@@ -307,10 +324,7 @@ export function moveTaskRelative(dragId, overId, before = true) {
   // seq 排序键必须与 tasksOfQuad 完全一致（done→order→due，无尾键、稳定排序保持数组序）：
   // 首次回填 order 的基准 = 渲染序，否则「插到相邻卡前面」在 DOM 序与 store 序里落点不同
   // （实测探针抓到：createdAt 尾键让回填基准与 DOM 错位，拖拽落点跳位）
-  const seq = group.sort((a, b) => Number(a.done) - Number(b.done) ||
-    ((a.order ?? Infinity) - (b.order ?? Infinity)) ||
-    (a.due || "9999").localeCompare(b.due || "9999"));
-  seq.forEach((t, i) => { t.order = i; });
+  const seq = group.sort(compareTasks);
   const rest = seq.filter((t) => t.id !== dragId);
   const at = over ? rest.findIndex((t) => t.id === overId) : rest.length;
   if (at < 0) return;
@@ -333,9 +347,7 @@ export function moveTaskToQuad(dragId, targetQuad, overId = null, before = true)
   if (overId && (!over || over.quad !== quad || over.done !== drag.done)) return drag;
   const seq = state.tasks
     .filter((t) => t.quad === quad && t.done === drag.done)
-    .sort((a, b) => ((a.order ?? Infinity) - (b.order ?? Infinity)) ||
-      (a.due || "9999").localeCompare(b.due || "9999"));
-  seq.forEach((t, i) => { t.order = i; });
+    .sort(compareTasks);
   const at = over ? seq.findIndex((t) => t.id === overId) : seq.length;
   if (at < 0) return drag;
   drag.quad = quad;
