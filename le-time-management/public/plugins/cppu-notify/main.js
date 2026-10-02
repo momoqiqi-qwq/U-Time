@@ -588,6 +588,36 @@
   const saveFilter = () => tide.storage.set("filter", state.filter);
   const saveSeen = () => tide.storage.set("seen", [...state.seen].slice(-500));
 
+  // 缓存数据而非登录页面，恢复时重新渲染，凭据仍只存密钥库。
+  async function saveNoticeCache() {
+    try {
+      const details = {};
+      const notices = state.notices.slice(0, PAGE_SIZE * PAGES_MAX);
+      for (const item of notices) {
+        const key = itemKey(item), detail = state.details[key];
+        if (detail && !detail.loading && !detail.error) details[key] = detail;
+      }
+      await tide.storage.set("noticeCache", { username: state.username, notices, details, at: state.fetchedAt });
+    } catch { /* 写失败不影响已加载页面 */ }
+  }
+  async function restoreNoticeCache() {
+    try {
+      const cache = await tide.storage.get("noticeCache", null);
+      if (!cache || cache.username !== state.username || !Array.isArray(cache.notices)) return false;
+      state.notices = cache.notices;
+      state.details = cache.details && typeof cache.details === "object" ? cache.details : {};
+      state.fetchedAt = Number(cache.at) || 0;
+      state.hasMore = false;
+      return true;
+    } catch { return false; }
+  }
+  async function showNoticeCache(el, error) {
+    if (!await restoreNoticeCache() || !el.isConnected) return false;
+    state.error = `登录或连接失败，正在显示缓存（${state.fetchedAt ? new Date(state.fetchedAt).toLocaleString("zh-CN") : "更新时间未知"}）。${error || "可点击重新登录重试。"}`;
+    buildMain(el);
+    return true;
+  }
+
   /* ── 登录态持久化：Cookie 存密钥库，重启后恢复会话免验证码 ── */
   async function saveCookies() {
     if (typeof tide.vault?.set !== "function" || !state.sid) return;
@@ -1018,6 +1048,7 @@
     }
     // ③ 兜底：登录表单，账号/密码/最后一次识别结果全部预填，人工只需核对。
     // 压根没存过凭据时 loginHint 是空的，交给 render 摆一张空白表单。
+    if (await showNoticeCache(el, loginHint?.msg)) return true;
     if (!loginHint) return false;
     await prepareLoginForm();
     paintLogin(el, loginHint.msg, { prefillCode: loginHint.code });
@@ -1191,6 +1222,7 @@
       state.hasMore = items.length >= PAGE_SIZE && page < PAGES_MAX;
       state.fetchedAt = Date.now();
       state.error = null;
+      await saveNoticeCache();
       // v0.11.0：新通知先进入统一收件箱，用户确认后再转任务，避免自动化误建日程。
       if (page === 1 && tide.inbox && typeof tide.inbox.create === "function") {
         for (const it of items.slice(0, 12)) {
@@ -1206,7 +1238,9 @@
         state.fetching = false;
         return loadPage(page, true);
       }
-      state.error = String(e.message || e);
+      const error = String(e.message || e);
+      const cached = await restoreNoticeCache();
+      state.error = cached ? `连接失败，正在显示缓存（${state.fetchedAt ? new Date(state.fetchedAt).toLocaleString("zh-CN") : "更新时间未知"}）。${error}` : error;
     }
     state.fetching = false;
     paintAll();
@@ -1251,6 +1285,7 @@
         }
       }
       state.details[rid] = { content: cleanText(text), attachments: extractAttachments([d, contentData], text) };
+      await saveNoticeCache();
     } catch (e) {
       state.details[rid] = { error: String(e.message || e) };
     }
@@ -2002,12 +2037,12 @@
   async function jwSaveCache() {
     const keep = {};
     for (const k of ["xkTask", "xkResult", "qjRecord", "creditPlan", "creditModule", "grade", "cxCredit", "cxDetail"]) if (Array.isArray(jwState.data[k])) keep[k] = jwState.data[k];
-    try { await tide.storage.set("jwCache", { term: jwState.term, at: jwState.at, keep, prefs: { creditHideDone: jwState.creditHideDone } }); } catch { /* 忽略 */ }
+    try { await tide.storage.set("jwCache", { username: state.username, term: jwState.term, at: jwState.at, keep, prefs: { creditHideDone: jwState.creditHideDone } }); } catch { /* 忽略 */ }
   }
   async function jwRestoreCache() {
     try {
       const c = await tide.storage.get("jwCache", null);
-      if (!c || typeof c !== "object") return;
+      if (!c || typeof c !== "object" || (c.username != null && c.username !== state.username)) return;
       if (c.term && !jwState.term) jwState.term = c.term;
       jwState.creditHideDone = c.prefs?.creditHideDone === true;
       for (const [k, rows] of Object.entries(c.keep || {})) if (Array.isArray(rows) && jwState.data[k] === null) jwState.data[k] = rows;
@@ -2572,6 +2607,7 @@
         <button class="pp-btn pri" data-jw-refresh>刷新</button>
         <button class="pp-btn" data-jw-site>去教务</button>
         <button class="pp-btn" data-jw-back>回通知</button>
+        <button class="pp-btn" data-jw-login>重新登录</button>
         <span style="flex:1"></span>
       </div>
       <div class="jw-tip">${esc(cfg.tip)}</div>
@@ -2596,7 +2632,28 @@
     jwMounted.set(cfg.id, { el, cfg });
     bindSide(el);
     loadLinkMeta(el);
+    const openLogin = async () => {
+      await prepareLoginForm();
+      if (!el.isConnected) return;
+      paintLogin(el, loginHint?.msg || "", {
+        prefillCode: loginHint?.code || "",
+        onDone: () => {
+          el.innerHTML = jwShellHtml(cfg);
+          bindSide(el);
+          loadLinkMeta(el);
+          jwEnsureKeys(cfg.keys, true);
+        },
+        onFailure: () => {
+          if (!cfg.keys.some(key => Array.isArray(jwState.data[key]))) return false;
+          el.innerHTML = jwShellHtml(cfg);
+          bindSide(el);
+          jwPaint();
+          return true;
+        },
+      });
+    };
     el.addEventListener("click", async (e) => {
+      if (e.target.closest("[data-jw-login]")) { await openLogin(); return; }
       if (e.target.closest("[data-jw-refresh]")) { await jwEnsureKeys(cfg.keys, true); return; }
       if (e.target.closest("[data-jw-back]")) { tide.util.navigate("plug:cppu-notify"); return; }
       if (e.target.closest("[data-jw-site]")) {
@@ -2683,12 +2740,15 @@
       if (e.target.matches("[data-leave-reason]")) jwState.leaveReason = e.target.value;
     });
     (async () => {
+      await loadPrefs();
       await jwRestoreCache();
       jwPaint();
       await jwEnsureKeys(cfg.keys);
-      // 自动登录没成（多半是没存过密码或验证码六次没认出来）：就地摆出登录卡，
-      // 人工登完回到本视图继续拉数据 —— 警大的登录只有那一份，不必绕道警大通知。
-      if (!jwLive() && el.isConnected) {
+      // 登录失败保留已有缓存；没有缓存时显示共用登录卡。
+      if (!jwLive() && el.isConnected && cfg.keys.some(key => Array.isArray(jwState.data[key]))) {
+        for (const key of cfg.keys) jwState.error[key] = `登录失败，正在显示缓存（${jwAt(key)}）；可点击「重新登录」重试。`;
+        jwPaint();
+      } else if (!jwLive() && el.isConnected) {
         await prepareLoginForm();
         paintLogin(el, loginHint?.msg || "", {
           prefillCode: loginHint?.code || "",
@@ -3295,6 +3355,11 @@
           onRetry: message => { errEl.textContent = message; },
           isActive: () => el.isConnected !== false && el.querySelector("[data-err]") === errEl });
         if (el.isConnected === false || el.querySelector("[data-err]") !== errEl) return;
+        if (state.username !== username) {
+          state.notices = []; state.details = {}; state.fetchedAt = 0;
+          for (const key of Object.keys(jwState.data)) jwState.data[key] = null;
+          jwState.at = {}; jwState.error = {}; jwState.term = null;
+        }
         state.username = username;
         if (state.rememberUsername) tide.storage.set("username", username);
         else tide.storage.set("username", "");
@@ -3315,6 +3380,7 @@
         loadPage(1);
       } catch (e2) {
         if (el.isConnected === false || el.querySelector("[data-err]") !== errEl) return;
+        if (username === state.username && (opts.onFailure ? opts.onFailure() : !opts.onDone && await showNoticeCache(el, loginErrorText(e2)))) return;
         if (capImg) capImg.src = state.captcha || "";
         if (e2 && e2.fatal) { errEl.textContent = e2.fatal; }
         else {
@@ -3464,7 +3530,7 @@
 
     paintAll();
     startAutoRefresh(el);
-    if (!state.notices.length && !state.fetching) loadPage(1);
+    if (!state.notices.length && !state.fetching && state.token && !state.error) loadPage(1);
     bindSide(el);
     loadLinkMeta(el);
   }
@@ -3482,7 +3548,10 @@
       if (disposed) return;
       // 每次进入都重新验证票据，避免插件在应用内放置较久后拿着过期 token 直接进空列表。
       // 自动登录三级链路：恢复票据静默续期 → 保存的密码 + 验证码识别 → 人工表单（预填）
-      const ok = await autoLogin(el);
+      let ok = false;
+      try { ok = await autoLogin(el); }
+      catch (error) { ok = await showNoticeCache(el, loginErrorText(error)); }
+      if (disposed) return;
       // autoLogin 失败路径里已经 paintLogin（含预填）；这里只兜「无凭据直接表单」
       if (!ok && !el.querySelector(".pp-login")) {
         await prepareLoginForm();

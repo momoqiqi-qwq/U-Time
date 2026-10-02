@@ -19,6 +19,7 @@ import { createAiSettingsCard } from "./settings/ai.js";
 import { createSyncCard } from "./settings/sync.js";
 import { createKeywordHighlightsCard } from "./settings/highlights.js";
 import { createTaskSettingsCard } from "./settings/tasks.js";
+import { createTestingCard } from "./settings/testing.js";
 import { toggleSwitch } from "../switchControl.js";
 import {
   getUpdateSettings, setUpdateSettings, getUpdateState, subscribeUpdateState,
@@ -56,6 +57,8 @@ function revealSettingTarget(root, target) {
 
 export function renderSettings(container, opts = {}) {
   settingsNavState.expanded = [];
+  settingsNavState.page = "";
+  let initialTarget = true;
   // 插件是异步加载的：注册表变化（导航变化）时重渲染，避免卡片缺位。
   // 批量启停插件时先跳过 —— 每关一个插件都会 emitNavChanged()，不挡就会整页重建 N 次。
   navUnsub?.();
@@ -70,20 +73,7 @@ export function renderSettings(container, opts = {}) {
 
     /* 外观与交互：拆成独立模块，避免设置主文件继续膨胀 */
     const uiCard = createInterfaceCard({ rerender: render });
-    if (api.isTauri && info?.os === "windows") {
-      uiCard.append(
-        el("div", { class: "setting-row" },
-          el("span", { class: "setting-copy" }, el("b", {}, "手机版测试")),
-          el("button", {
-            class: "btn ghost sm", type: "button",
-            onclick: async () => {
-              try { await api.openExternal("http://127.0.0.1:1420/"); }
-              catch (error) { toast(`打开手机版测试失败：${error.message || error}`); }
-            },
-          }, "打开手机版地址")),
-        el("p", { class: "set-hint" }, "在系统浏览器打开 http://127.0.0.1:1420/，需先启动本机网页服务；缩窄浏览器窗口即可查看手机版布局。"),
-      );
-    }
+    const testingCard = createTestingCard();
     const themeCard = createThemeCard();
     const highlightCard = createKeywordHighlightsCard();
     const taskCard = createTaskSettingsCard();
@@ -529,6 +519,7 @@ export function renderSettings(container, opts = {}) {
       { id: "shortcuts", node: shortcutCard, label: "全局快捷键", icon: "keyboard", hint: "命令面板 / 快速捕获 / 插件快捷键", keywords: "快捷键 命令面板 快速捕获 Ctrl Alt 插件快捷键 字母" },
       { id: "lan", node: lanCard, label: "局域网联动", icon: "network-wired", hint: "手机联动与二维码", keywords: "手机 WiFi 二维码 端口 配对" },
       { id: "plugins", node: plugCard, label: "插件管理", icon: "puzzle-piece", hint: "启用 / 导入 / 导出", keywords: "插件 权限 导入 ZIP 启用 停用 开发文档" },
+      { id: "testing", node: testingCard, label: "测试", icon: "mobile-screen-button", hint: "手机预览 / 尺寸 / 横竖屏", keywords: "测试 手机版 预览 模拟 手机 内置浏览器 横屏 竖屏" },
       // 更新入口在「关于」里（软件更新）：关键词挂这儿，搜「更新 / 升级」也能落到关于。
       { id: "about", node: aboutCard, label: "关于", icon: "circle-info", hint: "版本 / 软件更新 / 免责声明 / 开源信息", keywords: "免责声明 使用说明 隐私 数据 官方 权限 版本 更新 升级 检查更新 自动更新 弹窗提示 忽略此版本 卸载 卸载应用 清除数据 删除数据 卸载 U-Time 开源 框架 GitHub 发布 下载 Releases 插件开发 API 文档 项目仓库" },
     ];
@@ -536,17 +527,22 @@ export function renderSettings(container, opts = {}) {
       entry.node.classList.add("settings-section");
       entry.node.id = `settings-${entry.id}`;
     }
-    const settingsNavigator = createSettingsNavigator(settingEntries, settingsNavState);
+    const settingsNavigator = createSettingsNavigator(settingEntries, settingsNavState, {
+      pages: isAndroidRuntime(),
+      onPageChange: opts.onPageChange,
+    });
+    opts.onNavigator?.(settingsNavigator);
     // 窄屏走手风琴：分区由 navigator 包成「标题行 + 可收放内容」，这里按它给的顺序渲染
     const content = el("div", { class: "settings-content" }, ...settingsNavigator.panels);
-    const layout = el("div", { class: "settings-layout" }, settingsNavigator.node, content);
+    const layout = el("div", { class: `settings-layout${isAndroidRuntime() ? " settings-pages" : ""}` }, settingsNavigator.node, content);
     // 设置中心头卡已移除：纯展示内容占掉首屏空间，左侧分类导航本身已承担引导职责。
     wrap.replaceChildren(layout);
     settingsNavigator.apply();
     // 外部（如更新提示条的「立即更新」）可以点名要停在哪一节。
     // 放在 apply() 之后：select() 会校验 visibleIds，而那正是 apply() 填的。
-    if (opts.section) settingsNavigator.select(opts.section, { animate: false });
-    if (opts.target) revealSettingTarget(content, opts.target);
+    if (initialTarget && opts.section) settingsNavigator.select(opts.section, { animate: false });
+    if (initialTarget && opts.target) revealSettingTarget(content, opts.target);
+    initialTarget = false;
   };
   render();
 }

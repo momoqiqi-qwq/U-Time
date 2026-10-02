@@ -61,6 +61,8 @@ function openOverlays() {
 function closeTopOverlay() {
   const mask = openOverlays().pop();
   if (!mask) return false;
+  // 设置子页面先返回分类目录，再次返回才关闭设置。更上层弹窗仍优先关闭。
+  if (mask.nextElementSibling?._back?.()) return true;
   const gutted = () => !mask.isConnected || mask.classList.contains(CLOSING_CLASS);
 
   // ① 遮罩点击即关闭：抽屉 / 设置弹窗 / 快速捕获 / 命令面板 / 询问框 / 规则编辑器都这么绑

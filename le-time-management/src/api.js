@@ -1,7 +1,28 @@
 // Tauri 命令封装 —— 在纯浏览器里跑时自动降级到 localStorage（便于前端独立调试）
 import { decodeWebBody } from "./webContent.js";
+import { isMobilePreview, MOBILE_PREVIEW_KEY } from "./mobilePreview.js";
 
-const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const mobilePreview = typeof window !== "undefined" && window.parent !== window
+  && /(?:^|[?&])mobile-preview=1(?:&|$)/.test(window.location?.search || "") && isMobilePreview();
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window && !mobilePreview;
+
+// 内嵌手机预览仅借用同源宿主的登录能力；数据保存和其他原生功能仍保持隔离。
+const loginCommands = new Set(["http_session_new", "http_fetch", "http_session_export", "http_session_restore", "des_ecb_encrypt_hex", "plugin_vault_get"]);
+function previewLoginHost() {
+  if (!mobilePreview) return null;
+  try {
+    const host = window.parent;
+    return host.location.origin === window.location.origin && typeof host.__TAURI_INTERNALS__?.invoke === "function" ? host : null;
+  } catch { return null; }
+}
+async function invokeLogin(cmd, args = {}) {
+  if (isTauri) return invoke(cmd, args);
+  const host = previewLoginHost();
+  if (!host || !loginCommands.has(cmd)) throw new Error(`命令 ${cmd} 的原生登录能力不可用`);
+  return host.__TAURI_INTERNALS__.invoke(cmd, args);
+}
+const previewVault = new Map();
+const previewVaultKey = (pluginId, key) => JSON.stringify([pluginId, key]);
 
 async function invoke(cmd, args = {}) {
   if (!isTauri) throw new Error(`命令 ${cmd} 仅在 Tauri 环境可用`);
@@ -15,7 +36,7 @@ async function cppuBridge(op, args) {
   return data.result;
 }
 
-const LS_KEY = "tidebalance-data";
+const LS_KEY = mobilePreview ? MOBILE_PREVIEW_KEY : "tidebalance-data";
 
 export const api = {
   isTauri,
@@ -218,13 +239,13 @@ export const api = {
 
   // 会话化 HTTP：Tauri 端带 Cookie Jar（登录态跨请求保持）；浏览器端用 include 凭据
   async httpSessionNew() {
-    if (isTauri) return invoke("http_session_new");
+    if (isTauri || previewLoginHost()) return invokeLogin("http_session_new");
     return "browser-" + crypto.randomUUID();
   },
 
   async httpFetch(sid, method, url, opts = {}) {
-    if (isTauri) {
-      return invoke("http_fetch", {
+    if (isTauri || previewLoginHost()) {
+      return invokeLogin("http_fetch", {
         sid, method, url,
         headers: opts.headers || null,
         body: opts.body || null,
@@ -254,31 +275,39 @@ export const api = {
   },
 
   async desEncryptHex(plain, key) {
-    if (isTauri) return invoke("des_ecb_encrypt_hex", { plain, key });
+    if (isTauri || previewLoginHost()) return invokeLogin("des_ecb_encrypt_hex", { plain, key });
     throw new Error("DES 加密仅支持在 Tauri 环境使用");
   },
 
   // 会话 Cookie 导出/恢复：让插件登录态跨应用重启（免验证码续期）
   async httpSessionExport(sid, urls) {
-    if (!isTauri) return [];
-    return invoke("http_session_export", { sid, urls });
+    if (!isTauri && !previewLoginHost()) return [];
+    return invokeLogin("http_session_export", { sid, urls });
   },
   async httpSessionRestore(cookies) {
-    if (!isTauri) return api.httpSessionNew();
-    return invoke("http_session_restore", { cookies });
+    if (!isTauri && !previewLoginHost()) return api.httpSessionNew();
+    return invokeLogin("http_session_restore", { cookies });
   },
 
   // 插件密钥库：密码、会话票据等敏感数据保存在 Rust 侧 AES-256-GCM 加密文件，
   // 不进入 data.json / 普通备份。浏览器调试环境降级为 null（功能不可用但不崩）。
   async pluginVaultSet(pluginId, key, value) {
+    if (mobilePreview) { previewVault.set(previewVaultKey(pluginId, key), value); return; }
     if (!isTauri) throw new Error("插件密钥库仅在 Tauri 应用中可用");
     return invoke("plugin_vault_set", { pluginId, key, value });
   },
   async pluginVaultGet(pluginId, key) {
+    if (mobilePreview) {
+      const id = previewVaultKey(pluginId, key);
+      if (previewVault.has(id)) return previewVault.get(id);
+      if (previewLoginHost()) return invokeLogin("plugin_vault_get", { pluginId, key });
+      return null;
+    }
     if (!isTauri) return null;
     return invoke("plugin_vault_get", { pluginId, key });
   },
   async pluginVaultDel(pluginId, key) {
+    if (mobilePreview) { previewVault.set(previewVaultKey(pluginId, key), null); return; }
     if (!isTauri) return;
     return invoke("plugin_vault_del", { pluginId, key });
   },

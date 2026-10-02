@@ -15,7 +15,7 @@ function faIcon(name) {
 // 窄屏断点与 styles.css 的 ≤980px 设置页规则保持一致。
 const NARROW_QUERY = "(max-width: 980px)";
 
-export function createSettingsNavigator(entries, state = {}) {
+export function createSettingsNavigator(entries, state = {}, { pages = false, onPageChange = () => {} } = {}) {
   const search = el("input", {
     class: "settings-search",
     type: "search",
@@ -62,7 +62,7 @@ export function createSettingsNavigator(entries, state = {}) {
       class: "settings-acc-head",
       type: "button",
       "aria-expanded": "false",
-      onclick: () => toggleSection(entry.id),
+      onclick: () => pages ? select(entry.id) : toggleSection(entry.id),
     },
       el("span", { class: "settings-acc-ico", "aria-hidden": "true" }, faIcon(entry.icon || "gear")),
       el("span", { class: "settings-acc-copy" },
@@ -94,6 +94,10 @@ export function createSettingsNavigator(entries, state = {}) {
 
   const paintPage = ({ animate = false } = {}) => {
     const isNarrow = !!narrow.matches;
+    if (pages) {
+      node.hidden = Boolean(state.page);
+      onPageChange(entries.find((entry) => entry.id === state.page) || null);
+    }
     for (const entry of entries) {
       const view = heads.get(entry.id);
       if (!view) continue;
@@ -101,11 +105,15 @@ export function createSettingsNavigator(entries, state = {}) {
       const isActive = entry.id === active && visible;
       entry.node.classList.toggle("settings-section-active", isActive);
       // 窄屏：全部分区都在页面上，收放只看 expanded；桌面：只显示当前分类
-      const open = isNarrow ? visible && expanded.has(entry.id) : isActive;
-      view.wrap.hidden = isNarrow ? !visible : !isActive;
+      const open = pages ? entry.id === state.page : isNarrow ? visible && expanded.has(entry.id) : isActive;
+      view.wrap.hidden = pages ? (state.page ? !open : !visible) : isNarrow ? !visible : !isActive;
+      if (pages) {
+        view.head.hidden = open;
+        view.head.removeAttribute("aria-expanded");
+      }
       view.body.hidden = !open;
       view.wrap.classList.toggle("settings-acc-open", open);
-      view.head.setAttribute("aria-expanded", String(open));
+      if (!pages) view.head.setAttribute("aria-expanded", String(open));
       if (animate && open && isNarrow && typeof view.body.animate === "function") {
         view.body.animate([{ opacity: .35 }, { opacity: 1 }], { duration: 160, easing: "cubic-bezier(.22,.8,.22,1)" });
       }
@@ -133,12 +141,19 @@ export function createSettingsNavigator(entries, state = {}) {
     active = id;
     state.active = id;
     const wasExpanded = expanded.has(id);
+    if (pages) {
+      if (!state.page) state.catalogScroll = node.closest(".settings-modal-body")?.scrollTop || 0;
+      state.page = id;
+    }
     if (narrow.matches) { expanded.add(id); syncExpanded(); }
     paintActive();
     paintPage({ animate });
     // 窄屏下选中一个还是收着的分区时，把它滚到视口顶部 —— 否则点了分类名字还得自己往下翻找，
     // 看起来像「点了没反应」。已经展开过的不再滚，避免用户手动收起来后被反复拽回去。
-    if (narrow.matches && !wasExpanded) {
+    if (pages) {
+      const scroller = node.closest(".settings-modal-body");
+      if (scroller) scroller.scrollTop = 0;
+    } else if (narrow.matches && !wasExpanded) {
       const view = heads.get(id);
       requestAnimationFrame(() => view?.wrap?.scrollIntoView?.({ block: "start", behavior: animate ? "smooth" : "auto" }));
     }
@@ -189,7 +204,7 @@ export function createSettingsNavigator(entries, state = {}) {
     state.active = active;
     // 窄屏搜索：命中的分区直接展开（否则搜到的东西全在收起状态，等于没搜）；
     // 清空搜索词时把搜索前的展开状态还回去，别把 11 个分区全留成展开。
-    if (narrow.matches) {
+    if (narrow.matches && !pages) {
       if (q) {
         if (!expandedBeforeSearch) expandedBeforeSearch = new Set(expanded);
         expanded.clear();
@@ -232,5 +247,16 @@ export function createSettingsNavigator(entries, state = {}) {
     ),
   );
 
+  function back() {
+    if (!pages || !state.page) return false;
+    const previous = state.page;
+    state.page = "";
+    paintPage();
+    const scroller = node.closest(".settings-modal-body");
+    if (scroller) scroller.scrollTop = state.catalogScroll || 0;
+    heads.get(previous)?.head.focus({ preventScroll: true });
+    return true;
+  }
+  node._back = back;
   return { node, apply, select, panels };
 }

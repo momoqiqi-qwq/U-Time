@@ -16,6 +16,7 @@ import { initMotionInteractions, reducedMotion } from "./motion.js";
 import { initLanPushGate } from "./lanPushGate.js";
 import { initUpdateChecker } from "./updateChecker.js";
 import { showStartupDisclaimer } from "./disclaimer.js";
+import { isMobilePreview } from "./mobilePreview.js";
 import { initAndroidNotifications } from "./androidNotify.js";
 
 // 首次启动的初始数据 —— 刻意全空，让空状态引导用户自己建第一条（对接 Rust seed_data()）。
@@ -51,6 +52,11 @@ async function boot() {
   initMotionInteractions();
   renderShell(document.getElementById("app"));
   await revealAppWindow();
+  if (isMobilePreview()) {
+    initCommandPalette();
+    initPluginHost().catch((e) => console.error("预览插件加载失败:", e));
+    return;
+  }
   await showStartupDisclaimer();
   await initAndroidNotifications();
   initCapture();

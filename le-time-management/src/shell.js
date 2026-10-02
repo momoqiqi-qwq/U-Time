@@ -19,7 +19,11 @@ import { getUiPreferences, coreViewIds } from "./uiPreferences.js";
 import { listRailActions, normalizeRailActionOrder, registerRailAction, slotIndexFor } from "./railActions.js";
 import { closeLayer, fadeAway, flipByKey, foldClose, foldOpen, observePluginMotion, reducedMotion, removeWithMotion } from "./motion.js";
 import { FOCUS_WINDOW_SIZE, isDesktopRuntime, isFocusWindowActive, toggleFocusWindow } from "./windowSize.js";
-import { isAndroidRuntime } from "./androidNotify.js";
+import { isAndroidRuntime as isNativeAndroidRuntime } from "./androidNotify.js";
+import { isMobilePreview } from "./mobilePreview.js";
+
+// 本文件的 Android 判断只用于布局，预览复用它；原生能力仍由 androidNotify 判断。
+function isAndroidRuntime() { return isNativeAndroidRuntime() || isMobilePreview(); }
 import { canGoBack, goBack, initBackNav, noteViewChange } from "./backNav.js";
 import { getThemeMode, resolveThemeMode, setThemeMode } from "./theme.js";
 import { RAIL_WIDTH_LIMITS, RAIL_WIDTH_STEP, applyRailWidth, clampRailWidth, normalizeRailWidth, steppedRailWidth } from "./railWidth.js";
@@ -1280,7 +1284,17 @@ export function renderShell(root) {
     document.body.append(mask, panel);
     if (dockLayer) document.body.append(dockLayer);
     updateDockClearance();
-    renderSettings(panel.querySelector(".settings-modal-body"), { section, target });
+    const pageBack = el("button", { class: "btn ghost sm settings-page-back", type: "button", hidden: true,
+      onclick: () => panel._back?.(), "aria-label": "返回设置列表" }, "‹ 返回设置");
+    panel.querySelector(".settings-modal-head").prepend(pageBack);
+    renderSettings(panel.querySelector(".settings-modal-body"), { section, target,
+      onNavigator: (nav) => { panel._back = () => nav.node._back(); },
+      onPageChange: (entry) => {
+        pageBack.hidden = !entry;
+        panel.querySelector(".settings-modal-head h2").textContent = entry?.label || "设置";
+        panel.querySelector(".settings-modal-head .desc").textContent = entry?.hint || "界面、提醒、数据与扩展";
+      },
+    });
   }
 
   function updateQuickDockToggle() {

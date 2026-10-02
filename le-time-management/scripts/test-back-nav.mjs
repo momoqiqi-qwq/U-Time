@@ -564,3 +564,26 @@ async function pressBack(world) {
 console.log("PASS: 返回键历史栈（视图回退 / 浮层优先 / 空格子回收 / 各类遮罩类名）"
   + " + 顶栏返回按钮的数据源与接线（canGoBack / goBack / 断点 / 调用顺序）"
   + " + 内容区左右滑动 = 返回上一页（v0.52.0，翻页手势已删）");
+
+// APK 子页面：上层弹窗先关闭，然后回目录，最后关闭设置；不残留历史格。
+{
+  const { world, off } = await setup();
+  const { mask } = world.openMask();
+  const panel = new FakeEl("section");
+  let page = "data";
+  panel._back = () => { if (!page) return false; page = ""; return true; };
+  world.body.append(panel);
+  const upper = world.openMask().mask;
+  await flush();
+  await pressBack(world);
+  assert.equal(upper.isConnected, false);
+  assert.equal(page, "data", "确认框应优先于设置子页面关闭");
+  await pressBack(world);
+  assert.equal(page, "", "Android 返回应先回设置目录");
+  assert.equal(mask.isConnected, true);
+  assert.equal(world.history.depth, 1, "目录仍可返回关闭设置");
+  await pressBack(world);
+  assert.equal(mask.isConnected, false);
+  assert.equal(world.history.canGoBack, false);
+  off();
+}
