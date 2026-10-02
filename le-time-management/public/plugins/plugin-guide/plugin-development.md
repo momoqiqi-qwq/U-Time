@@ -189,6 +189,8 @@ const parsed = tide.util.parseWhen("明天下午3点到4点 讨论开题");
 const cat = tide.util.guessCategory("跑步 30 分钟");
 const quad = tide.util.guessQuad("2026-09-12");
 tide.util.navigate("timeblock");
+// 打开应用设置并定位分类（需要 ui 权限）
+tide.util.openSettings("cppu-login");
 ```
 
 ## 4. 插件页面规范与建议

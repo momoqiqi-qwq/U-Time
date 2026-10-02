@@ -19,6 +19,7 @@ import { createAiSettingsCard } from "./settings/ai.js";
 import { createSyncCard } from "./settings/sync.js";
 import { createKeywordHighlightsCard } from "./settings/highlights.js";
 import { createTaskSettingsCard } from "./settings/tasks.js";
+import { createCppuLoginCard } from "./settings/cppuLogin.js";
 import { createTestingCard } from "./settings/testing.js";
 import { toggleSwitch } from "../switchControl.js";
 import {
@@ -74,6 +75,7 @@ export function renderSettings(container, opts = {}) {
     /* 外观与交互：拆成独立模块，避免设置主文件继续膨胀 */
     const uiCard = createInterfaceCard({ rerender: render });
     const testingCard = createTestingCard();
+    const cppuLoginCard = createCppuLoginCard();
     const themeCard = createThemeCard();
     const highlightCard = createKeywordHighlightsCard();
     const taskCard = createTaskSettingsCard();
@@ -519,6 +521,7 @@ export function renderSettings(container, opts = {}) {
       { id: "shortcuts", node: shortcutCard, label: "全局快捷键", icon: "keyboard", hint: "命令面板 / 快速捕获 / 插件快捷键", keywords: "快捷键 命令面板 快速捕获 Ctrl Alt 插件快捷键 字母" },
       { id: "lan", node: lanCard, label: "局域网联动", icon: "network-wired", hint: "手机联动与二维码", keywords: "手机 WiFi 二维码 端口 配对" },
       { id: "plugins", node: plugCard, label: "插件管理", icon: "puzzle-piece", hint: "启用 / 导入 / 导出", keywords: "插件 权限 导入 ZIP 启用 停用 开发文档" },
+      { id: "cppu-login", node: cppuLoginCard, label: "警大登录设置", icon: "gear", hint: "登录重试 / 自动登录", keywords: "警大 门户 账号 登录 自动登录 密码 验证码 重试" },
       { id: "testing", node: testingCard, label: "测试", icon: "mobile-screen-button", hint: "手机预览 / 尺寸 / 横竖屏", keywords: "测试 手机版 预览 模拟 手机 内置浏览器 横屏 竖屏" },
       // 更新入口在「关于」里（软件更新）：关键词挂这儿，搜「更新 / 升级」也能落到关于。
       { id: "about", node: aboutCard, label: "关于", icon: "circle-info", hint: "版本 / 软件更新 / 免责声明 / 开源信息", keywords: "免责声明 使用说明 隐私 数据 官方 权限 版本 更新 升级 检查更新 自动更新 弹窗提示 忽略此版本 卸载 卸载应用 清除数据 删除数据 卸载 U-Time 开源 框架 GitHub 发布 下载 Releases 插件开发 API 文档 项目仓库" },

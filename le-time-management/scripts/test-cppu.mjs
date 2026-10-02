@@ -147,7 +147,7 @@ assert.ok(cppuBlock.includes(`"${cppuManifest.version}"`), `pluginCatalog 必须
 assert.match(cppuBlock, /"vault"/, 'pluginCatalog 必须同步 vault 权限');
 assert.match(cppuBlock, /"openUrl"/, 'pluginCatalog 必须同步 openUrl 权限');
 
-assert.match(source, /view: "cppu-webvpn"/, "WebVPN 必须进入独立插件视图");
+assert.doesNotMatch(source, /view: "cppu-webvpn"/, "已移除 WebVPN 插件入口");
 
 /* ── 左侧校园服务栏：十个入口（含一网通办、一卡通、我的请假）+ 标题/图标自动识别 ── */
 for (const url of ['https://mail.cppu.edu.cn/', 'https://jw.cppu.edu.cn/index.html', 'https://xg.cppu.edu.cn/XGPhone/Phone/index.html', 'https://xg.cppu.edu.cn/XGPhone/Phone/index.html#/StuDailyLeaveList', 'https://service.cppu.edu.cn/fe/site/service']) {
@@ -609,8 +609,8 @@ assert.doesNotMatch(source, /\/je\/doAct|\/je\/develop\/funcInfo\/(save|add|upda
 assert.ok(source.includes('const JW_LOAD = JWAPP + "/je/load"'), '教务取数端点必须挂在 jw 域，不能混进 sso-jw');
 
 /* 警大学分原入口成为警大成绩，避免教务菜单出现两张重复成绩页。 */
-assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-login-settings', 'cppu-notify', 'cppu-qj', 'cppu-xk'],
-  '必须注册通知、登录设置及五个教务/一卡通视图');
+assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-notify', 'cppu-qj', 'cppu-xk'],
+  '必须注册通知及五个教务/一卡通视图，登录设置属于应用设置');
 assert.ok(views.filter((v) => v.id !== 'cppu-notify').every((v) => typeof v.render === 'function'), '插件子视图必须有 render');
 assert.ok(views.some((v) => v.id === 'cppu-cx' && v.title === '警大创新学分'), '创新学分视图要有独立标题');
 assert.ok(views.some((v) => v.id === 'cppu-credit' && v.title === '警大成绩'), '原警大学分视图应以警大成绩注册');

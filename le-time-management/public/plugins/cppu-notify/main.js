@@ -36,8 +36,6 @@
   // 标题与图标不写死：进入插件时抓一次网页元信息（<title> / favicon / 图标名），
   // 抓不到（内网、未登录、断网）就退回下面的 label 与 icon，因此离线也不会空着。
   const QUICK_LINKS = [
-    { view: "cppu-webvpn", label: "WebVPN / 警大网站", icon: "shield-halved" },
-    { view: "cppu-login-settings", label: "登录设置", icon: "gear" },
     { url: "https://mail.cppu.edu.cn/", label: "教育邮箱", icon: "envelope" },
     // 「教务」是唯一的父项：右侧箭头展开 / 收起，行本身仍是换票开教务（与升级前行为一致）。
     // 教务子项走 `view:`（在 U-Time 里开视图）而不是换票开浏览器：
@@ -940,10 +938,12 @@
   async function runLoginAttempts({ username, password, code = "", onRetry = () => {}, isActive = () => true }) {
     if (loginBusy) throw { fatal: "已有登录正在进行，请稍候" };
     loginBusy = true;
-    const retries = cleanLoginRetries(state.loginRetries);
+    let retries = cleanLoginRetries(state.loginRetries);
     let samples = null, recognized = false;
     const checkActive = () => { if (!isActive()) throw { fatal: "登录页面已关闭，已停止后续重试" }; };
     try {
+      retries = cleanLoginRetries(await tide.storage.get("loginRetries", retries));
+      state.loginRetries = retries;
       for (let attempt = 0; attempt <= retries; attempt++) {
         try {
           checkActive();
@@ -1000,16 +1000,10 @@
   }
 
   function loginSettingsHtml() {
-    return `<details style="margin:14px 0"><summary>登录设置</summary><label style="display:block;margin:12px 0">失败后自动重试次数 <select data-login-retries aria-label="失败后自动重试次数">${[0,1,2,3,4,5].map(n => `<option value="${n}" ${n === state.loginRetries ? "selected" : ""}>${n === 0 ? "0 次（关闭重试）" : `${n} 次`}</option>`).join("")}</select></label><p>默认重试 2 次（加上首次，最多尝试 3 次）。适用于门户手动及自动登录；密码错误、账号锁定、请求过频不重试。WebVPN 官方页面不受此设置影响。</p><p data-retry-status role="status"></p></details>`;
+    return '<button type="button" class="pp-btn" data-login-settings style="margin:14px 0">警大登录设置</button>';
   }
   function bindLoginSettings(el) {
-    el.querySelector("[data-login-retries]")?.addEventListener("change", async event => {
-      const input = event.currentTarget, value = cleanLoginRetries(input.value), previous = state.loginRetries;
-      input.disabled = true;
-      try { await tide.storage.set("loginRetries", value); state.loginRetries = value; el.querySelector("[data-retry-status]").textContent = "已保存，下次登录生效"; }
-      catch { input.value = String(previous); el.querySelector("[data-retry-status]").textContent = "保存失败，请重试"; }
-      finally { input.disabled = false; }
-    });
+    el.querySelector("[data-login-settings]")?.addEventListener("click", () => tide.util.openSettings("cppu-login"));
   }
 
   // 人工登录表单要能立刻提交，得先把 execution 和一张验证码抓回来
@@ -3562,12 +3556,6 @@
   }
 
   tide.ui.registerView({ id: "cppu-notify", title: "警大通知", icon: 'building-columns', render });
-  tide.ui.registerView({ id: "cppu-login-settings", title: "警大登录设置", icon: "gear", render: async el => {
-    state.loginRetries = cleanLoginRetries(await tide.storage.get("loginRetries", 2));
-    el.innerHTML = `<section style="max-width:680px;margin:24px auto;padding:20px;color:var(--ink)"><h2>警大登录设置</h2>${loginSettingsHtml()}</section>`;
-    el.querySelector("details").open = true;
-    bindLoginSettings(el);
-  } });
   tide.ui.registerView({ id: "cppu-card", title: "警大一卡通", icon: "credit-card", render: mountCardView });
   // 教务只读视图：侧栏「校园服务」里的选课 / 请假 / 成绩 / 创新学分入口直接 navigate 过来
   for (const cfg of JW_VIEWS) {

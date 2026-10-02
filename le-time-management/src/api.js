@@ -1,6 +1,6 @@
 // Tauri 命令封装 —— 在纯浏览器里跑时自动降级到 localStorage（便于前端独立调试）
 import { decodeWebBody } from "./webContent.js";
-import { isMobilePreview, MOBILE_PREVIEW_KEY } from "./mobilePreview.js";
+import { isMobilePreview, loadMobilePreviewData, saveMobilePreviewData } from "./mobilePreview.js";
 
 const mobilePreview = typeof window !== "undefined" && window.parent !== window
   && /(?:^|[?&])mobile-preview=1(?:&|$)/.test(window.location?.search || "") && isMobilePreview();
@@ -36,13 +36,14 @@ async function cppuBridge(op, args) {
   return data.result;
 }
 
-const LS_KEY = mobilePreview ? MOBILE_PREVIEW_KEY : "tidebalance-data";
+const LS_KEY = "tidebalance-data";
 
 export const api = {
   isTauri,
   nativeSchedule: (action, bounds) => invoke("native_schedule", { action, bounds }),
 
   async loadData() {
+    if (mobilePreview) return loadMobilePreviewData();
     if (isTauri) return invoke("load_data");
     const raw = localStorage.getItem(LS_KEY);
     if (raw) return JSON.parse(raw);
@@ -50,6 +51,7 @@ export const api = {
   },
 
   async saveData(data) {
+    if (mobilePreview) return saveMobilePreviewData(data);
     if (isTauri) return invoke("save_data", { data });
     localStorage.setItem(LS_KEY, JSON.stringify(data));
   },

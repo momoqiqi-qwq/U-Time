@@ -7,10 +7,10 @@ const calendar = read('public/plugins/cppu-calendar/main.js');
 const schedule = read('public/plugins/shiguang-schedule/ui.js');
 // Execute the actual retry policy with controlled transports; no live credentials.
 const policy = portal.slice(portal.indexOf('  const cleanLoginRetries ='),portal.indexOf('  function loginSettingsHtml()'));
-function authHarness({ retries=2, fail=()=>null, prepareFail=()=>false }={}) {
+function authHarness({ retries=2, fail=()=>null, prepareFail=()=>false, storedRetries }={}) {
   const state={loginRetries:retries,pending:{execution:'initial'}};
   const calls={post:0,sessions:0,prepared:0,codes:[],delays:[]};
-  const sandbox={state,setTimeout:(fn,ms)=>{calls.delays.push(ms);fn();},
+  const sandbox={state,tide:{storage:{get:async(key,fallback)=>storedRetries ?? fallback}},setTimeout:(fn,ms)=>{calls.delays.push(ms);fn();},
     newSession:async()=>{state.sid='sid-'+(++calls.sessions);},
     fetchLoginHtml:async()=>{calls.prepared++;if(prepareFail(calls.prepared))throw Error('network');return 'exec-'+calls.prepared;},
     fetchCaptcha:async()=>{state.captcha='img-'+calls.prepared;},
@@ -33,6 +33,12 @@ for(const value of [0,1,5,'3'])assert.equal(authHarness().cleanLoginRetries(valu
  const a=authHarness({retries:0,fail:()=>({retry:'network',retryable:true})});
  await assert.rejects(a.runLoginAttempts({username:'test',password:'secret',code:'initial'}));
  assert.equal(a.calls.post,1,'zero disables extra submissions');assert.equal(a.state.pending.password,undefined);
+}
+{
+ const a=authHarness({retries:5,storedRetries:0,fail:()=>({retry:'network',retryable:true})});
+ await assert.rejects(a.runLoginAttempts({username:'test',password:'secret',code:'initial'}));
+ assert.equal(a.calls.post,1,'next login reads the latest application setting');
+ assert.equal(a.state.loginRetries,0);
 }
 for(const error of [{fatal:'wrong password'},{fatal:'locked'},{retry:'rate limited',retryable:false}]){
  const a=authHarness({retries:5,fail:()=>error});
@@ -99,6 +105,9 @@ const nativeCalls=[];const nativeApi=new Function('isTauri','invoke','window','r
 assert.equal((await nativeApi.openCampusSite('webvpn')).mode,'native');assert.deepEqual(nativeCalls,[['open_internal',{url:'https://webvpn.cppu.edu.cn/'}]]);
 await assert.rejects(nativeApi.openCampusSite('https://evil.invalid'));await assert.rejects(nativeApi.openCampusSite('__proto__'));
 const blockedApi=new Function('isTauri','invoke','window','return ({'+campus+'});')(false,()=>{}, {open:()=>null});await assert.rejects(blockedApi.openCampusSite('website'));
-const vpn=read('public/plugins/cppu-webvpn/main.js');assert.doesNotMatch(vpn,/<iframe|tide\.vault|tide\.http/);assert.match(vpn,/tide\.util\.openCampusSite/);
-assert.match(read('src/pluginHost.js'),/pid !== "cppu-webvpn"/);
-console.log('PASS: campus calendar, timetable statistics, bounded login retries and native WebVPN entry');
+assert.equal(fs.existsSync(new URL('../public/plugins/cppu-webvpn/manifest.json', import.meta.url)), false);
+assert.doesNotMatch(read('src/pluginCatalog.js'), /cppu-webvpn/);
+assert.doesNotMatch(read('../miniprogram/core/pluginCatalog.js'), /cppu-webvpn/);
+assert.doesNotMatch(portal, /cppu-webvpn|cppu-login-settings/);
+assert.match(portal, /tide\.util\.openSettings\("cppu-login"\)/);
+console.log('PASS: campus calendar, timetable statistics, bounded login retries, application settings and removed VPN plugin');

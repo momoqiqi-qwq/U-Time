@@ -204,11 +204,11 @@ const plugins = [
   {
     "id": "cppu-notify",
     "name": "警大门户通知",
-    "version": "1.34.0",
+    "version": "1.34.1",
     "author": "基于 dsh-user/cppu-notify-skill v1.2.1 · U-Time适配（1.26.1 教务查询遇网络抖动自动重发，报错摊平真实成因）",
     "icon": "building-columns",
     "faIcon": "building-columns",
-    "description": "智慧警大门户通知：登录一次后自动恢复门户与教务会话。左侧「校园服务」提供 WebVPN、教育邮箱、教务、学工、我的请假、一网通办、一卡通等入口；「教务」子菜单可进入学生选课、学生请假、警大成绩、创新学分和独立警大校历插件。警大成绩参考 cppu-helper 成绩页，展示总览、平均分与 GPA、分学期走势、学分进度、成绩分布、课程构成和课程列表，支持刷新、离线缓存及生成分享成绩单图片。创新学分按学期显示申报项目、级别、奖项、认定学分与审核状态。教务写操作仍由学校系统确认。教育邮箱和一卡通支持独立自动登录；一卡通可查看充值、消费与余额。通知支持自动刷新、分类、正文与附件阅读、转为提醒和微信推送联动。",
+    "description": "智慧警大门户通知：登录一次后自动恢复门户与教务会话。左侧「校园服务」提供教育邮箱、教务、学工、我的请假、一网通办、一卡通等入口；「教务」子菜单可进入学生选课、学生请假、警大成绩、创新学分和独立警大校历插件。警大成绩参考 cppu-helper 成绩页，展示总览、平均分与 GPA、分学期走势、学分进度、成绩分布、课程构成和课程列表，支持刷新、离线缓存及生成分享成绩单图片。创新学分按学期显示申报项目、级别、奖项、认定学分与审核状态。教务写操作仍由学校系统确认。教育邮箱和一卡通支持独立自动登录；一卡通可查看充值、消费与余额。通知支持自动刷新、分类、正文与附件阅读、转为提醒和微信推送联动。",
     "permissions": [
       "ui",
       "tasks",
@@ -245,26 +245,6 @@ const plugins = [
     ],
     "entry": "main.js",
     "order": 9.5,
-    "platforms": {
-      "windows": "full",
-      "android": "full",
-      "miniprogram": "unavailable"
-    }
-  },
-  {
-    "id": "cppu-webvpn",
-    "name": "警大 WebVPN / 网站",
-    "version": "0.1.0",
-    "author": "U-Time内置",
-    "icon": "shield-halved",
-    "faIcon": "shield-halved",
-    "description": "独立校园网站界面。Windows / Android 使用应用内网页窗口完成官方 WebVPN 登录并访问校内资源；另设警大官网页。不会读取或复用门户密码、Cookie，网页调试环境使用浏览器窗口。",
-    "permissions": [
-      "ui",
-      "openUrl"
-    ],
-    "entry": "main.js",
-    "order": 9.6,
     "platforms": {
       "windows": "full",
       "android": "full",

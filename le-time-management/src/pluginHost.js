@@ -392,11 +392,6 @@ function makeApi(man, source) {
     util: {
       today: S.todayStr, addDays: S.addDays, mmOf: S.mmOf, hhmmOf: S.hhmmOf, durLabel: S.durLabel,
       openUrl: (url) => { requirePermission(man, pid, "openUrl"); return api.openUrl(url); },
-      openCampusSite: (site) => {
-        requirePermission(man, pid, "openUrl");
-        if (pid !== "cppu-webvpn") throw new Error("校园网站窗口仅对警大 WebVPN 插件开放");
-        return api.openCampusSite(site);
-      },
       openCardPage: (url) => {
         requirePermission(man, pid, "openUrl");
         if (pid !== "cppu-notify") throw new Error("一卡通网页窗口仅对警大插件开放");
@@ -411,6 +406,7 @@ function makeApi(man, source) {
       parseWhen: (...args) => { requirePermission(man, pid, "timeParse"); return parseWhen(...args); },
       guessCategory: (...args) => { requirePermission(man, pid, "timeParse"); return guessCategory(...args); },
       guessQuad: (...args) => { requirePermission(man, pid, "timeParse"); return guessQuad(...args); },
+      openSettings: (section = "") => { requirePermission(man, pid, "ui"); return window.dispatchEvent(new CustomEvent("tide:open-settings", { detail: { section } })); },
       navigate: (view) => { requirePermission(man, pid, "ui"); return window.dispatchEvent(new CustomEvent("tide:navigate", { detail: view })); },
       desEncryptHex: (plain, key) => { requirePermission(man, pid, "http"); return api.desEncryptHex(plain, key); },
       web: {

@@ -12,7 +12,6 @@
 | `pomodoro` | color | `tomato` | 番茄专注 / 番茄 | `c803c064b51d6b32…` |
 | `cppu-notify` | color | `university` | 警大门户通知 / 大学建筑 | `9748e58bb1ab3556…` |
 | `cppu-calendar` | color | `calendar` | 警大校历 / 月历 | `3f9a3a3fb500fa6d…` |
-| `cppu-webvpn` | color | `university` | 警大 WebVPN / 校园网站 | `9748e58bb1ab3556…` |
 | `gx-news` | color | `trophy` | 竞赛消息雷达 / 奖杯 | `c95ce1bdbb0caa2a…` |
 | `rss-reader` | color | `rss` | RSS 信息流 / RSS 信号波 | `d0cb8af12b2efed0…` |
 | `exam-calendar` | color | `test-passed` | 考试日历 / 考核清单 | `5c6a420b295a8a06…` |

@@ -45,13 +45,13 @@ const NS_PERMISSION = {
 // tide.util 要再看第二段：同一个 util 下不同函数归不同能力
 const UTIL_PERMISSION = {
   openUrl: 'openUrl',
-  openCampusSite: 'openUrl',
   openCardPage: 'openUrl',
   openUrlWithSession: ['openUrl', 'http'],
   parseWhen: 'timeParse',
   guessQuad: 'timeParse',
   guessCategory: 'timeParse',
   navigate: 'ui',
+  openSettings: 'ui',
   desEncryptHex: 'http',
   web: 'http',
 };
