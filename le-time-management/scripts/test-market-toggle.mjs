@@ -1,6 +1,7 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-const shell = fs.readFileSync(new URL("../src/shell.js", import.meta.url), "utf8");
+const shell = readProductSource(new URL("../src/shell.js", import.meta.url), "utf8");
 const code = shell.slice(shell.indexOf("  function renderMarket(container)"), shell.indexOf("  // ── 内容区左右滑动"));
 let active = null, animations = 0;
 class N {

@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 // 拖入消息收纳：识别正确性 + 「先确认后入库」的流程闸门 + 去重窗口 + 可执行文件拒收。
 //
 // 手法沿用 test-dorm-duty.mjs：vm 注入 fixture，把 IIFE 内部纯函数（analyze / matchDate /
@@ -13,7 +14,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 
-const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+const read = (rel) => readProductSource(new URL(rel, import.meta.url), 'utf8');
 const PLUGIN_SRC = read('../public/plugins/inbox-drop/main.js');
 const manifest = JSON.parse(read('../public/plugins/inbox-drop/manifest.json'));
 
@@ -58,7 +59,7 @@ const desktopIcon = new URL('../public/icons/plugins/inbox-drop.png', import.met
 const miniIcon = new URL('../../miniprogram/images/plugins/inbox-drop.png', import.meta.url);
 assert.ok(fs.existsSync(desktopIcon), '缺少桌面端插件图标 public/icons/plugins/inbox-drop.png');
 assert.ok(fs.existsSync(miniIcon), '缺少小程序插件图标 miniprogram/images/plugins/inbox-drop.png');
-assert.deepEqual(fs.readFileSync(desktopIcon), fs.readFileSync(miniIcon), '两端图标必须字节一致（由 tools/gen-plugin-icons.py 一次写入）');
+assert.deepEqual(readProductSource(desktopIcon), readProductSource(miniIcon), '两端图标必须字节一致（由 tools/gen-plugin-icons.py 一次写入）');
 
 // 插件使用说明：桌面端与小程序端都必须收录，否则用户查不到用法
 const guide = read('../public/plugins/plugin-guide/main.js');

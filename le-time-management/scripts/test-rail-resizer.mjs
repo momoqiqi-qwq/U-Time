@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /* 侧栏宽度分隔条（v0.58.0）的回归测试。
  *
  * 分两块：
@@ -100,8 +101,8 @@ assert.equal(applyRailWidth(300, {}), null);
 
 /* ── 2. 源码守卫 ── */
 
-const css = fs.readFileSync(path.join(here, "../src/styles.css"), "utf8");
-const shell = fs.readFileSync(path.join(here, "../src/shell.js"), "utf8");
+const css = readProductSource(path.join(here, "../src/styles.css"), "utf8");
+const shell = readProductSource(path.join(here, "../src/shell.js"), "utf8");
 
 /** 按brace配平抽出 `@media (max-width: 900px) { ... }` 的块体（可能有多处，全取）。 */
 function extractMedia900Blocks(text) {

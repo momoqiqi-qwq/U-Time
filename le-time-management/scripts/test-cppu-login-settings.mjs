@@ -1,7 +1,8 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const read = p => fs.readFileSync(new URL('../' + p, import.meta.url), 'utf8');
+const read = p => readProductSource(new URL('../' + p, import.meta.url), 'utf8');
 const source = read('src/views/settings/cppuLogin.js');
 let state = { plugins: { 'cppu-notify': { enabled: false, storage: { loginRetries: 5, username: 'fixture', autoLogin: false } } } };
 let saves = 0;
@@ -22,7 +23,7 @@ for (const value of [-1, 6, 1.5, 'invalid']) assert.equal(normalizeLoginRetries(
 state = { plugins: {} };
 assert.equal(createCppuLoginCard().children[1].children[1].value, '2');
 assert.deepEqual(state.plugins, {}, 'opening settings must not create or enable a plugin');
-assert.match(read('src/views/settings.js'), /id: "cppu-login", node: cppuLoginCard/);
+assert.match(read('src/views/settings.js'), /id: "cppu-login", create: \(\{ render \}\) => createCppuLoginCard\(\)/);
 assert.match(read('public/plugins/cppu-notify/main.js'), /tide\.util\.openSettings\("cppu-login"\)/);
 assert.doesNotMatch(read('public/plugins/cppu-notify/main.js'), /id: "cppu-login-settings"|data-login-retries/);
 assert.match(read('src/pluginHost.js'), /openSettings:.*requirePermission.*"ui".*tide:open-settings/);

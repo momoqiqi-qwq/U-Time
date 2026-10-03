@@ -1,11 +1,12 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const base = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const shell = fs.readFileSync(path.join(base, "src/shell.js"), "utf8");
-const styles = fs.readFileSync(path.join(base, "src/styles.css"), "utf8");
+const shell = readProductSource(path.join(base, "src/shell.js"), "utf8");
+const styles = readProductSource(path.join(base, "src/styles.css"), "utf8");
 
 assert.match(shell, /if \(isAndroidRuntime\(\)\) setChromeShown\(true\)/,
   "APK 启动时必须显示底栏");

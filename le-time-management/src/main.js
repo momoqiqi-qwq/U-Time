@@ -18,6 +18,8 @@ import { initUpdateChecker } from "./updateChecker.js";
 import { showStartupDisclaimer } from "./disclaimer.js";
 import { isMobilePreview } from "./mobilePreview.js";
 import { initAndroidNotifications } from "./androidNotify.js";
+import { renderStartupRecovery } from "./views/startupRecovery.js";
+import { mountStorageStatus } from "./views/storageStatus.js";
 
 // 首次启动的初始数据 —— 刻意全空，让空状态引导用户自己建第一条（对接 Rust seed_data()）。
 // ⚠️ 这里不要再塞示例任务：首启四象限/时间块该是干净的。样例请做成显式入口（如「恢复示例数据」）。
@@ -51,6 +53,7 @@ async function boot() {
   await applyWindowSize(getUiPreferences());
   initMotionInteractions();
   renderShell(document.getElementById("app"));
+  mountStorageStatus(document.body);
   await revealAppWindow();
   if (isMobilePreview()) {
     initCommandPalette();
@@ -119,6 +122,7 @@ async function revealAppWindow() {
 
 boot().catch(async (error) => {
   console.error("应用启动失败:", error);
+  if (!getState()) renderStartupRecovery(document.getElementById("app"), error);
   // 即便初始化某一步抛错，也不要把隐藏的原生窗口留在后台。
   await revealAppWindow();
 });

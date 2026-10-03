@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /* 手机底栏「悬空玻璃」回归守卫（v0.106.0）。
  *
  * 需求（用户原话）：「把 APK 的下栏改成悬空玻璃」。
@@ -31,7 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const read = (rel) => fs.readFileSync(path.join(here, "..", rel), "utf8");
+const read = (rel) => readProductSource(path.join(here, "..", rel), "utf8");
 
 const css = read("src/styles.css");
 /* 注释里全是 `.rail {` 这类字样，直接数花括号会被注释里的括号带偏 ⇒ 先剥注释再解析。 */

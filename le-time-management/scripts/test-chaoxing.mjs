@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 // 学习通插件 v2.2.0：删除（本机忽略/恢复）与「浏览器打开（带登录态）」链路。
 // 顺带守住一个曾经踩过的坑：manifest 少了 openUrl 权限，按钮点了没反应。
 import assert from 'node:assert/strict';
@@ -5,11 +6,11 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const root = new URL('../', import.meta.url);
-const source = fs.readFileSync(new URL('public/plugins/chaoxing-notify/main.js', root), 'utf8');
-const manifest = JSON.parse(fs.readFileSync(new URL('public/plugins/chaoxing-notify/manifest.json', root), 'utf8'));
-const apiSource = fs.readFileSync(new URL('src/api.js', root), 'utf8');
-const pluginHostSource = fs.readFileSync(new URL('src/pluginHost.js', root), 'utf8');
-const nativeSource = fs.readFileSync(new URL('src-tauri/src/lib.rs', root), 'utf8');
+const source = readProductSource(new URL('public/plugins/chaoxing-notify/main.js', root), 'utf8');
+const manifest = JSON.parse(readProductSource(new URL('public/plugins/chaoxing-notify/manifest.json', root), 'utf8'));
+const apiSource = readProductSource(new URL('src/api.js', root), 'utf8');
+const pluginHostSource = readProductSource(new URL('src/pluginHost.js', root), 'utf8');
+const nativeSource = readProductSource(new URL('src-tauri/src/lib.rs', root), 'utf8');
 
 const storage = {};
 const opened = [];
@@ -193,7 +194,7 @@ assert.equal(opened.at(-1), LOGIN_JUMP(HW), '没有本机会话时按需要登�
 assert.ok(source.includes('tide.util.openUrl('), '插件确实调用了 openUrl');
 assert.ok((manifest.permissions || []).includes('openUrl'), 'manifest 必须声明 openUrl 权限');
 assert.equal(manifest.version, '2.15.2');
-const catalog = fs.readFileSync(new URL('src/pluginCatalog.js', root), 'utf8');
+const catalog = readProductSource(new URL('src/pluginCatalog.js', root), 'utf8');
 const entry = catalog.slice(catalog.indexOf('"id": "chaoxing-notify"'));
 const block = entry.slice(0, entry.indexOf('},\n  {'));
 assert.match(block, /"openUrl"/, 'pluginCatalog 必须同步到 openUrl');
@@ -280,7 +281,7 @@ assert.doesNotMatch(styleBlock, /color:#203840|color:#275b68|color:#6c7f86/, '�
 assert.match(styleBlock, /\.cx2-kpi\{[^}]*color:var\(--ink\)/, '统计条必须自己给出文字色，不能靠继承深色');
 assert.match(styleBlock, /::placeholder\{color:var\(--ink-2\)/, '搜索框占位文字在两种主题下都要可读');
 assert.match(styleBlock, /\.cx2-pill\{[^}]*color:var\(--deep\)/, '计数胶囊底色与文字色必须成对给出');
-const appCss = fs.readFileSync(new URL('src/styles.css', root), 'utf8');
+const appCss = readProductSource(new URL('src/styles.css', root), 'utf8');
 // 切片必须从注释起始符开始，否则开头的说明文字会被当成选择器
 const nightLayer = appCss.slice(appCss.indexOf('/* 内置插件深色兼容层'), appCss.indexOf('/* v0.14 · 可定制插件入口'));
 assert.ok(nightLayer.startsWith('/*') && nightLayer.length > 500, '必须能取到夜间兼容层');
@@ -481,7 +482,7 @@ assert.equal(submittedOpen().length, 1, '已提交但未截止的单独进已提
 console.log('PASS: 学习通链接识别、移除/恢复、课程年级分组与完成状态、正在批改标记、manifest 权限，以及带登录态的浏览器打开链路');
 
 /* v2.6.0：标记已读/未读（本机覆盖）+ 卡片彩色框 */
-const src2 = fs.readFileSync(new URL('../public/plugins/chaoxing-notify/main.js', import.meta.url), 'utf8');
+const src2 = readProductSource(new URL('../public/plugins/chaoxing-notify/main.js', import.meta.url), 'utf8');
 assert.match(src2, /const effUnread = /, '必须用 effUnread 统一取有效未读（平台状态 + 本机覆盖）');
 assert.match(src2, /readOverrides/, '标记必须走本机 readOverrides 覆盖，不动平台状态');
 assert.match(src2, /data-act="mark"/, '卡片必须有「标记」按钮');

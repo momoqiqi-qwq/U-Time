@@ -1,11 +1,12 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const shell = fs.readFileSync(path.join(here, "..", "src", "shell.js"), "utf8");
-const css = fs.readFileSync(path.join(here, "..", "src", "styles.css"), "utf8");
+const shell = readProductSource(path.join(here, "..", "src", "shell.js"), "utf8");
+const css = readProductSource(path.join(here, "..", "src", "styles.css"), "utf8");
 const block = shell.slice(shell.indexOf("function attachPluginListDrag"), shell.indexOf("// 横向工具区", shell.indexOf("function attachPluginListDrag")));
 
 assert.ok(block.length > 1000, "侧栏插件必须有独立的指针拖拽控制器");

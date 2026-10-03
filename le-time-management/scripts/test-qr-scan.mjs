@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /**
  * 端内扫一扫的回归守卫。
  *
@@ -12,7 +13,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+const read = (rel) => readProductSource(new URL(rel, import.meta.url), 'utf8');
 const scanSrc = read('../src/qrScan.js');
 const cardSrc = read('../src/views/settings/sync.js');
 const styles = read('../src/styles.css');

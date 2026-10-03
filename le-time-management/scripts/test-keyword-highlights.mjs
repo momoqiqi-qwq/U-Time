@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -5,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_KEYWORD_HIGHLIGHTS, highlightSegments, normalizeKeywordHighlights } from "../src/keywordHighlights.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const read = (name) => fs.readFileSync(path.join(here, "..", name), "utf8");
+const read = (name) => readProductSource(path.join(here, "..", name), "utf8");
 
 const defaults = highlightSegments("今天 09:30，截止 2026-09-21 18:00", DEFAULT_KEYWORD_HIGHLIGHTS);
 assert.deepEqual(defaults.filter((part) => part.kind === "time").map((part) => part.text),

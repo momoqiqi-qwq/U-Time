@@ -12,6 +12,7 @@ import * as S from "../store.js";
 import { el, newBadge, QUADS } from "../ui.js";
 import { openTaskDrawer } from "./drawer.js";
 import { getKeywordHighlights, highlightedText } from "../keywordHighlights.js";
+import { createKeyedNodes } from "../keyedNodes.js";
 
 /* ── 分类色（唯一事实源是 styles.css 的 --cat-*，这里只做引用）──
    不要再写死强调色令牌：那等于在 JS 里维护第二份映射，一改就漏（历史上有 4 套）。 */
@@ -99,6 +100,7 @@ export function renderTimeline(container) {
   const wrap = el("div", { class: "tlv" });
   const axis = el("div", { class: "tlv-axis", "aria-hidden": "true" });
   const lane = el("div", { class: "tlv-lane" });
+  const reconcileRows = createKeyedNodes(lane);
 
   // 「回到今天」：sticky 小胶囊，长时间线滚远了能一键跳回
   const jump = el("button", { class: "tlv-jump", type: "button", title: "回到今天", onclick: () => scrollToToday(true) }, "◎ 今天");
@@ -178,26 +180,28 @@ export function renderTimeline(container) {
     const state = S.getState();
     highlightCfg = getKeywordHighlights(state.settings);
     const model = buildTimelineModel(state, today);
-    lane.replaceChildren();
+    const rows = [];
+    const taskTitles = new Map(state.tasks.map((task) => [task.id, task.title]));
     if (!model.groups.length) {
-      lane.append(el("div", { class: "tlv-empty" },
+      rows.push({ key: "empty", signature: "empty", create: () => el("div", { class: "tlv-empty" },
         el("div", { class: "tlv-empty-icon", "aria-hidden": "true" }, "⌁"),
         el("b", {}, "时间线上还没有节点"),
-        el("span", {}, "创建带截止日的任务或安排时间块后，它们会按日期串在这里。")));
+        el("span", {}, "创建带截止日的任务或安排时间块后，它们会按日期串在这里。")) });
     }
     // 逐行左右交错（参考图样式）：同一天的多张卡也左右都占，不整组堆一侧。
     // side 用全局行序奇偶（跨组连续），日期徽章只出现在组首行骑轴，其余行用小圆点。
     let rowIndex = 0;
     for (const g of model.groups) {
       if (g.yearChanged) {
-        lane.append(el("div", { class: "tlv-year-row", role: "separator" },
+        rows.push({ key: `year:${g.year}`, signature: String(g.year), create: () => el("div", { class: "tlv-year-row", role: "separator" },
           el("span", { class: "tlv-year", "aria-hidden": "true" }, String(g.year)),
-          el("b", { class: "tlv-year-label" }, `${g.year} 年`)));
+          el("b", { class: "tlv-year-label" }, `${g.year} 年`)) });
       }
       g.items.forEach((e, i) => {
         const side = rowIndex % 2 === 0 ? "left" : "right";
         rowIndex++;
-        lane.append(el("div", { class: `tlv-row side-${side}${g.isToday ? " is-today" : ""}` },
+        rows.push({ key: e.id, signature: JSON.stringify([e, g.fullLabel, g.isToday, g.isPast, g.hasOverdue, i === 0, side, highlightCfg, taskTitles.get(e.taskId)]),
+          create: () => el("div", { class: `tlv-row side-${side}${g.isToday ? " is-today" : ""}` },
           el("div", { class: "tlv-cards" }, cardEl(e, g)),
           i === 0
             ? el("div", { class: "tlv-badge", "aria-label": g.fullLabel },
@@ -206,11 +210,12 @@ export function renderTimeline(container) {
               g.hasOverdue ? el("i", { class: "tlv-badge-dot", title: "有过期未完成任务" }) : null,
             )
             : el("i", { class: "tlv-dot", "aria-hidden": "true" }),
-        ));
+        ) });
       });
     }
-    wrap.replaceChildren(axis, lane);
-    container.replaceChildren(jump, wrap);
+    reconcileRows(rows);
+    if (!wrap.contains(lane)) wrap.replaceChildren(axis, lane);
+    if (!container.contains(wrap)) container.replaceChildren(jump, wrap);
     container.scrollTop = scrollTop;
   }
 

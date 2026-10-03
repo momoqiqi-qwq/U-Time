@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /* 网页打开方式回归测试 —— v0.80.0 */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -5,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const read = (rel) => fs.readFileSync(path.join(here, rel), "utf8");
+const read = (rel) => readProductSource(path.join(here, rel), "utf8");
 const uiPrefs = read("../src/uiPreferences.js");
 const appearance = read("../src/views/settings/appearance.js");
 const searchIndex = read("../src/settingsSearchIndex.js");

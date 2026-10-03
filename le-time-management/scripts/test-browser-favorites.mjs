@@ -1,6 +1,7 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-const rust = fs.readFileSync(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
+const rust = readProductSource(new URL("../src-tauri/src/lib.rs", import.meta.url), "utf8");
 const script = rust.match(/const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"([\s\S]*?)"#;/)[1];
 const seed = script.slice(script.indexOf('      const key = "__utime_browser_favorites_v1";'), script.indexOf('      const favorite ='));
 const data = new Map([["__utime_browser_favorites_v1", JSON.stringify([{ title: "原有收藏", url: "https://example.com/" }])]]);

@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 
@@ -17,7 +18,7 @@ import assert from 'node:assert/strict';
  * ⑤ label 递增（Android manager 条目关不掉，同 label 二次 build 会报 already exists）。
  */
 
-const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+const read = (rel) => readProductSource(new URL(rel, import.meta.url), 'utf8');
 const rust = read('../src-tauri/src/lib.rs');
 
 /* ① 注入脚本：能提取 + 语法有效 */

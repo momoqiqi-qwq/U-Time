@@ -7,6 +7,7 @@ import { openTaskDrawer } from "./drawer.js";
 import { reducedMotion } from "../motion.js";
 import { getKeywordHighlights, highlightedText } from "../keywordHighlights.js";
 import { getTaskPreferences } from "../taskPreferences.js";
+import { createKeyedNodes } from "../keyedNodes.js";
 
 // 展开状态跨重渲染保持
 const expandedCards = new Set();
@@ -490,11 +491,23 @@ function quadrantCell(def, matches) {
   const swipeCtl = attachCardSwipeDelete(list, trash);
   const dragCtl = attachListDrag(list);
 
+  const reconcileCards = createKeyedNodes(list);
+  let lastSignature = "";
   const renderList = () => {
+    const tasks = S.tasksOfQuad(def.q).filter(matches);
+    const state = S.getState();
+    const taskIds = new Set(tasks.map((task) => task.id));
+    const blocks = state.blocks.filter((block) => taskIds.has(block.taskId));
+    const appearance = JSON.stringify([getKeywordHighlights(state.settings), state.settings.pluginOverrides, getTaskPreferences(state.settings)]);
+    const signature = JSON.stringify([tasks, blocks, appearance]);
+    if (signature === lastSignature) return;
+    lastSignature = signature;
     swipeCtl.cancel();
     dragCtl.cancel(); // 手势会话中外部刷新（插件/订阅）→ 先复位再重建，防孤儿引用
-    const tasks = S.tasksOfQuad(def.q).filter(matches);
-    list.replaceChildren(...tasks.map(taskCard));
+    const scheduled = new Map();
+    for (const block of blocks) if (!scheduled.has(block.taskId)) scheduled.set(block.taskId, block);
+    reconcileCards(tasks.map((task) => ({ key: task.id,
+      signature: JSON.stringify([task, scheduled.get(task.id), appearance]), create: () => taskCard(task) })));
     cell.querySelector(".cnt").textContent = `${tasks.filter((t) => !t.done).length} 项`;
   };
   renderList();
@@ -559,9 +572,13 @@ export function renderQuadrant(container) {
   const search = el("input", { class: "task-search", placeholder: "搜索任务 / 备注 / 项目", "aria-label": "搜索任务", oninput: (e) => { query = e.target.value.trim().toLowerCase(); cells.forEach(c => c._refresh()); } });
   const grid = el("div", { class: "quad-grid" }, cells);
 
+  let chipSignature = "";
   const refreshChips = () => {
     const all = S.getState().tasks;
     const open = all.filter((t) => !t.done);
+    const signature = `${filter}:${all.length}:${open.length}`;
+    if (signature === chipSignature) return;
+    chipSignature = signature;
     chips.innerHTML = "";
     for (const [id, label, count] of [["all", "全部", all.length], ["open", "待办", open.length], ["done", "已完成", all.length - open.length]]) {
       chips.append(el("button", { class: "chip", "aria-pressed": String(filter === id), onclick: () => { filter = id; cells.forEach(c => c._refresh()); refreshChips(); } }, `${label} ${count} 项`));

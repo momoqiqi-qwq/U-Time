@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /*
  * 主题对比度回归测试。
  *
@@ -19,7 +20,7 @@ const {
   relativeLuminance, hexToRgb, deriveDark,
 } = require("../../tools/lib/theme-tokens.js");
 
-const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
+const read = (p) => readProductSource(new URL(p, import.meta.url), "utf8");
 const stylesCss = read("../src/styles.css");
 const derivedCss = read("../src/styles/theme-derived.css");
 

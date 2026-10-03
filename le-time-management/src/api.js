@@ -36,7 +36,8 @@ async function cppuBridge(op, args) {
   return data.result;
 }
 
-const LS_KEY = "tidebalance-data";
+const LS_KEY = "letime-data";
+const LEGACY_LS_KEY = "tidebalance-data";
 
 export const api = {
   isTauri,
@@ -44,15 +45,34 @@ export const api = {
 
   async loadData() {
     if (mobilePreview) return loadMobilePreviewData();
-    if (isTauri) return invoke("load_data");
-    const raw = localStorage.getItem(LS_KEY);
-    if (raw) return JSON.parse(raw);
-    throw new Error("no data");
+    if (isTauri) {
+      const data = await invoke("load_data");
+      if (data == null) throw new Error("本机数据为空或损坏，请恢复有效备份");
+      return data;
+    }
+    const raw = localStorage.getItem(LS_KEY) ?? localStorage.getItem(LEGACY_LS_KEY);
+    if (raw != null) {
+      const data = JSON.parse(raw);
+      if (data == null) throw new Error("本机数据为空或损坏，请恢复有效备份");
+      return data;
+    }
+    return null;
   },
 
   async saveData(data) {
     if (mobilePreview) return saveMobilePreviewData(data);
     if (isTauri) return invoke("save_data", { data });
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+  },
+
+  async recoverData(data) {
+    if (mobilePreview) return saveMobilePreviewData(data);
+    if (isTauri) return invoke("recover_data", { data });
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    for (const key of [LS_KEY, LEGACY_LS_KEY]) {
+      const raw = localStorage.getItem(key);
+      if (raw != null) localStorage.setItem(`${key}:recovery:${suffix}`, raw);
+    }
     localStorage.setItem(LS_KEY, JSON.stringify(data));
   },
 

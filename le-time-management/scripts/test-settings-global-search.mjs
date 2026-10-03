@@ -1,10 +1,11 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const read = (name) => fs.readFileSync(path.join(here, "..", name), "utf8");
+const read = (name) => readProductSource(path.join(here, "..", name), "utf8");
 const palette = read("src/commandPalette.js");
 const shell = read("src/shell.js");
 const settings = read("src/views/settings.js");

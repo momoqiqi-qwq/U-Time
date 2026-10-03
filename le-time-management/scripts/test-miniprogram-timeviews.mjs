@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
@@ -13,7 +14,7 @@ import { createRequire } from "node:module";
    本地 dev 与真机都不报错，只表现为「某一块是空的」。 */
 
 const ROOT = new URL("../../", import.meta.url);
-const read = (p) => fs.readFileSync(new URL(p, ROOT), "utf8");
+const read = (p) => readProductSource(new URL(p, ROOT), "utf8");
 
 const wxml = read("miniprogram/pages/timeblock/index.wxml");
 const wxss = read("miniprogram/pages/timeblock/index.wxss");

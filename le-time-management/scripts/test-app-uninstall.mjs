@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /* 应用内「卸载 U-Time」的五层接线守卫（Android）。
  *
  * 需求来源：卸载这一步原本只能在系统桌面 / 设置里做，应用内没有任何入口；
@@ -17,7 +18,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
+const read = (path) => readProductSource(new URL(path, import.meta.url), "utf8");
 
 const pluginKt = read("../android/gradle/app/src/main/java/com/yile/letime/AppUninstallerPlugin.kt");
 const mirrorManifest = read("../android/gradle/app/src/main/AndroidManifest.xml");

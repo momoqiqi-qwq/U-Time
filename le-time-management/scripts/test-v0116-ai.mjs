@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as S from '../src/store.js';
@@ -17,7 +18,7 @@ assert.equal(AI.getAiAutomationRules().find(x => x.id === a.id).enabled, false);
 AI.deleteAiAutomationRule(a.id);
 assert.equal(AI.getAiAutomationRules().length, 1);
 
-const read = rel => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+const read = rel => readProductSource(new URL(rel, import.meta.url), 'utf8');
 const rust = read('../src-tauri/src/lib.rs');
 const styles = read('../src/styles.css');
 const theme = read('../src/theme.js');

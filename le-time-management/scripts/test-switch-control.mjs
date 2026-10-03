@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /*
  * 滑块开关（.switch）回归测试 —— v0.37.19「设置里的勾选框改滑块 + 详细描述去除」
  *
@@ -18,7 +19,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const { parsePalettes, contrastRatio, hexToRgb } = require("../../tools/lib/theme-tokens.js");
 
-const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
+const read = (p) => readProductSource(new URL(p, import.meta.url), "utf8");
 const stylesCss = read("../src/styles.css");
 const derivedCss = read("../src/styles/theme-derived.css");
 

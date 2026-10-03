@@ -1,10 +1,11 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';import { spawnSync } from 'node:child_process';import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import * as XLSX from 'xlsx';
 import { spreadsheetFileToCsv } from '../src/spreadsheet.js';
 // 对比度算式复用主题工具库的那一份，别在测试里另造一套（两套算法迟早对不上）。
 const { contrastRatio } = createRequire(import.meta.url)('../../tools/lib/theme-tokens.js');
-const ctx=vm.createContext({TextEncoder,TextDecoder});vm.runInContext(fs.readFileSync(new URL('../public/plugins/shiguang-schedule/model.js',import.meta.url),'utf8'),ctx);const M=ctx.ShiguangModel;
+const ctx=vm.createContext({TextEncoder,TextDecoder});vm.runInContext(readProductSource(new URL('../public/plugins/shiguang-schedule/model.js',import.meta.url),'utf8'),ctx);const M=ctx.ShiguangModel;
 const raw=M.empty('2026-09-09');raw.config.semesterStartDate='2026-09-07';raw.courses=[{id:'a',name:'课程，测试',teacher:'教师',position:'一教',day:1,startSection:1,endSection:2,weeks:[1,3,5],remark:'第一行\n第二行'},{id:'b',name:'自定义课',day:7,isCustomTime:true,customStartTime:'18:00',customEndTime:'19:00',weeks:[2]}];const table=M.normalize(raw);
 assert.equal(M.weekOf('2026-09-09','2026-09-13'),1);assert.equal(M.weekOf('2026-09-09','2026-09-14'),2);assert.equal(M.weekOf('2026-09-09','2026-09-06'),0);
 assert.equal(M.occurrences(table,1)[0].date,'2026-09-07');assert.equal(M.occurrences(table,2)[0].date,'2026-09-20');assert.equal(M.occurrences(table,1)[0].end,'09:40');
@@ -23,31 +24,31 @@ const savedBlocks=[];
    storage 用来让导入链路真的走一遍 loadState → merge → persist。 */
 const ingestHandlers={};const savedTables=[];const emittedEvents=[];
 const uiContext=vm.createContext({TextEncoder,modelScope:{ShiguangModel:M},tide:{ui:{registerView(){}},util:{today:()=> '2026-09-09'},notify(){},events:{on:(name,fn)=>{ingestHandlers[name]=fn;},emit:(name,payload)=>{emittedEvents.push({name,payload});}},storage:{get:async(k,def)=>k==='tables'?[{id:'t1',name:'我的课表',createdAt:1,data:table}]:k==='currentTableId'?'t1':k==='table'?table:def,set:async(k,v)=>{if(k==='tables'){savedTables.length=0;savedTables.push(...v);}}},blocks:{list:date=>savedBlocks.filter(b=>b.date===date),create:b=>{const block={...b,id:'block-'+savedBlocks.length};savedBlocks.push(block);return block;},remove:id=>{const i=savedBlocks.findIndex(b=>b.id===id);if(i>=0)savedBlocks.splice(i,1);}}}});
-const ui=fs.readFileSync(new URL('../public/plugins/shiguang-schedule/ui.js',import.meta.url),'utf8');
+const ui=readProductSource(new URL('../public/plugins/shiguang-schedule/ui.js',import.meta.url),'utf8');
 for(const marker of ['今日课表','课程管理','课表管理','个性化配置','rename-table','import-all','pointerdown','prefers-reduced-motion'])assert.ok(ui.includes(marker),`missing embedded Shiguang feature: ${marker}`);
-const pluginHost=fs.readFileSync(new URL('../src/pluginHost.js',import.meta.url),'utf8');
+const pluginHost=readProductSource(new URL('../src/pluginHost.js',import.meta.url),'utf8');
 assert.match(pluginHost,/async spreadsheetText\(file\)/);
 assert.match(ui,/\.xlsx,\.xls/);
 assert.match(ui,/tide\.assets\.spreadsheetText\(file\)/);
 for(const marker of ['选择学校','本科/专科','研究生','通用工具','school-category','school-open-adapter','tide.schoolImporter.open'])assert.ok(ui.includes(marker),`missing original online school import flow: ${marker}`);
 assert.match(pluginHost,/schoolImporter:/);
-const apiSource=fs.readFileSync(new URL('../src/api.js',import.meta.url),'utf8');
+const apiSource=readProductSource(new URL('../src/api.js',import.meta.url),'utf8');
 assert.match(apiSource,/school_import_open/);
-const rustSource=fs.readFileSync(new URL('../src-tauri/src/lib.rs',import.meta.url),'utf8');
+const rustSource=readProductSource(new URL('../src-tauri/src/lib.rs',import.meta.url),'utf8');
 for(const command of ['school_import_open','school_import_bridge'])assert.ok(rustSource.includes(command),`missing native school import command: ${command}`);
 assert.ok(rustSource.includes('bridgeQueue'),'school import bridge must serialize concurrent adapter callbacks');
-const nativeGridSource=fs.readFileSync(new URL('../../vendor/shiguangschedule/shared/src/commonMain/kotlin/com/xingheyuzhuan/shiguangschedule/ui/schedule/components/ScheduleGrid.kt',import.meta.url),'utf8');
+const nativeGridSource=readProductSource(new URL('../../vendor/shiguangschedule/shared/src/commonMain/kotlin/com/xingheyuzhuan/shiguangschedule/ui/schedule/components/ScheduleGrid.kt',import.meta.url),'utf8');
 assert.match(nativeGridSource,/PointerEventPass\.Initial/,'native schedule must intercept touchpad scrolling before the horizontal pager');
 assert.match(nativeGridSource,/abs\(delta\.y\) <= abs\(delta\.x\)/,'vertical touchpad scroll must not steal horizontal week swipes');
 assert.match(nativeGridSource,/gridScrollState\.dispatchRawDelta/,'touchpad deltas must drive the native schedule scroll state');
-const nativeHostSource=fs.readFileSync(new URL('../../vendor/shiguangschedule/desktopApp/src/main/kotlin/com/xingheyuzhuan/shiguangschedule/LeHost.kt',import.meta.url),'utf8');
+const nativeHostSource=readProductSource(new URL('../../vendor/shiguangschedule/desktopApp/src/main/kotlin/com/xingheyuzhuan/shiguangschedule/LeHost.kt',import.meta.url),'utf8');
 assert.match(nativeHostSource,/requestFocusInWindow\(\)/,'embedded Compose panel must acquire focus for precision touchpad input');
 assert.match(pluginHost,/renderNativeSchedule/,'Tauri plugin host must retain the original native Shiguang interface');
 // 默认安装包（tauri.conf.json）不带 native/shiguang，只有 tauri.shiguang.conf.json 才带；
 // 所以原生渲染必须把插件自带界面当兜底，否则用户只会看到一块「尚未包含运行时」的死面板。
 assert.match(pluginHost,/renderNativeSchedule\(el, ctx, def\.render\)/,
   'native render must be given the plugin view as fallback');
-const nativeScheduleSource=fs.readFileSync(new URL('../src/nativeSchedule.js',import.meta.url),'utf8');
+const nativeScheduleSource=readProductSource(new URL('../src/nativeSchedule.js',import.meta.url),'utf8');
 assert.match(nativeScheduleSource,/fallback\(container, ctx\)/,
   'missing native runtime must hand the view back to the embedded schedule UI');
 assert.match(nativeScheduleSource,/!\s*status\.available\)\s*return degrade\(\)/,
@@ -164,7 +165,7 @@ assert.equal(schoolIndex.schools[0].adapters[0].importUrl,'https://jwgl.bupt.edu
 assert.equal(M.filterSchools(schoolIndex.schools,'BACHELOR_AND_ASSOCIATE','北京')[0].id,'BUPT');
 assert.equal(M.filterSchools(schoolIndex.schools,'BACHELOR_AND_ASSOCIATE','B')[0].id,'BUPT');
 assert.equal(M.filterSchools(schoolIndex.schools,'POSTGRADUATE','').length,0);
-const bundledIndex=M.decodeSchoolIndex(fs.readFileSync(bundledIndexFile));
+const bundledIndex=M.decodeSchoolIndex(readProductSource(bundledIndexFile));
 assert.equal(bundledIndex.protocolVersion,2);
 assert.ok(bundledIndex.schools.length>=200,`bundled school index unexpectedly small: ${bundledIndex.schools.length}`);
 assert.ok(bundledIndex.schools.some(s=>s.name==='北京邮电大学'),'bundled school index missing 北京邮电大学');
@@ -189,7 +190,7 @@ assert.ok(cppuSchool,'decoded school index must always include the built-in CPPU
 assert.equal(cppuSchool.adapters[0].importUrl,'https://jw.cppu.edu.cn/index.html');
 assert.equal(M.filterSchools(schoolIndex.schools,'BACHELOR_AND_ASSOCIATE','警察大学')[0].id,'CPPU');
 const cppuAdapterFile=new URL('../../vendor/shiguangschedule/shared/assets/offline_repo/schools/resources/CPPU/cppu.js',import.meta.url);
-const cppuAdapterSource=fs.readFileSync(cppuAdapterFile,'utf8');
+const cppuAdapterSource=readProductSource(cppuAdapterFile,'utf8');
 const cppuWindow={__CPPU_ADAPTER_TEST__:true};
 vm.runInContext(cppuAdapterSource,vm.createContext({window:cppuWindow,console,setTimeout,clearTimeout,Date,Promise}));
 const cppuConverted=cppuWindow.CPPUCourseAdapter.convertRows([
@@ -208,8 +209,8 @@ assert.equal(cppuConverted.courses.find(c=>c.name==='刑事科学技术').endSec
 assert.match(cppuAdapterSource,/V_JWBZK_PK_XSKBZHCX/);
 assert.match(cppuAdapterSource,/limit:\s*5000/);
 assert.match(ui,/adapters\/cppu\.js/,'embedded schedule must load the bundled CPPU adapter locally');
-const nativeSchoolRepository=fs.readFileSync(new URL('../../vendor/shiguangschedule/shared/src/commonMain/kotlin/com/xingheyuzhuan/shiguangschedule/data/repository/SchoolRepository.kt',import.meta.url),'utf8');
-const nativeResourceInitializer=fs.readFileSync(new URL('../../vendor/shiguangschedule/shared/src/commonMain/kotlin/com/xingheyuzhuan/shiguangschedule/tool/ResourceInitializerManager.kt',import.meta.url),'utf8');
+const nativeSchoolRepository=readProductSource(new URL('../../vendor/shiguangschedule/shared/src/commonMain/kotlin/com/xingheyuzhuan/shiguangschedule/data/repository/SchoolRepository.kt',import.meta.url),'utf8');
+const nativeResourceInitializer=readProductSource(new URL('../../vendor/shiguangschedule/shared/src/commonMain/kotlin/com/xingheyuzhuan/shiguangschedule/tool/ResourceInitializerManager.kt',import.meta.url),'utf8');
 assert.match(nativeSchoolRepository,/id = "CPPU"/);
 assert.match(nativeResourceInitializer,/schools\/resources\/CPPU\/cppu\.js/,'existing native installations must receive the bundled CPPU adapter');
 console.log('PASS: CPPU is built in and its real JE course rows convert dates, block sections and duplicate occurrences correctly');
@@ -275,7 +276,7 @@ assert.match(ui, /\.sg \.school-alt>button\{flex:none\}/, '次级入口的按钮
    而这次改的正是「点教务导入先看到哪一页」。host 用最小桩子，paint 只写 innerHTML。 */
 const prevFetch = uiContext.fetch;
 uiContext.document.addEventListener = () => {};
-uiContext.fetch = () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(fs.readFileSync(bundledIndexFile)) });
+uiContext.fetch = () => Promise.resolve({ ok: true, status: 200, arrayBuffer: () => Promise.resolve(readProductSource(bundledIndexFile)) });
 const eduHost = { isConnected: true, innerHTML: '', addEventListener() {}, querySelector: () => null, querySelectorAll: () => [] };
 await uiContext.fixture.render(eduHost);
 await uiContext.fixture.act('edu');
@@ -313,7 +314,7 @@ const setIcoNames = [...ui.matchAll(/setIco\('([a-z0-9-]+)'\)/g)].map((m) => m[1
 assert.equal(itemActions.length, 7, `「我的」应有 7 个设置条目，实际 ${itemActions.length}`);
 assert.equal(setIcoNames.length, 7, `7 个条目必须各带一个图标，实际只有 ${setIcoNames.length} 个`);
 assert.equal(new Set(setIcoNames).size, 7, `图标不能重复使用：${setIcoNames.join(', ')}`);
-const spriteSource = fs.readFileSync(new URL('../public/icons/fontawesome/solid.svg', import.meta.url), 'utf8');
+const spriteSource = readProductSource(new URL('../public/icons/fontawesome/solid.svg', import.meta.url), 'utf8');
 const spriteIds = new Set([...spriteSource.matchAll(/<symbol[^>]*id="([^"]+)"/g)].map((m) => m[1]));
 for (const name of setIcoNames) assert.ok(spriteIds.has(name), `精灵里没有 ${name} 这个 symbol，图标会静默空白`);
 assert.ok(ui.includes('href="/icons/fontawesome/solid.svg#${name}"'), '图标要用「根绝对路径」引用精灵；相对路径在插件视图里会 404');
@@ -442,8 +443,8 @@ console.log('PASS: 课程块/今日卡片的左侧强调色竖边已删除，色
 /* ── v0.33.0 三、生成物同步守卫（改了源忘了重建 main.js 是最容易漏的一步） ── */
 const buildCheck = spawnSync(process.execPath, [fileURLToPath(new URL('../../tools/build-schedule-plugin.js', import.meta.url)), '--check'], { cwd: fileURLToPath(new URL('../../', import.meta.url)), encoding: 'utf8' });
 assert.equal(buildCheck.status, 0, `main.js 与 model.js + ui.js 不同步：\n${buildCheck.stdout || ''}${buildCheck.stderr || ''}`);
-const manifest = JSON.parse(fs.readFileSync(new URL('../public/plugins/shiguang-schedule/manifest.json', import.meta.url), 'utf8'));
-const catalogBlock = fs.readFileSync(new URL('../src/pluginCatalog.js', import.meta.url), 'utf8').split('"id": "shiguang-schedule"')[1].slice(0, 400);
+const manifest = JSON.parse(readProductSource(new URL('../public/plugins/shiguang-schedule/manifest.json', import.meta.url), 'utf8'));
+const catalogBlock = readProductSource(new URL('../src/pluginCatalog.js', import.meta.url), 'utf8').split('"id": "shiguang-schedule"')[1].slice(0, 400);
 assert.ok(catalogBlock.includes(`"version": "${manifest.version}"`), 'pluginCatalog 必须同步插件版本号（改完 manifest 要跑 tools/sync-plugins.js）');
 assert.match(manifest.description, /彩色课程块/, 'manifest 描述要提到彩色课程块');
 console.log('PASS: shiguang-schedule/main.js is regenerated from model.js + ui.js and catalog version matches');

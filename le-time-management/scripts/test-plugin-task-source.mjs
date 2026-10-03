@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
@@ -5,7 +6,7 @@ import fs from "node:fs";
    四象限任务卡与任务详情抽屉据此显示来源插件的图标（跟随用户在插件中心的自定义图标/强调色）。 */
 
 const root = new URL("../", import.meta.url);
-const read = (p) => fs.readFileSync(new URL(p, root), "utf8");
+const read = (p) => readProductSource(new URL(p, root), "utf8");
 const host = read("src/pluginHost.js");
 const quad = read("src/views/quadrant.js");
 const drawer = read("src/views/drawer.js");

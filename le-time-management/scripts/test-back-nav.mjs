@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 // 返回键历史栈的行为测试 —— 不是源码文本断言，而是把 src/backNav.js 真的跑起来。
 //
 // backNav.js 是纯逻辑 + 少量 DOM 查询，所以这里配一套极简的 DOM / History /
@@ -452,7 +453,7 @@ async function pressBack(world) {
       `.plug-list{display:none}` 一致：正是它把插件直达入口收走，按钮才有存在意义。 */
 {
   const fs = await import("node:fs");
-  const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
+  const read = (p) => readProductSource(new URL(p, import.meta.url), "utf8");
   const shell = read("../src/shell.js");
   const css = read("../src/styles.css");
 

@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 // 启动窗口大小：默认开得更大 + 可在「总设置 → 界面与交互」里选。
 // 外加左下角「缩放视图」按钮（一键收成固定尺寸并居中 / 再按还原）。
 //
@@ -27,7 +28,7 @@ import {
   normalizeUiPreferences,
 } from "../src/uiPreferences.js";
 
-const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
+const read = (p) => readProductSource(new URL(p, import.meta.url), "utf8");
 
 /* ── 一、默认值：不再写死 1280×820 ── */
 assert.equal(DEFAULT_UI_PREFERENCES.startupWindowMode, "auto", "默认必须是「跟随屏幕」，否则小屏用户会被开出屏幕外");
@@ -185,7 +186,7 @@ const walkJs = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e)
   e.isDirectory() ? walkJs(path.join(dir, e.name)) : (e.name.endsWith(".js") ? [path.join(dir, e.name)] : []));
 const usedApis = new Map();
 for (const file of walkJs(srcDir)) {
-  for (const m of fs.readFileSync(file, "utf8").matchAll(/\bwin\.([A-Za-z]+)\(/g)) {
+  for (const m of readProductSource(file, "utf8").matchAll(/\bwin\.([A-Za-z]+)\(/g)) {
     if (!usedApis.has(m[1])) usedApis.set(m[1], path.relative(srcDir, file).replace(/\\/g, "/"));
   }
 }

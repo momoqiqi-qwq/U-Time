@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /*
  * 任务卡曲线删除回归测试 —— v0.79.0
  *
@@ -10,7 +11,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const read = (rel) => fs.readFileSync(path.join(here, rel), "utf8");
+const read = (rel) => readProductSource(path.join(here, rel), "utf8");
 const quadrantJs = read("../src/views/quadrant.js");
 const styles = read("../src/styles.css");
 

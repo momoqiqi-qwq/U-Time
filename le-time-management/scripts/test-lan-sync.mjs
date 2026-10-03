@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /**
  * v0.67.0 · 局域网直连的回归守卫（本版从「只能拉」扩成「拉 + 受确认门的推」）。
  *
@@ -12,7 +13,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+const read = (rel) => readProductSource(new URL(rel, import.meta.url), 'utf8');
 const cardSrc = read('../src/views/settings/sync.js');
 
 /* ── 假 Tauri 后端：一台开着联动服务的电脑 ── */

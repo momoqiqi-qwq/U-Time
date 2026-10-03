@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /* CSS 完整性守卫（v0.58.0）。
  *
  * 为什么需要它 —— 一个**已随 v0.57.0 发出去**的真 bug：
@@ -114,7 +115,7 @@ assert.ok(cssFiles.length >= 10, `应扫到至少 10 个 CSS/WXSS 文件，实�
 
 const structuralIssues = [];
 for (const f of cssFiles) {
-  for (const msg of scanStructure(fs.readFileSync(f, "utf8"))) {
+  for (const msg of scanStructure(readProductSource(f, "utf8"))) {
     structuralIssues.push(`${path.relative(repoRoot, f)} ${msg}`);
   }
 }
@@ -128,7 +129,7 @@ assert.deepEqual(
 /* ── 2. esbuild 解析告警必须为 0（样式表真的能被解析） ── */
 
 const esbuild = await import("esbuild");
-const styles = fs.readFileSync(path.join(appRoot, "src/styles.css"), "utf8");
+const styles = readProductSource(path.join(appRoot, "src/styles.css"), "utf8");
 const parsed = await esbuild.transform(styles, { loader: "css", minify: true });
 
 assert.deepEqual(

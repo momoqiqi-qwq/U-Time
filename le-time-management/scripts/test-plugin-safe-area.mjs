@@ -1,9 +1,10 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
+const read = (p) => readProductSource(new URL(p, import.meta.url), "utf8");
 const cssRaw = read("../src/styles.css");
 const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, "");
 
@@ -58,7 +59,7 @@ function ruleAt(blocks, index) {
 // 所以「只写 env()」= 在 APK 上等于没写。
 const bareEnv = [];
 for (const file of pluginFiles) {
-  const text = fs.readFileSync(file, "utf8");
+  const text = readProductSource(file, "utf8");
   for (const m of text.matchAll(/env\(safe-area-inset-(top|right|bottom|left)/g)) {
     const before = text.slice(Math.max(0, m.index - 28), m.index);
     if (!new RegExp(`var\\(${EDGE_VAR[m[1]]},\\s*$`).test(before)) bareEnv.push(`${rel(file)} → ${m[0]}`);
@@ -73,7 +74,7 @@ assert.deepEqual(bareEnv, [], `插件 CSS 里出现了裸 env(safe-area-inset-*)
 // 「是不是浮层」按选择器认：媒体查询里的覆盖规则只重写部分属性、不重复 position:fixed。
 const doublePadded = [];
 for (const file of pluginFiles) {
-  const text = fs.readFileSync(file, "utf8");
+  const text = readProductSource(file, "utf8");
   const blocks = parseBlocks(text);
   const fixed = new Set(blocks.filter((b) => b.body.includes("position:fixed") && b.selector).map((b) => b.selector));
   for (const m of text.matchAll(/var\((--s(?:at|ab|al|ar))\s*,/g)) {
@@ -137,7 +138,7 @@ const scans = [["没提宿主变量的浮层", scanIgnorantOverlay], ["钉边未
   ["视口尺寸当可视区", scanViewportMath], ["body 挂载缺边", scanBodyMounted]];
 const flagged = [];
 for (const file of pluginFiles) {
-  const text = fs.readFileSync(file, "utf8");
+  const text = readProductSource(file, "utf8");
   for (const [name, scan] of scans) for (const hit of scan(text)) flagged.push(`${name}：${rel(file)} → ${hit}`);
 }
 // ── C. ① 号规则的现网结果 ────────────────────────────────────────────────────

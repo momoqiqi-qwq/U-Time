@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /*
  * 应用内自动更新（v0.38.0）回归测试 —— 前端状态机 + 命令桥契约。
  *
@@ -167,8 +168,8 @@ const S = await import("../src/store.js");
 const api = (await import("../src/api.js")).api;
 const U = await import("../src/updateChecker.js");
 
-// 打桩 load_data 让它抛错 → initStore 走 seed，测试完全确定
-handler = () => { throw new Error("no data"); };
+// 首次启动没有快照返回 null；真实读取异常必须交给恢复页，不能退回空数据。
+handler = () => ({ tasks: [], blocks: [], settings: {}, plugins: {} });
 await S.initStore({ tasks: [], blocks: [], settings: {}, plugins: {}, inbox: [], automation: {} });
 assert.ok(S.getState(), "store 必须初始化成功");
 
@@ -494,7 +495,7 @@ for (const method of ["updateCheck", "updateDownload", "updateInstall", "updateR
 }
 
 /* ── ⑦ 接线：更新面板嵌在「关于」里 + 提示条跳转目标 ── */
-const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
+const read = (p) => readProductSource(new URL(p, import.meta.url), "utf8");
 
 // 更新面板的挂载点是「关于」卡片，不再是独立的「更新与维护」分区。
 const settingsView = read("../src/views/settings.js");

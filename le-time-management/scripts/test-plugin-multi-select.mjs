@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /*
  * 设置 → 插件管理「全量多选 + 批量启停」回归测试 —— v0.48.0 批次四
  *
@@ -20,7 +21,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const read = (rel) => fs.readFileSync(path.join(here, rel), "utf8");
+const read = (rel) => readProductSource(path.join(here, rel), "utf8");
 
 const pluginsJs = read("../src/views/settings/plugins.js");
 const settingsJs = read("../src/views/settings.js");

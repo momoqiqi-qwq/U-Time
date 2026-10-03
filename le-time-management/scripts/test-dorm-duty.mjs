@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 // 轮换值日：多套轮换的隔离与迁移 + 轮换数学 + 逐组提醒时机 + 双实例自终止。
 //
 // 插件源码是 IIFE，这里沿用 test-pomodoro.mjs 的手法：vm 里注入 fixture 把内部纯函数
@@ -24,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 const requireCjs = createRequire(import.meta.url);
 const mini = requireCjs(fileURLToPath(new URL('../../miniprogram/core/pluginRuntime.js', import.meta.url)));
 
-const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+const read = (rel) => readProductSource(new URL(rel, import.meta.url), 'utf8');
 const PLUGIN_SRC = read('../public/plugins/dorm-duty/main.js');
 const manifest = JSON.parse(read('../public/plugins/dorm-duty/manifest.json'));
 
@@ -76,7 +77,7 @@ const desktopIcon = new URL('../public/icons/plugins/dorm-duty.png', import.meta
 const miniIcon = new URL('../../miniprogram/images/plugins/dorm-duty.png', import.meta.url);
 assert.ok(fs.existsSync(desktopIcon), '缺少桌面端插件图标 public/icons/plugins/dorm-duty.png');
 assert.ok(fs.existsSync(miniIcon), '缺少小程序插件图标 miniprogram/images/plugins/dorm-duty.png');
-assert.deepEqual(fs.readFileSync(desktopIcon), fs.readFileSync(miniIcon), '两端图标必须字节一致（由 tools/gen-plugin-icons.py 一次写入）');
+assert.deepEqual(readProductSource(desktopIcon), readProductSource(miniIcon), '两端图标必须字节一致（由 tools/gen-plugin-icons.py 一次写入）');
 
 // 插件使用说明：新插件必须被收录，否则用户在「插件使用说明」里找不到它
 const guide = read('../public/plugins/plugin-guide/main.js');

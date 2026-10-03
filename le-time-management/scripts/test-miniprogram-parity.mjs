@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 for (const script of [
   "tools/sync-miniprogram-models.js",
+  "tools/test-miniprogram-core.js",
   "miniprogram/tools/test-miniprogram-core.js",
   "miniprogram/tools/test-parity.js",
   "miniprogram/tools/check-miniprogram.js",

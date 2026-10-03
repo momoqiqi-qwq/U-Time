@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /* 沉浸式插件视图（v0.49.0）的回归测试。
  *
  * 背景：课程表插件在手机端曾同时被两层「栏」挤压 —— APP 全局底栏（.rail，≤900px 时
@@ -21,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const read = (rel) => fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
+const read = (rel) => readProductSource(path.join(__dirname, "..", rel), "utf8");
 
 /* ── ① 插件必须显式声明 immersive，且生成物同步（build-schedule-plugin 的 --check 也守，
  *      但这里独立断言一次：就算有人跳过 --check 直接提交，测试照样拦） ── */

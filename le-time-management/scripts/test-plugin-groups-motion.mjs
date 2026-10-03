@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 // 插件颜色分组 · 动效与刷新范围（v0.103.0 打磨）
 //
 // ① 纯函数：同色吸附每个 ID 只问一次颜色；groupRuns 带颜色分段。
@@ -9,7 +10,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), "utf8");
+const read = (rel) => readProductSource(new URL(rel, import.meta.url), "utf8");
 const shell = read("../src/shell.js");
 const motionSrc = read("../src/motion.js");
 const css = read("../src/styles.css");

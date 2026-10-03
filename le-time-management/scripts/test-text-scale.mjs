@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -56,7 +57,7 @@ const violations = [];
 const emOutsideWeek = [];
 
 for (const rel of ALL_FILES) {
-  const raw = fs.readFileSync(join(root, rel), "utf8");
+  const raw = readProductSource(join(root, rel), "utf8");
   // CSS 块注释整段剥掉（styles.css 的说明注释里会出现示例值）
   const content = rel.endsWith(".css") ? raw.replace(/\/\*[\s\S]*?\*\//g, (m) => " ".repeat(m.length)) : raw;
   const lines = content.split("\n");
@@ -93,17 +94,17 @@ assert.deepEqual(emOutsideWeek, [], "em 字号只允许出现在 .wk-* 课表族
 assert.ok(totalScaled >= 600, `已接入乘数的 font-size 仅 ${totalScaled} 处（应 ≥600），疑似大面积回退`);
 
 // ④ mobile.html 是独立文档（没有 uiPreferences 注入），必须自带兜底
-const mobileHtml = fs.readFileSync(join(root, "src-tauri/src/mobile.html"), "utf8");
+const mobileHtml = readProductSource(join(root, "src-tauri/src/mobile.html"), "utf8");
 assert.match(mobileHtml, /:root\{[^}]*--ui-text-scale:1/, "mobile.html 独立加载，:root 必须自带 --ui-text-scale:1 兜底");
 
 // ③ 契约：设置页滑杆从 TEXT_SCALE_LIMITS 取值，不许写死 90/120
-const appearance = fs.readFileSync(join(root, "src/views/settings/appearance.js"), "utf8");
+const appearance = readProductSource(join(root, "src/views/settings/appearance.js"), "utf8");
 assert.match(appearance, /min:\s*String\(TEXT_SCALE_LIMITS\.min\)/, "滑杆 min 必须来自 TEXT_SCALE_LIMITS");
 assert.match(appearance, /max:\s*String\(TEXT_SCALE_LIMITS\.max\)/, "滑杆 max 必须来自 TEXT_SCALE_LIMITS");
 assert.match(appearance, /step:\s*String\(TEXT_SCALE_LIMITS\.step\)/, "滑杆 step 必须来自 TEXT_SCALE_LIMITS");
 assert.doesNotMatch(appearance, /type:\s*"range",\s*min:\s*"9\d"/, "滑杆不许再写死旧下限 90");
 // normalizeUiPreferences 必须引用 TEXT_SCALE_LIMITS（单一事实源），不许出现字面量 90/120 夹取
-const uiPrefs = fs.readFileSync(join(root, "src/uiPreferences.js"), "utf8");
+const uiPrefs = readProductSource(join(root, "src/uiPreferences.js"), "utf8");
 assert.match(uiPrefs, /clamp\(next\.textScale,\s*TEXT_SCALE_LIMITS\.min,\s*TEXT_SCALE_LIMITS\.max\)/,
   "textScale 夹取必须用 TEXT_SCALE_LIMITS");
 assert.doesNotMatch(uiPrefs, /clamp\(next\.textScale,\s*9\d\s*,\s*1\d\d\)/, "textScale 不许写死旧区间 90~120");

@@ -1,7 +1,8 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const source = fs.readFileSync(new URL('../public/plugins/cppu-notify/main.js',import.meta.url),'utf8');
+const source = readProductSource(new URL('../public/plugins/cppu-notify/main.js',import.meta.url),'utf8');
 let response, calls=[], vaultData={}, storageData={}, opened=[], notices=[], views=[], saved=[];
 const context = vm.createContext({URL,Set,Map,Date,console,setTimeout,clearTimeout,setInterval,clearInterval,
   document:{createElement:()=>({set innerHTML(x){this.value=x;}}),querySelectorAll:()=>[]},
@@ -133,13 +134,13 @@ assert.ok(source.includes('tide.vault'), '插件必须通过 tide.vault 存取�
 assert.ok(source.includes('exportCookies') && source.includes('restoreCookies'), '登录态必须能导出/恢复以跨重启');
 assert.ok(source.includes('runLoginAttempts') && source.includes('cleanLoginRetries'), '验证码识别失败必须走可配置的统一重试流程（行为覆盖见 test-cppu-campus）');
 assert.ok(source.includes('验证码自动识别 ✓'), '登录界面自动登录状态必须如实展示');
-const cppuManifest = JSON.parse(fs.readFileSync(new URL('../public/plugins/cppu-notify/manifest.json', import.meta.url), 'utf8'));
+const cppuManifest = JSON.parse(readProductSource(new URL('../public/plugins/cppu-notify/manifest.json', import.meta.url), 'utf8'));
 /* 不钉死具体版本号：插件每次改动都要升版本，钉死了就变成「升一次改两处」。
    这里只守格式（三段式），catalog 与 manifest 的一致性由下面那条比。 */
 assert.match(cppuManifest.version, /^\d+\.\d+\.\d+$/, '插件版本号必须是三段式 X.Y.Z');
 assert.ok((cppuManifest.permissions || []).includes('vault'), 'manifest 必须声明 vault 权限才能用密钥库');
 assert.ok((cppuManifest.permissions || []).includes('openUrl'), 'manifest 必须声明 openUrl 权限才能打开校园服务链接');
-const catalogSrc = fs.readFileSync(new URL('../src/pluginCatalog.js', import.meta.url), 'utf8');
+const catalogSrc = readProductSource(new URL('../src/pluginCatalog.js', import.meta.url), 'utf8');
 const cppuEntry = catalogSrc.slice(catalogSrc.indexOf('"id": "cppu-notify"'));
 const cppuBlock = cppuEntry.slice(0, cppuEntry.indexOf('},\n  {'));
 /* 版本号只写一处：拿 manifest 的实际版本去比，避免升版本时要改两个地方 */
@@ -381,14 +382,14 @@ assert.ok(source.includes('-webkit-tap-highlight-color:transparent'), '触屏点
 assert.match(source, /@media\(prefers-reduced-motion:reduce\)\{[^}]*\.pp-side,[^}]*\.pp-side-toggle[^}]*transition-duration/,
   '开了「移除动画」（Android 省电模式）时，侧栏与把手的过渡也必须跟着降级');
 assert.ok(source.includes('AUTO_REFRESH_MS') && source.includes('data-ar'), '插件必须提供低打扰的定时自动刷新开关');
-const hostSrc = fs.readFileSync(new URL('../src/pluginHost.js', import.meta.url), 'utf8');
+const hostSrc = readProductSource(new URL('../src/pluginHost.js', import.meta.url), 'utf8');
 assert.ok(hostSrc.includes('vault: "加密密钥库'), '插件宿主必须定义 vault 权限标签');
 assert.ok(hostSrc.includes('requirePermission(man, pid, "vault")'), 'tide.vault 必须走权限校验');
 assert.ok(hostSrc.includes('?v=${encodeURIComponent(version)}') && hostSrc.includes('cache: "no-cache"'), '内置插件入口必须按版本破缓存，避免升级后仍运行旧代码');
-const apiSrc = fs.readFileSync(new URL('../src/api.js', import.meta.url), 'utf8');
+const apiSrc = readProductSource(new URL('../src/api.js', import.meta.url), 'utf8');
 assert.ok(apiSrc.includes('plugin_vault_get') && apiSrc.includes('http_session_restore'), 'api 层必须接通密钥库与会话恢复命令');
 assert.ok(apiSrc.includes('followRedirects: opts.followRedirects'), 'api 层必须把重定向策略传给 Rust HTTP 会话');
-const libSrc = fs.readFileSync(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
+const libSrc = readProductSource(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
 assert.ok(libSrc.includes('fn http_session_export') && libSrc.includes('fn plugin_vault_set'), 'Rust 侧必须提供会话导出与密钥库命令');
 assert.ok(libSrc.includes('Policy::none()') && libSrc.includes('follow_redirects'), 'Rust HTTP 会话必须支持禁止自动重定向');
 assert.ok(libSrc.includes('reqwest::header::LOCATION'), 'Rust HTTP 响应必须把 Location 暴露给插件逐段换票');

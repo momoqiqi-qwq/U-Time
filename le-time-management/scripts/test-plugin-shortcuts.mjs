@@ -2,7 +2,7 @@
 // 分层契约见 src/pluginShortcuts.js 头注释 —— 纯逻辑不依赖 DOM，这里直接 import 真跑；
 // shell / 命令面板 / 设置页的接线用源码正则钉住。
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readProductSource as readFileSync } from './lib/read-product-source.mjs';
 import {
   PLUGIN_SHORTCUT_MODIFIER,
   normalizeShortcutLetter,

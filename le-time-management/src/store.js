@@ -2,12 +2,11 @@
 import { api } from "./api.js";
 import { migrateState } from "./migrations.js";
 import { getTaskPreferences } from "./taskPreferences.js";
+import { createPersistence } from "./persistence.js";
 
 let state = null;
 const subs = new Set();
-let saveTimer = null;
-let saveFail = 0;
-let saveChain = Promise.resolve();
+const persistence = createPersistence({ write: (data) => api.saveData(data), snapshot: () => state });
 let batchDepth = 0;
 let batchDirty = false;
 const blockIndexByDate = new Map();
@@ -65,11 +64,13 @@ function invalidateBlockIndex(dateStr = null) {
   else blockIndexByDate.clear();
 }
 export async function initStore(seed) {
-  let loaded;
-  try {
-    loaded = await api.loadData();
-  } catch {
-    loaded = seed;
+  persistence.reset();
+  state = null;
+  const raw = await api.loadData();
+  const loaded = raw ?? seed;
+  if (raw != null && (typeof raw !== "object" || Array.isArray(raw)
+    || !Array.isArray(raw.tasks) || (raw.blocks != null && !Array.isArray(raw.blocks)))) {
+    throw new Error("数据格式损坏，请重试读取或导入有效备份");
   }
   // 迁移放在 try 之外：数据来自更新版本时要显式报错，而不是静默换成种子数据
   state = normalizeState(migrateState(loaded));
@@ -84,14 +85,10 @@ export async function initStore(seed) {
 }
 export function getState() { return state; }
 export function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
-function queueSave() {
-  saveChain = saveChain.catch(() => {}).then(() => api.saveData(state));
-  return saveChain.then(() => { saveFail = 0; }).catch((e) => { if (++saveFail === 1) console.error("保存失败", e); throw e; });
-}
-function scheduleSave() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { queueSave().catch(() => {}); }, 350);
-}
+function queueSave() { return persistence.flush(); }
+function scheduleSave() { persistence.schedule(); }
+export const getSaveStatus = persistence.getStatus;
+export const subscribeSaveStatus = persistence.subscribe;
 function emitChanged() {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("tide:state-changed"));
   subs.forEach((f) => { try { f(); } catch (e) { console.error(e); } });
@@ -378,7 +375,6 @@ export function replaceAll(next) {
   changed();
 }
 export function saveNow() {
-  clearTimeout(saveTimer);
   return queueSave();
 }
 

@@ -66,8 +66,15 @@ walk(ROOT, (p) => {
   try { new Function(fs.readFileSync(p,"utf8").replace(/^#![^\n]*\n/,"")); }
   catch (e) { bad("JS 语法错误: " + p + " " + e.message); }
 });
+function controllerSource(file, seen = new Set()) {
+  if (seen.has(file)) return "";
+  seen.add(file);
+  const source = fs.readFileSync(file, "utf8");
+  return source + [...source.matchAll(/\.\.\.require\(["'](\.[^"']+)["']\)/g)]
+    .map(match => controllerSource(path.resolve(path.dirname(file), match[1]), seen)).join("\n");
+}
 for (const pg of app.pages) {
-  const js = fs.readFileSync(path.join(ROOT,pg+".js"),"utf8"), wxml = fs.readFileSync(path.join(ROOT,pg+".wxml"),"utf8");
+  const js = controllerSource(path.join(ROOT,pg+".js")), wxml = fs.readFileSync(path.join(ROOT,pg+".wxml"),"utf8");
   for (const match of wxml.matchAll(/(?:bind|catch)(?::)?[a-zA-Z]+\s*=\s*["']([A-Za-z_$][\w$]*)["']/g)) {
     if (!new RegExp("\\b" + match[1] + "\\s*(?:\\(|:)").test(js)) bad("未找到事件处理器: " + pg + " " + match[1]);
   }

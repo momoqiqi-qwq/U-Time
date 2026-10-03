@@ -1,7 +1,8 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
+const read = (path) => readProductSource(new URL(path, import.meta.url), "utf8");
 const cargo = read("../src-tauri/Cargo.toml");
 const lib = read("../src-tauri/src/lib.rs");
 const rust = read("../src-tauri/src/notification.rs");

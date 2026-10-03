@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 // 系统托盘 + 「点关闭按钮」行为：设置页可开关，Rust 侧必须真的照做。
 //
 // 两件事分开管，但**互相约束**：
@@ -14,7 +15,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
+const read = (p) => readProductSource(new URL(p, import.meta.url), "utf8");
 const libRs = read("../src-tauri/src/lib.rs");
 const appearance = read("../src/views/settings/appearance.js");
 

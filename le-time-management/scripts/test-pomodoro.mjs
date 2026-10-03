@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 // 番茄专注的提醒设置：音效目录、开关分支、以及插件界面的构建。
 // 插件源码是 IIFE，这里在 vm 里注入一个 fixture 把它内部的 finish / render / reminder 暴露出来，
 // 再用一套极简 DOM 驱动真源码 —— 比读源码猜行为可靠。
@@ -38,7 +39,7 @@ assert.equal(await playSound({ sound: 'custom', customAudio: 'data:audio/mpeg;ba
 assert.equal(await playSound({ sound: 'chime', volume: 2 }), 'silent');
 
 /* ── 二、应用侧接线 ── */
-const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+const read = (rel) => readProductSource(new URL(rel, import.meta.url), 'utf8');
 const taskReminder = read('../src/taskReminder.js');
 assert.match(taskReminder, /import \{[^}]*\bplaySound\b[^}]*\} from "\.\/sound\.js"/, '任务提醒必须复用共享音效模块');
 assert.ok(!/AudioContext/.test(taskReminder), '任务提醒不该再自己维护一份 AudioContext');
@@ -63,7 +64,7 @@ const atLeast = (maj, min, pat) => vmaj > maj || (vmaj === maj && (vmin > min ||
 assert.ok(atLeast(0, 5, 1),
   `改过插件行为就必须升版本（试听按钮提到提醒面板头部 / 卡片底色不再依赖已删的 --custom-panel-mix）：当前 ${manifest.version}，要求 ≥ 0.5.1`);
 
-const source = fs.readFileSync(PLUGIN, 'utf8');
+const source = readProductSource(PLUGIN, 'utf8');
 for (const marker of ['tide.sound.play', 'tide.sound.presets', 'focusNotify', 'focusSound', 'breakNotify', 'breakSound', 'AUDIO_MAX_BYTES', 'readAsDataURL']) {
   assert.ok(source.includes(marker), `番茄专注缺少提醒能力：${marker}`);
 }

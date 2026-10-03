@@ -1,8 +1,9 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const shell = fs.readFileSync(new URL("../src/shell.js", import.meta.url), "utf8");
-const plugin = fs.readFileSync(new URL("../public/plugins/cppu-notify/main.js", import.meta.url), "utf8");
+const shell = readProductSource(new URL("../src/shell.js", import.meta.url), "utf8");
+const plugin = readProductSource(new URL("../public/plugins/cppu-notify/main.js", import.meta.url), "utf8");
 const ids = ["cppu-credit", "cppu-cx", "cppu-qj", "cppu-notify", "cppu-xk", "cppu-card"];
 for (const id of ids) assert.ok(plugin.includes(`"${id}"`), `${id} must be registered`);
 const block = shell.slice(shell.indexOf("        const cardViews ="), shell.indexOf("        const open =", shell.indexOf("        const cardViews =")));

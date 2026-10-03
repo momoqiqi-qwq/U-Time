@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /*
  * 通知堆叠（图2 那种「多条横幅叠成一张，鼠标移上去背后那张向上散开」）回归测试。
  *
@@ -17,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.join(here, "..");
-const styles = fs.readFileSync(path.join(appRoot, "src/styles.css"), "utf8");
+const styles = readProductSource(path.join(appRoot, "src/styles.css"), "utf8");
 
 /* ─────────────────────── 迷你 DOM ─────────────────────── */
 
@@ -178,12 +179,12 @@ assert.match(hiddenBlock, /\.ns-spinner\[hidden\]/, "缺 .ns-spinner[hidden] 兜
 
 /* ── ④ 设置里的开关：界面与交互卡片，且只在桌面出现 ── */
 
-const appearance = fs.readFileSync(path.join(appRoot, "src/views/settings/appearance.js"), "utf8");
+const appearance = readProductSource(path.join(appRoot, "src/views/settings/appearance.js"), "utf8");
 assert.match(appearance, /通知叠成一张（鼠标悬停展开）/, "设置 › 界面与交互必须有这个开关");
 assert.match(appearance, /desktopWindow \? toggleRow\("通知叠成一张/,
   "🔴 手机端没有 hover，CSS 那套折叠压根不生效 —— 开关必须跟着桌面才摆出来，别摆个拧不动的");
 assert.match(appearance, /setUiPreferences\(\{ notifyStack: value \}\)/, "开关要写进 settings.ui.notifyStack");
-assert.match(fs.readFileSync(path.join(appRoot, "src/settingsSearchIndex.js"), "utf8"),
+assert.match(readProductSource(path.join(appRoot, "src/settingsSearchIndex.js"), "utf8"),
   /通知叠成一张（鼠标悬停展开）/, "设置项要进全局搜索索引（标题必须是界面上的原文）");
 
 console.log("PASS: 通知堆叠（折叠时机 / data-pin 摊平 / 折叠公式 / hover+焦点展开 / 触屏不折叠 / 设置开关 / 更新卡拆分与进度行样式）");

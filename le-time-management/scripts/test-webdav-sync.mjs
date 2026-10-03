@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /**
  * v0.62.0 · 网盘同步引导的回归守卫。
  *
@@ -10,7 +11,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+const read = (rel) => readProductSource(new URL(rel, import.meta.url), 'utf8');
 const cardSrc = read('../src/views/settings/sync.js');
 
 /* ── 假 Tauri 后端 ──
@@ -190,9 +191,9 @@ assert.match(rust, /#\[tauri::command\]\nasync fn http_fetch/, 'http_fetch 上�
 assert.doesNotMatch(rust, /#\[cfg\(desktop\)\]\nasync fn http_fetch/);
 
 /* ── ⑧ 卡片接线与样式类名 ── */
-assert.match(settingsSrc, /const syncCard = await createSyncCard\(/, '设置页必须真的渲染引导卡');
+assert.match(settingsSrc, /create: \(\{ render \}\) => createSyncCard\(/, '设置页按分类打开时创建引导卡');
 assert.match(settingsSrc, /import \{ createSyncCard \} from "\.\/settings\/sync\.js"/);
-assert.match(settingsSrc, /\{ id: "sync", node: syncCard/, '设置导航里还得有这一节，搜不到就等于没有');
+assert.match(settingsSrc, /\{ id: "sync", create:/, '设置导航里还得有这一节，搜不到就等于没有');
 assert.doesNotMatch(settingsSrc, /from "\.\.\/syncLayer\.js"/, '实现已搬进卡片模块，主文件不该还留着旧 import');
 for (const cls of new Set([...cardSrc.matchAll(/sync-[a-z-]+/g)].map((m) => m[0]))) {
   assert.match(styles, new RegExp(`\\.${cls}[\\s,{:]`), `styles.css 里没有 .${cls} 这条规则`);

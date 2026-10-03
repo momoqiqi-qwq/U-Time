@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /*
  * 核心导航项自定义（侧栏右键改名 / 换图标）回归测试
  *
@@ -19,7 +20,7 @@ import { initStore, getState } from "../src/store.js";
 import { getNavOverride, hasNavOverride, navDisplayName, resetNavOverride, setNavOverride } from "../src/navAppearance.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const read = (rel) => fs.readFileSync(path.join(here, rel), "utf8");
+const read = (rel) => readProductSource(path.join(here, rel), "utf8");
 const shell = read("../src/shell.js");
 const appearance = read("../src/views/settings/appearance.js");
 const navModule = read("../src/navAppearance.js");

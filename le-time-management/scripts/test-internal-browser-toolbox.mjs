@@ -1,10 +1,11 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const rust = fs.readFileSync(path.join(here, "../src-tauri/src/lib.rs"), "utf8");
+const rust = readProductSource(path.join(here, "../src-tauri/src/lib.rs"), "utf8");
 const source = rust.match(/const INTERNAL_BROWSER_BOOTSTRAP: &str = r#"([\s\S]*?)"#;/)?.[1];
 const bootstrap = source || "";
 
@@ -21,7 +22,7 @@ assert.match(bootstrap, /__utime_browser_favorites_v1[\s\S]*查看收藏/, "favo
 assert.match(bootstrap, /navigator\.clipboard\.writeText\(pageUrl\(\)\)/, "copy-address tool should copy the remote page URL");
 assert.match(bootstrap, /缩小网页[\s\S]*Math\.max\(\.75[\s\S]*放大网页[\s\S]*Math\.min\(1\.5/, "page zoom controls should stay within safe bounds");
 assert.match(bootstrap, /prefers-reduced-motion: reduce/, "toolbox feedback should honor reduced motion");
-const native = fs.readFileSync(path.join(here, "../src-tauri/src/browser.rs"), "utf8");
+const native = readProductSource(path.join(here, "../src-tauri/src/browser.rs"), "utf8");
 assert.match(native, /window\.add_child\(WebviewBuilder::new/, "desktop toolbox must be a separate native webview");
 assert.match(native, /size\.width - rail/, "remote page must reserve actual viewport width for the toolbar");
 assert.match(native, /origin\.path\(\) != "\/browser-toolbox\.html"/, "remote content must not call local toolbar commands");

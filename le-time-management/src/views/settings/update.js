@@ -164,6 +164,7 @@ export function createUpdateSettingsPanel({ currentVersion = "" } = {}) {
     if (!panel.isConnected) { unsubscribe(); return; }
     paint();
   });
+  panel._dispose = () => unsubscribe();
 
   panel.append(
     el("div", { class: "setting-row" }, el("span", {}, "启动时自动检查更新"), autoSwitch),

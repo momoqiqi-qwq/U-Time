@@ -1,10 +1,11 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
 /* 五层接线的静态断言（与 test-android-system-bar.mjs 同一套范式）。
    行为断言在文件末尾，会真的把 store 拉起来跑一遍排期计算。 */
 
-const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
+const read = (path) => readProductSource(new URL(path, import.meta.url), "utf8");
 const api = read("../src/api.js");
 const bridge = read("../src/androidNotify.js");
 const taskReminder = read("../src/taskReminder.js");

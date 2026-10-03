@@ -1,7 +1,8 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 
-const read = (path) => fs.readFileSync(new URL(path, import.meta.url), "utf8");
+const read = (path) => readProductSource(new URL(path, import.meta.url), "utf8");
 const store = read("../src/store.js");
 const ui = read("../src/ui.js");
 const quadrant = read("../src/views/quadrant.js");

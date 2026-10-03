@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -18,7 +19,7 @@ assert.equal(production.settings.ui.uiScale, 150);
 assert.equal(copy.settings.ui.startupView, 'quadrant');
 assert.equal(copy.settings.theme, 'night');
 
-const apiSource = fs.readFileSync(new URL('../src/api.js', import.meta.url), 'utf8');
+const apiSource = readProductSource(new URL('../src/api.js', import.meta.url), 'utf8');
 let nativeCalls = 0;
 const previewElement = {};
 prepareMobilePreview(previewElement, production);
@@ -91,14 +92,14 @@ assert.equal((await context.api.loadData()).tasks[0].title, 'original', 'refresh
 assert.equal(storageCalls, 0);
 assert.throws(() => loadMobilePreviewData({ ...previewWindow, frameElement: null }), /重新打开预览/);
 
-const settings = fs.readFileSync(new URL('../src/views/settings.js', import.meta.url), 'utf8');
-assert.match(settings, /id: "testing", node: testingCard, label: "测试"/);
+const settings = readProductSource(new URL('../src/views/settings.js', import.meta.url), 'utf8');
+assert.match(settings, /id: "testing", create: \(\{ render \}\) => createTestingCard\(\), label: "测试"/);
 assert.ok(!settings.includes('http://127.0.0.1:1420/'));
-const testing = fs.readFileSync(new URL('../src/views/settings/testing.js', import.meta.url), 'utf8');
+const testing = readProductSource(new URL('../src/views/settings/testing.js', import.meta.url), 'utf8');
 assert.ok(!testing.includes('openExternal'));
 assert.match(testing, /el\("iframe"/);
 assert.doesNotMatch(testing, /localStorage\.setItem/);
 assert.ok(testing.indexOf("prepareMobilePreview(frame") < testing.indexOf("frame.src ="), "snapshot must be ready before child navigation");
-const shell = fs.readFileSync(new URL('../src/shell.js', import.meta.url), 'utf8');
+const shell = readProductSource(new URL('../src/shell.js', import.meta.url), 'utf8');
 assert.match(shell, /isNativeAndroidRuntime\(\) \|\| isMobilePreview\(\)/);
 console.log('PASS: embedded mobile preview, isolated data and credentials, same-origin native automatic login, 8 MiB data with full Storage');

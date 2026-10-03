@@ -106,6 +106,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, on
       entry.node.classList.toggle("settings-section-active", isActive);
       // 窄屏：全部分区都在页面上，收放只看 expanded；桌面：只显示当前分类
       const open = pages ? entry.id === state.page : isNarrow ? visible && expanded.has(entry.id) : isActive;
+      if (open) entry.ensure?.();
       view.wrap.hidden = pages ? (state.page ? !open : !visible) : isNarrow ? !visible : !isActive;
       if (pages) {
         view.head.hidden = open;
@@ -192,6 +193,10 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, on
     let firstVisible = null;
     for (const entry of entries) {
       const haystack = `${entry.label || ""} ${entry.keywords || ""} ${entry.node.textContent || ""}`.toLowerCase();
+      if (q && entry.ensure) entry.ensure().then(() => {
+        // 搜索仍覆盖设置项正文；懒加载完成后用同一次查询更新结果。
+        if (search.value.trim().toLowerCase() === q) paintSearchResults();
+      });
       const searchOk = !q || haystack.includes(q);
       const btn = buttons.get(entry.id);
       if (btn) btn.hidden = !searchOk;
@@ -257,6 +262,22 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, on
     heads.get(previous)?.head.focus({ preventScroll: true });
     return true;
   }
+  function paintSearchResults() {
+    if (disposed) return;
+    const q = search.value.trim().toLowerCase();
+    visibleIds = new Set(entries.filter(entry => `${entry.label || ""} ${entry.keywords || ""} ${entry.node.textContent || ""}`.toLowerCase().includes(q)).map(entry => entry.id));
+    for (const [id, button] of buttons) button.hidden = !visibleIds.has(id);
+    if (!visibleIds.has(active)) active = visibleIds.values().next().value || "";
+    state.active = active;
+    if (narrow.matches && !pages && q) {
+      expanded = new Set(visibleIds); syncExpanded();
+    }
+    result.textContent = `显示 ${visibleIds.size} / ${entries.length}`;
+    empty.hidden = visibleIds.size > 0; list.hidden = visibleIds.size === 0;
+    paintActive(); paintPage();
+  }
+  let disposed = false;
+  const dispose = () => { if (disposed) return; disposed = true; narrow.removeEventListener?.("change", onModeChange); };
   node._back = back;
-  return { node, apply, select, panels };
+  return { node, apply, select, panels, dispose };
 }

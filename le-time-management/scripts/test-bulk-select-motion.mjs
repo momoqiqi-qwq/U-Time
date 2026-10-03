@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /*
  * 插件管理「批量勾选错落动画」回归测试 —— v0.52.0
  *
@@ -16,7 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const read = (rel) => fs.readFileSync(path.join(here, rel), "utf8");
+const read = (rel) => readProductSource(path.join(here, rel), "utf8");
 
 const pluginsJs = read("../src/views/settings/plugins.js");
 const styles = read("../src/styles.css");

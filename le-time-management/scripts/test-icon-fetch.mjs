@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 // 站点图标抓取的契约测试（school-notice 插件 + 原生侧）。
 //
 // 背景：Android 上 Tauri 用 WebViewAssetLoader（默认 scheme = https），页面来源是
@@ -20,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, '..');
-const read = (rel) => fs.readFileSync(path.join(appRoot, rel), 'utf8');
+const read = (rel) => readProductSource(path.join(appRoot, rel), 'utf8');
 
 const libSource = read('src-tauri/src/lib.rs');
 const pluginSource = read('public/plugins/school-notice/main.js');

@@ -1,6 +1,7 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-const source=fs.readFileSync(new URL('../src/shell.js',import.meta.url),'utf8');
+const source=readProductSource(new URL('../src/shell.js',import.meta.url),'utf8');
 const code=source.slice(source.indexOf('function attachPluginListDrag('),source.indexOf('// 横向工具区',source.indexOf('function attachPluginListDrag(')));
 function harness({reduce=false,scale=1}={}){
  const frames=new Map(),timers=new Map();let seq=1,top=100,commits=0,cancels=0;
@@ -41,7 +42,7 @@ function harness({reduce=false,scale=1}={}){
  const h=harness();h.list.fire('keydown',{target:h.a,altKey:true,key:'ArrowDown',preventDefault(){}});assert.equal(h.order(),'bacd');assert.equal(h.commits(),1,'keyboard ordering is preserved');
  h.down();h.move(44,110);h.list.fire('pointerdown',h.event(44,110,{pointerId:2,isPrimary:false}));assert.equal(h.body.children.length,1,'second pointer must not replace active drag');h.document.fire('pointercancel',h.event(44,110));assert.equal(h.order(),'bacd');
 }
-const css=fs.readFileSync(new URL('../src/styles.css',import.meta.url),'utf8');
+const css=readProductSource(new URL('../src/styles.css',import.meta.url),'utf8');
 assert.match(css,/\.nav \.plug-seg > button\.nav-dragging\s*\{[^}]*opacity: 1;[^}]*outline: 2px solid/s);
 assert.match(css,/\.plugin-nav-ghost\s*\{[^}]*opacity: 1;[^}]*transition: none/s);
 console.log('PASS: sidebar drag direct tracking, coalescing, reverse animation cleanup, final pointerup, scroll, zoom, cancel, touch and full-opacity highlight');

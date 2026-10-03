@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /*
  * 四象限卡片拖拽排序回归测试 —— v0.52.0
  *
@@ -18,7 +19,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const read = (rel) => fs.readFileSync(path.join(here, rel), "utf8");
+const read = (rel) => readProductSource(path.join(here, rel), "utf8");
 
 const storeJs = read("../src/store.js");
 const quadrantJs = read("../src/views/quadrant.js");

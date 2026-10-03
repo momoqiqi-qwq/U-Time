@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 // AI 文档 / 图片解析管线：脏数据兜底、路由分派、降级不丢数据。
 //
 // 为什么这个测试重点在「脏数据」：这条链路的输入是**大模型的自由文本**，
@@ -14,7 +15,7 @@ const memory = new Map();
 globalThis.localStorage = { getItem: (k) => memory.get(k), setItem: (k, v) => memory.set(k, v) };
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
+const read = (rel) => readProductSource(path.join(root, rel), 'utf8');
 
 /**
  * 去掉块注释再断言。

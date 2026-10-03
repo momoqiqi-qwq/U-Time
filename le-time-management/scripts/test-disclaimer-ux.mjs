@@ -1,8 +1,9 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { SETTINGS_SEARCH_ENTRIES } from "../src/settingsSearchIndex.js";
 
-const read = (name) => fs.readFileSync(new URL(name, import.meta.url), "utf8");
+const read = (name) => readProductSource(new URL(name, import.meta.url), "utf8");
 const code = read("../src/disclaimer.js").replace(/^import .*;\r?\n/gm, "").replace(/export /g, "");
 const el = (tag, attrs = {}, ...children) => ({ tag, attrs, children: children.flat().filter(Boolean), nodeType: 1 });
 const flatten = (node) => typeof node === "string" ? node : node.children.map(flatten).join(" ");

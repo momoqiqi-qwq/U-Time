@@ -1,3 +1,4 @@
+import { readProductSource } from "./lib/read-product-source.mjs";
 /* 界面整体缩放（设置 → 界面与交互 → 界面缩放）的回归测试。
  *
  * 分三块：
@@ -54,7 +55,7 @@ import {
 } from "../src/uiScale.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const readSrc = (rel) => fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
+const readSrc = (rel) => readProductSource(path.join(__dirname, "..", rel), "utf8");
 
 /* ────────────────────────── 1. 纯逻辑 ────────────────────────── */
 
@@ -636,7 +637,8 @@ const expectedBreakpoints = new Map([
   // 720px 那一处随「自定义背景」的 .bg-grid / .bg-preview 一起删掉了（v0.55.0）。
   // 761/1280：v0.57.0 删掉「统计居中时 761~1280px 把搜索折成图标」的媒体块
   // （搜索恒为纯图标后该块失去目标），761 剩 1 处、1280 整档退场。
-  [520, 3], [560, 1], [700, 3], [760, 14], [761, 1],
+  // v0.149.1：免责声明手机布局新增一处 700px 断点。
+  [520, 3], [560, 1], [700, 4], [760, 14], [761, 1],
   [800, 1], [820, 1], [900, 4], [901, 1], [980, 3],
 ]);
 const mediaHeads = styles.match(/@media[^{]*\{/g) || [];
