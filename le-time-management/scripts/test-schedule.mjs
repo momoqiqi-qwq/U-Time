@@ -52,7 +52,7 @@ assert.match(nativeScheduleSource,/fallback\(container, ctx\)/,
   'missing native runtime must hand the view back to the embedded schedule UI');
 assert.match(nativeScheduleSource,/!\s*status\.available\)\s*return degrade\(\)/,
   'missing native runtime must degrade rather than stop at a placeholder message');
-vm.runInContext(ui.replace(' tide.ui.registerView({',' globalThis.fixture={set:(t,w)=>{table=t;week=w;},blocks,tone,subHead,moreMenu,styles,setStyle:(s)=>{style={...style,...s};},pickSchool:(s)=>{selectedSchool=s;},openSchoolAdapter:(a)=>openSchoolAdapter(a),adapterSources:()=>schoolAdapterSources,render,act:(a,s)=>action(a,s),modeOf:()=>mode};\n tide.ui.registerView({'),uiContext);
+vm.runInContext(ui.replace(' tide.ui.registerView({',' globalThis.fixture={normalizeStyle,set:(t,w)=>{table=t;week=w;},blocks,tone,subHead,moreMenu,styles,setStyle:(s)=>{style={...style,...s};},pickSchool:(s)=>{selectedSchool=s;},openSchoolAdapter:(a)=>openSchoolAdapter(a),adapterSources:()=>schoolAdapterSources,render,act:(a,s)=>action(a,s),modeOf:()=>mode};\n tide.ui.registerView({'),uiContext);
 /* styles() 真跑一遍（v0.59.0 加的守卫）。整份课表 CSS 是**模板字符串**，注释里出现反引号
    或 ${ 会把字符串截断 —— 反引号成对时语法照样合法、vm 加载与 --check 全过，
    只有真正执行 styles() 才炸（实测 main.js 里 .app.rail-hidden 被当成属性访问，
@@ -398,7 +398,7 @@ assert.ok(!/@media\(max-width:900px\)\{[\s\S]*?\.sg \.main-stage\{min-height:0\}
   '不能再把窄屏 .main-stage 的 min-height 写成 0');
 // 提示行已删：连同它的两条样式规则一起清掉，别留死代码
 assert.ok(!ui.includes('schedule-note'), '「左右滑动切换周次…」提示行已按用户要求删除，不应残留标记或样式');
-console.log('PASS: 手机课表按用户设定的格子高度拉长，操作提示行已移除');
+console.log('PASS: 关闭适配后手机课表保留手动格子高度，操作提示行已移除');
 
 /* ── v0.59.0 周视图无边距（APK 端需求：填满除安全区之外的整屏）──
    .sg.bleed 由 paint() 在 mode==='week' 与 mode==='style' 时挂上（后者背后画的就是周课表，
@@ -637,3 +637,11 @@ const activeData=M.normalize(savedTables[0].data);
 assert.equal(weekResponse.occurrences,M.occurrences(activeData,M.weekOf(activeData.config.semesterStartDate,'2026-09-09')).length);
 assert.equal(weekResponse.courses,undefined,'只传播统计，不泄漏课程明细');
 console.log('PASS: timetable saves broadcast changes and actual calendar query uses the active in-memory table');
+
+// 新默认不改掉手动高度，明确关闭后继续使用旧的固定高度布局。
+assert.equal(uiContext.fixture.normalizeStyle({slotHeight:96}).fitHeight,true);
+assert.equal(uiContext.fixture.normalizeStyle({slotHeight:96,fitHeight:false}).fitHeight,false);
+assert.equal(uiContext.fixture.normalizeStyle({slotHeight:96}).slotHeight,96);
+assert.match(injectedCss[0],/\.sg\.bleed\.fit-height \.schedule-frame\{flex:1;min-height:0;height:auto;max-height:none\}/);
+assert.match(ui,/switchRow\('适配界面的课表块高度'/);
+console.log('PASS: 课表默认适配可用高度，保留手动高度及明确关闭选项');

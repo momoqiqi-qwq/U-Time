@@ -206,7 +206,7 @@
  /* 默认观感（v0.59.0 起）：彩色实色课程块 + 75% 透明度。
     ⚠️ 这只改「没有存过样式」的新用户与「恢复默认」的结果 ——
     已存过 style 的老用户仍读自己的 storage（normalizeStyle 只在缺值时回填默认）。 */
- const defaultStyle={slotHeight:76,cornerRadius:8,gap:2,opacity:75,hideTimes:false,hideDates:false,colorful:true};
+ const defaultStyle={fitHeight:true,slotHeight:76,cornerRadius:8,gap:2,opacity:75,hideTimes:false,hideDates:false,colorful:true};
  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const button=(label,action,extra='')=>`<button data-action="${action}" ${extra}>${label}</button>`;
  const field=(label,name,value,type='text',extra='')=>`<label><span>${label}</span><input name="${name}" aria-label="${label}" type="${type}" value="${esc(value)}" ${extra}></label>`;
@@ -482,6 +482,19 @@
    .sg.bleed .main-stage>.warning{margin-inline:8px}
    .sg.bleed footer{padding-inline:8px}
  }
+ /* 自动适配只作用于整周视图，手动高度和其它子页保持原布局。 */
+ .sg.bleed.fit-height{height:100%;min-height:0}
+   .sg.bleed.fit-height .main-stage{flex:1;min-height:0}
+   .sg.bleed.fit-height .week-anim{flex:1;min-height:0}
+   .sg.bleed.fit-height .schedule-frame{flex:1;min-height:0;height:auto;max-height:none}
+   .sg.bleed.fit-height .schedule-grid{--sg-row-min:0px}
+ @media(max-width:900px){
+   .sg.bleed .schedule-top{padding:3px 6px;gap:3px}
+   .sg.bleed .week-title{flex-direction:row;align-items:center;min-height:32px;gap:6px;white-space:nowrap}
+   .sg.bleed .week-title b{font-size:calc(14px * var(--ui-text-scale))}
+   .sg.bleed .week-title small{font-size:calc(10px * var(--ui-text-scale))}
+   .sg.bleed .schedule-top .prev,.sg.bleed .schedule-top .next,.sg.bleed .more-btn{height:32px;min-height:32px;width:32px;padding:0;line-height:1}
+ }
  /* ── 悬浮键走廊 ＋ 节次间隔生成器样式 ──
     宿主两颗悬浮键（‹ 返回 / ⋮ 菜单）钉在屏幕两侧 45% 高处、z-index 在插件之上，
     高个 textarea（节次表 / 教务文本）恰好横穿那条带 —— 首行与左右缘被玻璃圆钮盖住，
@@ -702,7 +715,7 @@ let styleSaveTimer=null;
 const styleNum=(v,def,min,max)=>{if(v===null||v===undefined||v==='')return def;const n=Number(v);return Number.isFinite(n)?Math.min(max,Math.max(min,Math.round(n))):def;};
 function normalizeStyle(raw){
   const s=raw&&typeof raw==='object'?raw:{};
-  return {slotHeight:styleNum(s.slotHeight,defaultStyle.slotHeight,52,120),
+  return {fitHeight:s.fitHeight!==false,slotHeight:styleNum(s.slotHeight,defaultStyle.slotHeight,52,120),
     cornerRadius:styleNum(s.cornerRadius,defaultStyle.cornerRadius,0,24),
     gap:styleNum(s.gap,defaultStyle.gap,0,8),
     opacity:styleNum(s.opacity,defaultStyle.opacity,35,100),
@@ -710,9 +723,9 @@ function normalizeStyle(raw){
 }
 function liveStyle(form,saveNow){
   const f=form.elements;
-  style=normalizeStyle({slotHeight:f.slotHeight?.value,cornerRadius:f.cornerRadius?.value,gap:f.gap?.value,opacity:f.opacity?.value,hideTimes:!!f.hideTimes?.checked,hideDates:!!f.hideDates?.checked,colorful:!!f.colorful?.checked});
+  style=normalizeStyle({slotHeight:f.slotHeight?.value,cornerRadius:f.cornerRadius?.value,gap:f.gap?.value,opacity:f.opacity?.value,fitHeight:!!f.fitHeight?.checked,hideTimes:!!f.hideTimes?.checked,hideDates:!!f.hideDates?.checked,colorful:!!f.colorful?.checked});
   const sg=host?.querySelector('.sg');
-  if(sg){sg.style.setProperty('--sg-slot-height',`${style.slotHeight}px`);sg.style.setProperty('--sg-course-radius',`${style.cornerRadius}px`);sg.style.setProperty('--sg-course-gap',`${style.gap}px`);sg.style.setProperty('--sg-course-opacity',String(style.opacity/100));sg.classList.toggle('colorful',!!style.colorful);sg.classList.toggle('hide-times',!!style.hideTimes);sg.classList.toggle('hide-dates',!!style.hideDates);}
+  if(sg){sg.style.setProperty('--sg-slot-height',`${style.slotHeight}px`);sg.style.setProperty('--sg-course-radius',`${style.cornerRadius}px`);sg.style.setProperty('--sg-course-gap',`${style.gap}px`);sg.style.setProperty('--sg-course-opacity',String(style.opacity/100));sg.classList.toggle('fit-height',!!style.fitHeight);sg.classList.toggle('colorful',!!style.colorful);sg.classList.toggle('hide-times',!!style.hideTimes);sg.classList.toggle('hide-dates',!!style.hideDates);}
   refreshStylePreview(form);
   clearTimeout(styleSaveTimer);
   if(saveNow)tide.storage.set('style',style).catch(()=>{});
@@ -721,7 +734,7 @@ function liveStyle(form,saveNow){
 /* 抽屉内容：遮罩 + 面板。paint() 把它接在 weekContent() 之后，
    所以背后永远是周课表本体（从「我的」点进来也是）—— 抽屉里改滑杆，
    上方课表立刻跟着变；关闭走 data-action="back"，弹回进入抽屉前的那一页。 */
-function styleContent(){return `<button class="style-mask" data-action="back" tabindex="-1" aria-label="关闭个性化配置"></button><section class="style-sheet" role="dialog" aria-modal="true" aria-label="个性化配置"><span class="sheet-grabber" aria-hidden="true"></span><header class="sheet-head"><h2>个性化配置</h2>${button('完成','back','class="sheet-close"')}</header><div class="sheet-body">${stylePreview()}<form class="form" data-form="style"><div class="fields">${field('课表格子高度','slotHeight',style.slotHeight,'range','min="52" max="120"')}${field('课程块圆角','cornerRadius',style.cornerRadius,'range','min="0" max="24"')}${field('课程块间距','gap',style.gap,'range','min="0" max="8"')}${field('课程块透明度','opacity',style.opacity,'range','min="35" max="100"')}${switchRow('彩色课程块','每门课一块实色卡片，未手动调色的课按课名自动配色，同一门课颜色稳定','colorful',!!style.colorful)}${switchRow('隐藏节次具体时间','收起每节课的上下课时间','hideTimes',!!style.hideTimes)}${switchRow('隐藏日期','日表头只留星期，不显示几月几日','hideDates',!!style.hideDates)}</div><div class="tools">${button('恢复默认','style-reset','type="button"')}</div></form></div></section>`;}
+function styleContent(){return `<button class="style-mask" data-action="back" tabindex="-1" aria-label="关闭个性化配置"></button><section class="style-sheet" role="dialog" aria-modal="true" aria-label="个性化配置"><span class="sheet-grabber" aria-hidden="true"></span><header class="sheet-head"><h2>个性化配置</h2>${button('完成','back','class="sheet-close"')}</header><div class="sheet-body">${stylePreview()}<form class="form" data-form="style"><div class="fields">${switchRow('适配界面的课表块高度','默认按状态栏与底栏之间的可用空间铺满整周；关闭后使用手动高度','fitHeight',!!style.fitHeight)}${field('课表格子高度','slotHeight',style.slotHeight,'range','min="52" max="120"')}${field('课程块圆角','cornerRadius',style.cornerRadius,'range','min="0" max="24"')}${field('课程块间距','gap',style.gap,'range','min="0" max="8"')}${field('课程块透明度','opacity',style.opacity,'range','min="35" max="100"')}${switchRow('彩色课程块','每门课一块实色卡片，未手动调色的课按课名自动配色，同一门课颜色稳定','colorful',!!style.colorful)}${switchRow('隐藏节次具体时间','收起每节课的上下课时间','hideTimes',!!style.hideTimes)}${switchRow('隐藏日期','日表头只留星期，不显示几月几日','hideDates',!!style.hideDates)}</div><div class="tools">${button('恢复默认','style-reset','type="button"')}</div></form></div></section>`;}
  function editContent(){const c=draft;return `${subHead(c.id?'编辑课程':'添加课程')}<form class="form" data-form="course"><div class="fields">${field('课程名称','name',c.name,'text','required maxlength="120"')}${field('教师','teacher',c.teacher)}${field('教室 / 地点','position',c.position)}<label><span>星期</span><select name="day">${days.map((d,i)=>`<option value="${i+1}" ${c.day===i+1?'selected':''}>${d}</option>`).join('')}</select></label>${field('上课周次，如 1-16 / 1-16单周','weeks',(c.weeks||[]).join(','))}<label><span>课程颜色</span><select name="color">${Array.from({length:8},(_,i)=>`<option value="${i}" ${Number(c.color||0)===i?'selected':''}>颜色 ${i+1}</option>`).join('')}</select></label><label><span>时间方式</span><select name="isCustomTime"><option value="false" ${!c.isCustomTime?'selected':''}>按节次</option><option value="true" ${c.isCustomTime?'selected':''}>自定义时间</option></select></label>${field('开始节次','startSection',c.startSection||1,'number','min="1" max="40"')}${field('结束节次','endSection',c.endSection||2,'number','min="1" max="40"')}${field('自定义开始时间','customStartTime',c.customStartTime||'08:00','time')}${field('自定义结束时间','customEndTime',c.customEndTime||'09:40','time')}</div><div class="tools">${button('填入单周','odd','type="button"')}${button('填入双周','even','type="button"')}</div>${textArea('备注','remark',c.remark)}<p class="muted">按节次时使用学期作息表；自定义时间时忽略节次。</p><div class="tools"><button type="submit" class="primary">保存课程</button>${button('取消','week','type="button"')}${c.id?button('删除课程','delete','type="button" class="danger"'):''}</div></form>`;}
  /* 「按间隔生成」：一排小输入 + 生成按钮，把「编号 开始 结束」行写进下方 textarea。
     只改 DOM、刻意不 repaint —— repaint 会用旧 state 把未保存的生成结果冲掉；
@@ -745,7 +758,7 @@ function styleContent(){return `<button class="style-mask" data-action="back" ta
    ① mode==='style' 画的是「周课表 + 抽屉」，不是单独一页 —— 个性化配置要边改边看课表。
    ② bleed（无边距铺满）跟着周课表本体走，所以 style 模式同样要挂，
       否则抽屉一开、背后的课表会突然缩回左右内边距，闪一下。 */
-function paint(){if(!host?.isConnected)return;clearError();let content='';if(mode==='week')content=weekContent();else if(mode==='today')content=todayContent();else if(mode==='settings')content=settingsContent();else if(mode==='week-picker')content=weekPickerContent();else if(mode==='courses')content=coursesContent();else if(mode==='tables')content=tablesContent();else if(mode==='style')content=weekContent()+styleContent();else if(mode==='edit')content=editContent();else if(mode==='config')content=subHead('时间与学期')+configContent();else if(mode==='edu')content=subHead('文件 / 表格导入')+eduContent();else if(mode==='schools')content=schoolListContent();else if(mode==='adapters')content=adapterListContent();else if(mode==='transfer')content=transferContent();const vars=`--sg-slot-height:${style.slotHeight}px;--sg-course-radius:${style.cornerRadius}px;--sg-course-gap:${style.gap}px;--sg-course-opacity:${style.opacity/100}`;host.innerHTML=`<div class="sg ${(mode==='week'||mode==='style')?'bleed':''} ${style.hideTimes?'hide-times':''} ${style.hideDates?'hide-dates':''} ${style.colorful?'colorful':''}" style="${vars}"><div class="main-stage">${content}</div><p class="error" role="alert" data-error></p>${mode==='settings'?'<footer>拾光课程表 · XingHeYuZhuan（Apache-2.0）· 已嵌入 Le 时间管理 · <a href="/plugins/shiguang-schedule/LICENSE">License</a></footer>':''}</div>`;animateWeek();markStyleSheet();}
+function paint(){if(!host?.isConnected)return;clearError();let content='';if(mode==='week')content=weekContent();else if(mode==='today')content=todayContent();else if(mode==='settings')content=settingsContent();else if(mode==='week-picker')content=weekPickerContent();else if(mode==='courses')content=coursesContent();else if(mode==='tables')content=tablesContent();else if(mode==='style')content=weekContent()+styleContent();else if(mode==='edit')content=editContent();else if(mode==='config')content=subHead('时间与学期')+configContent();else if(mode==='edu')content=subHead('文件 / 表格导入')+eduContent();else if(mode==='schools')content=schoolListContent();else if(mode==='adapters')content=adapterListContent();else if(mode==='transfer')content=transferContent();const vars=`--sg-slot-height:${style.slotHeight}px;--sg-course-radius:${style.cornerRadius}px;--sg-course-gap:${style.gap}px;--sg-course-opacity:${style.opacity/100}`;host.innerHTML=`<div class="sg ${(mode==='week'||mode==='style')?'bleed':''} ${style.fitHeight?'fit-height':''} ${style.hideTimes?'hide-times':''} ${style.hideDates?'hide-dates':''} ${style.colorful?'colorful':''}" style="${vars}"><div class="main-stage">${content}</div><p class="error" role="alert" data-error></p>${mode==='settings'?'<footer>拾光课程表 · XingHeYuZhuan（Apache-2.0）· 已嵌入 Le 时间管理 · <a href="/plugins/shiguang-schedule/LICENSE">License</a></footer>':''}</div>`;animateWeek();markStyleSheet();}
 /* 抽屉已经开着时再重绘（点「恢复默认」、外部导入课程后 paint()），不能重放入场动画 ——
    整块面板会再滑一次，看着像闪了一下。上一次就开着 ⇒ 补 keep-open 把动画掐掉。 */
 let styleSheetOpen=false;

@@ -915,6 +915,11 @@ button, .nav { touch-action: manipulation; }
        同名的沉浸档选择器 —— test-immersive-view.mjs 以子串计数断言它全文件恰好出现一次。 */
     --safe-top-anchor: calc((2px + var(--sat, env(safe-area-inset-top, 0px))) / var(--ui-scale, 1));
   }
+  /* 适配整周课表由宿主消费安全区，顶部与底栏不随课表滚走。 */
+  .app.rail-hidden .main > .view:has(.sg.bleed.fit-height) {
+    padding-top: calc((8px + var(--sat, env(safe-area-inset-top, 0px))) / var(--ui-scale, 1));
+    overflow: hidden;
+  }
   /* 插件吸顶头使用内容起始线避开状态栏；保留安全锚，但不再给普通页面
      添加 .view::before 毛玻璃层。那层在 APK 插件中心会盖住顶部筛选项。 */
   .view { --safe-top-anchor: calc((46px + var(--sat, env(safe-area-inset-top, 0px))) / var(--ui-scale, 1)); }

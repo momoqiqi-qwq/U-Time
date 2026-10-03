@@ -41,7 +41,6 @@ export function createTestingCard() {
     el("div", { class: "mobile-preview-tools" }, size,
       el("button", { class: "btn pri sm", type: "button", onclick: open }, "打开 / 刷新手机预览"), rotate),
     dimensions,
-    el("p", { class: "set-hint" }, "刷新会复制当前数据到独立的内存测试副本，并使用本机已保存的账号与登录票据自动登录。预览中的修改不会写回正式数据，关闭预览后即丢弃；系统通知、软键盘及 Android 原生页面需在 APK 中验证。"),
     area,
   );
   applySize();
