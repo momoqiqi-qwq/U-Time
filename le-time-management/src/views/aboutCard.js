@@ -3,6 +3,7 @@ import { api } from "../api.js";
 import { PROJECT_LINKS } from "../projectLinks.js";
 import { ABOUT_DOCS, FRAMEWORKS, OPEN_SOURCE_PROJECTS, RELEASE_NOTES } from "../aboutData.js";
 import { createUpdateSettingsPanel } from "./settings/update.js";
+import { openUpdateHistory } from "../updateHistory.js";
 import { createUninstallPanel } from "./settings/uninstall.js";
 import { createDisclaimerContent } from "../disclaimer.js";
 
@@ -124,7 +125,7 @@ export function createAboutCard(info, registry = []) {
 
   card.append(
     el("div", { class: "about-actions" },
-      docLink(ABOUT_DOCS.changelog, "查看更新记录"),
+      el("button", { class: "btn ghost sm", type: "button", onclick: () => openUpdateHistory(currentVersion) }, "更新历史"),
       docLink(ABOUT_DOCS.openSource, "完整开源说明"),
       el("button", { class: "btn ghost sm", onclick: () => api.openUrl(PROJECT_LINKS.repository) }, "项目仓库"),
     ),

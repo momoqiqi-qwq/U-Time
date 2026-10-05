@@ -893,7 +893,7 @@ async function render(el){
    所以必须由插件自己 normalize → merge → persist，走和「教务导入」同一条链路。 */
 // 只读周统计：未打开课表时直接读取存储快照，不初始化/写入默认课表。
 // 只发布计数与日期范围，课程名称、教师和地点不跨插件传播。
-async function calendarWeekStats(date) {
+async function calendarWeekStats(date, now=new Date()) {
   M.monday(date);
   let current=table, name=activePack()?.name || '当前课表';
   if(!loaded || !current){
@@ -906,9 +906,16 @@ async function calendarWeekStats(date) {
   if(!current.courses.length)return {available:false,name};
   const week=M.weekOf(current.config.semesterStartDate,date), start=M.monday(date);
   const rows=week>=1&&week<=current.config.semesterTotalWeeks ? M.occurrences(current,week) : [];
+  const nowDate=M.format(now), nowMinutes=now.getHours()*60+now.getMinutes();
+  // 每节结束后扣除；连堂课逐节计数，正在上的课仍属于剩余课程。
+  const pending=(day,end)=>day>nowDate || (day===nowDate && M.minutes(end)>nowMinutes);
+  const remainingRows=rows.filter(c=>pending(c.date,c.end));
+  const remainingPeriods=rows.reduce((n,c)=>n+(c.isCustomTime?0:current.timeSlots.filter(s=>s.number>=c.startSection&&s.number<=c.endSection&&pending(c.date,s.endTime)).length),0);
   return {available:true,name,start,end:M.addDays(start,6),semesterStart:current.config.semesterStartDate,
     occurrences:rows.length,periods:rows.reduce((n,c)=>n+(c.isCustomTime?0:c.endSection-c.startSection+1),0),
-    unknownPeriods:rows.filter(c=>c.isCustomTime).length};
+    unknownPeriods:rows.filter(c=>c.isCustomTime).length,
+    remainingOccurrences:remainingRows.length,remainingPeriods,
+    remainingUnknownPeriods:remainingRows.filter(c=>c.isCustomTime).length};
 }
 tide.events.on('schedule:week-request',async request=>{
   if(!request||typeof request.id!=='string'||typeof request.date!=='string')return;

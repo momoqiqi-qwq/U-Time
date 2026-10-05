@@ -105,7 +105,9 @@ assert.ok(
 //    top-search-label / <kbd>）而 CSS 没跟着回退时，按钮会被 34px 瓷砖裁成残废。
 assert.ok(shell.includes("faIcon(\"magnifying-glass\")"), "搜索钮必须用 Font Awesome 放大镜图标");
 assert.ok(shell.includes("top-search-glyph"), "放大镜字形必须有专用容器（.top-search-glyph）");
-assert.doesNotMatch(shell, /top-search-label/, "搜索文字 label 必须从 DOM 移除（v0.57.0 起纯图标）");
+assert.match(shell, /top-search-label/, "桌面默认布局包含搜索文字");
+assert.match(css, /\.top-search-label\s*\{\s*display:\s*none/, "窄屏和原自定义布局仍使用纯图标");
+assert.match(css, /@media \(min-width: 901px\)[\s\S]*\.topbar-reference \.top-search-label\s*\{\s*display:\s*inline/, "搜索文字仅在桌面新默认布局显示");
 assert.doesNotMatch(shell, /class: "top-search"[\s\S]{0,200}<kbd/, "搜索钮里不许再挂 Ctrl K 角标");
 // ② 瓷砖规格：34×34 方形、零内边距、居中放字形 —— 与快捷入口 / 窗口钮同高同排。
 const topSearchRule = css.match(/\.top-search\{[^}]*\}/)?.[0] ?? "";

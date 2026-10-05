@@ -11,6 +11,7 @@
 // installing/error）决定，不给用户「点了没反应」的按钮。
 import { el, toast } from "../../ui.js";
 import { toggleSwitch } from "../../switchControl.js";
+import { openUpdateHistory } from "../../updateHistory.js";
 import {
   getUpdateSettings, setUpdateSettings, getUpdateState, subscribeUpdateState,
   describeUpdateState, isUpdaterSupported, checkForUpdates, startUpdate,
@@ -23,10 +24,12 @@ import {
  */
 export function createUpdateSettingsPanel({ currentVersion = "" } = {}) {
   const panel = el("div", { class: "update-panel" });
+  const historyButton = () => el("button", { class: "btn ghost sm", type: "button", onclick: () => openUpdateHistory(currentVersion) }, "更新历史");
 
   if (!isUpdaterSupported()) {
     // 浏览器调试模式：说清楚为什么这里没有可点的东西，而不是留一片空白。
     panel.append(el("p", { class: "update-status" }, "应用内更新仅在桌面客户端与 Android 版可用；当前环境不检查更新。"));
+    panel.append(historyButton());
     return panel;
   }
 
@@ -118,7 +121,7 @@ export function createUpdateSettingsPanel({ currentVersion = "" } = {}) {
       onclick: async () => { await checkForUpdates({ manual: true }); paintSkip(); },
     }, st.phase === "checking" ? "正在检查…" : "检查更新");
     checkBtn.disabled = busy;
-    actions.append(checkBtn);
+    actions.append(checkBtn, historyButton());
 
     if (st.phase === "available" && st.info?.has_update) {
       if (st.info.supported) {

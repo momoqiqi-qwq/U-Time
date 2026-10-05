@@ -3,7 +3,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "shiguang-schedule",
     "name": "课程表",
-    "version": "3.13.0",
+    "version": "3.14.0",
     "author": "基于 XingHeYuZhuan/shiguangschedule · U-Time适配",
     "icon": "calendar-days",
     "faIcon": "calendar-days",
@@ -204,7 +204,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "cppu-notify",
     "name": "警大门户通知",
-    "version": "1.34.1",
+    "version": "1.34.2",
     "author": "基于 dsh-user/cppu-notify-skill v1.2.1 · U-Time适配（1.26.1 教务查询遇网络抖动自动重发，报错摊平真实成因）",
     "icon": "building-columns",
     "faIcon": "building-columns",
@@ -232,11 +232,11 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "cppu-calendar",
     "name": "警大校历",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "author": "U-Time内置",
     "icon": "calendar-days",
     "faIcon": "calendar-days",
-    "description": "显示学期推算结束日、红色当前教学周、本周课次与总节数（依据课程表当前课表）；支持同步教务学期、个人事项和离线查看。推算结束日不是官方放假安排。",
+    "description": "显示学期推算结束日、红色当前教学周、本周总节数与剩余节数（依据课程表当前课表）；支持同步教务学期、个人事项和离线查看。推算结束日不是官方放假安排。",
     "permissions": [
       "ui",
       "storage",

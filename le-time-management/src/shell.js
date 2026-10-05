@@ -30,6 +30,7 @@ import { getThemeMode, resolveThemeMode, setThemeMode } from "./theme.js";
 import { RAIL_WIDTH_LIMITS, RAIL_WIDTH_STEP, applyRailWidth, clampRailWidth, normalizeRailWidth, steppedRailWidth } from "./railWidth.js";
 import { getUiScaleFactor } from "./uiScale.js";
 import { attachToolbarDrag } from "./toolbarDrag.js";
+import { openUpdateHistory } from "./updateHistory.js";
 
 // 注意：模块导入阶段 state 还未初始化，activeView 必须延迟到 renderShell 时读取
 let activeView = null;
@@ -72,11 +73,18 @@ const PLUGIN_ICONS = {
 };
 // v0.58.0 加 "theme"（顶栏深浅色切换键，用户需求「添加深色和浅色切换按钮」）。
 // window 恒作为兜底排最后（Windows 习惯：窗口键必须贴最右），见 topbarOrderState。
-const TOPBAR_PARTS = ["search", "quick", "theme", "settings", "stats", "window"];
+const TOPBAR_PARTS = ["history", "sync", "search", "logs", "theme", "settings", "quick", "stats", "window"];
+const PREVIOUS_TOPBAR_DEFAULT = ["search", "quick", "theme", "settings", "stats", "window"];
 
 function topbarOrderState() {
   const settings = S.getState().settings;
   const saved = Array.isArray(settings.topbarOrder) ? settings.topbarOrder : [];
+  // 仅没有布局存档或仍使用旧默认顺序时采用新默认；用户重排结果继续保留。
+  if (!saved.length || saved.join() === PREVIOUS_TOPBAR_DEFAULT.join()) {
+    settings.topbarLayout = "reference";
+    settings.topbarOrder = [...TOPBAR_PARTS];
+    return settings.topbarOrder;
+  }
   // 归一化：保留存档里仍存在的部件顺序，新增部件补进尾部 —— 但**不许落在 window
   // 之后**（老存档升级时新键若直接补尾，会排到窗口键右边，违反窗口键贴最右的习惯）。
   const order = [...new Set(saved.filter((id) => TOPBAR_PARTS.includes(id)))];
@@ -332,7 +340,21 @@ export function renderShell(root) {
   // 与快捷入口瓷砖（.quick-menu-trigger）同观感 —— 文字与 Ctrl K 角标从 DOM 移除，
   // 快捷键说明挪进 title；命令面板入口（tide:command-palette）与拖动排序不变。
   const topSearch = el("button", { class: "top-search", title: "全局搜索 / 命令面板（Ctrl+K）· 拖动可调整位置", "aria-label": "全局搜索 / 命令", type: "button", onclick: () => window.dispatchEvent(new CustomEvent("tide:command-palette")) },
-    el("span", { class: "top-search-glyph", "aria-hidden": "true" }, faIcon("magnifying-glass")));
+    el("span", { class: "top-search-glyph", "aria-hidden": "true" }, faIcon("magnifying-glass")), el("span", { class: "top-search-label" }, "搜索"));
+  const topHistory = el("button", { class: "top-mini-btn top-history-trigger", type: "button", title: "更新历史", "aria-label": "更新历史",
+    onclick: async () => { const info = await api.appInfo().catch(() => null); openUpdateHistory(info?.version); } }, faIcon("clock-rotate-left"));
+  const topSync = el("button", { class: "top-mini-btn top-sync-trigger", type: "button", title: "云同步", "aria-label": "云同步",
+    onclick: () => openSettingsModal("sync") }, faIcon("cloud-arrow-up"));
+  const topLogs = el("button", { class: "top-mini-btn top-logs-trigger", type: "button", title: "查看自动化日志", "aria-label": "查看自动化日志",
+    onclick: async () => {
+      const { getLogs } = await import("./automation.js");
+      const content = el("div", { class: "update-history-content", tabindex: "0" });
+      const logs = getLogs();
+      if (!logs.length) content.append(el("p", { class: "desc" }, "暂无自动化操作记录。"));
+      for (const log of logs) content.append(el("div", { class: "update-history-card" },
+        el("small", {}, new Date(log.at).toLocaleString()), el("p", {}, log.message)));
+      await appConfirm("自动化日志", content, { dialogClass: "update-history-dialog", focusMessage: true, cancelText: "返回", confirmText: "关闭" });
+    } }, el("span", { class: "top-log-dot", "aria-hidden": "true" }), "日志");
 
   /* 深浅色键的字形按**当前生效亮度**取：浅色 = 太阳、深色 = 月亮（2026-09-19 用户指定）。
      顶栏与左下角两颗键共用，别各写一份 ternary。
@@ -375,7 +397,7 @@ export function renderShell(root) {
     onclick: () => openSettingsModal(),
   }, el("span", { class: "top-settings-glyph", "aria-hidden": "true" }, appIcon("settings")));
 
-  const topbarActionCard = el("div", { class: "topbar-action-card", role: "toolbar", "aria-label": "可拖动排序的顶栏工具", "data-noswipe": "" });
+  const topbarActionCard = el("div", { class: "topbar-action-card", role: "toolbar", "aria-label": "可拖动排序的顶栏工具", "data-noswipe": "", "data-tauri-drag-region": dragRegion });
   const topbar = el("header", { class: "topbar", "data-tauri-drag-region": dragRegion },
       el("div", { class: "topbar-title-card", "data-tauri-drag-region": dragRegion },
         // v0.39.0：小框回归（紧凑版），图标随视图切换（见 renderTitleMark）；
@@ -546,7 +568,7 @@ export function renderShell(root) {
   });
 
   function renderTopbarOrder() {
-    const parts = { search: topSearch, quick: quickDockToggle, theme: topTheme, settings: topSettings, stats: statPill, window: windowControls };
+    const parts = { history: topHistory, sync: topSync, logs: topLogs, search: topSearch, quick: quickDockToggle, theme: topTheme, settings: topSettings, stats: statPill, window: windowControls };
     for (const [id, node] of Object.entries(parts)) {
       if (!node) continue;
       node.draggable = false; // 改用和侧栏相同的指针拖拽，不再启动浏览器原生拖放。
@@ -554,6 +576,7 @@ export function renderShell(root) {
       node.classList.add("topbar-sortable");
     }
     topbarActionCard.replaceChildren(...topbarOrderState().map((id) => parts[id]).filter(Boolean));
+    topbar.classList.toggle("topbar-reference", S.getState().settings.topbarLayout === "reference");
   }
   renderTopbarOrder();
   attachToolbarDrag(topbarActionCard, () => {

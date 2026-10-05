@@ -1,11 +1,11 @@
 {
   "id": "cppu-calendar",
   "name": "警大校历",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "U-Time内置",
   "icon": "calendar-days",
   "faIcon": "calendar-days",
-  "description": "显示学期推算结束日、红色当前教学周、本周课次与总节数（依据课程表当前课表）；支持同步教务学期、个人事项和离线查看。推算结束日不是官方放假安排。",
+  "description": "显示学期推算结束日、红色当前教学周、本周总节数与剩余节数（依据课程表当前课表）；支持同步教务学期、个人事项和离线查看。推算结束日不是官方放假安排。",
   "permissions": [
     "ui",
     "storage",

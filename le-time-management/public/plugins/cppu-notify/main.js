@@ -210,6 +210,8 @@
       }
       if (typeof v !== "object") return;
       if (Array.isArray(v)) { v.forEach((item) => walk(item, affix)); return; }
+      // 门户独立附件接口：AFFIX_NAME 是存储路径，OTHER_NAME 才是展示文件名。
+      if (v.AFFIX_NAME && v.OTHER_NAME) push(v.OTHER_NAME, v.AFFIX_NAME);
       const nameKey = pick(v, /^(?:(?:file|attach|attachment|affix|original|origin|real)[_\-]?)?(?:name|title|mc|bt|originalname)$/i);
       const urlKey = pick(v, /^(?:(?:file|attach|attachment|affix|download)[_\-]?)?(?:url|href|path|dz|lj)$/i);
       if (urlKey && urlKey !== "CONTENT_URL" && (affix || nameKey || /file|attach|affix|download/i.test(Object.keys(v).join(" ")))) {
@@ -1241,10 +1243,10 @@
     return !state.error;
   }
 
-  async function loadDetail(rid) {
+  async function loadDetail(rid, force = false) {
     const cur = state.details[rid] || {};
-    if (cur.content || cur.attachments || cur.loading) return;
-    state.details[rid] = { loading: true };
+    if (cur.loading || (!force && (cur.detailVersion === 2 || (!state.token && (cur.content || cur.attachments))))) return;
+    state.details[rid] = { ...cur, loading: true };
     updateDetail(rid);
     try {
       let res;
@@ -1263,22 +1265,35 @@
       if (res.status !== 200) throw new Error(`详情接口 HTTP ${res.status}`);
       const arr = JSON.parse(res.body);
       const d = Array.isArray(arr) ? arr[0] : null;
-      let text = "", contentData = null;
-      if (d) {
-        const cu = d.CONTENT_URL || "";
-        if (cu) {
-          const url = cu.startsWith("http") ? cu : PORTAL + "/tp_up/" + cu.replace(/^\//, "");
+      if (!d) throw new Error("通知详情格式异常或会话已过期");
+      let text = d.PIM_CONTENT || "", contentData = null, contentError = "", attachmentError = "", affixes = [];
+      const cu = d.CONTENT_URL || "";
+      if (cu) {
+        const url = portalUrl(cu);
+        try {
           const cres = await getPage(url, false, { headers: { "Referer": referer(), "Cookie": "tp_up=" + state.token } });
           if (cres.status !== 200) throw new Error(`正文接口 HTTP ${cres.status}`);
           const mm = cres.body.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
           let obj;
-          try { obj = JSON.parse(mm ? mm[1] : cres.body); contentData = obj; text = obj.result || obj.content || ""; }
+          try { obj = JSON.parse(mm ? mm[1] : cres.body); contentData = obj; text = obj.result || obj.content || text; }
           catch { text = cres.body; }
-        } else {
-          text = d.PIM_CONTENT || "";
-        }
+        } catch (e) { contentError = String(e.message || e); }
       }
-      state.details[rid] = { content: cleanText(text), attachments: extractAttachments([d, contentData], text) };
+      // 附件与正文独立获取；任一路失败仍展示另一路，且允许重试。
+      try {
+        const ares = await tide.http.fetch(state.sid, "POST", PORTAL + "/tp_up/up/pim/showpim/getPimAffixList", {
+          headers: { "Content-Type": "application/json;charset=utf-8", "Referer": referer(), "Cookie": "tp_up=" + state.token },
+          body: JSON.stringify({ RESOURCE_ID: rid }),
+        });
+        if (ares.status !== 200) throw new Error(`附件列表接口 HTTP ${ares.status}`);
+        affixes = JSON.parse(ares.body);
+        if (!Array.isArray(affixes)) throw new Error("附件列表格式异常或会话已过期");
+      } catch (e) { attachmentError = String(e.message || e); }
+      state.details[rid] = {
+        content: cleanText(text) || cleanText(d.PIM_CONTENT),
+        attachments: extractAttachments([arr, contentData, affixes], text),
+        contentError, attachmentError, detailVersion: contentError || attachmentError ? 0 : 2,
+      };
       await saveNoticeCache();
     } catch (e) {
       state.details[rid] = { error: String(e.message || e) };
@@ -1357,10 +1372,12 @@
       <button type="button" class="pp-att" data-attach-download="${i}" title="下载附件：${esc(a.name)}" aria-label="下载附件：${esc(a.name)}">
         <span>${esc(a.name)}</span><span class="pp-att-action">下载 ↓</span>
       </button>`).join("")}</div>` : "";
-    const content = det?.content ? esc(det.content) : "（正文为空，可能内容在附件中）";
+    const content = det?.content ? esc(det.content) : attachments.length ? "本通知内容在附件中，请下载下方文件查看。" : "门户未提供正文或附件。";
+    const warnings = [det?.contentError, det?.attachmentError].filter(Boolean);
+    const retryHtml = warnings.length ? `<div class="err">${esc(warnings.join("；"))}</div><button class="pp-btn" data-retry>重试加载正文和附件</button>` : "";
     return !det || det.loading ? "正在加载正文…" :
       det.error ? `<span style="color:#B03535;font-size:calc(12px * var(--ui-text-scale))">${esc(det.error)}</span><button class="pp-btn" data-retry>重试加载正文</button>` :
-      `<div class="c">${content}</div>${attHtml}<div class="pp-act"><button class="pp-btn" data-remind>转为提醒</button></div>`;
+      `<div class="c">${content}</div>${attHtml}${retryHtml}<div class="pp-act"><button class="pp-btn" data-remind>转为提醒</button></div>`;
   }
 
   function updateDetail(rid) {
@@ -3496,7 +3513,7 @@
       const it = state.notices.find((x) => itemKey(x) === rid);
       if (!it) return;
       if (e.target.closest("[data-remind]")) { await toReminder(it); return; }
-      if (e.target.closest("[data-retry]")) { loadDetail(rid); return; }
+      if (e.target.closest("[data-retry]")) { loadDetail(rid, true); return; }
       const attBtn = e.target.closest("[data-attach-download]");
       if (attBtn) {
         const det = state.details[rid];

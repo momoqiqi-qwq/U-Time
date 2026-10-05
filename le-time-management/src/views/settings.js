@@ -92,7 +92,7 @@ export function renderSettings(container, opts = {}) {
       { id: "cppu-login", create: ({ render }) => createCppuLoginCard(), label: "警大登录设置", icon: "gear", hint: "登录重试 / 自动登录", keywords: "警大 门户 账号 登录 自动登录 密码 验证码 重试" },
       { id: "testing", create: ({ render }) => createTestingCard(), label: "测试", icon: "mobile-screen-button", hint: "手机预览 / 尺寸 / 横竖屏", keywords: "测试 手机版 预览 模拟 手机 内置浏览器 横屏 竖屏" },
       // 更新入口在「关于」里（软件更新）：关键词挂这儿，搜「更新 / 升级」也能落到关于。
-      { id: "about", create: ({ render }) => createAboutCard(info, getRegistry()), label: "关于", icon: "circle-info", hint: "版本 / 软件更新 / 免责声明 / 开源信息", keywords: "免责声明 使用说明 隐私 数据 官方 权限 版本 更新 升级 检查更新 自动更新 弹窗提示 忽略此版本 卸载 卸载应用 清除数据 删除数据 卸载 U-Time 开源 框架 GitHub 发布 下载 Releases 插件开发 API 文档 项目仓库" },
+      { id: "about", create: ({ render }) => createAboutCard(info, getRegistry()), label: "关于", icon: "circle-info", hint: "版本 / 软件更新 / 免责声明 / 开源信息", keywords: "免责声明 使用说明 隐私 数据 官方 权限 版本 更新 更新历史 更新记录 历史版本 升级 检查更新 自动更新 弹窗提示 忽略此版本 卸载 卸载应用 清除数据 删除数据 卸载 U-Time 开源 框架 GitHub 发布 下载 Releases 插件开发 API 文档 项目仓库" },
     ];
     entries = settingEntries;
     for (const entry of settingEntries) {

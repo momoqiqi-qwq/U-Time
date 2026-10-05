@@ -74,7 +74,7 @@ table.courses=[
  {id:'b',name:'B',day:2,weeks:[2,4,6],startSection:3,endSection:5},
  {id:'c',name:'C',day:5,weeks:[1,2],isCustomTime:true,customStartTime:'17:00',customEndTime:'18:00'}
 ];
-const statsCode=schedule.slice(schedule.indexOf('async function calendarWeekStats(date)'),schedule.indexOf("tide.events.on('schedule:week-request'"));
+const statsCode=schedule.slice(schedule.indexOf('async function calendarWeekStats(date,'),schedule.indexOf("tide.events.on('schedule:week-request'"));
 function statsHarness(raw=table){
  let writes=0;const box={M,table:undefined,loaded:false,activePack:()=>null,tide:{storage:{get:async(k,d)=>k==='table'?raw:d,set:()=>{writes++;}}}};
  vm.runInNewContext(statsCode+';globalThis.stats=calendarWeekStats;',box);return {get:box.stats,writes:()=>writes};
@@ -86,6 +86,19 @@ stats=await h.get('2026-08-30');assert.equal(stats.occurrences,0);
 stats=await h.get('2027-03-01');assert.equal(stats.occurrences,0);
 assert.equal((await statsHarness(null).get('2026-09-01')).available,false);
 assert.equal((await statsHarness(M.empty()).get('2026-09-01')).available,false);
+// 连堂课不能等整次课结束才扣除；当前节、课间和结束边界逐节验证。
+for(const [time,remaining] of [['07:59',2],['08:00',2],['08:44',2],['08:45',1],['08:50',1],['08:55',1],['09:40',0]]){
+ const result=await h.get('2026-08-31',new Date(`2026-08-31T${time}:00`));
+ assert.equal(result.periods,2);assert.equal(result.remainingPeriods,remaining,time);
+ assert.equal(result.remainingOccurrences,time<'09:40'?2:1);
+ assert.equal(result.remainingUnknownPeriods,1);
+}
+stats=await h.get('2026-09-04',new Date('2026-09-04T17:30:00'));
+assert.equal(stats.remainingPeriods,0);assert.equal(stats.remainingOccurrences,1);assert.equal(stats.remainingUnknownPeriods,1);
+stats=await h.get('2026-09-04',new Date('2026-09-04T18:00:00'));
+assert.equal(stats.remainingOccurrences,0);assert.equal(stats.remainingUnknownPeriods,0);
+stats=await h.get('2026-09-06',new Date('2026-09-06T23:59:00'));assert.equal(stats.remainingPeriods,0);
+stats=await h.get('2026-09-07',new Date('2026-09-07T00:00:00'));assert.equal(stats.periods,3);assert.equal(stats.remainingPeriods,3);
 // Calendar dates and real-current-week highlighting independent of selected day.
 class FixedDate extends Date {constructor(...args){super(...(args.length?args:['2026-10-01T12:00:00']));}}
 const events={},timeouts=[],box={Date:FixedDate,setTimeout:fn=>timeouts.push(fn),tide:{events:{on:(k,fn)=>events[k]=fn,emit:()=>{}},ui:{registerView:()=>{}}}};
@@ -97,8 +110,16 @@ let cells=C.calendarCells();assert.equal((cells.match(/current-week/g)||[]).leng
 const root={innerHTML:'',querySelector:()=>({}),querySelectorAll:()=>[]};C.state.root=root;C.paint();
 assert.match(root.innerHTML,/2027-01-17/);assert.match(root.innerHTML,/非官方放假日期/);assert.match(root.innerHTML,/暂无可用课表/);
 C.requestStats();const id=C.state.statsId;events['schedule:week-response']({id:'stale',available:true});assert.equal(C.state.statsLoading,true);
-events['schedule:week-response']({id,available:true,occurrences:12,periods:24,name:'测试',unknownPeriods:0});assert.match(root.innerHTML,/12 次课 · 24 节/);
+events['schedule:week-response']({id,available:true,occurrences:12,periods:24,name:'测试',unknownPeriods:0,remainingOccurrences:3,remainingPeriods:5,remainingUnknownPeriods:0});assert.match(root.innerHTML,/本周共 24 节 · 12 次课/);assert.match(root.innerHTML,/还剩 5 节 · 3 次课/);
+C.requestStats();events['schedule:week-response']({id:C.state.statsId,available:true,occurrences:0,periods:0,unknownPeriods:0,remainingOccurrences:0,remainingPeriods:0,remainingUnknownPeriods:0});assert.match(root.innerHTML,/还剩 0 节 · 0 次课/);
+C.requestStats();events['schedule:week-response']({id:C.state.statsId,available:true,occurrences:1,periods:2,unknownPeriods:0,remainingOccurrences:1,remainingPeriods:3,remainingUnknownPeriods:0});assert.match(root.innerHTML,/课表统计格式无效/);
+C.requestStats();events['schedule:week-response']({id:C.state.statsId,available:true,occurrences:1,periods:2,unknownPeriods:0});assert.match(root.innerHTML,/剩余节数暂不可用/);
 C.requestStats();timeouts.at(-1)();assert.equal(C.state.statsLoading,false);assert.match(root.innerHTML,/课程表未响应/);
+// 自动统计刷新只更新卡片，保留未提交的事项/学期输入和当前日历视图。
+const unchangedPage=root.innerHTML,statsCard={outerHTML:''};
+root.querySelector=selector=>selector==='[data-week-stats]'?statsCard:{};
+C.requestStats();events['schedule:week-response']({id:C.state.statsId,available:true,occurrences:2,periods:4,unknownPeriods:1,remainingOccurrences:1,remainingPeriods:0,remainingUnknownPeriods:1});
+assert.equal(root.innerHTML,unchangedPage);assert.match(statsCard.outerHTML,/还剩 0 节（已知） · 1 次课/);assert.match(statsCard.outerHTML,/1 次自定义时间课程未结束/);
 // Campus gateway is allowlisted and uses native browser, not insecure iframe scraping.
 const api=read('src/api.js');const campus=api.slice(api.indexOf('  async openCampusSite(site)'),api.indexOf('  /** 插件专用会话打开'));
 const nativeCalls=[];const nativeApi=new Function('isTauri','invoke','window','return ({'+campus+'});')(true,async(...args)=>nativeCalls.push(args),{});

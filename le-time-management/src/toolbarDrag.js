@@ -15,13 +15,15 @@ export function toolbarItems(list, selector) {
 }
 
 // widths / left / gap / x 都是视口坐标；保留原按钮占位，避免指针停下时来回换位。
-export function toolbarSlot(order, card, widths, left, gap, x) {
+export function toolbarSlot(order, card, widths, left, gap, x, margins = new Map()) {
   const mids = [];
   let at = left;
   for (const node of order) {
+    const margin = margins.get(node) || { left: 0, right: 0 };
+    at += margin.left;
     const width = widths.get(node) || 0;
     if (node !== card) mids.push(at + width / 2);
-    at += width + gap;
+    at += width + gap + margin.right;
   }
   return slotIndexFor(mids, x);
 }
@@ -98,7 +100,7 @@ export function attachToolbarDrag(list, onCommit, {
     const order = items();
     if (!order.includes(st.card)) { cancel(); return; }
     st.ghost?.style.setProperty("transform", `translate(${(st.x - st.gx) / st.scale}px, ${(st.y - st.gy) / st.scale}px) scale(1.025)`);
-    const slot = toolbarSlot(order, st.card, st.widths, st.left, st.gap, st.x);
+    const slot = toolbarSlot(order, st.card, st.widths, st.left, st.gap, st.x, st.margins);
     if (slot === st.slot) return;
     st.slot = slot;
     const peers = order.filter((node) => node !== st.card);
@@ -136,7 +138,12 @@ export function attachToolbarDrag(list, onCommit, {
     }
     const rect = st.card.getBoundingClientRect();
     st.gx = st.x - rect.left; st.gy = st.y - rect.top;
-    st.left = order[0].getBoundingClientRect().left;
+    // 新默认布局通过搜索按钮的自动外边距分出左右工具，槽位须包含这段真实空间。
+    st.margins = new Map(order.map((node) => {
+      const style = getComputedStyle(node);
+      return [node, { left: (parseFloat(style.marginLeft) || 0) * st.scale, right: (parseFloat(style.marginRight) || 0) * st.scale }];
+    }));
+    st.left = order[0].getBoundingClientRect().left - st.margins.get(order[0]).left;
     st.gap = (parseFloat(getComputedStyle(list).columnGap) || 0) * st.scale;
     st.widths = new Map(order.map((node) => [node, node.getBoundingClientRect().width]));
     st.slot = order.indexOf(st.card);

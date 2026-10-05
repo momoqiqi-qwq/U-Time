@@ -20,7 +20,7 @@ state.expanded.add('test');
 assert.match(cardHtml(item),/aria-expanded="true"/);
 assert.match(cardHtml(item),/正在加载正文/);
 let release;
-response=()=>new Promise(resolve=>{release=resolve;});
+response=(sid,method,url)=>url.endsWith('getPimAffixList') ? {status:200,body:'[]'} : new Promise(resolve=>{release=resolve;});
 const pending=loadDetail('test');
 state.expanded.delete('test');
 release({status:200,body:JSON.stringify([{PIM_CONTENT:'First<br><br>Second'}])});
@@ -62,6 +62,35 @@ assert.match(cardHtml(attachmentItem),/class="pp-att" data-attach-download="0"/,
 const attachmentCalls=calls.length;
 await loadDetail('attach');
 assert.equal(calls.length,attachmentCalls,'Only-attachment detail should also use cached detail');
+// 真实门户格式：正文 JSONP 为空，4 个文件仅存在于独立附件接口。
+state.token='test-token';state.details.real={content:'',attachments:[]};calls=[];
+const portalAffixes=Array.from({length:4},(_,i)=>({AFFIX_NAME:`uploadfiles/pim/2026/方案${i}.docx`,OTHER_NAME:`实施方案${i}.docx`}));
+response=(sid,method,url)=>url.endsWith('getPimAffixList')
+  ? {status:200,body:JSON.stringify(portalAffixes)}
+  : url.includes('uploadfiles/json/') ? {status:200,body:'jsonp_123({"result":"<p><br></p>"})'}
+  : {status:200,body:JSON.stringify([{CONTENT_URL:'/tp_up/uploadfiles/json/example.json',PIM_CONTENT:null}])};
+await loadDetail('real');
+assert.equal(state.details.real.attachments.length,4,'旧空详情缓存必须刷新并加载独立接口全部附件');
+assert.equal(state.details.real.attachments[0].name,'实施方案0.docx');
+assert.match(state.details.real.attachments[0].url,/\/tp_up\/uploadfiles\/pim\//);
+assert.ok(calls.some(c=>c[2].endsWith('/tp_up/uploadfiles/json/example.json')),'正文路径不能重复 tp_up');
+assert.match(cardHtml({RESOURCE_ID:'real'}),/本通知内容在附件中/);
+const loadedCalls=calls.length;await loadDetail('real');assert.equal(calls.length,loadedCalls);
+// 正文失败不能吃掉附件；附件失败不能吃掉正文，而且必须能重试。
+state.details.partial={};
+response=(sid,method,url)=>url.endsWith('getPimAffixList') ? {status:200,body:JSON.stringify(portalAffixes)}
+  : url.includes('uploadfiles/json/') ? {status:503,body:''}
+  : {status:200,body:JSON.stringify([{CONTENT_URL:'uploadfiles/json/example.json',PIM_CONTENT:'备用正文'}])};
+await loadDetail('partial');
+assert.equal(state.details.partial.content,'备用正文');
+assert.equal(state.details.partial.attachments.length,4);
+assert.match(cardHtml({RESOURCE_ID:'partial'}),/重试加载正文和附件/);
+response=(sid,method,url)=>url.endsWith('getPimAffixList') ? {status:503,body:''} : {status:200,body:'[{"PIM_CONTENT":"完整正文"}]'};
+await loadDetail('partial',true);
+assert.equal(state.details.partial.content,'完整正文');
+assert.match(state.details.partial.attachmentError,/503/);
+response=(sid,method,url)=>url.endsWith('getPimAffixList') ? {status:200,body:'[]'} : {status:200,body:'[{"PIM_CONTENT":"完整正文"}]'};
+await loadDetail('partial');assert.equal(state.details.partial.detailVersion,2);
 response={status:500,body:''};opened=[];notices=[];saved=[];
 await downloadAttachment(foundAttachments[0]);
 assert.equal(opened.length,0,'附件下载不得退回打开原链接');

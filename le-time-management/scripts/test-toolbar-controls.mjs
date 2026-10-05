@@ -10,13 +10,22 @@ let saves = 0;
 const { topbarOrderState, moveTopbarPart } = new Function("S", `${orderSource}; return { topbarOrderState, moveTopbarPart };`)(
   { getState: () => state, persistSoon: () => saves++ },
 );
-assert.deepEqual(topbarOrderState(), ["quick", "search", "theme", "stats", "settings", "window"], "旧顺序保留，新增设置插在窗口控制之前");
+assert.deepEqual(topbarOrderState(), ["quick", "search", "theme", "stats", "history", "sync", "logs", "settings", "window"], "自定义顺序保留，新增入口插在窗口控制之前");
 state.settings.topbarOrder = ["theme", "theme", "missing", "window"];
-assert.deepEqual(topbarOrderState(), ["theme", "search", "quick", "settings", "stats", "window"], "去重并丢弃未知部件");
+assert.deepEqual(topbarOrderState(), ["theme", "history", "sync", "search", "logs", "settings", "quick", "stats", "window"], "去重并丢弃未知部件");
 assert.equal(moveTopbarPart(["settings", "quick", "search", "theme", "stats"]), true);
 assert.equal(state.settings.topbarOrder.at(-1), "window", "浏览器未渲染窗口键时仍保留它的存档位置");
 assert.equal(moveTopbarPart(state.settings.topbarOrder), false, "相同顺序不重复写盘");
 assert.equal(saves, 1);
+state.settings = {};
+const defaultOrder = ["history", "sync", "search", "logs", "theme", "settings", "quick", "stats", "window"];
+assert.deepEqual(topbarOrderState(), defaultOrder, "新用户采用图片对应默认顺序");
+assert.equal(state.settings.topbarLayout, "reference");
+state.settings = { topbarOrder: ["search", "quick", "theme", "settings", "stats", "window"] };
+assert.deepEqual(topbarOrderState(), defaultOrder, "旧默认升级到新默认");
+state.settings = { topbarOrder: ["settings", "search", "quick", "theme", "stats", "window"] };
+assert.equal(topbarOrderState()[0], "settings", "自定义顺序不被新默认覆盖");
+assert.equal(state.settings.topbarLayout, undefined);
 assert.match(shell, /class: "top-mini-btn top-settings-trigger"/);
 assert.match(shell, /onclick: \(\) => openSettingsModal\(\)/, "顶栏复用原设置面板");
 assert.match(shell, /attachToolbarDrag\(topbarActionCard/);
@@ -25,6 +34,9 @@ assert.match(css, /:root\[data-theme-mode="dark"\] \.rail-dock > \.rail-dock-btn
 assert.match(css, /:root\[data-theme-mode="dark"\] \.rail-dock-ghost\.window-focus-btn \.ic/);
 
 const widths = new Map([["a", 34], ["b", 120], ["c", 34]]);
+const spaced = new Map([["b", { left: 200, right: 200 }]]);
+assert.equal(toolbarSlot(["a", "b", "c"], "a", widths, 100, 4, 200, spaced), 0, "搜索前的空白不能误判为移到右侧工具");
+assert.equal(toolbarSlot(["a", "b", "c"], "a", widths, 100, 4, 600, spaced), 1, "搜索后的空白对应中间槽位");
 assert.equal(toolbarSlot(["a", "b", "c"], "a", widths, 100, 4, 122), 0, "起拖时不要自动让第一个按钮右移");
 assert.equal(toolbarSlot(["a", "b", "c"], "a", widths, 100, 4, 199), 1, "越过不同宽度的部件中心才换位");
 assert.equal(toolbarSlot(["b", "a", "c"], "a", widths, 100, 4, 199), 1, "换位后指针停住不抖动");
