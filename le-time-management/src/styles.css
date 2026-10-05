@@ -4781,3 +4781,26 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .update-history-scrollbar { position: absolute; right: 11px; top: 15px; bottom: 15px; width: 4px; border-radius: 5px; background: #171717; pointer-events: none; }
 .update-history-scrollbar[hidden] { display: none; }
 .update-history-scrollbar i { display: block; width: 4px; border-radius: 5px; background: #245565; }
+
+/* v0.151.2：更新历史为有限尺寸弹窗；只动画合成属性，保留黑色卡片视觉。 */
+.update-history-mask {
+  position: fixed; inset: 0; z-index: 2400; display: grid; place-items: center;
+  background: rgba(0,0,0,.6);
+  padding: calc(20px + var(--sat, env(safe-area-inset-top, 0px))) calc(20px + var(--sar, env(safe-area-inset-right, 0px))) calc(20px + var(--sab, env(safe-area-inset-bottom, 0px))) calc(20px + var(--sal, env(safe-area-inset-left, 0px)));
+}
+.update-history-mask > .update-history-page {
+  position: relative; inset: auto; z-index: auto; padding: 0; box-sizing: border-box;
+  width: min(748px, calc(var(--ui-vw, 100vw) - 40px - var(--sal, env(safe-area-inset-left, 0px)) - var(--sar, env(safe-area-inset-right, 0px))));
+  max-height: min(850px, calc(var(--ui-vh, 100dvh) - 40px - var(--sat, env(safe-area-inset-top, 0px)) - var(--sab, env(safe-area-inset-bottom, 0px))));
+  border: 1px solid #292929; border-radius: 18px; overflow: hidden;
+  box-shadow: 0 20px 70px rgba(0,0,0,.5); transform-origin: center;
+}
+.update-history-mask .update-history-content { padding: 24px 28px; }
+.update-history-mask .update-history-intro { padding-right: 30px; margin-bottom: 30px; }
+.update-history-mask .update-history-close {
+  top: 12px; right: 12px; width: 32px; height: 32px; border: 0; border-radius: 8px;
+  color: #999; background: #141414; font-size: calc(24px * var(--ui-text-scale));
+}
+.update-history-mask .update-history-close:hover { color: #ddd; background: #242424; }
+.update-history-mask .update-history-status { flex-wrap: wrap; height: auto; min-height: 54px; padding: 12px 15px; }
+.update-history-mask .is-preview:has(.update-history-empty) .update-history-notes { height: 100px; }

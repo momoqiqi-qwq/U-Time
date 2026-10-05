@@ -2,11 +2,53 @@ import { getUiScaleFactor } from "./uiScale.js";
 
 const CLOSING_CLASS = "motion-closing";
 const PRESS_CLASS = "motion-pressing";
-const CLICK_CLASS = "motion-clicked";
 const CLOSE_CONTROL_CLASS = "motion-close-control";
 let initialized = false;
 const pressedControls = new Set();
-const FLIP_EASING = "cubic-bezier(.22,.8,.22,1)";
+const controlAnimations = new WeakMap();
+const pageAnimations = new WeakMap();
+const FLIP_EASING = "cubic-bezier(.16,1,.3,1)";
+
+// 重复操作从正在显示的位置接续，不通过 offsetWidth 强制刷新整棵布局。
+function releaseControl(control) {
+  if (typeof control.animate !== "function") return;
+  const transform = getComputedStyle(control).transform;
+  controlAnimations.get(control)?.cancel();
+  const target = control.matches(":hover") && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches
+    ? "translateY(-1px)" : "none";
+  const animation = control.animate([{ transform }, { transform: target }], {
+    duration: 180, easing: FLIP_EASING,
+  });
+  controlAnimations.set(control, animation);
+  animation.finished.catch(() => {}).then(() => {
+    if (controlAnimations.get(control) === animation) controlAnimations.delete(control);
+  });
+}
+
+export function enterPage(node, direction = "left") {
+  const previous = pageAnimations.get(node);
+  const current = previous ? getComputedStyle(node) : null;
+  const opacity = current?.opacity ?? .4;
+  const transform = current?.transform;
+  previous?.cancel();
+  if (reducedMotion() || typeof node.animate !== "function") return;
+  const offset = direction === "left" ? 12 : -12;
+  const animation = node.animate([
+    { opacity, transform: transform ?? `translate3d(${offset}px, 0, 0)` },
+    { opacity: 1, transform: "none" },
+  ], { duration: 280, easing: FLIP_EASING });
+  pageAnimations.set(node, animation);
+  animation.finished.catch(() => {}).then(() => {
+    if (pageAnimations.get(node) === animation) pageAnimations.delete(node);
+  });
+}
+
+function captureExit(node) {
+  if (!node) return;
+  const style = getComputedStyle(node);
+  node.style.setProperty("--motion-exit-transform", style.transform);
+  node.style.setProperty("--motion-exit-opacity", style.opacity);
+}
 
 export function reducedMotion() {
   const setting = document.documentElement.dataset.uiMotion;
@@ -56,6 +98,7 @@ export function initMotionInteractions() {
     if (event.button !== 0) return;
     const control = event.target?.closest?.("button, [role='button']");
     if (!control || control.disabled || control.getAttribute("aria-disabled") === "true" || !allowsControlMotion(control)) return;
+    controlAnimations.get(control)?.cancel();
     control.classList.add(PRESS_CLASS);
     pressedControls.add(control);
     addRipple(control, event.clientX, event.clientY);
@@ -64,11 +107,8 @@ export function initMotionInteractions() {
     const control = event.target?.closest?.("button, [role='button']");
     if (!control || control.disabled || control.getAttribute("aria-disabled") === "true" || !allowsControlMotion(control)) return;
     control.classList.toggle(CLOSE_CONTROL_CLASS, isCloseControl(control));
-    control.classList.remove(CLICK_CLASS);
-    void control.offsetWidth;
-    control.classList.add(CLICK_CLASS);
+    releaseControl(control);
     if (event.detail === 0) addRipple(control);
-    window.setTimeout(() => control.classList.remove(CLICK_CLASS), 280);
   }, true);
   document.addEventListener("pointerup", release, { passive: true });
   document.addEventListener("pointercancel", release, { passive: true });
@@ -135,6 +175,10 @@ export function closeLayer(panel, mask, cleanup) {
     return;
   }
   if (panel?.classList.contains(CLOSING_CLASS)) return;
+  if (!reducedMotion()) {
+    captureExit(panel);
+    captureExit(mask);
+  }
   cleanup?.();
   if (reducedMotion()) {
     mask?.remove();
@@ -174,6 +218,7 @@ export function closeLayer(panel, mask, cleanup) {
 export function removeWithMotion(element) {
   if (!element || element.classList.contains(CLOSING_CLASS)) return;
   if (reducedMotion()) return element.remove();
+  captureExit(element);
   element.classList.add(CLOSING_CLASS);
   const finish = () => element.remove();
   const onAnimationEnd = (event) => {
@@ -221,8 +266,9 @@ export function flipByKey(root, {
   const shifts = new Map();
   const running = [];
   let entering = 0;
-  for (const node of root.querySelectorAll(selector)) {
-    const now = node.getBoundingClientRect();
+  // 所有位置先读完，再启动动画；避免每个兄弟都触发一次样式/布局刷新。
+  const measured = [...root.querySelectorAll(selector)].map((node) => ({ node, now: node.getBoundingClientRect() }));
+  for (const { node, now } of measured) {
     if (!now.width && !now.height) continue;
     const id = key(node);
     const old = id ? before.get(id) : null;

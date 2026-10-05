@@ -76,6 +76,24 @@ const opts = (root, next, extra = {}) => ({ selector: "*", key: (n) => n.key, mu
   assert.equal(y2.calls[0].frames[0].transform, "translate(0px, -20px)", "子节点只补相对父级的那一段");
 }
 // 新节点入场；enter 返回 null 表示不动
+// 测量与动画分批：任何一个兄弟启动动画后都不能再读取下一项的位置。
+{
+  const root = fakeRoot([new FakeNode("a", 0), new FakeNode("b", 30)]);
+  let animationStarted = false;
+  await flipByKey(root, opts(root, () => [new FakeNode("b", 0), new FakeNode("a", 30)].map(node => {
+    const measure = node.getBoundingClientRect.bind(node);
+    node.getBoundingClientRect = () => {
+      assert.equal(animationStarted, false, "重排的位置必须全部在动画写入之前读取");
+      return measure();
+    };
+    const animate = node.animate.bind(node);
+    node.animate = (...args) => { animationStarted = true; return animate(...args); };
+    return node;
+  })));
+  assert.equal(animationStarted, true);
+}
+
+// 新节点入场；enter 返回 null 表示不动
 {
   const root = fakeRoot([new FakeNode("a", 0)]);
   let fresh;

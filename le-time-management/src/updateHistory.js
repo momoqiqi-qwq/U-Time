@@ -1,6 +1,7 @@
 import { el, toast } from "./ui.js";
 import { getUpdateState, describeUpdateState, subscribeUpdateState, isUpdaterSupported, checkForUpdates } from "./updateChecker.js";
 import appPackage from "../package.json" with { type: "json" };
+import { reducedMotion } from "./motion.js";
 
 function icon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -44,11 +45,8 @@ export async function openUpdateHistory(currentVersion = "") {
     const { releaseHistory } = await import("./releaseHistory.js");
     const previousFocus = document.activeElement;
     const page = el("section", { class: "update-history-page", role: "dialog", "aria-modal": "true", "aria-label": "软件更新与更新历史" });
-    const toolbar = document.querySelector(".main > .topbar");
-    const placeholder = document.createComment("update-history-toolbar");
-    if (toolbar) { toolbar.before(placeholder); page.append(toolbar); }
-    else page.append(el("div", { class: "update-history-top-space" }));
-    cleanup = () => { if (placeholder.isConnected && toolbar) placeholder.replaceWith(toolbar); page.remove(); };
+    const mask = el("div", { class: "update-history-mask", "data-motion": "off" }, page);
+    cleanup = () => mask.remove();
     const content = el("div", { class: "update-history-content", tabindex: "0" });
     const status = el("button", { class: "update-history-status", type: "button", "aria-label": "检查更新",
       onclick: () => { if (isUpdaterSupported()) void checkForUpdates({ manual: true }); } });
@@ -84,14 +82,29 @@ export async function openUpdateHistory(currentVersion = "") {
         thumb.style.height = `${height}px`;
         thumb.style.transform = `translateY(${(track.clientHeight - height) * list.scrollTop / range}px)`;
       };
-      list.addEventListener("scroll", paintScrollbar, { passive: true });
-      scrollbars.push({ list, paintScrollbar });
-      for (const entry of releases) {
-        for (const text of [`v${entry.version}`, ...entry.lines.map(line => line.text)]) {
-          list.append(el("p", {}, el("span", { class: "update-history-note-icon" }, icon(preview ? "party-horn" : "circle-check")),
-            el("span", {}, `• ${text}`)));
+      // 首屏仅建立 40 行；滚到末尾再添加一批，避免动画开始前构建数千个节点。
+      const rows = releases.flatMap(entry => [`v${entry.version}`, ...entry.lines.map(line => line.text)]);
+      let rendered = 0;
+      let frame = null;
+      const appendRows = () => {
+        const fragment = document.createDocumentFragment();
+        const end = Math.min(rendered + 40, rows.length);
+        while (rendered < end) {
+          fragment.append(el("p", {}, el("span", { class: "update-history-note-icon" }, icon(preview ? "party-horn" : "circle-check")),
+            el("span", {}, `• ${rows[rendered++]}`)));
         }
-      }
+        list.append(fragment);
+      };
+      appendRows();
+      list.addEventListener("scroll", () => {
+        if (frame !== null) return;
+        frame = requestAnimationFrame(() => {
+          frame = null;
+          if (list.scrollHeight - list.clientHeight - list.scrollTop < 180 && rendered < rows.length) appendRows();
+          paintScrollbar();
+        });
+      }, { passive: true });
+      scrollbars.push({ list, paintScrollbar, dispose: () => { if (frame !== null) cancelAnimationFrame(frame); } });
       if (!releases.length) list.append(el("p", { class: "update-history-empty" }, "暂未发布预发布版本"));
       const badge = el("span", { class: "update-history-current" });
       badges.push({ release, badge });
@@ -101,28 +114,46 @@ export async function openUpdateHistory(currentVersion = "") {
     }
     unsubscribe = subscribeUpdateState(paint);
     page.append(content);
-    // 真实顶栏移入页面，保留现有按钮与窗口控制的事件；关闭后归还原位置。
-    const siblings = [...document.body.children].filter(node => node !== page && node !== toolbar && node.id !== "toasts");
+    const siblings = [...document.body.children].filter(node => node !== mask && node.id !== "toasts");
     const inertBefore = siblings.map(node => [node, node.inert]);
     let resolveClosed;
     const closed = new Promise(resolve => { resolveClosed = resolve; });
     let didClose = false;
+    let closing = false;
+    const animations = [];
     const resizeObserver = new ResizeObserver(() => scrollbars.forEach(item => item.paintScrollbar()));
-    const close = () => {
+    const dispose = () => {
       if (didClose) return;
       didClose = true;
       document.removeEventListener("keydown", onKey, true);
-      toolbar?.removeEventListener("click", onToolbar, true);
       resizeObserver.disconnect();
-      if (placeholder.isConnected && toolbar) placeholder.replaceWith(toolbar);
-      page.remove();
+      scrollbars.forEach(item => item.dispose());
+      animations.forEach(animation => animation.cancel());
+      mask.remove();
       for (const [node, inert] of inertBefore) node.inert = inert;
       if (previousFocus?.isConnected) previousFocus.focus();
       resolveClosed();
     };
-    const onToolbar = (event) => { if (event.target.closest("button") && !event.target.closest(".top-history-trigger")) close(); };
+    const close = () => {
+      if (closing || didClose) return;
+      closing = true;
+      unsubscribe();
+      mask.style.pointerEvents = "none";
+      if (reducedMotion() || typeof page.animate !== "function") { dispose(); return; }
+      // 捕获正在打开时的视觉状态，快速点击关闭也不会突然跳到最终大小。
+      const style = getComputedStyle(page);
+      const opacity = style.opacity, transform = style.transform;
+      const maskOpacity = getComputedStyle(mask).opacity;
+      animations.forEach(animation => animation.cancel());
+      const exit = page.animate([{ opacity, transform }, { opacity: 0, transform: "translateY(10px) scale(.985)" }],
+        { duration: 170, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" });
+      const fade = mask.animate([{ opacity: maskOpacity }, { opacity: 0 }],
+        { duration: 170, fill: "forwards" });
+      animations.push(exit, fade);
+      Promise.allSettled([exit.finished, fade.finished]).then(dispose);
+    };
     const onKey = (event) => {
-      if (document.querySelector(".app-dialog-mask")) return;
+      if (document.querySelector(".app-dialog-mask") || closing) return;
       if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); close(); }
       else if (event.key === "Tab") {
         const targets = [...page.querySelectorAll('button, [tabindex="0"]')].filter(node => !node.disabled && node.getClientRects().length);
@@ -132,14 +163,20 @@ export async function openUpdateHistory(currentVersion = "") {
         }
       }
     };
-    cleanup = close;
-    page.append(el("button", { class: "update-history-close", "data-motion": "off", type: "button", title: "收起更新历史", "aria-label": "收起更新历史", onclick: close }, "›"));
-    document.body.append(page);
+    cleanup = dispose;
+    page.append(el("button", { class: "update-history-close", "data-motion": "off", type: "button", title: "关闭更新历史", "aria-label": "关闭更新历史", onclick: close }, "×"));
+    mask.addEventListener("click", event => { if (event.target === mask) close(); });
+    document.body.append(mask);
     for (const { list, paintScrollbar } of scrollbars) { resizeObserver.observe(list); paintScrollbar(); }
     for (const [node] of inertBefore) node.inert = true;
     document.addEventListener("keydown", onKey, true);
-    toolbar?.addEventListener("click", onToolbar, true);
     content.focus({ preventScroll: true });
+    if (!reducedMotion() && typeof page.animate === "function") {
+      animations.push(page.animate([{ opacity: 0, transform: "translateY(16px) scale(.97)" }, { opacity: 1, transform: "none" }],
+        { duration: 260, easing: "cubic-bezier(.16,1,.3,1)" }));
+      animations.push(mask.animate([{ opacity: 0 }, { opacity: 1 }],
+        { duration: 220, easing: "ease-out" }));
+    }
     await closed;
   } catch (error) {
     toast(`无法打开更新历史：${error?.message || error}`);

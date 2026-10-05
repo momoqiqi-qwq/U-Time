@@ -33,6 +33,7 @@ class Control extends Target {
     super();
     this.tagName = tagName; this.attrs = new Map(); this.children = []; this.parentElement = null;
     this.style = {}; this.classes = new Set(); this.geometryReads = 0; this.layoutReads = 0;
+    this.animations = [];
     this.classList = {
       add: (...xs) => xs.forEach(x => this.classes.add(x)),
       remove: (...xs) => xs.forEach(x => this.classes.delete(x)),
@@ -56,6 +57,12 @@ class Control extends Target {
   }
   getBoundingClientRect() { this.geometryReads++; return { left: 10, top: 10, width: 40, height: 34 }; }
   get offsetWidth() { this.layoutReads++; return 40; }
+  matches() { return false; }
+  animate(frames, options) {
+    const animation = { frames, options, cancelled: false, finished: Promise.resolve(), cancel() { this.cancelled = true; } };
+    this.animations.push(animation);
+    return animation;
+  }
   append(node) { node.parentElement = this; this.children.push(node); }
   remove() {
     if (!this.parentElement) return;
@@ -71,6 +78,7 @@ win.matchMedia = () => ({ matches: systemReduced });
 const timers = [];
 win.setTimeout = fn => { timers.push(fn); return timers.length; };
 globalThis.document = doc; globalThis.window = win;
+globalThis.getComputedStyle = () => ({ transform: "matrix(0.98, 0, 0, 0.98, 0, 1)" });
 initMotionInteractions(); initMotionInteractions();
 assert.equal(doc.listeners.get("pointerdown").size, 1, "全局监听初始化必须幂等");
 const event = (target, extra = {}) => ({ target, button: 0, clientX: 25, clientY: 24, detail: 1, ...extra });
@@ -83,6 +91,7 @@ const expectQuiet = (control, label) => {
   assert.equal(control.children.length, 0, `${label}：不生成波纹`);
   assert.equal(control.geometryReads, 0, `${label}：不测量波纹几何`);
   assert.equal(control.layoutReads, 0, `${label}：不强制读取 offsetWidth`);
+  assert.equal(control.animations.length, 0, `${label}：不创建释放动画`);
   assert.equal(timers.length, 0, `${label}：不创建动效定时器`);
   assert.notEqual(down.defaultPrevented, true); assert.notEqual(click.defaultPrevented, true);
 };
@@ -104,8 +113,12 @@ doc.fire("pointerdown", event(control));
 assert.ok(control.classList.contains("motion-pressing"));
 assert.equal(control.children.length, 1, "正常按钮仍有波纹；full 可覆盖系统减少动效");
 doc.fire("click", event(control));
-assert.ok(control.classList.contains("motion-clicked"));
-assert.equal(control.layoutReads, 1);
+assert.equal(control.animations.length, 1, "正常点击保留释放反馈");
+assert.equal(control.animations[0].frames[0].transform, "matrix(0.98, 0, 0, 0.98, 0, 1)", "释放从当前视觉状态开始");
+assert.equal(control.layoutReads, 0, "正常点击也不强制刷新布局");
+doc.fire("click", event(control));
+assert.equal(control.animations[0].cancelled, true, "连续点击取消旧动画，避免叠加");
+assert.equal(control.animations.length, 2);
 clear();
 assert.equal(control.children.length, 0);
 assert.equal(control.classList.contains("motion-pressing"), false);

@@ -1,10 +1,10 @@
 :root {
-  --motion-fast: 110ms;
-  --motion-normal: 180ms;
-  --motion-layer: 240ms;
-  --motion-out: cubic-bezier(.22, .8, .22, 1);
-  --motion-in: cubic-bezier(.4, 0, 1, 1);
-  --motion-spring: cubic-bezier(.2, .9, .25, 1.18);
+  --motion-fast: 120ms;
+  --motion-normal: 200ms;
+  --motion-layer: 280ms;
+  --motion-out: cubic-bezier(.16, 1, .3, 1);
+  --motion-in: cubic-bezier(.4, 0, .7, .2);
+  --motion-spring: cubic-bezier(.2, .8, .2, 1.04);
 }
 
 /* 按钮反馈：按下、释放和点击扩散使用同一套短促节奏。 */
@@ -115,7 +115,7 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
 /* 插件筛选结果按阅读顺序快速落位；最多错开 8 级，避免长列表拖慢反馈。 */
 .market-card-enter {
   animation: motion-plugin-card-in 210ms var(--motion-out) both;
-  animation-delay: calc(var(--market-enter-index, 0) * 22ms);
+  animation-delay: calc(var(--market-enter-index, 0) * 12ms);
 }
 
 .market-empty {
@@ -161,7 +161,7 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
   to { opacity: 1; }
 }
 @keyframes motion-mask-out {
-  from { opacity: 1; }
+  from { opacity: var(--motion-exit-opacity, 1); }
   to { opacity: 0; }
 }
 @keyframes motion-drawer-in {
@@ -169,7 +169,7 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
   to { opacity: 1; transform: scale(1); }
 }
 @keyframes motion-drawer-out {
-  from { opacity: 1; transform: scale(1); }
+  from { opacity: var(--motion-exit-opacity, 1); transform: var(--motion-exit-transform, scale(1)); }
   to { opacity: 0; transform: translate3d(22px, 0, 0) scale(.99); }
 }
 @keyframes motion-top-layer-in {
@@ -177,7 +177,7 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
   to { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
 }
 @keyframes motion-top-layer-out {
-  from { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
+  from { opacity: var(--motion-exit-opacity, 1); transform: var(--motion-exit-transform, translate3d(-50%, 0, 0) scale(1)); }
   to { opacity: 0; transform: translate3d(-50%, -5px, 0) scale(.985); }
 }
 @keyframes motion-center-layer-in {
@@ -185,7 +185,7 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
   to { opacity: 1; transform: translate3d(-50%, -50%, 0) scale(1); }
 }
 @keyframes motion-center-layer-out {
-  from { opacity: 1; transform: translate3d(-50%, -50%, 0) scale(1); }
+  from { opacity: var(--motion-exit-opacity, 1); transform: var(--motion-exit-transform, translate3d(-50%, -50%, 0) scale(1)); }
   to { opacity: 0; transform: translate3d(-50%, calc(-50% + 6px), 0) scale(.985); }
 }
 @keyframes motion-full-layer-in {
@@ -193,7 +193,7 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
   to { opacity: 1; transform: scale(1); }
 }
 @keyframes motion-full-layer-out {
-  from { opacity: 1; transform: scale(1); }
+  from { opacity: var(--motion-exit-opacity, 1); transform: var(--motion-exit-transform, scale(1)); }
   to { opacity: 0; transform: scale(.985); }
 }
 @keyframes motion-menu-in {
@@ -217,7 +217,7 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 @keyframes motion-float-out {
-  from { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  from { opacity: var(--motion-exit-opacity, 1); transform: var(--motion-exit-transform, translate3d(0, 0, 0) scale(1)); }
   to { opacity: 0; transform: translate3d(0, 5px, 0) scale(.98); }
 }
 
@@ -229,13 +229,13 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
 
 @keyframes motion-button-release {
   0% { transform: translateY(1px) scale(.98); }
-  55% { transform: translateY(-.5px) scale(1.012); }
+  55% { transform: translateY(0) scale(1); }
   100% { transform: translateY(0) scale(1); }
 }
 
 @keyframes motion-close-button-release {
   0% { transform: translateY(1px) scale(.98) rotate(0); }
-  55% { transform: translateY(0) scale(1.01) rotate(2deg); }
+  55% { transform: translateY(0) scale(1) rotate(0); }
   100% { transform: translateY(0) scale(1) rotate(0); }
 }
 
@@ -328,12 +328,12 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 }
 
 @keyframes motion-page-forward-in {
-  from { opacity: .12; transform: translate3d(18px, 0, 0) scale(.992); }
+  from { opacity: .12; transform: translate3d(12px, 0, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 
 @keyframes motion-page-back-in {
-  from { opacity: .12; transform: translate3d(-18px, 0, 0) scale(.992); }
+  from { opacity: .12; transform: translate3d(-12px, 0, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 

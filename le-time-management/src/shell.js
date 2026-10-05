@@ -18,7 +18,7 @@ import { PLUGIN_SHORTCUT_MODIFIER, attachPluginShortcutKeys, computePluginShortc
 import { pluginShortcutEntries } from "./pluginShortcutEntries.js";
 import { getUiPreferences, coreViewIds } from "./uiPreferences.js";
 import { listRailActions, normalizeRailActionOrder, registerRailAction, slotIndexFor } from "./railActions.js";
-import { closeLayer, fadeAway, flipByKey, foldClose, foldOpen, observePluginMotion, reducedMotion, removeWithMotion } from "./motion.js";
+import { closeLayer, enterPage, fadeAway, flipByKey, foldClose, foldOpen, observePluginMotion, reducedMotion, removeWithMotion } from "./motion.js";
 import { FOCUS_WINDOW_SIZE, isDesktopRuntime, isFocusWindowActive, toggleFocusWindow } from "./windowSize.js";
 import { isAndroidRuntime as isNativeAndroidRuntime } from "./androidNotify.js";
 import { isMobilePreview } from "./mobilePreview.js";
@@ -1650,15 +1650,14 @@ export function renderShell(root) {
 
       view.classList.remove("page-l", "page-r");
       if (prevId !== targetId) {
-        void view.offsetWidth;
-        view.classList.add(dir === "left" ? "page-l" : "page-r");
+        enterPage(view, dir);
         const titleCard = titleEl.closest(".topbar-title-card");
-        if (titleCard?.animate && getUiPreferences().motion !== "reduced") {
-          const titleOffset = dir === "left" ? 7 : -7;
+        if (titleCard?.animate && !reducedMotion()) {
+          const titleOffset = dir === "left" ? 4 : -4;
           titleCard.animate([
-            { opacity: .36, transform: `translate3d(${titleOffset}px, 0, 0) scale(.99)` },
+            { opacity: .36, transform: `translate3d(${titleOffset}px, 0, 0)` },
             { opacity: 1, transform: "translate3d(0, 0, 0) scale(1)" },
-          ], { duration: 240, easing: "cubic-bezier(.22,.8,.22,1)" });
+          ], { duration: 220, easing: "cubic-bezier(.16,1,.3,1)" });
         }
       }
       // 用户真的换了界面才压历史：返回键据此回到上一个界面
