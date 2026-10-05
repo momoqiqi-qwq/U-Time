@@ -10,7 +10,7 @@ function harness({reduce=false,scale=1}={}){
  const makeClass=(names=[])=>{const values=new Set(names);return {add:(...a)=>a.forEach(x=>values.add(x)),remove:(...a)=>a.forEach(x=>values.delete(x)),contains:x=>values.has(x)};};
  const list={...listeners(),children:[],classList:makeClass(),isConnected:true,querySelectorAll(){return this.children;},contains(card){return this.children.includes(card);},getBoundingClientRect(){return {top,left:20,width:220*scale};},append(card){this.insertBefore(card,null);},insertBefore(card,ref){const i=this.children.indexOf(card);if(i>=0)this.children.splice(i,1);this.children.splice(ref?this.children.indexOf(ref):this.children.length,0,card);}};
  const body={children:[],append(card){this.children.push(card);card.ghost=true;}};document.body=body;
- function card(id){const item={id,dataset:{pluginId:id},classList:makeClass(),style:{setProperty(k,v){this[k]=v;}},setAttribute(){},removeAttribute(name){if(name==='data-plugin-id')delete this.dataset.pluginId;},getAnimations(){return [];},setPointerCapture(){},releasePointerCapture(){},focus(){},closest(){return this;},cloneNode(){return card(id+'-ghost');},remove(){body.children=body.children.filter(x=>x!==this);},animate(){return {cancel(){cancels++;}}},getBoundingClientRect(){if(this.ghost){const m=this.style.transform?.match(/translate3d\(([-\d.]+)px, ([-\d.]+)px/);return {left:Number(m?.[1]||0)*scale,top:Number(m?.[2]||0)*scale,width:220*scale,height:40*scale};}return {left:20,top:top+list.children.indexOf(this)*44*scale,width:220*scale,height:40*scale};}};Object.defineProperty(item,'nextSibling',{get:()=>list.children[list.children.indexOf(item)+1]});return item;}
+ function card(id){const item={id,dataset:{pluginId:id},classList:makeClass(),style:{setProperty(k,v){this[k]=v;}},setAttribute(){},removeAttribute(name){if(name==='data-plugin-id')delete this.dataset.pluginId;},getAnimations(){return [];},setPointerCapture(){},releasePointerCapture(){},focus(){},closest(sel){return sel==='.nav-act'?null:this;},cloneNode(){return card(id+'-ghost');},remove(){body.children=body.children.filter(x=>x!==this);},animate(){return {cancel(){cancels++;}}},getBoundingClientRect(){if(this.ghost){const m=this.style.transform?.match(/translate3d\(([-\d.]+)px, ([-\d.]+)px/);return {left:Number(m?.[1]||0)*scale,top:Number(m?.[2]||0)*scale,width:220*scale,height:40*scale};}return {left:20,top:top+list.children.indexOf(this)*44*scale,width:220*scale,height:40*scale};}};Object.defineProperty(item,'nextSibling',{get:()=>list.children[list.children.indexOf(item)+1]});return item;}
  list.children=['a','b','c','d'].map(card);const a=list.children[0];
  const attach=new Function('document','window','navigator','getComputedStyle','getUiScaleFactor','reducedMotion','slotIndexFor','requestAnimationFrame','cancelAnimationFrame','setTimeout','clearTimeout',code+';return attachPluginListDrag;')(document,window,{vibrate(){}},()=>({rowGap:'4'}),()=>scale,()=>reduce,(mids,y)=>{const i=mids.findIndex(mid=>y<mid);return i<0?mids.length:i;},fn=>{const id=seq++;frames.set(id,fn);return id;},id=>frames.delete(id),(fn)=>{const id=seq++;timers.set(id,fn);return id;},id=>timers.delete(id));
  attach(list,()=>commits++);
@@ -41,6 +41,17 @@ function harness({reduce=false,scale=1}={}){
 {
  const h=harness();h.list.fire('keydown',{target:h.a,altKey:true,key:'ArrowDown',preventDefault(){}});assert.equal(h.order(),'bacd');assert.equal(h.commits(),1,'keyboard ordering is preserved');
  h.down();h.move(44,110);h.list.fire('pointerdown',h.event(44,110,{pointerId:2,isPrimary:false}));assert.equal(h.body.children.length,1,'second pointer must not replace active drag');h.document.fire('pointercancel',h.event(44,110));assert.equal(h.order(),'bacd');
+}
+{
+ // v0.152.0 行尾悬停操作条（… 更多 / 📌 置顶）长在导航按钮**内部**：
+ // closest 会一路找到外层 button[data-plugin-id]，不设守卫就会「按一下更多，插件被拖走」。
+ const h=harness();
+ const act={closest:(sel)=>(sel==='.nav-act'?act:null)};
+ h.list.fire('pointerdown',{...h.event(40,110),target:act});
+ h.move(70,200);
+ assert.equal(h.body.children.length,0,'按在操作条上不许浮起拖拽副本');
+ assert.equal(h.commits(),0,'按在操作条上不许改动插件顺序');
+ assert.equal(h.a.classList.contains('nav-dragging'),false);
 }
 const css=readProductSource(new URL('../src/styles.css',import.meta.url),'utf8');
 assert.match(css,/\.nav \.plug-seg > button\.nav-dragging\s*\{[^}]*opacity: 1;[^}]*outline: 2px solid/s);

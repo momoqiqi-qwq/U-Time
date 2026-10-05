@@ -21,8 +21,10 @@ assert.match(block, /setTimeout\(\(\) => \{ if \(pd\?\.card === card && !pd\.act
 assert.match(block, /event\.key !== "ArrowUp" && event\.key !== "ArrowDown"/, "必须支持 Alt+↑/↓ 键盘排序");
 // v0.102 颜色分组：拖拽单位从整列 .plug-list 变成一段一段的 .plug-seg（每组一次），
 // 段内仍然是「等高连续兄弟」，所以落点推演那套几何一行没改。
-assert.match(shell, /attachPluginListDrag\(seg, \(\) => saveSegmentOrder\(/,
-  "拖拽必须按段挂载：一个颜色组或一段未分组插件各挂一次");
+// v0.152.0：置顶段与颜色组共用同一套落点容器，只是松手后写哪张表不同
+//（常规段 → pluginOrder，置顶段 → pinnedPlugins）。
+assert.match(shell, /attachPluginListDrag\(seg, \(\) => \(pinned \? savePinnedOrder\(readIds\(\)\) : saveSegmentOrder\(readIds\(\)\)\)\)/,
+  "拖拽必须按段挂载：一个颜色组、一段未分组插件、一段置顶插件各挂一次");
 assert.match(shell, /seg\.querySelectorAll\(":scope > button\[data-plugin-id\]"\)/,
   "段容器只能把插件按钮作为直接子节点，中间不许插组头");
 assert.match(shell, /settings\.pluginOrder = full\.map\(\(id\) => \(slots\.has\(id\) \? ids\[at\+\+\] : id\)\)/,

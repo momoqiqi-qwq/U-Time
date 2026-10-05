@@ -13,6 +13,7 @@ import { openQuickCapture } from "./capture.js";
 import { pluginViews, onNavChanged, getRegistry, setEnabled, rescan, removeExternalPlugin } from "./pluginHost.js";
 import { getPluginOverride, pluginAccent, pluginColor, pluginDisplayIcon, pluginDisplayName, pluginDisplayOutlineIcon, resetPluginOverride, setPluginColor, setPluginOverride } from "./pluginAppearance.js";
 import { GROUP_COLORS, groupColorMeta, groupName, groupRuns, isGroupColor, isGroupCollapsed, moveGroupInOrder, normalizePluginOrder, renameGroup, toggleGroupCollapsed } from "./pluginGroups.js";
+import { isPluginPinned, pinnedOrderOf, setPinnedPluginOrder, togglePluginPin } from "./pluginPins.js";
 import { hasNavOverride, navDisplayIcon, navDisplayName, navDisplayOutlineIcon, resetNavOverride, setNavOverride } from "./navAppearance.js";
 import { PLUGIN_SHORTCUT_MODIFIER, attachPluginShortcutKeys, computePluginShortcutMap, effectivePluginShortcutLetter, getPluginShortcutCustoms, normalizeShortcutLetter, setPluginShortcut } from "./pluginShortcuts.js";
 import { pluginShortcutEntries } from "./pluginShortcutEntries.js";
@@ -224,6 +225,11 @@ export function renderShell(root) {
   settings.quickDock ??= { left: null, top: 92, collapsed: false, alwaysOnTop: false };
   const quickDockState = settings.quickDock;
   const nav = el("nav", { class: "nav" });
+  /* v0.152.0：侧栏选中光块（滑动指示器）。样式见 styles.css 的 .nav-glow；机制与参数照
+     Nephele Workshop 的 sidebarActiveIndicator（已读其随包分发的 QML 源码）。
+     ⚠️ 它住在 nav 里，而 renderNav() 首行的 nav.replaceChildren() 会把它一并摘掉 ——
+     每次重绘都要挂回来，漏一次它就永久消失（守卫测试拦这条）。 */
+  const navGlow = el("div", { class: "nav-glow", "aria-hidden": "true" });
   const view = el("div", { class: "view" });
   const titleEl = el("h1", {});
   const subEl = el("span", { class: "sub" });
@@ -758,6 +764,8 @@ export function renderShell(root) {
     const currentColor = pluginColor(pluginId);
     const menu = el("div", { class: "plugin-context-menu", role: "menu", "aria-label": `${displayName}插件菜单` },
       el("div", { class: "plugin-context-head" }, pluginDisplayIcon(pluginId, displayName), el("span", {}, el("b", {}, displayName), el("small", {}, rec.source === "builtin" ? "内置插件" : "用户插件"))),
+      // 与侧栏行尾那颗 📌 同一个动作 —— 键盘 / 触屏也能置顶（那条操作条是 hover 才出现的）
+      contextMenuItem(isPluginPinned(pluginId) ? "取消置顶" : "置顶在最上方", () => togglePin(pluginId)),
       contextMenuItem("重命名", async () => {
         const value = await appPrompt("重命名插件", { label: "输入插件显示名称（留空恢复默认名称）", value: displayName, confirmText: "保存" });
         if (value === null) return;
@@ -879,6 +887,8 @@ export function renderShell(root) {
 
   function renderNav() {
     nav.replaceChildren();
+    // v0.152.0：光块刚被上面这行摘掉了，先挂回来再重建按钮（DOM 顺序无所谓，层级由 z-index 定）。
+    nav.prepend(navGlow);
     // APK 底栏保留插件中心，并固定提供成绩、课表两个直达入口。
     // 页面本身仍可被启动页、历史栈和返回键访问，不从 coreViewIds() 的平台清单里移除。
     for (const id of railCoreViewIds()) nav.append(navBtn(id));
@@ -900,7 +910,7 @@ export function renderShell(root) {
         nav.append(btn);
       }
     }
-    if (!pluginViews.length) return;
+    if (!pluginViews.length) { syncNavGlow(); return; }
     // 桌面端侧栏仍保留插件直达列表；移动端底栏只留核心入口（.plug-list 被隐藏）
     const box = el("div", { class: "plug-list" },
       el("div", { class: "sec plug-list-sec" },
@@ -915,9 +925,19 @@ export function renderShell(root) {
       if (!viewsOf.has(pv.pluginId)) viewsOf.set(pv.pluginId, []);
       viewsOf.get(pv.pluginId).push(pv);
     }
+    // v0.152.0 置顶区：置顶插件从颜色分组里「提」出来，固定渲染在最上方；
+    // 顺序用置顶表自己的顺序，与 pluginOrder 正交 —— 取消置顶即回原位（见 pluginPins.js）。
+    // 置顶段自己也是一段可拖拽容器，拖动改的是置顶表，不碰 pluginOrder。
+    const pinnedIds = pinnedOrderOf([...viewsOf.keys()]);
+    const pinned = new Set(pinnedIds);
+    // 置顶的插件视图在这里就展开：它们不进下面的分组分段。
+    if (pinnedIds.length) box.append(plugSegNode(pinnedIds.flatMap((id) => viewsOf.get(id) || []), { pinned: true }));
     // 改色时已经把同色吸附成连续段（normalizePluginOrder），这里再归一次兜底：
     // 别的设备同步过来的顺序可能还没吸附。
-    const runs = groupRuns(normalizePluginOrder([...viewsOf.keys()], pluginColor), pluginColor);
+    const runs = groupRuns(
+      normalizePluginOrder([...viewsOf.keys()].filter((id) => !pinned.has(id)), pluginColor),
+      pluginColor,
+    );
     runs.forEach(({ color, ids }, index) => {
       const views = ids.flatMap((id) => viewsOf.get(id) || []);
       if (!views.length) return;
@@ -926,19 +946,171 @@ export function renderShell(root) {
         : plugSegNode(views));
     });
     nav.append(box);
+    // 收尾落位：所有 renderNav 调用点（切界面 / 改名 / 分组重排 / 置顶…）都自动覆盖
+    syncNavGlow();
+  }
+
+  /* ── v0.152.0：侧栏选中光块（滑动指示器）────────────────────────────────
+     需求：切换界面时选中光效要从旧位置"滑"到新位置，而不是旧位置闪灭 + 新位置闪亮。
+     根因：renderNav() 首行 nav.replaceChildren() 整份重建侧栏 ⇒ 一块静态底色做不出位移关系。
+
+     做法与参数照 Nephele Workshop 的 sidebarActiveIndicator（已读其随包分发的 QML 源码）：
+       · 条目自持一层淡底（"自持微光"）+ 本光块是"更亮的焦点标记"（两层都在 styles.css 里）；
+         两层各管一个语义 —— 选中项落进收起的分组、由组头替它亮着时，光块淡出而条目层仍在；
+       · 位移 500ms / OutBack(overshoot 1.3)、尺寸 400ms / OutCubic —— **两条通道分开跑**，
+         时长刻意不等（5:4）：行高有差时那一帧的不同步，就是"惯性拉伸"感的来源，比显式
+         scaleY 自然；
+       · 取位置等布局定下来再读（那边是 Qt.callLater，这边同步读 rect 就够）；
+       · 布局漂移（容器 / 按钮尺寸变化）一律瞬时对齐，不走动画。
+
+     坐标换算：包含块直接取 navGlow.offsetParent —— 绝对定位元素的 offsetParent 本身就是它的
+     包含块。桌面得到 .nav（滚动容器），光块作为它的绝对定位后代**随列表一起滚动**（所以不需要
+     监听 nav 的 scroll）；窄屏 .nav 是 display: contents、不生成盒子，offsetParent 自动上溯到
+     .rail；.rail 被 display:none 时（窄屏沉浸式视图、窄屏设置页）offsetParent 为 null ⇒
+     直接淡出，不用逐个特判那些场景。
+     ⚠️ 三个坐标口径都要除 getUiScaleFactor()：界面缩放是 documentElement 上的 CSS zoom，
+     getBoundingClientRect 给的是**视觉 px**，而 left/top/width/height 与 transform 都是
+     缩放前的布局 px —— 不除的话 125% 档下光块会偏到 1/5 行以外（与 railWidth.js 同一口径）。
+     ⚠️ 起点取"当前**视觉**位置"（直接量光块自己的 rect）而不是上一个目标值：上一段动画可能
+     还在飞，用目标值当起点会让连续快切跳一下。
+     ⚠️ 终点取"**剥掉按钮自身 transform** 的布局盒"（layoutBoxOf，见下）—— 不能用裸 rect。 */
+
+  /* ── 剥掉元素自身 transform，拿到它稳稳的布局盒 ─────────────────────────────
+     为什么需要：CSS 给所有 button 挂了 hover 抬升（interactions.css 里
+     `button:hover { transform: translateY(-1px) }`）与 :active 下压
+     （`translateY(1px) scale(.98)`），两者都带过渡（`.nav button` 的 transform .08s）。
+     切页那一刻按钮正处在过渡中间，裸 rect 读到的是**瞬时反馈的位置**：
+     实测会偏 1px；极端情况下 :active 的 scale(.98) 会让宽度差 2%（181px 行差 3.6px，肉眼可见）。
+     光块是**选中指示器**，锚定的是"这一行的位置"，不该跟着 hover / 按下抖 —— 鼠标一移开
+     按钮回落 1px，跟着抖的光块反而会永久错位。
+     transform-origin 是 center（本项目没有覆盖），所以反解很简单：缩放绕中心、位移直接减。
+     有旋转 / 斜切（b、c 非零）就放弃反解、退回裸 rect —— 比算错好。 */
+  function layoutBoxOf(node) {
+    const rect = node.getBoundingClientRect();
+    const raw = getComputedStyle(node).transform;
+    const m = raw && raw !== "none" ? raw.match(/matrix\(([-\d.eE, ]+)\)/) : null;
+    if (!m) return rect;
+    const [a, b, c, d, tx, ty] = m[1].split(",").map(Number);
+    if (![a, b, c, d, tx, ty].every(Number.isFinite) || Math.abs(b) > 1e-4 || Math.abs(c) > 1e-4) return rect;
+    const width = rect.width / (a || 1);
+    const height = rect.height / (d || 1);
+    return {
+      left: rect.left - (width - rect.width) / 2 - tx,
+      top: rect.top - (height - rect.height) / 2 - ty,
+      width, height,
+    };
+  }
+
+  const NAV_GLOW_SLIDE_MS = 500;
+  const NAV_GLOW_RESIZE_MS = 400; // 与位移通道刻意不同（5:4），见上
+  const NAV_GLOW_EASE_SLIDE = "cubic-bezier(.34, 1.56, .64, 1)"; // = OutBack(overshoot 1.3)
+  const NAV_GLOW_EASE_RESIZE = "cubic-bezier(.33, 1, .68, 1)";   // = OutCubic
+  let navGlowBox = null;   // 上一帧落定的几何（包含块坐标系，布局 px）
+  let navGlowAnims = [];   // 在飞的两条通道；重算时整体取消重起
+  let navGlowObsBtns = null;
+  let navGlowResizeObs = null;
+
+  function hideNavGlow() {
+    navGlowBox = null;
+    navGlowAnims.forEach((anim) => anim.cancel());
+    navGlowAnims = [];
+    navGlow.classList.remove("on");
+  }
+
+  /* 取「当前该亮」的那颗按钮。
+     ⚠️ 不能直接用 querySelector('button[data-view].on')：进入插件视图时 market **也**带 .on
+     （navBtn 里 `id === "market" && activeView.startsWith("plug:")`），这是**刻意**的 ——
+     插件是从市场进去的，两个都该亮。但 market 在 railCoreViewIds() 里、文档序排在插件段**之前**
+     ⇒ querySelector 永远抓到 market，光块就停在「插件市场」上不跟过去。
+     实测（v0.152.0）：点 plug:plugin-guide，光块落 t=159（market），目标行在 t=237，差 78px。
+     所以多选时以 activeView 自身那一项为准；它不在 DOM 里（插件项被折叠的分组藏起来）时
+     回退到文档序第一个 —— 那种情况下光块停 market 是对的。 */
+  function activeNavBtn() {
+    const ons = nav.querySelectorAll("button[data-view].on");
+    for (const b of ons) if (b.dataset.view === activeView) return b;
+    return ons[0] || null;
+  }
+
+  function syncNavGlow({ animate = true } = {}) {
+    const box = navGlow.offsetParent; // 包含块；侧栏隐藏时为 null
+    const btn = box && activeNavBtn();
+    if (!btn?.isConnected) return hideNavGlow();
+    const factor = getUiScaleFactor() || 1;
+    const rect = box.getBoundingClientRect();
+    const originLeft = rect.left + (box.clientLeft - box.scrollLeft) * factor;
+    const originTop = rect.top + (box.clientTop - box.scrollTop) * factor;
+    const target = layoutBoxOf(btn);
+    if (!target.width || !target.height) return hideNavGlow(); // 侧栏还没布局出来
+    const left = (target.left - originLeft) / factor;
+    const top = (target.top - originTop) / factor;
+    const width = target.width / factor;
+    const height = target.height / factor;
+    let from = null;
+    if (navGlowBox && navGlow.classList.contains("on")) {
+      const cur = navGlow.getBoundingClientRect(); // 视觉位置（含在飞的 transform）与当前尺寸
+      from = {
+        left: (cur.left - originLeft) / factor,
+        top: (cur.top - originTop) / factor,
+        width: cur.width / factor,
+        height: cur.height / factor,
+      };
+    }
+    navGlowAnims.forEach((anim) => anim.cancel());
+    navGlowAnims = [];
+    navGlow.style.left = `${left}px`;
+    navGlow.style.top = `${top}px`;
+    navGlow.style.width = `${width}px`;
+    navGlow.style.height = `${height}px`;
+    navGlowBox = { left, top, width, height };
+    // 选中按钮自己换尺寸（字号 / 密度档位）时也得跟：nav 的盒子未必跟着变，ResizeObserver 盯它
+    if (navGlowObsBtns !== btn) {
+      if (navGlowObsBtns) navGlowResizeObs?.unobserve(navGlowObsBtns);
+      navGlowObsBtns = btn;
+      navGlowResizeObs?.observe(btn);
+    }
+    navGlow.classList.add("on");
+    // 首次出现 / 从淡出恢复 / 减少动效 ⇒ 直接落位，只走 opacity 那条过渡
+    if (!animate || !from || reducedMotion() || typeof navGlow.animate !== "function") return;
+    const dx = from.left - left;
+    const dy = from.top - top;
+    if (dx || dy) {
+      navGlowAnims.push(navGlow.animate(
+        [{ transform: `translate3d(${dx}px, ${dy}px, 0)` }, { transform: "translate3d(0, 0, 0)" }],
+        { duration: NAV_GLOW_SLIDE_MS, easing: NAV_GLOW_EASE_SLIDE },
+      ));
+    }
+    if (from.width !== width || from.height !== height) {
+      navGlowAnims.push(navGlow.animate(
+        [{ width: `${from.width}px`, height: `${from.height}px` }, { width: `${width}px`, height: `${height}px` }],
+        { duration: NAV_GLOW_RESIZE_MS, easing: NAV_GLOW_EASE_RESIZE },
+      ));
+    }
+  }
+
+  /* 容器尺寸变化（侧栏宽度拖拽 / 窗口 resize / 进出窄屏断点）走这条 —— 一律瞬时对齐。 */
+  if (typeof ResizeObserver === "function") {
+    navGlowResizeObs = new ResizeObserver(() => syncNavGlow({ animate: false }));
+    navGlowResizeObs.observe(nav);
   }
 
   /* 一段可拖拽容器：直接子节点必须正好是插件按钮 —— attachPluginListDrag 的落点
      推演按「等高连续兄弟」累加高度，中间插进组头就会整体偏移。所以组头挂在容器外。
      跨段（跨卡片）拖动不支持，换组走右键改色。 */
-  function plugSegNode(views) {
-    const seg = el("div", { class: "plug-seg" }, views.map((pv) => navBtn(`plug:${pv.id}`, true)));
+  function plugSegNode(views, { pinned = false } = {}) {
+    const seg = el("div", { class: `plug-seg${pinned ? " plug-seg-pinned" : ""}` }, views.map((pv) => navBtn(`plug:${pv.id}`, true)));
     if (desktopWindow && views.length > 1) {
-      attachPluginListDrag(seg, () => saveSegmentOrder(
-        [...seg.querySelectorAll(":scope > button[data-plugin-id]")].map((node) => node.dataset.pluginId),
-      ));
+      const readIds = () => [...seg.querySelectorAll(":scope > button[data-plugin-id]")].map((node) => node.dataset.pluginId);
+      // 置顶段与常规段的落点容器是同一个，只是「松手后写哪张表」不同。
+      attachPluginListDrag(seg, () => (pinned ? savePinnedOrder(readIds()) : saveSegmentOrder(readIds())));
     }
     return seg;
+  }
+
+  // 置顶段内拖拽：顺序落进 pinnedPlugins，不回填 pluginOrder —— 置顶区与常规排列是两套顺序，
+  // 混着写会让「取消置顶回原位」失效。
+  function savePinnedOrder(domIds) {
+    if (!setPinnedPluginOrder([...new Set(domIds)])) return;
+    toast("置顶顺序已保存");
   }
 
   // 段内新顺序写回全局顺序：只回填这一段占着的那几个格子，别的段原地不动。
@@ -1058,7 +1230,9 @@ export function renderShell(root) {
       fold.setAttribute("aria-expanded", String(!collapsed));
     }
     group.dataset.folding = "1";
-    const done = () => { delete group.dataset.folding; };
+    // 收放播完再对齐光块：nav 的盒子高度由 flex:1 定，折叠不改变它 -> ResizeObserver 盯不到这条
+    // 路径，必须显式挂钩。选中项自己跟着收起时，syncNavGlow 会找不到按钮而让它淡出。
+    const done = () => { delete group.dataset.folding; syncNavGlow(); };
     if (collapsed) {
       const seg = group.querySelector(":scope > .plug-seg");
       if (!seg) return done();
@@ -1104,8 +1278,65 @@ export function renderShell(root) {
       b.dataset.pluginId = def.pluginView.pluginId;
       b.title = `${def.title} · ${sc ? `快捷键 ${PLUGIN_SHORTCUT_MODIFIER}+${sc} · ` : ""}拖动或 Alt+↑/↓ 调整插件顺序`;
       b.addEventListener("contextmenu", (event) => openPluginContextMenu(event, def.pluginView.pluginId));
+      // v0.152.0：行尾的悬停操作条（… 更多 / 📌 置顶）。鼠标停下才现身，延迟在 CSS 里。
+      b.append(pluginNavActions(def.pluginView.pluginId, def.title));
     }
     return b;
+  }
+
+  /* v0.152.0：插件导航行尾的悬停操作条。
+     外层是 <button>，而 HTML 不允许 button 嵌套 button —— 这两颗只能用
+     span[role=button] 造：真 button 会被 `.nav button` 那条基线规则
+     （display:flex + width:100% + padding 9px 12px）命中，行尾直接鼓成两个大块。
+     只在桌面端挂：手机端侧栏是底栏、没有 hover，长按又已经被拖拽排序占了（见 pluginListDrag.js）。 */
+  function pluginNavActions(pluginId, title) {
+    const pinned = isPluginPinned(pluginId);
+    const wrap = el("span", { class: "nav-actions" });
+    // 键盘唤起菜单时没有指针坐标：用按钮自身的矩形当锚点（showContextMenu 只读 clientX/clientY）
+    const keyAnchor = (node) => {
+      const rect = node.getBoundingClientRect();
+      return { clientX: rect.left, clientY: rect.bottom + 4, preventDefault() {}, stopPropagation() {} };
+    };
+    const make = (act, label, icon, activate) => {
+      const node = el("span", {
+        class: `nav-act${act === "pin" && pinned ? " on" : ""}`,
+        role: "button",
+        tabindex: "0",
+        title: label,
+        "aria-label": label,
+        "aria-pressed": act === "pin" ? String(pinned) : null,
+        "data-act": act,
+      }, faIcon(icon));
+      // 外层就是插件导航按钮：不拦下这一次事件，「更多」会顺手把页面切进该插件
+      node.addEventListener("pointerdown", (event) => event.stopPropagation());
+      node.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        activate(event);
+      });
+      node.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        event.stopPropagation();
+        activate(keyAnchor(node));
+      });
+      return node;
+    };
+    wrap.append(
+      make("more", `「${title}」更多操作`, "ellipsis", (anchor) => openPluginContextMenu(anchor, pluginId)),
+      make("pin", pinned ? `取消置顶「${title}」` : `把「${title}」置顶到最上方`, "thumbtack", () => togglePin(pluginId)),
+    );
+    return wrap;
+  }
+
+  /* 置顶只改 pinnedPlugins、不动 pluginOrder：取消置顶后插件回到常规排列里的原位置。
+     侧栏整段重绘走 FLIP，插件从分组卡片飞到置顶区（或飞回去）都有位移动画。 */
+  function togglePin(pluginId) {
+    const nowPinned = togglePluginPin(pluginId);
+    flipNav(renderNav);
+    const rec = getRegistry().find((item) => item.id === pluginId);
+    const name = pluginDisplayName(pluginId, rec?.manifest?.name || pluginViews.find((pv) => pv.pluginId === pluginId)?.title || pluginId);
+    toast(nowPinned ? `「${name}」已置顶，固定在插件区最上方` : `「${name}」已取消置顶`);
   }
 
   // ── v0.53.0：操作条动作注册 ──
@@ -1535,6 +1766,12 @@ export function renderShell(root) {
       }, RAIL_HIDE_ANIM_MS);
     }
     appFrame.classList.toggle("chrome-shown", show);
+    /* v0.152.0：底栏的呼出/收起会改 .rail 的盒模型（display: none ⇄ flex），而光块的
+       包含块就是 .rail —— 包含块从"无"变"有"时没人落位的话，底栏会先亮着滑出来、
+       选中光块要等下一次 renderNav（用户下一次切页）才淡入，看着像"呼出后没有高亮"。
+       这里显式落位一次（瞬时，不滑）。收起方向也调：`.rail-hiding` 期间底栏仍是
+       display:flex，所以滑出动画里光块照旧跟着，落地后 offsetParent 变 null 自然淡出。 */
+    syncNavGlow({ animate: false });
     chromeToggle.setAttribute("aria-expanded", String(show));
     chromeToggle.title = show ? "收起菜单" : "显示菜单";
   }

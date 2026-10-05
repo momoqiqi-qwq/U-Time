@@ -271,6 +271,10 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
   color: #C9D6D2;
   display: flex; flex-direction: column;
   padding: 20px 12px 14px;
+  /* v0.152.0：选中光块（.nav-glow）的包含块。基础规则原为 static —— 桌面下不给定位的话，
+     absolute 光块的包含块会一路漏到 #app 之外，坐标全错（窄屏那条 .rail 本来就是 fixed，
+     已经是包含块，这里补的是桌面）。 */
+  position: relative;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 2px 10px 20px; }
 .brand .mark { width: 30px; height: 30px; border-radius: 9px; flex: none;
@@ -280,13 +284,22 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
 .brand b { font-size: calc(16px * var(--ui-text-scale)); letter-spacing: .2em; color: #fff; font-weight: 600; }
 .brand small { display: block; font-size: calc(9px * var(--ui-text-scale)); letter-spacing: .18em; color: #7FA0A8; margin-top: 2px; }
 
-.nav { display: flex; flex-direction: column; gap: 3px; flex: 1; overflow-y: auto; }
+/* position: relative 是 v0.152.0 给光块（.nav-glow）加的包含块：桌面 .nav 是滚动容器
+   （overflow-y: auto），光块作为它的绝对定位后代**随列表一起滚动**，天然贴合所在行。
+   ⚠️ 窄屏那条 .nav 是 display: contents（不生成盒子）⇒ 这个 relative 在窄屏**不生效**，
+   光块的包含块会回落到 .rail（fixed）—— shell.js 的坐标算法按"光块归零后自量 rect"写，
+   两种形态共用一套公式，不依赖包含块到底是哪一个。 */
+.nav { display: flex; flex-direction: column; gap: 3px; flex: 1; overflow-y: auto; position: relative; }
 .nav .sec { font-size: calc(10px * var(--ui-text-scale)); letter-spacing: .22em; color: #5F7E86; margin: 14px 10px 6px; }
 .nav button {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 12px; border-radius: 9px; font-size: calc(13.5px * var(--ui-text-scale)); color: #9DB4B0;
   text-align: left; width: 100%;
   position: relative; /* v0.52.2：.nav-kbd 改绝对定位悬浮需要定位上下文 */
+  /* v0.152.0：抬到光块（.nav-glow，z-index 0）之上 —— 光块画在按钮**底之下**、内容之上，
+     与 Nephele 的 sidebarActiveIndicator 同一效果（它也是 z:0 + 按钮后声明）。
+     别把 z-index 摘掉：摘了光块会盖住图标与文字。 */
+  z-index: 1;
   transition: background .1s ease, color .1s ease, transform .08s ease;
 }
 /* v0.52.2 修复「两个字就折行 / 插件徽标竖排」：flex 行里 CJK 文本的 min-content
@@ -300,8 +313,35 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
   background: rgba(255, 255, 255, .08);
 }
 .nav button:hover { background: rgba(255, 255, 255, .06); color: #fff; }
-.nav button.on { background: rgba(255, 255, 255, .12); color: #fff; font-weight: 600; }
+/* v0.152.0：选中态是**双层** —— 按钮自持一层淡底（"自持微光"），光块（.nav-glow）是叠在
+   它底下的"更亮的焦点标记"。两层各管一个语义，缺一不可：选中项落进收起的分组、由组头替它
+   亮着时，光块淡出而这一层仍在，侧栏不会整个失焦（Nephele 的 SidebarButton 注释写的就是这件事）。
+   α 从 .12 下调到 .05：与光块的 .10 叠出约 .145 的合成亮度（略亮于改造前的 .12）。
+   ⚠️ 不要为了"避免双重高亮"把这条 background 摘掉 —— 只剩光块会在上面那个场景里失焦。 */
+.nav button.on { background: rgba(255, 255, 255, .05); color: #fff; font-weight: 600; }
 .nav button.on .ic { background: var(--sun); color: #17323A; }
+
+/* ── v0.152.0：侧栏选中光块（滑动指示器）──
+   需求：切换界面时选中光效从旧位置**滑**到新位置，而不是旧位置闪灭 + 新位置闪亮。
+   （根因：renderNav() 每次 nav.replaceChildren() 整份重建侧栏，静态底色做不出位移关系。）
+   机制与参数照 Nephele Workshop 的 sidebarActiveIndicator（已读其随包分发的 QML 源码）：
+     · 位移 500ms / OutBack(overshoot 1.3)、尺寸 400ms / OutCubic —— **两条通道分开跑**，
+       时长刻意不等（5:4）：行高有差时那一帧的不同步就是"惯性拉伸"感的来源，比显式
+       scaleY 自然。两条都由 shell.js 用 WAAPI 起。
+     · 首次出现 / 从淡出恢复 / 减少动效 ⇒ 直接落位不滑（这条 opacity 过渡照走）。
+   position: absolute + left/top/width/height 全由 JS 按选中按钮的 rect 写（见 shell.js
+   syncNavGlow），所以底栏高度档位 40/46/54、侧栏宽度拖拽、界面缩放下都自适应。
+   z-index 0 配按钮的 z-index 1 ⇒ 画在按钮底之下、按钮内容之上；.plug-group 的
+   overflow: hidden 也裁不到它（光块不是那个卡片的后代）。 */
+.nav-glow {
+  position: absolute; left: 0; top: 0; width: 0; height: 0;
+  border-radius: 9px;
+  z-index: 0; pointer-events: none;
+  background: rgba(255, 255, 255, .10);
+  opacity: 0;
+  transition: opacity .2s linear;
+}
+.nav-glow.on { opacity: 1; }
 .nav .pv-count { margin-left: auto; flex: none; white-space: nowrap; font-size: calc(10px * var(--ui-text-scale)); background: rgba(255,255,255,.1); padding: 1px 7px; border-radius: 8px; }
 /* 插件快捷键徽标（深色侧栏基线；≥901px 浅色栏在下方覆盖）。平时 opacity:0，
    悬停 / 选中 / 键盘聚焦才现形。
@@ -315,6 +355,27 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
   background: color-mix(in srgb, #ffffff 14%, var(--deep-2)); border: 1px solid rgba(255,255,255,.14); border-radius: 6px; padding: 1px 5px;
   opacity: 0; pointer-events: none; transition: opacity .12s ease; }
 .nav button:hover .nav-kbd, .nav button.on .nav-kbd, .nav button:focus-visible .nav-kbd { opacity: 1; }
+
+/* ── v0.152.0：侧栏插件行尾的悬停操作条（… 更多 / 📌 置顶）──
+   鼠标在行上停留约 0.3s 才淡入（快速划过不闪），移开立即消失 —— 延迟只写在「现身」那条上，
+   消失走基础规则的 0s。它与 .nav-kbd 共用同一个「行尾悬浮位」：操作条底不透明，
+   顺手盖住底下的「内置 / 导入」徽标；快捷键徽标再由 :has 那条让位。
+   （认不得 :has 的老 WebView 会整条丢掉那条规则，但那时靠不透明底兜住，不会出现双份文字。）*/
+.nav .nav-actions { position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: flex; gap: 1px; padding: 2px 3px; border-radius: 8px;
+  background: color-mix(in srgb, #ffffff 14%, var(--deep-2));
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .14);
+  opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+.nav button:hover > .nav-actions, .nav button:focus-within > .nav-actions {
+  opacity: 1; pointer-events: auto; transition-delay: .3s; }
+.nav button:hover:has(> .nav-actions) > .nav-kbd { opacity: 0; }
+.nav .nav-act { width: 21px; height: 21px; flex: none; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #B9CCC8; cursor: pointer; }
+.nav .nav-act .fa-ic { width: 11px; height: 11px; }
+.nav .nav-act:hover { background: rgba(255, 255, 255, .16); color: #fff; }
+.nav .nav-act.on { color: var(--sun); }
+.nav .nav-act:focus-visible { outline: 2px solid var(--sun); outline-offset: 1px; }
 
 /* ── 主区 ── */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -1062,12 +1123,21 @@ button, .nav { touch-action: manipulation; }
     filter: none;
   }
   .nav button .lb { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .nav button.on { background: none; box-shadow: none; color: var(--deep); font-weight: 600; }
+  /* v0.152.0：窄屏选中态也改成双层 —— 底栏是 --panel/--paper 玻璃表面，桌面深色栏那套
+     白色系在上面看不见，所以换主题令牌的 --deep 淡染：按钮层 5% + 光块 10%（合成 ≈ 14.5%），
+     与桌面同一种层次关系（同样别把按钮这一层摘掉）。 */
+  .nav button.on { background: color-mix(in srgb, var(--deep) 5%, transparent); box-shadow: none; color: var(--deep); font-weight: 600; }
   .nav button.on .ic {
     color: inherit;
     background: transparent;
     box-shadow: none;
     transform: translateY(-1px);
+  }
+  /* 底栏横向形态：光块沿 x 滑 —— shell.js 是同一套算法（位移通道照样 500ms / OutBack，
+     横向过冲在这条窄栏里比竖向更显眼，正是想要的"惯性"）。圆角跟窄屏按钮的 10px 对齐。 */
+  .nav-glow {
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--deep) 10%, transparent);
   }
   .nav .pv-count { display: none; }
   /* v0.44.1：返回按钮跟小框并排。触控区 40px（项目约定 ≥40px），顶栏 54px 装得下；
@@ -1601,8 +1671,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--deep) 10%, transparent);
   }
   .nav button.on .ic { background: color-mix(in srgb, var(--deep) 12%, transparent); color: var(--deep); }
+  /* v0.152.0：宽屏（≥901px）这条侧栏由本块改成**主题令牌驱动**了 —— `.rail` 用
+     --panel/--paper 混、`.nav button.on` 用 --active-bg（= --deep 10%）。光块若还沿用
+     基础规则那块 rgba(255,255,255,.10)，在浅色主题下就是白叠在浅底上：实测合成只差
+     1 个色阶，逐帧截图零差异（深色主题正常）—— 也就是"浅色模式没有选中光效"。
+     跟着同块的 .on 走同一个令牌，给更亮的一档（选中行 10%，光块 20%）做焦点标记。 */
+  .nav-glow { background: color-mix(in srgb, var(--deep) 20%, transparent); }
   .nav .pv-count { background: var(--paper); color: var(--ink-3); border: 1px solid var(--line); }
   .nav .nav-kbd { color: var(--ink-3); background: var(--paper); border: 1px solid var(--line); }
+  .nav .nav-actions { background: var(--paper); box-shadow: 0 0 0 1px var(--line); }
+  .nav .nav-act { color: var(--ink-3); }
+  .nav .nav-act:hover { background: var(--hover-bg); color: var(--ink); }
+  .nav .nav-act.on { color: var(--deep); }
   .rail-bottom > .on { background: var(--active-bg); }
 
   .main {
@@ -3501,6 +3581,12 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
    v0.102 颜色分组后，拖拽单位从 .plug-list 变成每一段 .plug-seg。 */
 .plug-seg > button[data-plugin-id] { cursor: grab; touch-action: pan-y; }
 .plug-list-sec{display:flex;align-items:center;justify-content:space-between;gap:8px}
+/* v0.152.0 置顶段：置顶插件脱离了颜色分组、单独成块固定在最上方，
+   所以借 .plug-group 那套视觉语言（极淡底 + 左侧竖条）说「这是一个区块」，
+   底色换成主题强调色 --sun，与下面按插件色分组的卡片区分开。 */
+.nav .plug-seg-pinned { margin: 3px 0 6px; padding: 2px 4px 4px; border-radius: 11px;
+  background: color-mix(in srgb, var(--sun) 9%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--sun) 60%, transparent); }
 .plug-list-sec small{font-size:calc(10px * var(--ui-text-scale));font-weight:500;letter-spacing:0;color:var(--ink-3);white-space:nowrap}
 .plug-seg.plugin-drag-live { cursor: grabbing; user-select: none; -webkit-user-select: none; }
 .plug-seg.plugin-drag-live > button[data-plugin-id] { cursor: grabbing; }
@@ -3670,6 +3756,8 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .plugin-nav-ghost .pv-count { margin-left: auto; flex: none; font-size: calc(10px * var(--ui-text-scale)); padding: 1px 7px;
   border-radius: 8px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
 .plugin-nav-ghost .nav-kbd { display: none; }
+/* 浮起副本不在 .nav 里，操作条会退回无样式的 inline span 把两个图标露出来 */
+.plugin-nav-ghost .nav-actions { display: none; }
 
 /* Android / 窄屏插件中心：采用播放器设置式的紧凑条目。
    每个插件只保留一个总滑块；点条目本身进入插件。 */

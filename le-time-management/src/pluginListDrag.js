@@ -152,6 +152,9 @@ export function attachPluginListDrag(list, onCommit) {
 
   list.addEventListener("pointerdown", (event) => {
     if (event.isPrimary === false || pd?.active || (event.pointerType === "mouse" && event.button !== 0)) return;
+    // 行尾的悬停操作条（… 更多 / 📌 置顶）长在导航按钮**内部**：不拦住的话按下去就变成
+    // 拖拽，松手后插件被顺手挪位（closest 会一路找到外层 button[data-plugin-id]）。
+    if (event.target.closest?.(".nav-act")) return;
     if (pd) cancel(pd);
     const card = event.target.closest?.("button[data-plugin-id]");
     if (!card || !list.contains(card)) return;
