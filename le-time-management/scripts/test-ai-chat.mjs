@@ -180,6 +180,10 @@ vm.runInContext(
     + "    get thread() { return thread; }, set thread(v) { thread = v; },\n"
     + "    get notices() { return notices; }, set notices(v) { notices = v; },\n"
     + "    syncNotices, noticeBlock,\n"
+    + "    loadOnce, saveThread, startSession,\n"
+    + "    get sessions() { return sessions; }, get sessionId() { return sessionId; },\n"
+    + "    get draft() { return draft; }, set draft(v) { draft = v; },\n"
+    + "    set loaded(v) { loaded = v; },\n"
     + "    get withContext() { return withContext; }, set withContext(v) { withContext = v; },\n"
     + "  };\n"
     + "  tide.ui.registerView({",
@@ -534,4 +538,48 @@ fx.withContext = true;
 assert.equal(fx.activeChips(), fx.CHIPS, "打开时回到本机数据那组");
 assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "写库动作白名单只能增改，不许出现删除类动作");
 
-console.log("PASS: AI 对话插件 —— tide.ai 权限闸门 / 三端产物与图标同源 / 快照封顶与不外发 / 建议白名单 / 勾选落库与撤销 / 回复解析与转义 / 一轮问答端到端");
+/* 历史迁移、新会话隔离、草稿恢复、重启读回与进行中的请求保护。 */
+{
+  storage.clear();
+  const legacy = [{ role: "user", text: "旧对话 <标题>", at: 100 }, { role: "assistant", text: "旧回复", at: 101 }];
+  storage.set("thread", legacy);
+  storage.set("draft", "旧对话待发送的草稿");
+  fx.loaded = false;
+  await fx.loadOnce();
+  const oldId = fx.sessionId;
+  assert.equal(fx.sessions.length, 1, "旧记录应迁入历史，不能丢失");
+  assert.equal(fx.sessions[0].title, "旧对话 <标题>");
+  fx.startSession();
+  assert.equal(fx.thread.length, 0, "新会话不能带入上一段历史");
+  assert.equal(fx.draft, "", "新会话不能带入上一段草稿");
+  fx.draft = "新对话草稿";
+  fx.saveThread();
+  const newId = fx.sessionId;
+  fx.startSession(oldId);
+  assert.equal(fx.draft, "旧对话待发送的草稿");
+  assert.equal(fx.thread[1].text, "旧回复");
+  fx.startSession(newId);
+  assert.equal(fx.draft, "新对话草稿");
+  assert.equal(fx.sessions.length, 2, "重复切换不能复制会话");
+  fx.loaded = false;
+  await fx.loadOnce();
+  assert.equal(fx.sessionId, newId, "重启应恢复当前会话");
+  assert.equal(fx.draft, "新对话草稿");
+  const originalChat = sandbox.tide.ai.chat;
+  let finish;
+  sandbox.tide.ai.chat = () => new Promise((resolve) => { finish = resolve; });
+  const pending = fx.ask("当前请求");
+  await Promise.resolve();
+  await Promise.resolve();
+  fx.startSession(oldId);
+  assert.equal(fx.sessionId, newId, "请求进行中不能切换，以免回复写错会话");
+  fx.startSession();
+  assert.equal(fx.sessionId, newId, "请求进行中不能新建会话");
+  finish("当前回复");
+  await pending;
+  assert.equal(fx.sessions.find((s) => s.id === newId).thread.at(-1).text, "当前回复");
+  assert.equal(fx.sessions.find((s) => s.id === oldId).thread.at(-1).text, "旧回复");
+  sandbox.tide.ai.chat = originalChat;
+}
+
+console.log("PASS: AI 对话插件 —— 权限 / 快照 / 建议写入撤销 / 一轮问答 / 历史迁移 / 会话与草稿隔离 / 请求保护");

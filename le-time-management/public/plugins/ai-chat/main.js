@@ -20,6 +20,7 @@
   const NOTICE_KEY = "notices";
   const ID_KEY = "identity";     // 双方头像与名称
   const DRAFT_KEY = "draft";     // 没发出去的输入
+  const SESSIONS_KEY = "sessions";
   const KEEP = 40;          // 本地留存的对话条数
   const SEND_TURNS = 10;    // 送给模型的最近条数（含本轮提问，24 条上限留足余量）
   const SNAP_CAP = 25;      // 快照每段最多列几条
@@ -40,6 +41,51 @@
   let modelLabel = "";
   let configured = false;
   let ui = null;          // 当前渲染出来的 DOM（切走再回来会重建）
+  let sessions = [];
+  let sessionId = "";
+  const newSessionId = () => `chat_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+  function saveThread() {
+    if (!sessionId) sessionId = newSessionId();
+    const previous = sessions.find((s) => s.id === sessionId);
+    if (thread.length || draft || previous) {
+      const first = thread.find((m) => m.role === "user");
+      const entry = { id: sessionId, title: first?.text.slice(0, 32) || "未发送的草稿", at: thread.at(-1)?.at || previous?.at || Date.now(), thread: thread.slice(), draft };
+      sessions = sessions.filter((s) => s.id !== sessionId).concat(entry);
+    }
+    tide.storage.set(THREAD_KEY, thread);
+    tide.storage.set(DRAFT_KEY, draft);
+    tide.storage.set(SESSIONS_KEY, { activeId: sessionId, items: sessions });
+    paintSessions();
+  }
+
+  function startSession(id = "") {
+    if (busy) return;
+    saveThread();
+    const selected = sessions.find((s) => s.id === id);
+    sessionId = selected?.id || newSessionId();
+    thread = selected ? selected.thread.slice() : [];
+    draft = selected?.draft || "";
+    saveThread();
+    if (ui) {
+      ui.input.value = draft;
+      ui.input.oninput();
+      renderThread();
+      ui.log.scrollTop = ui.log.scrollHeight;
+      ui.closeSidebar();
+      ui.input.focus();
+    }
+  }
+
+  function paintSessions() {
+    if (!ui?.sessionList) return;
+    const items = sessions.slice().sort((a, b) => b.at - a.at);
+    ui.sessionList.innerHTML = items.length ? items.map((s) => `<button type="button" class="aichat-session${s.id === sessionId ? " on" : ""}" data-session="${esc(s.id)}" ${busy ? "disabled" : ""} ${s.id === sessionId ? 'aria-current="true"' : ""}><span>${esc(s.title)}</span><small>${esc(new Date(s.at).toLocaleDateString("zh-CN"))} · ${s.thread.length} 条消息</small></button>`).join("") : '<p class="aichat-history-empty">还没有对话记录</p>';
+    ui.sessionList.querySelectorAll("[data-session]").forEach((button) => {
+      button.onclick = () => startSession(button.dataset.session);
+    });
+    ui.clear.disabled = busy;
+  }
 
   const noticeKey = (m) => `${m.source}|${m.time}|${m.title}`;
 
@@ -548,7 +594,7 @@
       paintBusy();
     }
     thread = thread.slice(-KEEP);
-    tide.storage.set(THREAD_KEY, thread);
+    saveThread();
     renderThread();
   }
 
@@ -643,7 +689,71 @@
 .aichat-id-tip{margin:0;font-size:calc(11px * var(--ui-text-scale));line-height:1.7;color:var(--ink-3,#A9B2BA)}
 button.aichat-avatar{padding:0;cursor:pointer}
 .aichat-avatar:disabled{opacity:.5;cursor:default}
-@media (max-width:640px){.aichat-row.me{max-width:90%}.aichat{gap:8px}}
+/* Nephele 参考布局；色板只作用于插件，不改变宿主主题。 */
+.aichat{--ink:#f6f0ff;--ink-2:#c7b6d9;--ink-3:#bba8cf;--panel:#2b243b;--paper:#352d46;--line:#665573;--deep:#bb91ce;--on-deep:#fff;position:relative;isolation:isolate;box-sizing:border-box;max-width:none;min-height:0;gap:10px;padding:26px clamp(22px,9%,100px) 58px;background:radial-gradient(ellipse at 12% 95%,#67516f66,transparent 62%),linear-gradient(120deg,#51435e,#48425c);border-radius:18px;overflow:hidden;font-family:"Microsoft YaHei UI","PingFang SC",sans-serif}
+.aichat::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.55;background-image:radial-gradient(circle at 17% 15%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 74% 33%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 85% 56%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 32% 18%,#bb80d2 0 .7px,transparent 1.2px),radial-gradient(circle at 66% 26%,#dc9bea 0 .8px,transparent 1.3px),radial-gradient(circle at 73% 90%,#e9c9ff 0 1px,transparent 1.5px);background-size:100% 100%,100% 100%,100% 100%,193px 157px,271px 211px,100% 100%}
+.aichat [hidden]{display:none!important}
+.aichat-head{flex:none;gap:10px;min-height:34px}
+.aichat-menu{position:relative;z-index:6;width:32px;height:32px;border:0;background:transparent;color:#e0cfea;padding:0;cursor:pointer;margin-right:auto;transition:transform 500ms cubic-bezier(.22,1,.36,1)}
+.aichat-menu::before{content:"";position:absolute;inset:-18px;pointer-events:none;border-radius:50%;background:radial-gradient(circle,#cfa8dd33,transparent 68%)}
+.aichat-menu span{position:absolute;left:7px;top:15px;width:18px;height:2px;border-radius:2px;background:currentColor;transition:transform 500ms cubic-bezier(.22,1,.36,1),width 500ms cubic-bezier(.22,1,.36,1),left 500ms cubic-bezier(.22,1,.36,1),opacity 350ms}
+.aichat-menu span:first-child{transform:translateY(-6px)}
+.aichat-menu span:nth-child(2){left:4px;width:24px}
+.aichat-menu span:last-child{transform:translateY(6px)}
+.aichat-menu:hover,.sidebar-open .aichat-menu{color:#d9b3ea}
+.sidebar-open .aichat-menu{transform:rotate(180deg)}
+.sidebar-open .aichat-menu span:first-child{left:4px;width:24px;transform:rotate(45deg)}
+.sidebar-open .aichat-menu span:nth-child(2){opacity:0;transform:scaleX(0)}
+.sidebar-open .aichat-menu span:last-child{left:4px;width:24px;transform:rotate(-45deg)}
+.aichat-backdrop{position:absolute;inset:0;z-index:4;visibility:hidden;pointer-events:none;transition:visibility 0s 220ms}
+.sidebar-open .aichat-backdrop{visibility:visible;pointer-events:auto;transition-delay:0s}
+.aichat-sidebar{position:absolute;z-index:5;left:clamp(22px,9%,100px);top:70px;width:min(320px,calc(100% - 44px));max-height:min(520px,calc(100% - 94px));display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid #bc9acd4d;border-radius:16px;background:#30273eee;box-shadow:0 8px 28px #1c132866;backdrop-filter:blur(16px);transform-origin:top left;opacity:0;transform:scale(.92);visibility:hidden;pointer-events:none;transition:opacity 180ms ease-in,transform 220ms ease-in,visibility 0s 220ms}
+.sidebar-open .aichat-sidebar{opacity:1;transform:scale(1);visibility:visible;pointer-events:auto;transition:opacity 220ms cubic-bezier(.22,1,.36,1),transform 320ms cubic-bezier(.34,1.4,.64,1),visibility 0s}
+.aichat-sidebar-heading{display:flex;align-items:center;gap:8px;font-size:calc(16px * var(--ui-text-scale,1))}
+.aichat-sidebar-heading b{flex:1}
+.aichat-sidebar-close{width:28px;height:28px;padding:0;border:0;border-radius:8px;background:transparent;color:#d5c1e2;font:inherit;font-size:calc(23px * var(--ui-text-scale,1));cursor:pointer}
+.aichat-sidebar-close:hover{background:#bd99d12b}
+.aichat-sidebar>.aichat-btn{width:100%;min-height:34px}
+.aichat-session-list{min-height:0;overflow-y:auto;border-top:1px solid #b69ac42b;padding-top:8px;display:flex;flex-direction:column;gap:4px;scrollbar-width:thin;scrollbar-color:#a17eb966 transparent}
+.aichat-session{flex:none;text-align:left;border:1px solid transparent;border-radius:10px;padding:10px;background:transparent;color:#efe5fa;cursor:pointer;font:inherit;font-size:calc(12px * var(--ui-text-scale,1));transition:background 250ms}
+.aichat-session:hover,.aichat-session.on{background:#b58fc32b;border-color:#b58fc32b}
+.aichat-session:disabled{opacity:.55;cursor:default}
+.aichat-session span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aichat-session small{display:block;margin-top:5px;color:#c1afd0;font-size:calc(10.5px * var(--ui-text-scale,1))}
+.aichat-history-empty{margin:22px 0;text-align:center;color:#bba8cf;font-size:calc(12px * var(--ui-text-scale,1))}
+.aichat-chip{background:#ffffff0a;border-color:#c9acd329;color:#e1d2ef;padding:6px 12px}
+.aichat-chip.on{background:#c9a6d438;border-color:#d6b8e16b;color:#fff}
+.aichat-log{padding:8px 0;min-height:0;scrollbar-width:thin;scrollbar-color:#ae8cbb66 transparent}
+.aichat.is-empty .aichat-log{justify-content:safe flex-end;overflow:auto;padding-bottom:0}
+.aichat-empty{flex:none;border:0;padding:0;background:none;margin-bottom:0}
+.aichat-empty b{font-size:calc(clamp(25px,4.7vw,38px) * var(--ui-text-scale,1));line-height:1.4;letter-spacing:.01em;margin-bottom:10px;font-weight:700;color:#fcf4ff}
+.aichat-empty p{font-size:calc(16px * var(--ui-text-scale,1));line-height:1.6;margin:0;color:#c0abd0}
+.aichat-empty .aichat-btn{margin-top:12px}
+.aichat-bar{display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:18px 20px 12px;border:2px solid #887092;border-radius:23px;background:#272236ed;box-shadow:0 7px 24px #27192c22;transition:border-color .15s}
+.aichat-bar:focus-within{border-color:#b99cc7}
+.aichat-input{width:100%;box-sizing:border-box;flex:none;border:0;border-radius:0;padding:3px 0;min-height:42px;background:transparent;font-size:calc(15px * var(--ui-text-scale,1));color:#f5eaff;line-height:1.6}
+.aichat-input::placeholder{color:#bca9cf;opacity:1}
+.aichat-input:focus{outline:none}
+.aichat-compose-tools{display:flex;align-items:center;gap:12px;min-width:0}
+.aichat-personalize{display:grid;place-items:center;flex:none;width:30px;height:30px;border:1px solid #a588b03d;border-radius:9px;color:#c8b2d8;background:transparent;cursor:pointer}
+.aichat-personalize svg{width:18px;height:18px}
+.aichat-model{margin-left:auto;max-width:65%;font:inherit;font-size:calc(12px * var(--ui-text-scale,1));padding:6px 16px;border:1px solid #dac0e485;color:#fff;background:linear-gradient(120deg,#b492c1aa,#856794aa);box-shadow:0 0 18px #d6b3e043;border-radius:12px;cursor:pointer}
+.aichat-send{display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:50%;padding:0;background:#cfa8dd;color:#fff;flex:none;cursor:pointer}
+.aichat-send svg{width:21px;height:21px}
+.aichat-send:disabled{opacity:.45;cursor:default}
+.aichat-shortcuts{display:flex;flex:none;gap:3px;padding:3px;background:#c1a8ca15;border:1px solid #c6acd51f;border-radius:13px;overflow-x:auto;scrollbar-width:none}
+.aichat-shortcuts button{flex:1 0 auto;font:inherit;font-size:calc(11.5px * var(--ui-text-scale,1));padding:6px 12px;color:#ddd0ef;border:1px solid transparent;border-radius:10px;background:transparent;cursor:pointer}
+.aichat-shortcuts button:hover,.aichat-shortcuts button:focus-visible{background:#bf9ecd66;border-color:#c5a5d3;box-shadow:0 0 12px #cfaae438;color:#fff}
+.aichat-feed{font-size:calc(10.5px * var(--ui-text-scale,1));opacity:.85}
+.aichat button:focus-visible{outline:2px solid #ead3f4;outline-offset:3px}
+.aichat-msg.ai{background:#2b243bd9}
+.aichat-msg.me{background:#856294;color:#fff}
+.aichat-id{max-height:40%;overflow:auto}
+@media (max-width:640px){.aichat-row.me{max-width:90%}.aichat{gap:8px;padding:16px 18px 24px;border-radius:14px}.aichat-empty b{font-size:calc(26px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(13px * var(--ui-text-scale,1))}.aichat-bar{padding:14px;border-radius:20px}.aichat-head{gap:6px}.aichat-chip{font-size:calc(10px * var(--ui-text-scale,1));padding:5px 8px}.aichat-tools{width:100%}.aichat-model{max-width:68%;padding:6px 10px}}
+@media (max-height:480px){.aichat{padding-top:12px;padding-bottom:16px}.aichat-empty b{font-size:calc(23px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(12px * var(--ui-text-scale,1))}.aichat-feed{display:none}}
+@media (max-width:640px){.aichat-sidebar{left:18px;top:60px;width:min(320px,calc(100% - 36px));max-height:calc(100% - 84px)}}
+@media (max-height:480px){.aichat-sidebar{top:56px;max-height:calc(100% - 72px);gap:8px;padding:12px}}
+@media (prefers-reduced-motion:reduce){.aichat-bar,.aichat-menu,.aichat-menu span,.aichat-sidebar,.aichat-backdrop,.aichat-session{transition:none}.aichat-think i{animation:none}}
 `;
     document.head.append(st);
   }
@@ -651,6 +761,9 @@ button.aichat-avatar{padding:0;cursor:pointer}
   function renderThread() {
     if (!ui) return;
     const log = ui.log;
+    ui.root.classList.toggle("is-empty", !thread.length && !busy);
+    ui.shortcuts.innerHTML = activeChips().map((c, i) => `<button type="button" data-chip="${i}">${esc(c.label)}</button>`).join("");
+    wireEmpty();
     taskIndex = null;                  // 任务标题缓存一轮一取，中途改了标题下一轮能跟上
     const prevTop = log.scrollTop;
     const prevHeight = log.scrollHeight;
@@ -683,19 +796,11 @@ button.aichat-avatar{padding:0;cursor:pointer}
   }
 
   function emptyHtml() {
-    if (!configured) {
-      return `<div class="aichat-empty">
-        <b>还没有配置模型</b>
-        <p>AI 对话复用「设置 › AI 与自动任务」里的 Base URL、模型名与 API Key。填好并保存后回到这里就能直接问。</p>
-        <button class="aichat-btn pri" data-go-ai>去配置模型</button>
-      </div>`;
-    }
+    const name = identity.me.name || "架构师";
     return `<div class="aichat-empty">
-      <b>问点什么</b>
-      <p>${withContext
-        ? "我会把你本机未完成的任务、近三天的时间块，以及其他插件推来的消息读成一份数据快照一起发过去，所以回答只依据你真实存在的事，不会凭空编。"
-        : "当前已关闭「带本机数据」，这一轮不会把任何本机内容发给模型，只能回答通用的时间管理问题。要让它照着你的任务和时间块说话，把上面那个开关打开。"}</p>
-      <div class="aichat-sug-act">${activeChips().map((c, i) => `<button class="aichat-btn" data-chip="${i}">${esc(c.label)}</button>`).join("")}</div>
+      <b>${esc(name)}…一起理理思绪？</b>
+      <p>${configured ? "写下你的想法，让今天的安排更清晰" : "配置你的模型，开始一段新的对话"}</p>
+      ${configured ? "" : '<button class="aichat-btn pri" data-go-ai>去配置模型</button>'}
     </div>`;
   }
 
@@ -728,8 +833,13 @@ button.aichat-avatar{padding:0;cursor:pointer}
   function wireEmpty() {
     const go = ui.log.querySelector("[data-go-ai]");
     if (go) go.onclick = () => window.dispatchEvent(new CustomEvent("tide:open-settings", { detail: { section: "ai" } }));
-    ui.log.querySelectorAll("[data-chip]").forEach((btn) => {
-      btn.onclick = () => ask(activeChips()[Number(btn.dataset.chip)].ask);
+    ui.shortcuts.querySelectorAll("[data-chip]").forEach((btn) => {
+      btn.onclick = () => {
+        if (busy) return;
+        ui.input.value = activeChips()[Number(btn.dataset.chip)].ask;
+        ui.input.oninput();
+        ui.input.focus();
+      };
     });
   }
 
@@ -753,7 +863,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
         const picked = m.suggestions.filter((s) => s.checked && !s.applied && !s.reason);
         if (!picked.length) { tide.notify("没有可写入的条目（先勾掉有问题的再试）"); return; }
         const { record, errors } = applySuggestions(picked);
-        tide.storage.set(THREAD_KEY, thread);
+        saveThread();
         renderThread();
         const n = record.tasks.length + record.blocks.length + record.updates.length;
         if (n) tide.notify(`已写入 ${n} 条${errors.length ? `，${errors.length} 条失败` : ""}`, { action: () => undoRecord(record), actionLabel: "撤销", ms: 10000 });
@@ -770,6 +880,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
     if (!ui) return;
     ui.send.disabled = busy || !configured;
     ui.input.disabled = busy;
+    paintSessions();
     renderThread();
   }
 
@@ -777,7 +888,8 @@ button.aichat-avatar{padding:0;cursor:pointer}
     withContext = on;
     tide.storage.set(CTX_KEY, on);
     ui.ctx.classList.toggle("on", on);
-    ui.ctx.title = on ? "每次提问都会把本机任务与时间块一起发给模型" : "已关闭：只问通用问题，不上传本机数据";
+    ui.ctx.setAttribute("aria-pressed", String(on));
+    ui.ctx.title = on ? "每次提问都会把本机任务、近三天时间块与插件消息一起发给模型" : "已关闭：只问通用问题，不上传本机数据";
     renderThread();
   }
 
@@ -791,6 +903,11 @@ button.aichat-avatar{padding:0;cursor:pointer}
     notices = (await tide.storage.get(NOTICE_KEY, [])) || [];
     identity = normalizeIdentity(await tide.storage.get(ID_KEY, null));
     draft = String((await tide.storage.get(DRAFT_KEY, "")) || "");
+    const saved = await tide.storage.get(SESSIONS_KEY, null);
+    sessions = Array.isArray(saved?.items) ? saved.items.filter((s) => s && typeof s.id === "string" && typeof s.title === "string" && Array.isArray(s.thread)) : [];
+    sessionId = typeof saved?.activeId === "string" && saved.activeId ? saved.activeId : newSessionId();
+    // 旧版本只有 thread / draft，首次进入即加入历史，保留原有内容。
+    saveThread();
     loaded = true;
   }
 
@@ -823,12 +940,16 @@ button.aichat-avatar{padding:0;cursor:pointer}
 
     const root = node(`<div class="aichat">
       <div class="aichat-head">
-        <span class="aichat-eyebrow">A I 对 话</span>
-        <span class="aichat-model"></span>
+        <button type="button" class="aichat-menu" data-menu aria-label="展开对话历史" title="对话历史" aria-controls="aichat-history" aria-expanded="false"><span></span><span></span><span></span></button>
         <button class="aichat-chip" data-ctx>带本机数据</button>
-        <button class="aichat-chip" data-id>头像与名称</button>
-        <button class="aichat-chip" data-clear>新对话</button>
       </div>
+      <div class="aichat-backdrop" aria-hidden="true"></div>
+      <aside class="aichat-sidebar" id="aichat-history" aria-label="对话历史" aria-hidden="true" inert>
+        <div class="aichat-sidebar-heading"><b>对话历史</b><button type="button" class="aichat-sidebar-close" aria-label="收起对话历史">×</button></div>
+        <button type="button" class="aichat-btn pri" data-clear>＋ 新对话</button>
+        <div class="aichat-session-list"></div>
+        <button type="button" class="aichat-btn" data-id>头像与名称</button>
+      </aside>
       <div class="aichat-id" hidden>
         ${["me", "ai"].map((role) => `
           <div class="aichat-id-row">
@@ -841,17 +962,25 @@ button.aichat-avatar{padding:0;cursor:pointer}
         <p class="aichat-id-tip">头像与名称只存进本机数据，不会发给模型。改过名称后头像自动换成名称首字，上传过图片则以图片为准。</p>
         <input type="file" class="aichat-file" accept="image/*" hidden>
       </div>
-      <div class="aichat-feed"></div>
       <div class="aichat-log"></div>
       <button type="button" class="aichat-jump" hidden>↓ 有新回复</button>
       <div class="aichat-bar">
-        <textarea class="aichat-input" rows="1" placeholder="问点什么，例如：帮我把这周的事理一遍"></textarea>
-        <button class="aichat-btn pri" data-send>发送</button>
+        <textarea class="aichat-input" rows="1" aria-label="对话内容" placeholder="帮我把这周的事理一遍"></textarea>
+        <div class="aichat-compose-tools">
+          <button type="button" class="aichat-personalize" data-personalize aria-label="头像与名称" title="头像与名称"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 21v-3a7 7 0 0 1 14 0v3"/></svg></button>
+          <button type="button" class="aichat-model" title="打开模型设置"></button>
+          <button type="button" class="aichat-send" data-send aria-label="发送" title="发送 · Enter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m21 3-6 18-4-8-8-4 18-6Z"/><path d="m11 13 10-10"/></svg></button>
+        </div>
       </div>
+      <div class="aichat-shortcuts" aria-label="快捷提问"></div>
+      <div class="aichat-feed"></div>
     </div>`).firstChild;
     el2.append(root);
 
     ui = {
+      root,
+      sessionList: root.querySelector(".aichat-session-list"),
+      shortcuts: root.querySelector(".aichat-shortcuts"),
       log: root.querySelector(".aichat-log"),
       input: root.querySelector(".aichat-input"),
       send: root.querySelector("[data-send]"),
@@ -865,18 +994,46 @@ button.aichat-avatar{padding:0;cursor:pointer}
     };
     ui.model.textContent = configured ? (modelLabel || "已配置模型") : "未配置模型";
     ui.ctx.classList.toggle("on", withContext);
+    ui.ctx.setAttribute("aria-pressed", String(withContext));
+    ui.ctx.title = withContext ? "每次提问都会把本机任务、近三天时间块与插件消息一起发给模型" : "已关闭：只问通用问题，不上传本机数据";
     ui.ctx.onclick = () => setContext(!withContext);
+    ui.model.onclick = () => window.dispatchEvent(new CustomEvent("tide:open-settings", { detail: { section: "ai" } }));
+    const menu = root.querySelector("[data-menu]");
+    const sidebar = root.querySelector(".aichat-sidebar");
+    let sidebarOpen = false;
+    const setSidebar = (open, restoreFocus = false) => {
+      sidebarOpen = open;
+      root.classList.toggle("sidebar-open", open);
+      sidebar.inert = !open;
+      sidebar.setAttribute("aria-hidden", String(!open));
+      menu.setAttribute("aria-expanded", String(open));
+      menu.setAttribute("aria-label", open ? "收起对话历史" : "展开对话历史");
+      if (open) paintSessions();
+      if (restoreFocus) menu.focus();
+    };
+    ui.closeSidebar = () => setSidebar(false);
+    menu.onclick = () => setSidebar(!sidebarOpen);
+    root.querySelector(".aichat-sidebar-close").onclick = () => setSidebar(false, true);
+    root.querySelector(".aichat-backdrop").onclick = () => setSidebar(false, true);
+    root.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && sidebarOpen) {
+        event.preventDefault();
+        event.stopPropagation();
+        setSidebar(false, true);
+      }
+    });
+    root.querySelector("[data-personalize]").onclick = () => ui.idBtn.onclick();
     ui.jump.onclick = () => {
       ui.log.scrollTop = ui.log.scrollHeight;
       ui.jump.hidden = true;
     };
     ui.clear.onclick = () => {
-      thread = [];
-      tide.storage.set(THREAD_KEY, thread);
-      renderThread();
-      tide.notify("已开新对话（之前的记录不再带给模型）");
+      if (busy) return;
+      startSession();
+      tide.notify("已开新对话，之前的记录保留在对话历史中");
     };
     ui.idBtn.onclick = () => {
+      setSidebar(false);
       ui.idPanel.hidden = !ui.idPanel.hidden;
       ui.idBtn.classList.toggle("on", !ui.idPanel.hidden);
     };
@@ -922,6 +1079,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
       ui.input.style.height = `${Math.min(130, ui.input.scrollHeight)}px`;
     };
     const send = () => {
+      if (busy || !configured) return;
       const q = ui.input.value.trim();
       if (!q) return;
       ui.input.value = "";
@@ -935,6 +1093,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
       autosize();
       draft = ui.input.value;
       tide.storage.set(DRAFT_KEY, draft);
+      saveThread();
     };
     // 中文输入法回车是在选词，不能当发送；Shift+Enter 留作换行。
     ui.input.onkeydown = (e) => {
