@@ -5,9 +5,11 @@ const PRESS_CLASS = "motion-pressing";
 const CLOSE_CONTROL_CLASS = "motion-close-control";
 let initialized = false;
 const pressedControls = new Set();
+const releasedControls = new WeakSet();
 const controlAnimations = new WeakMap();
 const pageAnimations = new WeakMap();
 const FLIP_EASING = "cubic-bezier(.16,1,.3,1)";
+const SPRING_EASING = "cubic-bezier(.22,1,.36,1.08)";
 
 // 重复操作从正在显示的位置接续，不通过 offsetWidth 强制刷新整棵布局。
 function releaseControl(control) {
@@ -17,7 +19,7 @@ function releaseControl(control) {
   const target = control.matches(":hover") && window.matchMedia?.("(hover: hover) and (pointer: fine)").matches
     ? "translateY(-1px)" : "none";
   const animation = control.animate([{ transform }, { transform: target }], {
-    duration: 180, easing: FLIP_EASING,
+    duration: 220, easing: SPRING_EASING,
   });
   controlAnimations.set(control, animation);
   animation.finished.catch(() => {}).then(() => {
@@ -26,6 +28,7 @@ function releaseControl(control) {
 }
 
 export function enterPage(node, direction = "left") {
+  if (!node) return;
   const previous = pageAnimations.get(node);
   const current = previous ? getComputedStyle(node) : null;
   const opacity = current?.opacity ?? .4;
@@ -34,9 +37,9 @@ export function enterPage(node, direction = "left") {
   if (reducedMotion() || typeof node.animate !== "function") return;
   const offset = direction === "left" ? 12 : -12;
   const animation = node.animate([
-    { opacity, transform: transform ?? `translate3d(${offset}px, 0, 0)` },
+    { opacity, transform: transform ?? `translate3d(${offset}px, 6px, 0) scale(.992)` },
     { opacity: 1, transform: "none" },
-  ], { duration: 280, easing: FLIP_EASING });
+  ], { duration: 320, easing: FLIP_EASING });
   pageAnimations.set(node, animation);
   animation.finished.catch(() => {}).then(() => {
     if (pageAnimations.get(node) === animation) pageAnimations.delete(node);
@@ -90,8 +93,16 @@ function addRipple(control, clientX, clientY) {
 export function initMotionInteractions() {
   if (initialized) return;
   initialized = true;
-  const release = () => {
-    for (const control of pressedControls) control.classList.remove(PRESS_CLASS);
+  const release = (event) => {
+    for (const control of pressedControls) {
+      // 在摘掉按下样式之前读取视觉位置，拖出按钮释放也平滑归位。
+      if (event?.type === "pointerup" && allowsControlMotion(control)) {
+        releaseControl(control);
+        releasedControls.add(control);
+      }
+      else controlAnimations.get(control)?.cancel();
+      control.classList.remove(PRESS_CLASS);
+    }
     pressedControls.clear();
   };
   document.addEventListener("pointerdown", (event) => {
@@ -99,6 +110,7 @@ export function initMotionInteractions() {
     const control = event.target?.closest?.("button, [role='button']");
     if (!control || control.disabled || control.getAttribute("aria-disabled") === "true" || !allowsControlMotion(control)) return;
     controlAnimations.get(control)?.cancel();
+    releasedControls.delete(control);
     control.classList.add(PRESS_CLASS);
     pressedControls.add(control);
     addRipple(control, event.clientX, event.clientY);
@@ -107,7 +119,8 @@ export function initMotionInteractions() {
     const control = event.target?.closest?.("button, [role='button']");
     if (!control || control.disabled || control.getAttribute("aria-disabled") === "true" || !allowsControlMotion(control)) return;
     control.classList.toggle(CLOSE_CONTROL_CLASS, isCloseControl(control));
-    releaseControl(control);
+    const alreadyReleased = releasedControls.delete(control);
+    if (!alreadyReleased || event.detail === 0) releaseControl(control);
     if (event.detail === 0) addRipple(control);
   }, true);
   document.addEventListener("pointerup", release, { passive: true });

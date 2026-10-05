@@ -1,10 +1,11 @@
 :root {
-  --motion-fast: 120ms;
+  --motion-fast: 100ms;
   --motion-normal: 200ms;
-  --motion-layer: 280ms;
+  --motion-layer: 320ms;
+  --motion-exit: 180ms;
   --motion-out: cubic-bezier(.16, 1, .3, 1);
   --motion-in: cubic-bezier(.4, 0, .7, .2);
-  --motion-spring: cubic-bezier(.2, .8, .2, 1.04);
+  --motion-spring: cubic-bezier(.22, 1, .36, 1.08);
 }
 
 /* 按钮反馈：按下、释放和点击扩散使用同一套短促节奏。 */
@@ -56,8 +57,9 @@ button.motion-pressing:not([data-motion="off"], [data-motion="off"] *):not(:disa
 [role="button"].motion-pressing:not([data-motion="off"], [data-motion="off"] *):not(:disabled),
 button:not([data-motion="off"], [data-motion="off"] *):active:not(:disabled),
 [role="button"]:not([data-motion="off"], [data-motion="off"] *):active:not(:disabled) {
-  transform: translateY(1px) scale(.98);
-  transition-duration: 70ms;
+  transform: scale(.97);
+  transition-duration: 80ms;
+  transition-timing-function: cubic-bezier(.25, .46, .45, .94);
 }
 
 button.motion-clicked:not([data-motion="off"], [data-motion="off"] *),
@@ -76,7 +78,7 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
   transform: none;
 }
 
-/* 背景遮罩与主要弹层共享同一节奏。 */
+/* 借鉴 NepheleDialog：入场轻回弹、退场更短；透明度与弹性变换分开。 */
 :where(.drawer-mask, .cmd-mask, .cap-mask, .motion-layer-mask) {
   animation: motion-mask-in var(--motion-normal) ease-out both;
 }
@@ -87,12 +89,14 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
 }
 
 :where(.cmd-palette, .quick-cap) {
-  animation: motion-top-layer-in var(--motion-layer) var(--motion-spring) both;
+  animation: motion-top-layer-in var(--motion-layer) var(--motion-spring) both,
+    motion-mask-in 220ms var(--motion-out) both;
   will-change: transform, opacity;
 }
 
 :where(.cap-modal, .ai-rule-editor) {
-  animation: motion-center-layer-in var(--motion-layer) var(--motion-spring) both;
+  animation: motion-center-layer-in var(--motion-layer) var(--motion-spring) both,
+    motion-mask-in 220ms var(--motion-out) both;
   will-change: transform, opacity;
 }
 
@@ -128,32 +132,32 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
 
 :where(.drawer-mask, .cmd-mask, .cap-mask, .motion-layer-mask).motion-closing {
   pointer-events: none;
-  animation: motion-mask-out var(--motion-normal) ease-in both;
+  animation: motion-mask-out var(--motion-exit) ease-in both;
 }
 
 :where(.drawer, [data-motion-layer="side"]).motion-closing {
   pointer-events: none;
-  animation: motion-drawer-out var(--motion-layer) var(--motion-in) both;
+  animation: motion-drawer-out var(--motion-exit) var(--motion-in) both;
 }
 
 :where(.cmd-palette, .quick-cap, [data-motion-layer="top"]).motion-closing {
   pointer-events: none;
-  animation: motion-top-layer-out var(--motion-normal) var(--motion-in) both;
+  animation: motion-top-layer-out var(--motion-exit) var(--motion-in) both;
 }
 
 :where(.cap-modal, .ai-rule-editor, [data-motion-layer="center"]).motion-closing {
   pointer-events: none;
-  animation: motion-center-layer-out var(--motion-normal) var(--motion-in) both;
+  animation: motion-center-layer-out var(--motion-exit) var(--motion-in) both;
 }
 
 :where(.settings-modal, .wc-web-panel, [data-motion-layer="full"]).motion-closing {
   pointer-events: none;
-  animation: motion-full-layer-out var(--motion-normal) var(--motion-in) both;
+  animation: motion-full-layer-out var(--motion-exit) var(--motion-in) both;
 }
 
 :where(.popmenu, .plugin-context-menu, .toast, .drag-overlay).motion-closing {
   pointer-events: none;
-  animation: motion-float-out var(--motion-normal) var(--motion-in) both;
+  animation: motion-float-out var(--motion-exit) var(--motion-in) both;
 }
 
 @keyframes motion-mask-in {
@@ -173,16 +177,16 @@ button:not([data-motion="off"], [data-motion="off"] *):disabled,
   to { opacity: 0; transform: translate3d(22px, 0, 0) scale(.99); }
 }
 @keyframes motion-top-layer-in {
-  from { opacity: 0; transform: translate3d(-50%, -8px, 0) scale(.975); }
-  to { opacity: 1; transform: translate3d(-50%, 0, 0) scale(1); }
+  from { transform: translate3d(-50%, -10px, 0) scale(.96); }
+  to { transform: translate3d(-50%, 0, 0) scale(1); }
 }
 @keyframes motion-top-layer-out {
   from { opacity: var(--motion-exit-opacity, 1); transform: var(--motion-exit-transform, translate3d(-50%, 0, 0) scale(1)); }
   to { opacity: 0; transform: translate3d(-50%, -5px, 0) scale(.985); }
 }
 @keyframes motion-center-layer-in {
-  from { opacity: 0; transform: translate3d(-50%, calc(-50% + 10px), 0) scale(.975); }
-  to { opacity: 1; transform: translate3d(-50%, -50%, 0) scale(1); }
+  from { transform: translate3d(-50%, calc(-50% + 14px), 0) scale(.96); }
+  to { transform: translate3d(-50%, -50%, 0) scale(1); }
 }
 @keyframes motion-center-layer-out {
   from { opacity: var(--motion-exit-opacity, 1); transform: var(--motion-exit-transform, translate3d(-50%, -50%, 0) scale(1)); }
@@ -328,12 +332,12 @@ input[type="range"]:focus-visible { outline-offset: 4px; border-radius: 999px; }
 }
 
 @keyframes motion-page-forward-in {
-  from { opacity: .12; transform: translate3d(12px, 0, 0); }
+  from { opacity: .4; transform: translate3d(12px, 6px, 0) scale(.992); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 
 @keyframes motion-page-back-in {
-  from { opacity: .12; transform: translate3d(-12px, 0, 0); }
+  from { opacity: .4; transform: translate3d(-12px, 6px, 0) scale(.992); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 
