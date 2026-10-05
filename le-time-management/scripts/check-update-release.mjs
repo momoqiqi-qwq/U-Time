@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const API = "https://api.github.com/repos/momoqiqi-qwq/le-time-management/releases/latest";
+const API = "https://api.github.com/repos/momoqiqi-qwq/U-Time/releases/latest";
 const FULL_DOWNLOAD = process.argv.includes("--download");
 const controller = new AbortController();
 const timeout = setTimeout(() => controller.abort(), 60_000);

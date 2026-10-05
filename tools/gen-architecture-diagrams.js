@@ -325,7 +325,7 @@ const f06 = () => chain("06-update.svg", "功能链路 ⑥ 自更新：为什么
   "手写 GitHub Releases 客户端，校验 https、大小与 SHA-256 摘要，不校验签名 —— 这是明确取舍",
   [
     { layer: "③ 触发", k: "flow", t: ["initUpdateChecker()  main.js:51 → src/updateChecker.js:191", "UI：views/settings/update.js:24（挂在关于卡片里 aboutCard.js:38）"] },
-    { layer: "⑥→⑦ 检查", k: "native", t: ["api.updateCheck → lib.rs(update.rs):266", "GET GitHub Releases API :34（仓库 momoqiqi-qwq/le-time-management）", "Cache-Control: no-cache :275，不吃 CDN 缓存", "parse_version :71 做 semver 比较；asset_score :118 给资产打分挑包"] },
+    { layer: "⑥→⑦ 检查", k: "native", t: ["api.updateCheck → lib.rs(update.rs):266", "GET GitHub Releases API :34（仓库 momoqiqi-qwq/U-Time）", "Cache-Control: no-cache :275，不吃 CDN 缓存", "parse_version :71 做 semver 比较；asset_score :118 给资产打分挑包"] },
     { layer: "③ 状态机", k: "flow", t: ["check → download :307 → ready :311 → install :360", "进度走 Tauri 事件 update:progress（updateChecker.js:389）"] },
     { layer: "⑦ 下载", k: "native", t: ["update_download :401：validate_release_url :207 强制 github + https", "流式写 app_cache_dir 的 .part，下完 rename :473", "!下完校验大小与 GitHub 给的 SHA-256 摘要；不校验独立签名（模块头部写明）"] },
     { layer: "⑦ 安装", k: "native", t: ["Windows :491 起 NSIS 安装器 /S /R 分离进程，然后 app.exit(0) :530", "Android :543 走 ApkInstallerPlugin 的 content:// URI", "!需要 REQUEST_INSTALL_PACKAGES —— 由 sync-android-native.js:51", "!注入到 gen/android 的 AndroidManifest（该目录 gitignored）"] },

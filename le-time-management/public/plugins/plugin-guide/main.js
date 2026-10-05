@@ -70,7 +70,7 @@
     const r=root.querySelector("#guide-resources");
     r.append(
       button("官方网站",()=>safeOpen(links.website),true),
-      button("项目仓库",()=>safeOpen(links.repository||"https://github.com/momoqiqi-qwq/le-time-management")),
+      button("项目仓库",()=>safeOpen(links.repository||"https://github.com/momoqiqi-qwq/U-Time")),
       button("下载插件开发文档",downloadDevDoc),
     );
     const host=root.querySelector("#guide-groups");

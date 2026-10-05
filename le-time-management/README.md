@@ -227,4 +227,4 @@ tide.util.mmOf("09:30"); tide.util.hhmmOf(570); tide.util.durLabel(90);
 - 设置 → 插件支持 ZIP 导入、所选插件 ZIP 导出、保存插件配置、全选、**批量开启 / 关闭所选**和多选删除。
 - **勾选框覆盖全部插件**（内置 + 用户）：内置插件也能勾选用于批量启停；「不能删」只限制删除与导出 ——
   批量删除与导出始终只作用于用户插件目录，选中内置插件时按钮会说明会被跳过。
-- 设置 → 插件标题旁提供 GitHub 图标「插件开发文档」，点击打开 https://github.com/momoqiqi-qwq/tidebalance 。
+- 设置 → 插件标题旁提供 GitHub 图标「插件开发文档」，点击打开 https://github.com/momoqiqi-qwq/U-Time 。

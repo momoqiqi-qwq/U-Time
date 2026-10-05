@@ -657,7 +657,7 @@ Page({
         };
       }),
     }));
-    this.setData({ guide: { groups, repoUrl: "https://github.com/momoqiqi-qwq/le-time-management" } });
+    this.setData({ guide: { groups, repoUrl: "https://github.com/momoqiqi-qwq/U-Time" } });
   },
 
   onGuideCopyRepo() {

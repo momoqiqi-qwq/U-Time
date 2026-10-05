@@ -8,8 +8,8 @@ const settings = read("../src/views/settings.js");
 const shell = read("../src/shell.js");
 const styles = read("../src/styles.css");
 
-assert.match(links, /releases:\s*"https:\/\/github\.com\/momoqiqi-qwq\/le-time-management\/releases"/);
-assert.match(links, /pluginDevelopment:\s*"https:\/\/momoqiqi-qwq\.github\.io\/le-time-management\/"/);
+assert.match(links, /releases:\s*"https:\/\/github\.com\/momoqiqi-qwq\/U-Time\/releases"/);
+assert.match(links, /pluginDevelopment:\s*"https:\/\/momoqiqi-qwq\.github\.io\/U-Time\/"/);
 
 for (const expected of ["GitHub 发布页", "插件开发文档", "PROJECT_LINKS.releases", "PROJECT_LINKS.pluginDevelopment"]) {
   assert.ok(about.includes(expected), `关于页缺少：${expected}`);

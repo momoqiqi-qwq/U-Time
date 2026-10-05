@@ -155,9 +155,9 @@ const RELEASE = {
   notes: "## 本次更新\n- 加了应用内更新",
   published_at: "2026-09-15T00:00:00Z",
   release_name: "v0.38.1",
-  release_url: "https://github.com/momoqiqi-qwq/le-time-management/releases/tag/v0.38.1",
+  release_url: "https://github.com/momoqiqi-qwq/U-Time/releases/tag/v0.38.1",
   asset_name: "LeTime-0.38.1-x64-setup.exe",
-  asset_url: "https://github.com/momoqiqi-qwq/le-time-management/releases/download/v0.38.1/LeTime-0.38.1-x64-setup.exe",
+  asset_url: "https://github.com/momoqiqi-qwq/U-Time/releases/download/v0.38.1/LeTime-0.38.1-x64-setup.exe",
   asset_size: 21 * 1024 * 1024,
   asset_digest: "sha256:" + "ab".repeat(32),
 };

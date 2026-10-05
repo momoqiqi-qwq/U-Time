@@ -33,7 +33,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 /// 发布源：公开仓库的 latest release。
 const RELEASES_API: &str =
-    "https://api.github.com/repos/momoqiqi-qwq/le-time-management/releases/latest";
+    "https://api.github.com/repos/momoqiqi-qwq/U-Time/releases/latest";
 
 /// 下载体积上限。APK 约 21MB、安装包约 4MB，512MB 足够宽松，
 /// 又能在「上游填错 asset.size / 被中间人塞了超大文件」时保住磁盘。

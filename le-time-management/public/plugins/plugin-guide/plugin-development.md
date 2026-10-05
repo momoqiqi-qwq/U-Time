@@ -361,7 +361,7 @@ const y = Math.max(8 + sat, Math.min(rawY, window.innerHeight - sab - MENU_H));
 
 ## 7. 项目资源
 
-- 项目仓库：https://github.com/momoqiqi-qwq/le-time-management
+- 项目仓库：https://github.com/momoqiqi-qwq/U-Time
 - 在线版手册：仓库 `docs/index.html`（GitHub Pages），内容与本文件同步维护
 - 官方网站：https://YOUR-WEBSITE.example
 

@@ -3,7 +3,7 @@
  *   然后在仓库根跑：node tools/build-exam-calendar-plugin.js
  *
  * 数据来源：exam-collector 采集的官方公告（每条带 confirmed 与 source.url）
- * 宿主契约：见 https://momoqiqi-qwq.github.io/tidebalance/ 与源码 tidebalance/src/pluginHost.js
+ * 宿主契约：见 https://momoqiqi-qwq.github.io/U-Time/ 与源码 le-time-management/src/pluginHost.js
  */
 (function () {
   "use strict";
