@@ -52,10 +52,54 @@
     lastSync: "",
     lastSyncAt: 0,   // 上次成功同步的毫秒时间戳（持久化，供打开插件时判断缓存是否够新）
     refreshMode: "auto",   // 打开插件时的刷新策略：auto=每次刷新（默认）| throttle=10 分钟节流
+    taskbarBadge: true,
     cacheLoaded: false,
     workStatus: {},
   };
   let host = null;
+  let active = true;
+  let badgeTimer = null;
+  let backgroundBusy = false;
+  const probeTimes = new Map();
+  let prefsReady = null;
+  const ensurePrefs = () => prefsReady || (prefsReady = loadPrefs());
+
+  function unfinishedHomework() {
+    const seen = new Set();
+    const recent = new Set(recentNoDueWorks().map((n) => n.id));
+    return visibleInbox().filter((n) => {
+      if (classify(n) !== "作业" || statusOf(n) === "grading") return false;
+      if (!deadline(n.body) && !recent.has(n.id)) return false;
+      const key = parseWorkRef(n)?.id || n.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+  function syncTaskbarBadge() {
+    if (!active || !tide.ui.setTaskbarBadge) return;
+    return tide.ui.setTaskbarBadge(state.taskbarBadge ? unfinishedHomework().length : 0)
+      .catch((error) => console.warn("学习通任务栏角标更新失败", error));
+  }
+  async function refreshBadgeInBackground() {
+    if (!active || !state.taskbarBadge || backgroundBusy || state.loading || probing) return;
+    backgroundBusy = true;
+    try {
+      if (!state.loggedIn && !(await autoLogin())) return;
+      if (!active || !state.taskbarBadge) return;
+      await refreshAll();
+      await probePendingWorks();
+    } finally { backgroundBusy = false; syncTaskbarBadge(); }
+  }
+  async function setTaskbarBadgeEnabled(enabled) {
+    state.taskbarBadge = !!enabled;
+    await tide.storage.set("taskbarBadge", state.taskbarBadge);
+    syncTaskbarBadge();
+    if (state.loggedIn || state.inbox.length) paintMain();
+    else if (host) loginHtml();
+    if (state.taskbarBadge) refreshBadgeInBackground().catch(console.warn);
+  }
+
 
   const esc = (s) => String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -500,7 +544,9 @@ const CX_PY_DATA = {
     state.refreshMode = (await tide.storage.get("refreshMode", "auto")) === "throttle" ? "throttle" : "auto";
     const cached = await tide.storage.get("inboxCache", []);
     if (Array.isArray(cached) && cached.length) { state.inbox = cached; state.cacheLoaded = true; }
+    state.taskbarBadge = (await tide.storage.get("taskbarBadge", true)) !== false;
     publishInbox();
+    syncTaskbarBadge();
   }
 
   async function cxLogin(uname, password) {
@@ -885,7 +931,8 @@ const CX_PY_DATA = {
     : "";
   async function probeWorkStatus(n) {
     const ref = parseWorkRef(n);
-    if (!ref || state.workStatus[ref.id]) return;
+    if (!ref || state.workStatus[ref.id] === "grading") return;
+    probeTimes.set(ref.id, Date.now());
     try {
       const res = await tide.http.fetch(state.sid || await tide.http.session(), "GET", ref.url, {
         headers: authHeaders({ "Accept": "text/html,*/*; q=0.9", "Referer": "https://i.chaoxing.com/" }),
@@ -899,14 +946,15 @@ const CX_PY_DATA = {
   let probing = false;
   async function probePendingWorks() {
     if (probing || !state.loggedIn) return;
-    const unknown = (n) => { const r = parseWorkRef(n); return r && !state.workStatus[r.id]; };
+    const unknown = (n) => { const r = parseWorkRef(n); return r && state.workStatus[r.id] !== "grading"; };
+    const oldestFirst = (a, b) => (probeTimes.get(parseWorkRef(a)?.id) || 0) - (probeTimes.get(parseWorkRef(b)?.id) || 0);
     // 未截止的先探（≤6）；逾期的一并探一批（≤4）—— 不探就没法把「其实早就交了」的那批从逾期里摘出去；
     // 再给无截止时间的近期作业留一批（≤4），它们不在上面两个列表里，不专门排进来就永远探不到。
-    const targets = [...todos().filter(unknown).slice(0, 6), ...lateAll().filter(unknown).slice(0, 4), ...recentNoDueWorks().filter(unknown).slice(0, 4)];
+    const targets = [...todos().filter(unknown).sort(oldestFirst).slice(0, 6), ...lateAll().filter(unknown).sort(oldestFirst).slice(0, 4), ...recentNoDueWorks().filter(unknown).sort(oldestFirst).slice(0, 4)];
     if (!targets.length) return;
     probing = true;
     try {
-      for (const n of targets) { await probeWorkStatus(n); paintMain(); }
+      for (const n of targets) { if (!active) break; await probeWorkStatus(n); paintMain(); }
     } finally { probing = false; paintMain(); }
   }
 
@@ -1058,9 +1106,10 @@ const CX_PY_DATA = {
   }
 
   function paintMain() {
-    if (!host) return;
+    syncTaskbarBadge();
+    if (!active || !host || host.isConnected === false) return;
     const modeBtns = `<span class="cx2-mode" role="group" aria-label="打开插件时的刷新策略">${["auto", "throttle"].map((m) => `<button class="${state.refreshMode === m ? "on" : ""}" data-mode="${m}" title="${esc(REFRESH_MODES[m].why)}" aria-pressed="${state.refreshMode === m}">${REFRESH_MODES[m].label}</button>`).join("")}</span>`;
-    host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-sub">收件箱通知 · 未截止作业 · 课程列表 · 分享码全文</p></div><div class="cx2-actions">${modeBtns}<button class="primary" data-refresh ${state.loading?'disabled':''}>${state.loading?'刷新中…':'快速刷新'}</button><button data-full-sync ${state.loading?'disabled':''}>完整同步</button>${state.ignoredIds.size?`<button data-ignore-reset title="把被移除的通知重新放回列表，不需要重新同步">恢复已移除（${state.ignoredIds.size}）</button>`:''}<button data-switch>切换登录</button></div></div>${navHtml()}<div class="cx2-status ${state.error?'err':''}">${state.error?esc(state.error):`${state.busy==='open'?'正在将学习通插件登录态带入应用内网页 · ':''}${state.lastSync?`上次刷新 ${esc(state.lastSync)} · `:''}收件箱使用 notice.chaoxing.com 无 IP 白名单主路径`}</div><div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?coursesHtml():lookupHtml()}</div><footer>基于 chaoxing-notify-skill v2.0.0 的已验证接口流程。Cookie/账号信息仅在选择“保存登录信息”时写入本机；Cookie 等同账号登录身份，请勿外传。</footer></div>`;
+    host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-sub">收件箱通知 · 未截止作业 · 课程列表 · 分享码全文</p></div><div class="cx2-actions">${modeBtns}<label class="cx2-check" title="Windows 任务栏显示未提交作业数（含逾期、近期无截止作业）；已提交、考试与已移除通知不计。每 5 分钟同步，0 条自动隐藏。"><input class="switch" role="switch" type="checkbox" data-taskbar-badge ${state.taskbarBadge ? "checked" : ""}>任务栏作业角标（${unfinishedHomework().length}）</label><button class="primary" data-refresh ${state.loading?'disabled':''}>${state.loading?'刷新中…':'快速刷新'}</button><button data-full-sync ${state.loading?'disabled':''}>完整同步</button>${state.ignoredIds.size?`<button data-ignore-reset title="把被移除的通知重新放回列表，不需要重新同步">恢复已移除（${state.ignoredIds.size}）</button>`:''}<button data-switch>切换登录</button></div></div>${navHtml()}<div class="cx2-status ${state.error?'err':''}">${state.error?esc(state.error):`${state.busy==='open'?'正在将学习通插件登录态带入应用内网页 · ':''}${state.lastSync?`上次刷新 ${esc(state.lastSync)} · `:''}收件箱使用 notice.chaoxing.com 无 IP 白名单主路径`}</div><div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?coursesHtml():lookupHtml()}</div><footer>基于 chaoxing-notify-skill v2.0.0 的已验证接口流程。Cookie/账号信息仅在选择“保存登录信息”时写入本机；Cookie 等同账号登录身份，请勿外传。</footer></div>`;
   }
 
   async function refreshAll() {
@@ -1091,10 +1140,15 @@ const CX_PY_DATA = {
   }
 
   function loginHtml(message = "") {
-    host.innerHTML = `<div class="cx2"><div class="cx2-login"><h3>登录学习通</h3><p class="cx2-sub">推荐账号密码登录；若频繁登录触发风控，可粘贴浏览器/App 已登录 Cookie 直接复用会话。</p><div class="cx2-tabs"><button class="on" data-login-tab="password">账号密码</button><button data-login-tab="cookie">Cookie</button></div><div data-login-password><div class="cx2-fields"><label><span>账号（手机号 / 学号）</span><input data-u autocomplete="username"></label><label><span>密码</span><input data-p type="password" autocomplete="current-password"></label></div><div class="cx2-actions" style="margin-top:12px"><button class="primary" data-login>登录</button></div></div><div data-login-cookie hidden><label><span>Cookie</span><textarea data-cookie placeholder="例如：_uid=...; route=...; ..."></textarea></label><div class="cx2-actions" style="margin-top:12px"><button class="primary" data-cookie-login>使用 Cookie</button></div></div><label class="cx2-check" style="margin-top:12px"><input class="switch" role="switch" type="checkbox" data-remember checked> 保存登录信息到本机，便于下次直接复用</label><div class="cx2-status ${message?'err':''}" data-login-status>${esc(message)}</div><div class="cx2-note">账号密码登录使用 fanyalogin + DES-ECB/PKCS5；密码加密在本机 Tauri 后端完成。收件箱改用 v2 包确认的 getNoticeList 接口，不再依赖 specie.chaoxing.com 的来源 IP 白名单。</div></div></div>`;
+    host.innerHTML = `<div class="cx2"><div class="cx2-login"><h3>登录学习通</h3><label class="cx2-check" title="Windows 任务栏显示未提交作业数，0 条隐藏，每 5 分钟同步"><input class="switch" role="switch" type="checkbox" data-taskbar-badge ${state.taskbarBadge ? "checked" : ""}>任务栏作业角标</label><p class="cx2-sub">推荐账号密码登录；若频繁登录触发风控，可粘贴浏览器/App 已登录 Cookie 直接复用会话。</p><div class="cx2-tabs"><button class="on" data-login-tab="password">账号密码</button><button data-login-tab="cookie">Cookie</button></div><div data-login-password><div class="cx2-fields"><label><span>账号（手机号 / 学号）</span><input data-u autocomplete="username"></label><label><span>密码</span><input data-p type="password" autocomplete="current-password"></label></div><div class="cx2-actions" style="margin-top:12px"><button class="primary" data-login>登录</button></div></div><div data-login-cookie hidden><label><span>Cookie</span><textarea data-cookie placeholder="例如：_uid=...; route=...; ..."></textarea></label><div class="cx2-actions" style="margin-top:12px"><button class="primary" data-cookie-login>使用 Cookie</button></div></div><label class="cx2-check" style="margin-top:12px"><input class="switch" role="switch" type="checkbox" data-remember checked> 保存登录信息到本机，便于下次直接复用</label><div class="cx2-status ${message?'err':''}" data-login-status>${esc(message)}</div><div class="cx2-note">账号密码登录使用 fanyalogin + DES-ECB/PKCS5；密码加密在本机 Tauri 后端完成。收件箱改用 v2 包确认的 getNoticeList 接口，不再依赖 specie.chaoxing.com 的来源 IP 白名单。</div></div></div>`;
   }
 
-  async function autoLogin() {
+  let loginPromise = null;
+  function autoLogin() {
+    if (state.loggedIn) return Promise.resolve(true);
+    return loginPromise || (loginPromise = restoreLogin().finally(() => { loginPromise = null; }));
+  }
+  async function restoreLogin() {
     if (state.cookie) {
       try { state.remember = true; await startCookieSession(state.cookie); return true; } catch { state.cookie = ""; await tide.storage.set("sessionCookie", null); }
     }
@@ -1120,7 +1174,7 @@ const CX_PY_DATA = {
       const modeBtn=e.target.closest('[data-mode]');if(modeBtn){state.refreshMode=modeBtn.dataset.mode==='throttle'?'throttle':'auto';await tide.storage.set('refreshMode',state.refreshMode);paintMain();return;}
       if(e.target.closest('[data-refresh]')){await refreshAll();return;}
       if(e.target.closest('[data-clear-late]')){await ignoreNotices(overdueTodos(),'逾期作业');return;}
-      if(e.target.closest('[data-switch]')){state.loggedIn=false;state.sid=null;state.cookie='';state.creds=null;await tide.storage.set('sessionCookie',null);await tide.storage.set('creds',null);loginHtml();return;}
+      if(e.target.closest('[data-switch]')){if(state.loading||probing||backgroundBusy){tide.notify('正在同步作业，请完成后再切换登录');return;}state.loggedIn=false;state.sid=null;state.cookie='';state.creds=null;state.inbox=[];state.workStatus={};state.ignoredIds=new Set();state.knownIds=new Set();state.lastSyncAt=0;await tide.storage.set('inboxCache',[]);await saveWorkStatus();await saveIgnored();await saveKnown();await tide.storage.set('lastSyncAt',0);syncTaskbarBadge();await tide.storage.set('sessionCookie',null);await tide.storage.set('creds',null);loginHtml();return;}
       const lookup=e.target.closest('[data-lookup]');if(lookup){const input=host.querySelector('[data-code]');try{state.error='';await loadNotice(input.value);paintMain();}catch(err){state.error=err.message||String(err);paintMain();}return;}
       if(e.target.closest('[data-ignore-reset]')){await restoreIgnored();return;}
       if(e.target.closest('[data-notice-remind]')&&state.notice){await toReminder(state.notice);return;}
@@ -1129,13 +1183,13 @@ const CX_PY_DATA = {
       const card=e.target.closest('[data-id]'),act=e.target.closest('[data-act]');if(card&&act){const n=state.inbox.find(x=>x.id===card.dataset.id);if(!n)return;const a=act.dataset.act;if(a==='toggle'){card.classList.toggle('open');return;}if(a==='remind'){await toReminder(n);return;}if(a==='mark'){await markNotice(n);return;}if(a==='share'&&n.idCode){tide.util.openUrl(SHARE_PAGE(n.idCode));return;}if(a==='open'){await openTarget(n);return;}if(a==='del'){await ignoreNotice(n);return;}}
     });
     host.addEventListener("input", (e) => { if(e.target.matches('[data-search]')){state.filter.kw=e.target.value;savePrefs();const pos=e.target.selectionStart;paintMain();const next=host.querySelector('[data-search]');if(next){next.focus();try{next.setSelectionRange(pos,pos);}catch{}}} });
-    host.addEventListener("change", (e) => { if(e.target.matches('[data-category]')){state.filter.category=e.target.value;savePrefs();paintMain();}if(e.target.matches('[data-unread]')){state.filter.onlyUnread=e.target.checked;savePrefs();paintMain();}if(e.target.matches('[data-cat-year]')){state.filter.catYear=e.target.value;savePrefs();paintMain();} });
+    host.addEventListener("change", (e) => { if(e.target.matches("[data-taskbar-badge]")){setTaskbarBadgeEnabled(e.target.checked);return;} if(e.target.matches('[data-category]')){state.filter.category=e.target.value;savePrefs();paintMain();}if(e.target.matches('[data-unread]')){state.filter.onlyUnread=e.target.checked;savePrefs();paintMain();}if(e.target.matches('[data-cat-year]')){state.filter.catYear=e.target.value;savePrefs();paintMain();} });
     host.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select'))e.stopPropagation();if(e.target.matches('[data-search]')&&e.key==='Escape'){state.course.searchOpen=false;state.filter.kw='';paintMain();}});
   }
 
   async function render(el) {
     host = el; ensureStyle(); host.innerHTML = '<div class="cx2"><div class="cx2-empty">正在读取学习通登录信息…</div></div>';
-    wire(); await loadPrefs();
+    wire(); await ensurePrefs();
     if (state.inbox.length) paintMain();
     const ok = await autoLogin();
     if (!ok) { loginHtml(); return; }
@@ -1144,6 +1198,16 @@ const CX_PY_DATA = {
     // throttle=距上次成功同步不足 10 分钟直接用缓存，想更新随时点「快速刷新」。
     const stale = Date.now() - (state.lastSyncAt || 0) >= AUTO_REFRESH_THROTTLE_MS;
     if (state.refreshMode === "auto" || stale) await refreshAll();
+  }
+
+  if (tide.ui.setTaskbarBadge && tide.ui.onDispose) {
+    tide.ui.onDispose(() => { active = false; clearInterval(badgeTimer); });
+    tide.ui.taskbarBadgeSupported().then((supported) => supported ? ensurePrefs() : null).then((prefs) => {
+      if (prefs === null) return;
+      if (!active) return;
+      badgeTimer = setInterval(() => refreshBadgeInBackground().catch(console.warn), 5 * 60 * 1000);
+      refreshBadgeInBackground().catch(console.warn);
+    }).catch(console.warn);
   }
 
   tide.ui.registerView({ id: "chaoxing-notify", title: "学习通", icon: 'graduation-cap', render });

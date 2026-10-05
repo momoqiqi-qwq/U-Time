@@ -1,3 +1,4 @@
+mod taskbar_badge;
 mod native_schedule;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -2134,6 +2135,7 @@ pub fn run() {
         // quit_ack 永远敲不响 → 每次退出都要空等满 2 秒超时才走。
         .manage(quit_gate().clone())
         .invoke_handler(tauri::generate_handler![
+            taskbar_badge::set_taskbar_badge,
             native_schedule::native_schedule,
             system_bar::system_bar,
             notification::notification,

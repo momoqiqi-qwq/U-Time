@@ -193,7 +193,7 @@ assert.equal(opened.at(-1), LOGIN_JUMP(HW), '没有本机会话时按需要登�
 /* ── 6. 权限与清单：openUrl 必须在 manifest 里声明，否则按钮点了没反应 ── */
 assert.ok(source.includes('tide.util.openUrl('), '插件确实调用了 openUrl');
 assert.ok((manifest.permissions || []).includes('openUrl'), 'manifest 必须声明 openUrl 权限');
-assert.equal(manifest.version, '2.15.2');
+assert.equal(manifest.version, '2.16.0');
 const catalog = readProductSource(new URL('src/pluginCatalog.js', root), 'utf8');
 const entry = catalog.slice(catalog.indexOf('"id": "chaoxing-notify"'));
 const block = entry.slice(0, entry.indexOf('},\n  {'));
@@ -471,7 +471,7 @@ assert.equal(state.workStatus['9002'], 'grading', '落地页是详情查看页 �
 assert.equal(workFetches(), 2, '每个未知作业只探一次');
 assert.equal(storage.workStatus['9002'], 'grading', '状态要落到插件存储，刷新后不用重探');
 await probePendingWorks();
-assert.equal(workFetches(), 2, '已有状态的不重复探测');
+assert.equal(workFetches(), 3, '未提交状态每轮重新探测，已提交状态继续复用');
 assert.equal(statusOf(state.inbox.find((x) => x.id === 'w2')), 'grading');
 assert.match(gradingBadge(state.inbox.find((x) => x.id === 'w2')), /正在批改/, '已提交未批改的标题后要有标签');
 assert.equal(gradingBadge(state.inbox.find((x) => x.id === 'w1')), '', '未提交的不打标');

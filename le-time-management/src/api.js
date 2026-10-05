@@ -41,6 +41,10 @@ const LEGACY_LS_KEY = "tidebalance-data";
 
 export const api = {
   isTauri,
+  async setTaskbarBadge(count) {
+    if (!isTauri) return false;
+    return invoke("set_taskbar_badge", { count: Math.max(0, Math.floor(Number(count) || 0)) });
+  },
   nativeSchedule: (action, bounds) => invoke("native_schedule", { action, bounds }),
 
   async loadData() {

@@ -13,6 +13,13 @@ import { spreadsheetFileToCsv } from "./spreadsheet.js";
 import { renderNativeSchedule } from "./nativeSchedule.js";
 import { BUILTIN_SOUNDS, playSound, resolveSound } from "./sound.js";
 
+const pluginDisposers = new Map();
+let badgeQueue = Promise.resolve();
+function queueTaskbarBadge(count) {
+  badgeQueue = badgeQueue.catch(() => {}).then(() => api.setTaskbarBadge(count));
+  return badgeQueue;
+}
+
 const registry = new Map();   // id -> { manifest, source, enabled, error }
 const eventBus = new Map();   // event -> Set<{ pluginId, fn }>
 const listeners = { navChanged: new Set(), taskActionsChanged: new Set() };
@@ -260,6 +267,19 @@ function makeApi(man, source) {
     },
 
     ui: {
+      async taskbarBadgeSupported() {
+        return api.isTauri && (await api.appInfo()).os === "windows";
+      },
+      onDispose(fn) {
+        requirePermission(man, pid, "ui");
+        if (!pluginDisposers.has(pid)) pluginDisposers.set(pid, new Set());
+        pluginDisposers.get(pid).add(fn);
+      },
+      setTaskbarBadge(count) {
+        requirePermission(man, pid, "ui");
+        if (pid !== "chaoxing-notify") throw new Error("任务栏作业角标仅对学习通插件开放");
+        return queueTaskbarBadge(S.pluginState(pid).enabled === false ? 0 : count);
+      },
       registerView(def) {
         requirePermission(man, pid, "ui");
         // `immersive: true` = 该视图要占满整屏，窄屏下隐藏 APP 全局底栏（见 shell.js 的
@@ -462,6 +482,12 @@ export async function emitPluginEvent(name, data) {
 }
 
 function removeRegistrations(id) {
+  for (const dispose of pluginDisposers.get(id) || []) {
+    try { dispose(); } catch (error) { console.error(error); }
+  }
+  pluginDisposers.delete(id);
+  if (id === "chaoxing-notify") queueTaskbarBadge(0).catch(console.error);
+
   for (let i = pluginViews.length - 1; i >= 0; i--) if (pluginViews[i].pluginId === id) pluginViews.splice(i, 1);
   for (let i = taskActions.length - 1; i >= 0; i--) if (taskActions[i].pluginId === id) taskActions.splice(i, 1);
   for (const [name, set] of eventBus) {
@@ -551,6 +577,7 @@ export async function removeExternalPlugin(id) {
 
 // 清空注册表后重新发现并加载插件（设置页「重新扫描」用）
 export async function rescan() {
+  for (const id of registry.keys()) removeRegistrations(id);
   pluginViews.length = 0;
   taskActions.length = 0;
   registry.clear();
