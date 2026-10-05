@@ -48,11 +48,28 @@
 
 ### ❓ 效果演示
 
-| 四象限（权衡） | 时间块（潮汐） |
-|---|---|
-| ![四象限](ui-概念稿/renders/03.png) | ![时间块](ui-概念稿/renders/04.png) |
+> 以下均为当前版本真实运行的界面截图（浅色主题），非设计稿。
 
-粘贴「明天下午3点到4点 与导师讨论开题修改」后的真实结果：任务自动进入象限 I（截止 09/07），时间块落在明天 15:00–16:00，右侧「明日预告」同步显示。
+**桌面端 · Windows（1440×900）**
+
+<p align="center">
+  <img src="docs/screenshots/desktop-quadrant.jpg" width="48%" alt="任务表 · 四象限决策台">
+  <img src="docs/screenshots/desktop-timeline.jpg" width="48%" alt="时间线 · 按日期串联的安排">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/desktop-market.jpg" width="70%" alt="插件市场 · 内置插件一键启停">
+</p>
+
+**移动端 · Android（390×844）**
+
+<p align="center">
+  <img src="docs/screenshots/phone-quadrant.jpg" width="24%" alt="手机端 · 任务表">
+  <img src="docs/screenshots/phone-schedule.jpg" width="24%" alt="手机端 · 课程表插件">
+  <img src="docs/screenshots/phone-exam.jpg" width="24%" alt="手机端 · 考试日历插件">
+</p>
+
+粘贴「明天下午3点到4点 与导师讨论开题修改」后，任务自动进入象限 I，并在明天 15:00–16:00 生成对应的时间块。
 
 ### 📲 微信小程序版
 
