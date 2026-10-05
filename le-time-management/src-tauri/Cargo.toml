@@ -1,6 +1,6 @@
 [package]
 name = "letime"
-version = "0.151.3"
+version = "0.156.0"
 description = "Le时间管理 · 时间块与四象限"
 authors = ["yile"]
 edition = "2021"
