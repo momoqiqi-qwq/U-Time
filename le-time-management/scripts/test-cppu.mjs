@@ -10,8 +10,8 @@ const context = vm.createContext({URL,Set,Map,Date,console,setTimeout,clearTimeo
   Image:class{constructor(){this.naturalWidth=0;this.naturalHeight=0;}set src(v){this._src=v;}decode(){return Promise.reject(new Error('cannot decode'));}},
   tide:{ui:{registerView:(def)=>{views.push(def);}},http:{session:async()=>'s1',restoreCookies:async(dump)=>{calls.push(['restore',dump]);return 'restored-sid';},fetch:async(...args)=>{calls.push(args);return typeof response==='function'?response(...args):response;}},storage:{set:async(k,v)=>{storageData[k]=v;},get:async(k,d)=>(k in storageData?storageData[k]:(d===undefined?null:d))},vault:{get:async(key)=>vaultData[key]||null,set:async(key,value)=>{vaultData[key]=value;},del:async(key)=>{delete vaultData[key];}},util:{openUrl:(url)=>opened.push(url),web:{formEncode:(fields)=>Object.entries(fields).map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&'),detectLoginForm:(html,base)=>html.includes('name="uid"')?{action:new URL('/coremail/index.jsp?cus=1',base).href,method:'POST',usernameField:'uid',passwordField:'password',captchaField:'',fields:[{name:'action',value:'login'}]}:null}},notify:(message)=>notices.push(message),assets:{saveBase64:async(name,b64)=>{saved.push([name,b64]);return 'D:/Downloads/'+name;}}}
 });
-vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense};\n  tide.ui.registerView({'),context);
-const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense}=context.testApi;
+vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense};\n  tide.ui.registerView({'),context);
+const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense}=context.testApi;
 const item={RESOURCE_ID:'test',PIM_TITLE:'Test <notice>',CREATE_TIME:1};
 assert.match(cardHtml(item),/展开正文/);
 assert.match(cardHtml(item),/class="pp-detail-shell" aria-hidden="true"/);
@@ -40,6 +40,24 @@ assert.equal(noticeKind({PIM_TITLE:'英语四六级考试报名通知'}).id,'exa
 assert.equal(noticeKind({PIM_TITLE:'第九届 精武杯 技能比武科目新增禁毒知识竞赛等4项实施方案'}).id,'contest');
 assert.equal(noticeKind({PIM_TITLE:'关于图书馆开放时间调整的通知'}).id,'notice');
 assert.ok(source.includes('data-kinds'), '警大通知必须提供考试/比赛/通知分类筛选栏');
+// v0.159.0 筛选修复：年份粒度；「恢复默认」整体重置（含关键词）；空态可加载更早；点外部收起下拉
+assert.ok(source.includes('data-years'), '筛选面板必须提供年份行');
+assert.ok(source.includes('data-filter-reset') && source.includes('恢复默认筛选'), '筛选面板必须提供「恢复默认筛选」整体重置');
+assert.ok(/filter:\s*\{\s*kw: "", year: "all"/.test(source), '默认筛选必须含 year 维度，重置时关键词才会被整体清掉');
+assert.ok(source.includes('document.addEventListener("pointerdown"'), '筛选下拉必须支持点击外部收起');
+assert.ok(source.includes('loadOlderUntilMatch'), '筛选结果为空时必须能继续加载更早的通知');
+state.notices = [
+  { RESOURCE_ID: 'y26', PIM_TITLE: '2026年9月通知', CREATE_TIME: new Date('2026-09-01T08:00:00').getTime() },
+  { RESOURCE_ID: 'y25', PIM_TITLE: '2025年4月通知', CREATE_TIME: new Date('2025-04-01T08:00:00').getTime() },
+  { RESOURCE_ID: 'yNA', PIM_TITLE: '无时间通知', CREATE_TIME: 0 },
+];
+state.filter = { kw: '', year: 'all', month: 'all', kind: 'all', hideSeen: false };
+assert.equal(filtered().length, 3, '默认筛选应显示全部（含时间未知项）');
+state.filter.year = '2025';
+assert.equal(filtered().length, 1, '年份筛选只留该年，时间未知项不冒充任何年份');
+state.filter = { kw: '不存在的词', year: 'all', month: 'all', kind: 'all', hideSeen: false };
+assert.equal(filtered().length, 0, '关键词无匹配时显示 0 条 —— 必须有恢复默认的出路');
+state.filter = { kw: '', year: 'all', month: 'all', kind: 'all', hideSeen: false };
 const foundAttachments=extractAttachments({ATTACHMENTS:[{FILE_NAME:'实施方案.pdf',FILE_URL:'/tp_up/up/pim/file/download?id=1'}]}, '');
 assert.equal(foundAttachments.length,1);
 assert.equal(foundAttachments[0].name,'实施方案.pdf');

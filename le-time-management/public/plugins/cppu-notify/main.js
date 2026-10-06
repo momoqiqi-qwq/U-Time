@@ -108,7 +108,7 @@
     expanded: new Set(),
     details: {},           // rid -> {content, attachments, loading, error}
     seen: new Set(),
-    filter: { kw: "", month: "all", kind: "all", hideSeen: false },
+    filter: { kw: "", year: "all", month: "all", kind: "all", hideSeen: false },
     captcha: "", pending: null, renderedCount: CHUNK,
     savedPassword: "",     // 密钥库取出的密码（仅内存，用于自动登录与表单预填）
     sideOpen: false,       // 校园服务栏：默认收起。只活在本次插件会话里，重进插件回到收起
@@ -116,6 +116,7 @@
                            // 默认收起等于把已有功能藏到一次点击之后。同样只活在本次会话里。
   };
   let ui = null, io = null, sentinelCb = null, paintToken = 0, autoRefreshTimer = null;
+  let filterOutsideHandler = null; // 筛选下拉的「点外部收回」监听，重进插件时替换旧监听
 
   function observeSentinel(node, cb) {
     sentinelCb = cb;
@@ -586,6 +587,13 @@
     }
   }
   const saveFilter = () => tide.storage.set("filter", state.filter);
+  // 恢复默认筛选：关键词也在 filter 里存着，只点面板里的「全部」分类/月份清不掉它 —— 必须整体重置
+  function resetFilter() {
+    state.filter = { kw: "", year: "all", month: "all", kind: "all", hideSeen: false };
+    if (ui?.kw) ui.kw.value = "";
+    saveFilter();
+    if (ui) paintAll();
+  }
   const saveSeen = () => tide.storage.set("seen", [...state.seen].slice(-500));
 
   // 缓存数据而非登录页面，恢复时重新渲染，凭据仍只存密钥库。
@@ -1243,6 +1251,15 @@
     return !state.error;
   }
 
+  // 筛选结果为 0 时旧的「加载更早」按钮不会出现（空态分支提前 return），老数据永远够不着；
+  // 这里连页往回拉，直到出现匹配或没有更多页。
+  async function loadOlderUntilMatch() {
+    while (state.hasMore && !filtered().length) {
+      const ok = await loadPage(state.page + 1);
+      if (!ok) break;
+    }
+  }
+
   async function loadDetail(rid, force = false) {
     const cur = state.details[rid] || {};
     if (cur.loading || (!force && (cur.detailVersion === 2 || (!state.token && (cur.content || cur.attachments))))) return;
@@ -1322,6 +1339,7 @@
   function filtered() {
     const kw = state.filter.kw.trim().toLowerCase();
     const rows = state.notices.filter((it) => {
+      if (state.filter.year !== "all" && !monthOf(it).startsWith(state.filter.year)) return false;
       if (state.filter.month !== "all" && monthOf(it) !== state.filter.month) return false;
       if (state.filter.kind !== "all" && noticeKind(it).id !== state.filter.kind) return false;
       if (state.filter.hideSeen && state.seen.has(itemKey(it))) return false;
@@ -1353,7 +1371,23 @@
       b.addEventListener("click", () => { state.filter.kind = c.id; saveFilter(); paintChips(); paintList(true); });
       return b;
     }));
-    const months = [...new Set(state.notices.map(monthOf))].filter((mo) => mo !== "unknown").sort().reverse();
+    // 年份行：月份选项只来自已加载的数据，没有年粒度就筛不了「某一年全年」
+    const yearIds = [...new Set(state.notices.map(monthOf).filter((mo) => mo !== "unknown").map((mo) => mo.slice(0, 4)))].sort().reverse();
+    ui.years?.replaceChildren(...[{ id: "all", label: "全部" }, ...yearIds.map((y) => ({ id: y, label: `${y}年` }))].map((c) => {
+      const b = document.createElement("button");
+      b.className = "pp-chip" + (state.filter.year === c.id ? " on" : "");
+      b.textContent = c.label;
+      b.addEventListener("click", () => {
+        state.filter.year = c.id;
+        // 切年份后已选月份若不属于该年份，一并清掉，避免「2025年 + 2026年9月」这种永远为空的组合
+        if (state.filter.month !== "all" && !state.filter.month.startsWith(c.id)) state.filter.month = "all";
+        saveFilter(); paintChips(); paintList(true);
+      });
+      return b;
+    }));
+    const months = [...new Set(state.notices.map(monthOf))]
+      .filter((mo) => mo !== "unknown" && (state.filter.year === "all" || mo.startsWith(state.filter.year)))
+      .sort().reverse();
     ui.months.replaceChildren(...[{ id: "all", label: "全部" }, ...months.map((mo) => ({ id: mo, label: monthLabel(mo) }))].map((c) => {
       const b = document.createElement("button");
       b.className = "pp-chip" + (state.filter.month === c.id ? " on" : "");
@@ -1361,7 +1395,7 @@
       b.addEventListener("click", () => { state.filter.month = c.id; saveFilter(); paintChips(); paintList(true); });
       return b;
     }));
-    ui.filterSummary.textContent = `筛选${state.filter.kind !== "all" || state.filter.month !== "all" || state.filter.hideSeen ? " · 已设置" : ""}`;
+    ui.filterSummary.textContent = `筛选${state.filter.kind !== "all" || state.filter.year !== "all" || state.filter.month !== "all" || state.filter.hideSeen ? " · 已设置" : ""}`;
     ui.hs.classList.toggle("on", !!state.filter.hideSeen);
   }
 
@@ -1433,9 +1467,32 @@
     const token = ++paintToken;
 
     if (!slice.length) {
+      const kwActive = !!state.filter.kw.trim();
+      const filteredAny = state.filter.kind !== "all" || state.filter.year !== "all" || state.filter.month !== "all" || state.filter.hideSeen || kwActive;
       ui.list.innerHTML = `<div class="pp-empty">${state.notices.length
-        ? "没有符合过滤条件的通知<br>试试换个关键词或切回「全部」月份"
+        ? (kwActive
+            ? `关键词「${esc(state.filter.kw.trim())}」没有匹配的通知${filteredAny ? "（叠加了其他筛选）" : ""}`
+            : "没有符合过滤条件的通知")
+          + "<br>试试调整筛选条件，或点下面的「恢复默认筛选」"
         : state.error ? "" : "还没有通知，点上方「刷新」拉取"}</div>`;
+      // 空态也要能自救：没加载完就继续往回拉到出现匹配，别把老数据锁死在分页后面
+      if (state.notices.length) {
+        const row = document.createElement("div");
+        row.className = "pp-more";
+        if (state.hasMore) {
+          const b = document.createElement("button");
+          b.className = "pp-btn";
+          b.textContent = state.fetching ? "正在加载更早的通知…" : "加载更早的通知再筛";
+          b.addEventListener("click", () => { if (token === paintToken) loadOlderUntilMatch(); });
+          row.append(b);
+        }
+        const r = document.createElement("button");
+        r.className = "pp-btn";
+        r.textContent = "恢复默认筛选";
+        r.addEventListener("click", () => { if (token === paintToken) resetFilter(); });
+        row.append(r);
+        ui.list.append(row);
+      }
       return;
     }
 
@@ -3463,8 +3520,10 @@
       </div>
       <details class="plugin-filter-menu"><summary data-filter-summary>筛选</summary><div class="plugin-filter-menu-panel">
         <div class="pp-toolbar"><span class="pp-lab">分类</span><div class="pp-chips" data-kinds></div></div>
+        <div class="pp-toolbar"><span class="pp-lab">年份</span><div class="pp-chips" data-years></div></div>
         <div class="pp-toolbar"><span class="pp-lab">月份</span><div class="pp-chips" data-months></div></div>
         <label class="pp-toggle" data-hs><i></i>只看未读</label>
+        <div class="pp-toolbar"><button class="pp-btn" data-filter-reset title="清空关键词、分类、年份、月份和只看未读">恢复默认筛选</button></div>
       </div></details>
       <div class="pp-status" data-status></div>
       <div data-list></div>
@@ -3475,6 +3534,7 @@
     ui = {
       status: el.querySelector("[data-status]"),
       kinds: el.querySelector("[data-kinds]"),
+      years: el.querySelector("[data-years]"),
       months: el.querySelector("[data-months]"),
       filterSummary: el.querySelector("[data-filter-summary]"),
       list: el.querySelector("[data-list]"),
@@ -3500,7 +3560,15 @@
       startAutoRefresh(el);
       tide.notify(state.autoRefresh ? "已开启自动刷新：每 10 分钟同步警大通知" : "已关闭警大通知自动刷新");
     });
+    el.querySelector("[data-filter-reset]").addEventListener("click", () => resetFilter());
     el.querySelector("[data-refresh]").addEventListener("click", () => loadPage(1));
+    // 下拉是原生 <details>，点开面板后点旁边不会自己收 —— 在文档级捕获外面的按下，替它收起
+    if (filterOutsideHandler) document.removeEventListener("pointerdown", filterOutsideHandler, true);
+    filterOutsideHandler = (e) => {
+      const menu = el.querySelector("details.plugin-filter-menu");
+      if (menu?.open && !menu.contains(e.target)) menu.removeAttribute("open");
+    };
+    document.addEventListener("pointerdown", filterOutsideHandler, true);
     el.querySelector("[data-relogin]").addEventListener("click", () => {
       stopAutoRefresh();
       state.token = ""; state.notices = []; state.details = {}; state.expanded.clear(); state.pending = null; state.captcha = ""; state.sid = null; ui = null;
