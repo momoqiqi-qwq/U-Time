@@ -11,6 +11,7 @@ import { isAndroidRuntime } from "../androidNotify.js";
 import { createAboutCard } from "./aboutCard.js";
 import { createInterfaceCard, createThemeCard } from "./settings/appearance.js";
 import { createSettingsNavigator } from "./settings/navigator.js";
+import { getUiPreferences } from "../uiPreferences.js";
 import { createPluginSettingsCard, isPluginBatchBusy } from "./settings/plugins.js";
 import { createAiSettingsCard } from "./settings/ai.js";
 import { createSyncCard } from "./settings/sync.js";
@@ -118,6 +119,7 @@ export function renderSettings(container, opts = {}) {
     }
     const settingsNavigator = createSettingsNavigator(settingEntries, settingsNavState, {
       pages: isAndroidRuntime(),
+      tabs: getUiPreferences().nepheleSettings,
       onPageChange: opts.onPageChange,
     });
     navigatorController = settingsNavigator;
@@ -139,6 +141,8 @@ export function renderSettings(container, opts = {}) {
     initialTarget = false;
   };
   let settingsIdentity = S.getState().settings;
+  const onUiPreferences = (event) => navigatorController?.setTabs(event.detail?.nepheleSettings === true);
+  window.addEventListener("tide:ui-preferences-changed", onUiPreferences);
   const storeUnsub = S.subscribe(() => {
     if (settingsIdentity === S.getState().settings || !entries) return;
     settingsIdentity = S.getState().settings;
@@ -147,6 +151,6 @@ export function renderSettings(container, opts = {}) {
       if (entry.node.classList.contains("settings-section-active") || entry.id === settingsNavState.page) entry.ensure();
     }
   });
-  container._unsub = () => { disposed = true; storeUnsub(); disposeContents(wrap); navUnsub?.(); navUnsub = null; navigatorController?.dispose(); };
+  container._unsub = () => { disposed = true; window.removeEventListener("tide:ui-preferences-changed", onUiPreferences); storeUnsub(); disposeContents(wrap); navUnsub?.(); navUnsub = null; navigatorController?.dispose(); };
   render();
 }

@@ -1,0 +1,128 @@
+/* Nephele SettingsView：横向分类条、紫色短下划线与 FrostedCard。
+   仅设置界面开关启用；不修改主题和独立背景偏好。 */
+:root[data-nephele-settings="on"] :is(.settings-modal, .set-wrap) {
+  --paper: #eee7f5;
+  --bg: #eee7f5;
+  --panel: #faf7ff;
+  --ink: #3e344f;
+  --ink-2: #675c77;
+  --ink-3: #786b89;
+  --line: #c6b8d4;
+  --line-soft: #ded3e9;
+  --deep: #81559b;
+  --on-deep: #fff;
+  --control-bg: #f3edf9;
+  --hover-bg: #e4d8ed;
+}
+:root[data-theme-mode="dark"][data-nephele-settings="on"] :is(.settings-modal, .set-wrap) {
+  --paper: #211b2b;
+  --bg: #211b2b;
+  --panel: #31263f;
+  --ink: #f6eefc;
+  --ink-2: #d1c2df;
+  --ink-3: #b6a4c7;
+  --line: #645371;
+  --line-soft: #50415f;
+  --deep: #d3afe9;
+  --on-deep: #2b1e37;
+  --control-bg: #392e46;
+  --hover-bg: #473552;
+}
+:root[data-nephele-settings="on"] .settings-modal {
+  background: color-mix(in srgb, var(--paper) 90%, #ded1ee);
+  border-color: color-mix(in srgb, #a680bd 25%, var(--line));
+  backdrop-filter: blur(20px);
+}
+:root[data-nephele-settings="on"] .settings-modal-body { background: transparent; }
+:root[data-nephele-settings="on"] .settings-layout {
+  --nephele-accent: #81559b;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  width: 100%;
+  max-width: 1080px;
+  margin-inline: auto;
+}
+:root[data-theme-mode="dark"][data-nephele-settings="on"] .settings-layout { --nephele-accent: #d3afe9; }
+:root[data-nephele-settings="on"] .settings-sidebar { position: static; min-width: 0; }
+:root[data-nephele-settings="on"] .settings-nav-card {
+  display: grid;
+  padding: 6px;
+  gap: 8px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  backdrop-filter: blur(18px);
+  border-color: color-mix(in srgb, #a680bd 24%, var(--line));
+  box-shadow: none;
+}
+:root[data-nephele-settings="on"] .settings-sidebar-head { padding: 6px 10px 0; }
+:root[data-nephele-settings="on"] .settings-search { margin: 0 4px; width: calc(100% - 8px); }
+:root[data-nephele-settings="on"] .settings-catalog {
+  display: flex;
+  flex-direction: row;
+  gap: 4px;
+  max-height: none;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 0 3px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--nephele-accent) 32%, transparent) transparent;
+}
+:root[data-nephele-settings="on"] .settings-nav-item {
+  position: relative;
+  flex: 1 0 auto;
+  width: auto;
+  min-width: 96px;
+  min-height: 44px;
+  padding: 10px 14px;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  box-shadow: none;
+}
+:root[data-nephele-settings="on"] .settings-nav-item-copy b { font-size: calc(12px * var(--ui-text-scale)); font-weight: 600; }
+:root[data-nephele-settings="on"] .settings-nav-item[hidden],
+:root[data-nephele-settings="on"] .settings-catalog[hidden] { display: none !important; }
+:root[data-nephele-settings="on"] .settings-nav-item-copy small,
+:root[data-nephele-settings="on"] .settings-nav-ico,
+:root[data-nephele-settings="on"] .settings-nav-chevron,
+:root[data-nephele-settings="on"] .settings-acc-head,
+:root[data-nephele-settings="on"] .settings-acc-collapse { display: none; }
+:root[data-nephele-settings="on"] .settings-nav-item:hover,
+:root[data-nephele-settings="on"] .settings-nav-item.on {
+  color: var(--nephele-accent);
+  background: color-mix(in srgb, var(--nephele-accent) 10%, transparent);
+}
+:root[data-nephele-settings="on"] .settings-nav-item:focus-visible { outline: 2px solid var(--nephele-accent); outline-offset: -2px; }
+:root[data-nephele-settings="on"] .settings-nav-item.on::after {
+  content: "";
+  position: absolute;
+  bottom: 1px;
+  left: calc(50% - 16px);
+  width: 32px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--nephele-accent);
+}
+:root[data-nephele-settings="on"] .settings-acc-body { padding: 0; }
+:root[data-nephele-settings="on"] .settings-acc + .settings-acc { margin-top: 0; }
+:root[data-nephele-settings="on"] .settings-section > .card {
+  padding: 24px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, #a680bd 22%, var(--line));
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 4px 16px #6644780d;
+}
+:root[data-nephele-settings="on"] .settings-section h2 { color: var(--nephele-accent); }
+:root[data-nephele-settings="on"] .settings-section .setting-row { border-bottom-color: color-mix(in srgb, var(--line) 65%, transparent); }
+:root[data-nephele-settings="on"] .settings-section :is(.switch.on, .switch:checked) { background: var(--nephele-accent); }
+:root[data-nephele-settings="on"] .settings-section :is(input, select, textarea):focus-visible { outline-color: var(--nephele-accent); }
+@media (max-width: 800px) {
+  :root[data-nephele-settings="on"] .settings-nav-item { min-width: 84px; padding-inline: 10px; }
+  :root[data-nephele-settings="on"] .settings-nav-item-copy b { font-size: calc(11px * var(--ui-text-scale)); }
+  :root[data-nephele-settings="on"] .settings-section > .card { padding: 16px; }
+}

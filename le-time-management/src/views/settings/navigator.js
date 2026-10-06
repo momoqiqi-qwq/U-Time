@@ -1,4 +1,5 @@
 import { el } from "../../ui.js";
+import { reducedMotion } from "../../motion.js";
 
 // 分类图标：复用打包内 Font Awesome solid（与快捷 dock 同款根路径）。
 // 本地小助手而不是从 shell.js 引入，避免设置视图反向依赖外壳造成循环 import。
@@ -15,7 +16,7 @@ function faIcon(name) {
 // 窄屏断点与 styles.css 的 ≤980px 设置页规则保持一致。
 const NARROW_QUERY = "(max-width: 980px)";
 
-export function createSettingsNavigator(entries, state = {}, { pages = false, onPageChange = () => {} } = {}) {
+export function createSettingsNavigator(entries, state = {}, { pages = false, tabs = false, onPageChange = () => {} } = {}) {
   const search = el("input", {
     class: "settings-search",
     type: "search",
@@ -93,10 +94,11 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, on
   }
 
   const paintPage = ({ animate = false } = {}) => {
+    if (tabs && reducedMotion()) animate = false;
     const isNarrow = !!narrow.matches;
     if (pages) {
-      node.hidden = Boolean(state.page);
-      onPageChange(entries.find((entry) => entry.id === state.page) || null);
+      node.hidden = !tabs && Boolean(state.page);
+      onPageChange(tabs ? null : entries.find((entry) => entry.id === state.page) || null);
     }
     for (const entry of entries) {
       const view = heads.get(entry.id);
@@ -105,9 +107,9 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, on
       const isActive = entry.id === active && visible;
       entry.node.classList.toggle("settings-section-active", isActive);
       // 窄屏：全部分区都在页面上，收放只看 expanded；桌面：只显示当前分类
-      const open = pages ? entry.id === state.page : isNarrow ? visible && expanded.has(entry.id) : isActive;
+      const open = tabs ? isActive : pages ? entry.id === state.page : isNarrow ? visible && expanded.has(entry.id) : isActive;
       if (open) entry.ensure?.();
-      view.wrap.hidden = pages ? (state.page ? !open : !visible) : isNarrow ? !visible : !isActive;
+      view.wrap.hidden = tabs ? !isActive : pages ? (state.page ? !open : !visible) : isNarrow ? !visible : !isActive;
       if (pages) {
         view.head.hidden = open;
         view.head.removeAttribute("aria-expanded");
@@ -133,6 +135,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, on
       btn.classList.toggle("on", on);
       btn.setAttribute("aria-selected", String(on));
       btn.tabIndex = on ? 0 : -1;
+      if (tabs && on && !btn.hidden) btn.scrollIntoView?.({ block: "nearest", inline: "nearest", behavior: "auto" });
     }
   };
 
@@ -154,7 +157,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, on
     if (pages) {
       const scroller = node.closest(".settings-modal-body");
       if (scroller) scroller.scrollTop = 0;
-    } else if (narrow.matches && !wasExpanded) {
+    } else if (!tabs && narrow.matches && !wasExpanded) {
       const view = heads.get(id);
       requestAnimationFrame(() => view?.wrap?.scrollIntoView?.({ block: "start", behavior: animate ? "smooth" : "auto" }));
     }
@@ -171,6 +174,15 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, on
         "aria-controls": `settings-${entry.id}`,
         "aria-selected": String(active === entry.id),
         onclick: () => select(entry.id),
+        onkeydown: (event) => {
+          if (!tabs || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          const ids = [...visibleIds];
+          const at = ids.indexOf(entry.id);
+          const next = event.key === "Home" ? ids[0] : event.key === "End" ? ids.at(-1) : ids[(at + (event.key === "ArrowRight" ? 1 : -1) + ids.length) % ids.length];
+          event.preventDefault();
+          select(next);
+          buttons.get(next)?.focus({ preventScroll: true });
+        },
       },
         el("span", { class: "settings-nav-ico", "aria-hidden": "true" }, faIcon(entry.icon || "gear")),
         el("span", { class: "settings-nav-item-copy" },
@@ -253,7 +265,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, on
   );
 
   function back() {
-    if (!pages || !state.page) return false;
+    if (tabs || !pages || !state.page) return false;
     const previous = state.page;
     state.page = "";
     paintPage();
@@ -279,5 +291,12 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, on
   let disposed = false;
   const dispose = () => { if (disposed) return; disposed = true; narrow.removeEventListener?.("change", onModeChange); };
   node._back = back;
-  return { node, apply, select, panels, dispose };
+  function setTabs(value) {
+    if (disposed || tabs === Boolean(value)) return;
+    tabs = Boolean(value);
+    if (!tabs && pages && state.page) state.page = active;
+    paintActive();
+    paintPage();
+  }
+  return { node, apply, select, panels, dispose, setTabs };
 }

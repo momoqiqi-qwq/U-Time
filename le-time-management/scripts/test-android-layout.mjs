@@ -336,7 +336,7 @@ assert.match(accHeadBase, /display:\s*none/, "桌面必须隐藏标题行，分�
 
 const navigatorSrc = read("../src/views/settings/navigator.js");
 assert.match(navigatorSrc, /class:\s*"settings-acc-arrow"/, "每个分区标题行都要有方向箭头");
-assert.match(navigatorSrc, /return \{ node, apply, select, panels, dispose \}/,
+assert.match(navigatorSrc, /return \{ node, apply, select, panels, dispose, setTabs \}/,
   "navigator 必须把 panels 暴露出去");
 assert.match(read("../src/views/settings.js"), /\.\.\.settingsNavigator\.panels/,
   "设置视图要渲染 navigator 给的 panels，否则手风琴结构根本不生效");
