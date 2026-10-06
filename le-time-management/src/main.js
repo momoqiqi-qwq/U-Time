@@ -6,6 +6,7 @@ import { api } from "./api.js";
 import { initTheme } from "./theme.js";
 import { initUiPreferences, getUiPreferences } from "./uiPreferences.js";
 import { initUiScale } from "./uiScale.js";
+import { initNepheleBackground } from "./nepheleBackground.js";
 import { applyWindowSize } from "./windowSize.js";
 import { applyTouchZoomViewport } from "./mobileViewport.js";
 import { initTaskReminders } from "./taskReminder.js";
@@ -43,6 +44,7 @@ async function boot() {
   await initStore(seed());
   initTheme();
   initUiPreferences();
+  initNepheleBackground();
   // 界面缩放的 resize 监听必须无条件挂上（即使当前是 100%）：用户随后在设置里调大缩放时，
   // --ui-vw/--ui-vh 需要跟着窗口尺寸重算，不能等到下次启动才生效。
   // 缩放值本身已由 initUiPreferences → applyUiPreferences → applyUiScale 套用，

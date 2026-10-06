@@ -28,6 +28,8 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   // 实现与三个坑见 src/uiScale.js 头部注释 —— 改这个字段前先读那一页。
   uiScale: DEFAULT_UI_SCALE,
   motion: "system",
+  nepheleBackground: false,
+  nepheleSettings: false,
   // 保持历史行为：老用户升级后仍交给系统浏览器；显式开启才走应用内网页窗口。
   openLinksInApp: false,
   swipeNavigation: true,
@@ -123,6 +125,8 @@ export function normalizeUiPreferences(raw = {}) {
   next.textScale = Math.round(clamp(next.textScale, TEXT_SCALE_LIMITS.min, TEXT_SCALE_LIMITS.max) / TEXT_SCALE_LIMITS.step) * TEXT_SCALE_LIMITS.step;
   next.uiScale = normalizeUiScale(next.uiScale);
   next.openLinksInApp = next.openLinksInApp === true;
+  next.nepheleBackground = next.nepheleBackground === true;
+  next.nepheleSettings = next.nepheleSettings === true;
   next.swipeNavigation = next.swipeNavigation !== false;
   next.showTopStats = next.showTopStats !== false;
   // v0.57.0 起 centerTopStats 默认 true：只有显式 false 才算关（缺省 = 开）。
@@ -151,6 +155,8 @@ export function applyUiPreferences(raw = null, { animate = false } = {}) {
   const root = document.documentElement;
   root.dataset.uiDensity = cfg.density;
   root.dataset.uiMotion = cfg.motion;
+  root.dataset.nepheleBackground = cfg.nepheleBackground ? "on" : "off";
+  root.dataset.nepheleSettings = cfg.nepheleSettings ? "on" : "off";
   root.dataset.openLinksInApp = cfg.openLinksInApp ? "on" : "off";
   // 注意：dataset.navbar 才生成 data-navbar；写成 dataset.navBar 会变成 data-nav-bar，
   // CSS 的 :root[data-navbar=…] 选择器就匹配不上了

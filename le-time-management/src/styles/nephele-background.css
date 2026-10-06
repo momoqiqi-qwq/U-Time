@@ -1,0 +1,49 @@
+/* 独立背景材质，不覆盖主题令牌、按钮或文字配色。 */
+:root[data-nephele-background="on"] body { isolation: isolate; }
+.nephele-background {
+  position: fixed; top: 0; left: 0;
+  width: var(--ui-vw, 100vw); height: var(--ui-vh, 100dvh);
+  z-index: -1; overflow: hidden; pointer-events: none;
+  background: #eee8f1;
+  --cloud-blue: #7f9cf55c; --cloud-mint: #a8d8c850; --cloud-purple: #c498d36b;
+  --cloud-pink: #f0a0a05c; --cloud-gold: #d4a57440;
+  --star-color: #9e72be; --dust-color: #aa72c6;
+}
+:root[data-theme-mode="dark"] .nephele-background {
+  background: #48405a;
+  --cloud-blue: #67749e47; --cloud-mint: #7f98951f; --cloud-purple: #aa7cbc52;
+  --cloud-pink: #b97d9e33; --cloud-gold: #be927426;
+  --star-color: #f4e4ff; --dust-color: #dca0ef;
+}
+.nephele-cloud-x { position: absolute; inset: -20%; animation: nephele-cloud-x 12.5s ease-in-out infinite alternate; }
+.nephele-cloud-y {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 15% 15%,var(--cloud-blue),transparent 45%),
+    radial-gradient(circle at 82% 8%,var(--cloud-mint),transparent 35%),
+    radial-gradient(circle at 45% 30%,var(--cloud-purple),transparent 50%),
+    radial-gradient(circle at 8% 55%,var(--cloud-blue),transparent 40%),
+    radial-gradient(circle at 55% 65%,var(--cloud-pink),transparent 40%),
+    radial-gradient(circle at 20% 85%,var(--cloud-gold),transparent 30%),
+    radial-gradient(circle at 78% 80%,var(--cloud-purple),transparent 38%);
+  animation: nephele-cloud-y 17.5s ease-in-out infinite alternate;
+}
+.nephele-star,.nephele-dust { position: absolute; left: var(--x); top: var(--y); width: var(--size); height: var(--size); border-radius: 50%; }
+.nephele-star { background: var(--star-color); opacity: .45; animation: nephele-twinkle 4s ease-in-out var(--phase) infinite alternate; }
+.nephele-dust { background: var(--dust-color); opacity: .22; box-shadow: 0 0 5px var(--dust-color); clip-path: polygon(50% 0,62% 38%,100% 50%,62% 62%,50% 100%,38% 62%,0 50%,38% 38%); animation: nephele-dust var(--duration) ease-in-out var(--phase) infinite; }
+.nephele-background[data-state="paused"] * { animation-play-state: paused; }
+@keyframes nephele-cloud-x { from { transform: translateX(-7%); } to { transform: translateX(7%); } }
+@keyframes nephele-cloud-y { from { transform: translateY(-6%); } to { transform: translateY(6%); } }
+@keyframes nephele-twinkle { from { opacity: .08; } to { opacity: .65; } }
+@keyframes nephele-dust {
+  0% { transform: translate(0,28px) scale(.5) rotate(0); opacity: 0; }
+  20% { opacity: .25; }
+  70% { opacity: .2; }
+  100% { transform: translate(22px,-55px) scale(.3) rotate(90deg); opacity: 0; }
+}
+/* 对话页的紫色底保留为透光薄层，显示同一背景，关闭后仍回到原样。 */
+:root[data-nephele-background="on"] .aichat { background: linear-gradient(120deg,#51435e99,#48425cb3); }
+:root[data-nephele-background="on"] .aichat::before { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-ui-motion="full"]) .nephele-background * { animation-play-state: paused; }
+}

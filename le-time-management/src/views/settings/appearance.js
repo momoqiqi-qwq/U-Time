@@ -23,7 +23,7 @@ import { toggleSwitch } from "../../switchControl.js";
 function toggleRow(label, checked, onChange) {
   return el("div", { class: "setting-row" },
     el("span", { class: "setting-copy" }, el("b", {}, label)),
-    toggleSwitch({ checked, onChange }),
+    toggleSwitch({ checked, onChange, ariaLabel: label }),
   );
 }
 
@@ -472,6 +472,8 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
       uiScaleHint,
     ),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "页面动效")), motion),
+    toggleRow("Nephele 云雾与星尘背景", prefs.nepheleBackground, (value) => setUiPreferences({ nepheleBackground: value })),
+    toggleRow("Nephele 风格设置界面", prefs.nepheleSettings, (value) => setUiPreferences({ nepheleSettings: value })),
     toggleRow("应用内打开网页", prefs.openLinksInApp, (value) => {
       setUiPreferences({ openLinksInApp: value });
       toast(value ? "网页将优先在 U-Time 内打开" : "网页将交给系统默认浏览器打开");
