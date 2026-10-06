@@ -748,6 +748,29 @@ context.navigator = {};
 await jwExportGrades();
 assert.ok(drawn.includes('成绩单') && drawn.some((s) => s.includes('平均分')), '导出图应含 APK 的标题和成绩汇总');
 assert.ok(saved.some(([name, data]) => name.startsWith('成绩单-') && data === 'UE5H'), '成绩图片应通过宿主下载桥落盘');
+// 桌面端 WebView 有导航器分享接口但不支持分享文件，必须直接走落盘，不能弹空面板把兜底截胡。
+{
+  const before = saved.length;
+  let shared = 0;
+  context.navigator = { share: async () => { shared++; } };
+  await jwExportGrades();
+  assert.equal(shared, 0, '没有 canShare 时不得调用 navigator.share（桌面端会挂出空白共享面板）');
+  assert.equal(saved.length, before + 1, '没有 canShare 必须回落到宿主下载桥保存');
+  context.navigator = { share: async () => { shared++; }, canShare: () => false };
+  await jwExportGrades();
+  assert.equal(shared, 0, 'canShare 明确返回 false 时不得调用 navigator.share');
+  assert.equal(saved.length, before + 2, 'canShare 返回 false 必须回落到宿主下载桥保存');
+  context.navigator = { share: async () => { shared++; }, canShare: () => true };
+  await jwExportGrades();
+  assert.equal(shared, 1, 'canShare 返回 true 时应走原生分享');
+  assert.equal(saved.length, before + 2, '走原生分享时不再重复落盘');
+  context.navigator = {};
+  // 用户取消分享（AbortError）静默返回，不落盘也不报错。
+  context.navigator = { share: async () => { const e = new Error('abort'); e.name = 'AbortError'; throw e; }, canShare: () => true };
+  await jwExportGrades();
+  assert.equal(saved.length, before + 2, '用户取消分享不应再落盘');
+  context.navigator = {};
+}
 jwState.data.grade.push({ KCMC: '<img src=x onerror=alert(1)>', XF: 1, JD: 2, ZPCJ: 66, XNXQ: '20262027-2' });
 gradePage = jwGradesHtml();
 assert.ok(!gradePage.includes('<img src=x'), '成绩接口返回的课程名必须转义');

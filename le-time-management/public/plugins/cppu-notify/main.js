@@ -2570,7 +2570,12 @@
     if (!blob) { tide.notify("图片生成失败"); return; }
     const name = `成绩单-${new Date().toISOString().slice(0, 10)}.png`;
     const file = new File([blob], name, { type: "image/png" });
-    if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+    // 只信 canShare 的正向结论：桌面端 WebView 里 navigator.share 存在但没实现文件分享，
+    // 直接调用会弹出空白的系统共享面板且永不 reject，把下面的落盘兜底整个截胡。
+    const canShareFile = typeof navigator.canShare === "function"
+      && typeof navigator.share === "function"
+      && navigator.canShare({ files: [file] });
+    if (canShareFile) {
       try { await navigator.share({ files: [file], title: "分享成绩单" }); return; } catch (e) { if (e?.name === "AbortError") return; }
     }
     // Android / Tauri WebView 的 <a download> 不可靠，落盘走宿主已有的下载桥。
