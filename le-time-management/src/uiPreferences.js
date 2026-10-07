@@ -43,7 +43,7 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   notifyStack: true,
   // 设置中心的辅助说明：默认显示；“无描述”预设只隐藏说明，不影响标题、控件和状态反馈。
   showSettingsDescriptions: true,
-  // auto 保留升级前的布局；用户在设置底部选择后固定为顶部或左侧。
+  // auto 保留升级前的布局；用户在设置底部选择后固定为顶部、左侧或右侧。
   settingsNavPosition: "auto",
   startupView: "last",
   // 手机底栏高度档位：紧凑 40px / 标准 46px / 宽松 54px（按钮最小高，CSS 变量消费）
@@ -139,7 +139,7 @@ export function normalizeUiPreferences(raw = {}) {
   next.showViewSubtitle = next.showViewSubtitle !== false;
   next.notifyStack = next.notifyStack !== false;
   next.showSettingsDescriptions = next.showSettingsDescriptions !== false;
-  if (!["auto", "top", "left"].includes(next.settingsNavPosition)) next.settingsNavPosition = "auto";
+  if (!["auto", "top", "left", "right"].includes(next.settingsNavPosition)) next.settingsNavPosition = "auto";
   if (!WINDOW_SIZE_MODES_SET.has(next.startupWindowMode)) next.startupWindowMode = DEFAULT_UI_PREFERENCES.startupWindowMode;
   next.startupWindowWidth = Math.round(clamp(next.startupWindowWidth, CUSTOM_SIZE_LIMITS.minWidth, CUSTOM_SIZE_LIMITS.maxWidth));
   next.startupWindowHeight = Math.round(clamp(next.startupWindowHeight, CUSTOM_SIZE_LIMITS.minHeight, CUSTOM_SIZE_LIMITS.maxHeight));

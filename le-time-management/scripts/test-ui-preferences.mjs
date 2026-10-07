@@ -3,7 +3,7 @@ import { DEFAULT_UI_PREFERENCES, TEXT_SCALE_LIMITS, normalizeUiPreferences } fro
 
 assert.deepEqual(normalizeUiPreferences({}), DEFAULT_UI_PREFERENCES);
 assert.equal(normalizeUiPreferences({}).settingsNavPosition, "auto");
-for (const position of ["top", "left"]) {
+for (const position of ["top", "left", "right"]) {
   assert.equal(normalizeUiPreferences({ settingsNavPosition: position }).settingsNavPosition, position);
 }
 for (const position of [null, "bottom", true]) {

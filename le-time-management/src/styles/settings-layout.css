@@ -28,18 +28,31 @@
   display: inline-block;
   font-size: calc(20px * var(--ui-text-scale));
   line-height: 1;
+  transition: transform 220ms cubic-bezier(.16,1,.3,1), color 180ms ease;
 }
 .settings-layout-button[data-next-position="top"] .settings-layout-arrow { transform: rotate(90deg); }
+.settings-layout-button[data-next-position="right"] .settings-layout-arrow { transform: rotate(180deg); }
+.settings-layout-switching .settings-content,
+.settings-layout-switching .settings-sidebar-head,
+.settings-layout-switching .settings-search,
+.settings-layout-switching .settings-nav-item {
+  will-change: transform, opacity;
+}
+.settings-layout.settings-layout-switching .settings-catalog { overflow: visible; }
+.settings-layout-switching .settings-catalog .selection-glow { visibility: hidden; }
+.settings-layout.settings-layout-switching .settings-nav-item.on {
+  background: color-mix(in srgb, var(--deep) 9%, var(--panel));
+}
 
-:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-layout { display: grid; min-width: 0; }
-:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-sidebar { min-width: 0; }
-:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-nav-card { display: grid; position: static; margin: 0; }
-:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-catalog { display: flex; min-width: 0; }
-:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-catalog[hidden],
-:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-nav-item[hidden] { display: none !important; }
-:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-acc-head,
-:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-acc-collapse { display: none; }
-:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-acc-body { padding-top: 0; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-layout { display: grid; min-width: 0; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-sidebar { min-width: 0; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-card { display: grid; position: static; margin: 0; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-catalog { display: flex; min-width: 0; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-catalog[hidden],
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-item[hidden] { display: none !important; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-acc-head,
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-acc-collapse { display: none; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-acc-body { padding-top: 0; }
 
 :root[data-settings-nav-position="top"] .settings-layout { grid-template-columns: minmax(0, 1fr); }
 :root[data-settings-nav-position="top"] .settings-sidebar { position: static; }
@@ -53,13 +66,16 @@
 }
 
 :root[data-settings-nav-position="left"] .settings-layout { grid-template-columns: minmax(180px, 224px) minmax(0, 1fr); }
-:root[data-settings-nav-position="left"] .settings-sidebar { position: sticky; top: 0; }
-:root[data-settings-nav-position="left"] .settings-catalog {
+:root[data-settings-nav-position="right"] .settings-layout { grid-template-columns: minmax(0, 1fr) minmax(180px, 224px); }
+:root[data-settings-nav-position="right"] .settings-sidebar { grid-column: 2; grid-row: 1; }
+:root[data-settings-nav-position="right"] .settings-content { grid-column: 1; grid-row: 1; }
+:root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-sidebar { position: sticky; top: 0; }
+:root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-catalog {
   flex-direction: column;
   max-height: max(120px, calc(var(--ui-vh, 100dvh) - 310px));
   overflow-x: hidden; overflow-y: auto; padding: 0 2px 0 0;
 }
-:root[data-settings-nav-position="left"] .settings-nav-item {
+:root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-item {
   flex: 0 0 auto; width: 100%; min-width: 0;
   justify-content: flex-start; white-space: normal;
 }
@@ -71,11 +87,17 @@
     padding-bottom: calc(10px + var(--sab, env(safe-area-inset-bottom, 0px)));
   }
   :root[data-settings-nav-position="left"] .settings-layout { grid-template-columns: minmax(0, 116px) minmax(0, 1fr); gap: 10px; }
-  :root[data-settings-nav-position="left"] .settings-nav-card { padding: 6px; }
-  :root[data-settings-nav-position="left"] .settings-sidebar-head { padding-inline: 0; }
-  :root[data-settings-nav-position="left"] .settings-result,
-  :root[data-settings-nav-position="left"] .settings-nav-ico,
-  :root[data-settings-nav-position="left"] .settings-nav-item-copy small,
-  :root[data-settings-nav-position="left"] .settings-nav-chevron { display: none; }
-  :root[data-settings-nav-position="left"] .settings-nav-item { padding: 8px 6px; }
+  :root[data-settings-nav-position="right"] .settings-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 116px); gap: 10px; }
+  :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-card { padding: 6px; }
+  :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-sidebar-head { padding-inline: 0; }
+  :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-result,
+  :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-ico,
+  :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-item-copy small,
+  :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-chevron { display: none; }
+  :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-item { padding: 8px 6px; }
+}
+
+:root[data-ui-motion="reduced"] .settings-layout-arrow { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-ui-motion="full"]) .settings-layout-arrow { transition: none; }
 }

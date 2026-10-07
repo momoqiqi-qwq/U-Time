@@ -4,7 +4,7 @@ import { toggleSwitch } from "../../switchControl.js";
 import { DEFAULT_TASK_PREFERENCES, getTaskPreferences, normalizeTaskPreferences } from "../../taskPreferences.js";
 
 export function createTaskSettingsCard() {
-  const card = el("div", { class: "card set-card" }, el("h2", {}, "任务与排程"));
+  const card = el("div", { class: "card set-card task-defaults-card" }, el("h2", {}, "任务与排程"));
   const paint = () => {
     const cfg = getTaskPreferences(S.getState().settings);
     const save = (key, value) => {

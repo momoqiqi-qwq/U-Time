@@ -134,7 +134,8 @@ assert.ok(!/function settingsButton\(/.test(shellJs), "旧的 settingsButton 必
 assert.ok(!/themeToggleBtn = createThemeToggle\(\)/.test(shellJs), "rail 里不得再直接塞按钮");
 
 /* ── ③ styles ── */
-const dockBlock = styles.slice(styles.indexOf(".rail-dock {"), styles.indexOf(".rail-dock-ghost {"));
+const dockStart = styles.indexOf(".rail-dock {");
+const dockBlock = styles.slice(dockStart, styles.indexOf(".rail-dock-ghost {", dockStart));
 assert.ok(dockBlock.length > 0, "没找到 .rail-dock 规则块");
 assert.match(dockBlock, /display: flex;/, "操作条必须是 flex 容器");
 assert.match(dockBlock, /flex-direction: row;/, "操作条必须横排（左右）");
@@ -143,7 +144,7 @@ assert.match(dockBlock, /flex-wrap: nowrap;/,
 
 const dockBtnRule = styles.match(/^\.rail-dock > \.rail-dock-btn \{[^}]*\}/m)?.[0] || "";
 assert.ok(dockBtnRule.length > 0, "没找到操作条按钮规则");
-assert.match(dockBtnRule, /width: 40px;/, "横排按钮必须定宽");
+assert.match(dockBtnRule, /width: 34px;/, "横排按钮必须与顶栏图标按钮保持同一定宽");
 assert.match(dockBtnRule, /flex: none;/, "按钮必须禁止伸缩（否则被 flex 拉伸变形）");
 assert.ok(!/width: 100%/.test(dockBtnRule), "反面：横排按钮不得 width:100%（会把整条撑成一颗超宽按钮）");
 
@@ -151,11 +152,14 @@ assert.match(styles, /\.rail-dock-ghost \{[\s\S]{0,400}?position: fixed;/,
   "幽灵卡必须 fixed 定位（不受 .rail 的 flex 布局影响）");
 assert.match(styles, /\.rail-dock > \.rail-dock-btn\.dragging \{ opacity: \.3;/,
   "被拖按钮必须留成半透明空槽");
-assert.match(styles, /\.rail-dock-ghost \.ic \{[\s\S]{0,300}?color-mix\(in srgb, var\(--panel\) 86%, transparent\)/,
-  "幽灵卡图标底色必须跟随主题（与 .rail-bottom > button .ic 同表达式）");
+const ghostRule = styles.match(/^\.rail-dock-ghost \{[^}]*\}/m)?.[0] || "";
+assert.match(ghostRule, /background: color-mix\(in srgb, var\(--deep\) 8%, var\(--panel\)\);/,
+  "拖拽副本必须使用与顶栏按钮相同的主题底色");
+assert.match(styles, /\.rail-dock-ghost \.ic \{[^}]*background: transparent;/,
+  "拖拽副本不得恢复旧的内层图标底色");
 
 // 窄屏还原：`.rail-dock > .rail-dock-btn`(0,2,0) 压得过 `.rail-bottom > button`(0,1,1)，
-// 不还回去底栏就只剩两颗 40px 的钮挤在左侧。
+// 不还回去底栏就只剩两颗定宽钮挤在左侧。
 const narrowBlock = styles.slice(styles.lastIndexOf("@media (max-width: 760px)"));
 assert.ok(narrowBlock.length > 0, "没找到文件末尾的窄屏媒体查询");
 assert.match(narrowBlock, /\.rail-bottom\.rail-dock > \.rail-dock-btn \{ width: auto; flex: 1; min-width: 0; \}/,

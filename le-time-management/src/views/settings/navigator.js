@@ -132,7 +132,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
   };
 
   const paintActive = () => {
-    list.setAttribute("aria-orientation", document.documentElement.dataset.settingsNavPosition === "left" ? "vertical" : "horizontal");
+    list.setAttribute("aria-orientation", ["left", "right"].includes(document.documentElement.dataset.settingsNavPosition) ? "vertical" : "horizontal");
     for (const [id, btn] of buttons) {
       const on = id === active;
       btn.classList.toggle("on", on);
@@ -179,7 +179,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
         "aria-selected": String(active === entry.id),
         onclick: () => select(entry.id),
         onkeydown: (event) => {
-          const vertical = document.documentElement.dataset.settingsNavPosition === "left";
+          const vertical = ["left", "right"].includes(document.documentElement.dataset.settingsNavPosition);
           const previousKey = vertical ? "ArrowUp" : "ArrowLeft";
           const nextKey = vertical ? "ArrowDown" : "ArrowRight";
           if (!tabs || ![previousKey, nextKey, "Home", "End"].includes(event.key)) return;

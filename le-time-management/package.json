@@ -1,7 +1,7 @@
 {
   "name": "le-time-management",
   "private": true,
-  "version": "0.163.5",
+  "version": "0.164.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

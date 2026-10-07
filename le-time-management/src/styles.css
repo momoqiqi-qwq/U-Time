@@ -4450,32 +4450,44 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
    原「统计居中时 761~1280px 把搜索折成图标」的媒体块随结构一并移除。 */
 
 .rail-bottom > .settings-icon-button {
-  width: 40px;
-  min-height: 40px;
+  width: 34px;
+  min-height: 34px;
   justify-content: center;
-  padding: 4px;
-  margin: 0 auto 2px;
+  padding: 0;
+  margin: 0 auto 4px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-2);
 }
 .rail-bottom > .settings-icon-button .lb { display: none; }
 .rail-bottom > .settings-icon-button .ic {
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
+  width: 34px;
+  height: 34px;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+}
+.rail-bottom > .settings-icon-button.on .ic { background: transparent; }
+.rail-bottom > .settings-icon-button:hover,
+.rail-bottom > .settings-icon-button.on {
+  color: var(--deep);
+  background: color-mix(in srgb, var(--deep) 8%, var(--panel));
 }
 .rail-bottom > .settings-icon-button .ic .app-outline-icon {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 15px;
+  height: 15px;
   fill: currentColor;
 }
-.rail-bottom > .settings-icon-button .ic .app-icon { width: 18px; height: 18px; }
+.rail-bottom > .settings-icon-button .ic .app-icon { width: 15px; height: 15px; }
 /* v0.52.2：左下角深浅色切换按钮，与设置图标按钮共享 .settings-icon-button 尺寸，
    但图标用 Font Awesome SVG（.fa-ic）而非 .app-icon（PNG <img>），需要单独给尺寸。
    v0.69.0：缩放视图按钮同理（compress / expand 也是 .fa-ic）。 */
 .rail-bottom > .theme-toggle-btn .ic .fa-ic,
 .rail-bottom > .window-focus-btn .ic .fa-ic {
-  width: 18px;
-  height: 18px;
+  width: 15px;
+  height: 15px;
   fill: currentColor;
   display: block;
 }
@@ -4491,11 +4503,11 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
    （3 类 1 元素），只写 .rail-dock-btn.on 压不过它，激活态会被染成太阳黄。 */
 .rail-dock > .rail-dock-btn.window-focus-btn.on {
   color: var(--deep);
-  background: color-mix(in srgb, var(--deep) 12%, transparent);
+  background: color-mix(in srgb, var(--deep) 8%, var(--panel));
 }
 .rail-dock > .rail-dock-btn.window-focus-btn.on .ic {
-  background: var(--deep);
-  color: var(--paper);
+  background: transparent;
+  color: inherit;
 }
 /* v0.81.0：compress / expand 在深色下都用白色，包含按下态与拖拽副本。 */
 :root[data-theme-mode="dark"] .rail-dock > .rail-dock-btn.window-focus-btn .ic,
@@ -4504,7 +4516,7 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 }
 :root[data-theme-mode="dark"] .rail-dock > .rail-dock-btn.window-focus-btn.on .ic,
 :root[data-theme-mode="dark"] .rail-dock-ghost.window-focus-btn.on .ic {
-  background: color-mix(in srgb, var(--deep) 22%, var(--panel));
+  background: transparent;
 }
 
 /* ── 应用内对话框（appPrompt / appConfirm，替代原生 window.prompt/confirm）── */
@@ -4880,6 +4892,14 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   .topbar-reference .topbar-action-card > .top-logs-trigger,
   .topbar-reference .topbar-action-card > .top-theme-toggle { height: 26px; border-radius: 8px;
     background: color-mix(in srgb, var(--ink) 5%, var(--panel)); }
+  .app:has(.topbar-reference) .rail-bottom > .settings-icon-button {
+    height: 26px;
+    min-height: 26px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--ink) 5%, var(--panel));
+  }
+  .app:has(.topbar-reference) .rail-bottom > .settings-icon-button .ic { height: 26px; }
+  body:has(.topbar-reference) .rail-dock-ghost { border-radius: 8px; }
 }
 
 /* v0.151.1 · 图 1 的更新页面：固定黑色外观，不随宿主主题改成通用弹窗。 */

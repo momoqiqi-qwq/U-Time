@@ -252,6 +252,169 @@
 :root[data-nephele-settings="on"] .settings-section .setting-row { border-bottom-color: color-mix(in srgb, var(--line) 65%, transparent); }
 :root[data-nephele-settings="on"] .settings-section :is(.switch.on, .switch:checked) { background: var(--nephele-accent); }
 :root[data-nephele-settings="on"] .settings-section :is(input, select, textarea):focus-visible { outline-color: var(--nephele-accent); }
+
+/* 设置值：留白分行，数值靠右；编辑时才显出底色。只处理单值控件，
+   多选列表、文本区域和组合设置保留原来的布局。 */
+:root[data-nephele-settings="on"] .settings-section .setting-row {
+  min-height: 54px;
+  padding-block: 9px;
+  border-bottom: 0;
+}
+:root[data-nephele-settings="on"] .settings-section .setting-copy {
+  min-width: 0;
+}
+:root[data-nephele-settings="on"] .settings-section .setting-copy b {
+  font-weight: 500;
+}
+:root[data-nephele-settings="on"] .settings-section .setting-row :is(
+  select:not([multiple]):not([size]), input[type="number"], input[type="time"]
+) {
+  min-height: 36px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+:root[data-nephele-settings="on"] .settings-section .setting-row select:not([multiple]):not([size]) {
+  text-align: end;
+  text-align-last: end;
+  cursor: pointer;
+}
+:root[data-nephele-settings="on"] .settings-section .setting-row input[type="number"] {
+  text-align: end;
+}
+:root[data-nephele-settings="on"] .settings-section .setting-row input[type="time"] {
+  width: 116px;
+  text-align: end;
+}
+:root[data-nephele-settings="on"] .settings-section input[type="time"]::-webkit-datetime-edit {
+  padding: 0;
+}
+:root[data-nephele-settings="on"] .settings-section input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: .7;
+  margin-inline-start: 8px;
+}
+:root[data-nephele-settings="on"] .settings-section .setting-row :is(
+  select:not([multiple]):not([size]), input[type="number"], input[type="time"]
+):hover:not(:disabled):not(:focus) {
+  background: var(--active-bg) !important;
+  color: var(--ink);
+}
+:root[data-nephele-settings="on"] .settings-section .setting-row :is(select, input):disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+:root[data-nephele-settings="on"] .settings-section .switch {
+  --switch-w: 40px;
+  --switch-h: 22px;
+  margin-top: 0;
+}
+
+/* 原生可定制 select：保留 change、键盘、表单与系统的弹层定位/关闭逻辑。
+   不支持 base-select 的 WebView 完整保留原生箭头和系统菜单。 */
+@supports (appearance: base-select) {
+  :root[data-nephele-settings="on"] .settings-section select:not([multiple]):not([size]),
+  :root[data-nephele-settings="on"] .settings-section select:not([multiple]):not([size])::picker(select) {
+    appearance: base-select;
+  }
+  :root[data-nephele-settings="on"] .settings-section select:not([multiple]):not([size]) {
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+  }
+  :root[data-nephele-settings="on"] .settings-section .setting-row select:not([multiple]):not([size]) {
+    justify-content: flex-end;
+  }
+  :root[data-nephele-settings="on"] .settings-section select::picker-icon {
+    content: "";
+    width: 7px;
+    height: 7px;
+    margin: 0 3px 3px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    opacity: .7;
+  }
+  :root[data-nephele-settings="on"] .settings-section select:open::picker-icon {
+    transform: translateY(3px) rotate(225deg);
+  }
+  :root[data-nephele-settings="on"] .settings-section select::picker(select) {
+    padding: 6px;
+    margin-block: 6px;
+    max-block-size: min(320px, 50dvh);
+    max-inline-size: calc(100vw - 32px);
+    overflow: auto;
+    border: 1px solid var(--nephele-edge);
+    border-radius: 14px;
+    background: var(--panel);
+    color: var(--ink-2);
+    box-shadow: var(--shadow-lg);
+    font: inherit;
+    text-align: start;
+    scrollbar-width: thin;
+  }
+  :root[data-nephele-settings="on"] .settings-section select option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 38px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  :root[data-nephele-settings="on"] .settings-section select option:is(:hover, :focus) {
+    background: var(--hover-bg);
+    color: var(--ink);
+    outline: none;
+  }
+  :root[data-nephele-settings="on"] .settings-section select option:checked {
+    background: var(--active-bg);
+    color: var(--deep);
+    font-weight: 600;
+  }
+  :root[data-nephele-settings="on"] .settings-section select option::checkmark {
+    order: 1;
+    margin-inline-start: auto;
+    color: var(--deep);
+  }
+  :root[data-nephele-settings="on"] .settings-section select option:disabled {
+    opacity: .55;
+  }
+}
+
+/* 任务默认值都是短标签 + 单值，在手机上也保持两列；复杂设置继续沿用纵排。 */
+@media (max-width: 760px) {
+  :root[data-nephele-settings="on"] .task-defaults-card .setting-row {
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+  :root[data-nephele-settings="on"] .task-defaults-card .setting-copy {
+    flex: 1;
+  }
+  :root[data-nephele-settings="on"] .settings-section .task-defaults-card .setting-row > select:not([multiple]):not([size]) {
+    max-width: 55%;
+    min-width: 0;
+  }
+  :root[data-nephele-settings="on"] .task-defaults-card .volume-row {
+    width: auto;
+    flex-wrap: nowrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+}
+@media (pointer: coarse) {
+  :root[data-nephele-settings="on"] .settings-section .setting-row :is(select:not([multiple]):not([size]), input[type="number"], input[type="time"]) {
+    min-height: 44px;
+  }
+  :root[data-nephele-settings="on"] .settings-section select option {
+    min-height: 44px;
+  }
+}
 @media (max-width: 800px) {
   :root[data-nephele-settings="on"] .settings-nav-item { min-width: 84px; padding-inline: 10px; }
   :root[data-nephele-settings="on"] .settings-nav-item-copy b { font-size: calc(11px * var(--ui-text-scale)); }

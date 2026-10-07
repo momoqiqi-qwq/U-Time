@@ -38,7 +38,7 @@
 }
 :root[data-nephele-settings="on"] .settings-catalog.has-selection-glow .settings-nav-item.on,
 :root[data-nephele-settings="on"] .settings-catalog.has-selection-glow .settings-nav-item.on:hover { background: transparent; }
-:root[data-nephele-settings="on"]:not([data-settings-nav-position="left"]) .settings-catalog .selection-glow::after,
+:root[data-nephele-settings="on"]:not([data-settings-nav-position="left"]):not([data-settings-nav-position="right"]) .settings-catalog .selection-glow::after,
 :root[data-settings-nav-position="top"] .settings-catalog .selection-glow::after {
   content: "";
   position: absolute;
@@ -51,6 +51,9 @@
 }
 :root[data-settings-nav-position="left"] .settings-catalog .selection-glow {
   box-shadow: inset 3px 0 0 var(--deep);
+}
+:root[data-settings-nav-position="right"] .settings-catalog .selection-glow {
+  box-shadow: inset -3px 0 0 var(--deep);
 }
 
 .pref-choice .selection-glow {

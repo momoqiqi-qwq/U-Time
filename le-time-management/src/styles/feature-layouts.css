@@ -163,7 +163,7 @@
 /* 横排后按钮不再撑满整行：定宽 + 禁止伸缩（否则会被 flex 拉伸变形）。
    touch-action:none —— 按钮上没有任何滚动/缩放手势，横向拖动完全交给指针拖拽。 */
 .rail-dock > .rail-dock-btn {
-  width: 40px;
+  width: 34px;
   flex: none;
   margin: 0;
   touch-action: none;
@@ -174,18 +174,20 @@
 /* 被按住的那颗留在流里当「空槽」占位，半透明表示它已经浮起来了 */
 .rail-dock > .rail-dock-btn.dragging { opacity: .3; cursor: grabbing; }
 /* 幽灵卡：跟随指针的副本。它挂在 body 下 ⇒ 拿不到 `.rail-bottom > …` 那批后代规则，
-   尺寸由 JS 按原按钮 rect 写死，`.ic` 的视觉在这里补齐（背景表达式与上方
-   `.rail-bottom > button .ic` 保持一致，跟随主题）。 */
+   尺寸由 JS 按原按钮 rect 写死，视觉与操作条按钮保持一致。 */
 .rail-dock-ghost {
   position: fixed;
   left: 0;
   top: 0;
   z-index: 1200;
   margin: 0;
-  padding: 4px;
+  padding: 0;
   box-sizing: border-box;
   border: 0;
-  background: transparent;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--deep) 8%, var(--panel));
+  color: var(--ink);
+  box-shadow: 0 10px 24px rgba(8, 20, 26, .42);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -195,18 +197,19 @@
   will-change: transform;
 }
 .rail-dock-ghost .ic {
-  width: 28px;
-  height: 28px;
-  border-radius: 9px;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--panel) 86%, transparent);
-  box-shadow: 0 10px 24px rgba(8, 20, 26, .42);
+  background: transparent;
+  color: inherit;
 }
-.rail-dock-ghost .ic .app-icon { width: 18px; height: 18px; }
-.rail-dock-ghost .ic .fa-ic { width: 18px; height: 18px; fill: currentColor; display: block; }
+.rail-dock-ghost .ic .app-icon,
+.rail-dock-ghost .ic .app-outline-icon { width: 15px; height: 15px; }
+.rail-dock-ghost .ic .fa-ic { width: 15px; height: 15px; fill: currentColor; display: block; }
 
 /* ═══════════ v0.62.0 · 网盘同步引导卡（设置 → 可选同步）═══════════
    三步引导 + 一键配置。老卡只有一排输入框和两个按钮，默认读者已经懂 WebDAV；

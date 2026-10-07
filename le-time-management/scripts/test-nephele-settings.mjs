@@ -60,7 +60,7 @@ desktop.nav.dispose();
 
 // 分类位置与视觉风格正交；顶部/左侧切换仍复用分类和草稿 DOM。
 for (const nepheleSettings of [false, true]) {
-  for (const settingsNavPosition of ["left", "top"]) {
+  for (const settingsNavPosition of ["left", "top", "right"]) {
     const prefs = normalizeUiPreferences({ nepheleSettings, settingsNavPosition });
     assert.equal(usesSettingsTabs(prefs), true);
   }
@@ -74,6 +74,12 @@ positionSwitch.nav.setTabs(true);
 assert.equal(positionSwitch.nav.node.children[0].children[2].attrs["aria-orientation"], "vertical");
 positionSwitch.buttons[1].listeners.get("keydown")({ key: "ArrowDown", preventDefault() {} });
 assert.equal(positionSwitch.state.active, "data");
+document.documentElement.dataset.settingsNavPosition = "right";
+positionSwitch.nav.setTabs(true);
+assert.equal(positionSwitch.nav.node.children[0].children[2].attrs["aria-orientation"], "vertical");
+positionSwitch.buttons[2].listeners.get("keydown")({ key: "ArrowUp", preventDefault() {} });
+assert.equal(positionSwitch.state.active, "theme");
+assert.equal(positionSwitch.entries[1].node.value, "draft");
 positionSwitch.search.value = "theme"; positionSwitch.nav.apply();
 document.documentElement.dataset.settingsNavPosition = "top";
 positionSwitch.nav.setTabs(true);
