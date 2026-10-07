@@ -10,15 +10,16 @@ import { api } from "./api.js";
 
 /** 预设的逻辑像素尺寸。`auto` 按屏幕算、`full` 直接最大化，所以这两项不在这里。 */
 export const WINDOW_SIZE_PRESETS = Object.freeze({
+  small: { width: 720, height: 620 },
   compact: { width: 1120, height: 720 },
   standard: { width: 1360, height: 860 },
   large: { width: 1600, height: 1000 },
 });
 
-/** 自定义尺寸的合法范围。下限不压到 minWidth/minHeight（tauri.conf.json 是 400×560）是有意的：
- *  比手机还窄的桌面窗口调出来没有意义，这里给的是「仍然可用」的下限。 */
+/** 自定义尺寸的合法范围。下限与 tauri.conf.json 的 400×560 对齐：
+ *  小窗模式会启用窄屏壳，桌面端也应允许用户把窗口收成临时工具面板。 */
 export const CUSTOM_SIZE_LIMITS = Object.freeze({
-  minWidth: 900, maxWidth: 3840, minHeight: 600, maxHeight: 2400,
+  minWidth: 400, maxWidth: 3840, minHeight: 560, maxHeight: 2400,
 });
 
 /**

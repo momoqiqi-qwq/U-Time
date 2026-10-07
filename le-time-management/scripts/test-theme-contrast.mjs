@@ -23,6 +23,7 @@ const {
 const read = (p) => readProductSource(new URL(p, import.meta.url), "utf8");
 const stylesCss = read("../src/styles.css");
 const derivedCss = read("../src/styles/theme-derived.css");
+const pluginSrc = read("../public/plugins/cppu-notify/main.js");
 
 /* ── 1. 生成物必须与事实源一致（防止改了 styles.css 忘了重新生成） ── */
 const light = parsePalettes(stylesCss);
@@ -139,6 +140,37 @@ for (const id of themeIds) {
   assert.ok(hexToRgb(lightTokens["--ink"]) && hexToRgb(darkTokens["--ink"]), `${id} 的 --ink 必须是十六进制`);
 }
 
+// 附件面板背景与文字必须成对跟随主题，按样式引用的令牌实算全部主题和交互状态。
+const attachmentRule = (selector) => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const body = new RegExp(`^\\s*${escaped}\\s*\\{([^}]*)\\}`, "m").exec(pluginSrc)?.[1];
+  assert.ok(body, `缺少附件样式 ${selector}`);
+  return Object.fromEntries([...body.matchAll(/(?:^|;)\s*([\w-]+):([^;]+)/g)].map((m) => [m[1], m[2].trim()]));
+};
+const attachmentPanel = attachmentRule(".pp-att-list");
+const attachmentTitle = attachmentRule(".pp-att-list>b");
+const attachmentRow = attachmentRule(".pp-att");
+const attachmentAction = attachmentRule(".pp-att-action");
+const attachmentHover = attachmentRule(".pp-att:hover,.pp-att:focus-visible");
+const attachmentToken = (value, palette) => {
+  const token = /^var\((--[\w-]+)\)$/.exec(value)?.[1];
+  assert.ok(token && palette[token], `附件颜色必须使用有效主题令牌：${value}`);
+  return palette[token];
+};
+for (const id of themeIds) {
+  const lt = Object.assign({}, light[id], lightFixes[id] || {});
+  const dt = id === "night" ? lt : darkOverrides[id];
+  for (const [mode, palette] of [["浅色", lt], ["深色", dt]]) {
+    const bg = attachmentToken(attachmentPanel.background, palette);
+    for (const [label, value] of [["文件名", attachmentRow.color], ["标题", attachmentTitle.color], ["下载", attachmentAction.color]]) {
+      record(`${id}(${mode})`, `附件${label}`, attachmentToken(value, palette), bg, 4.5);
+    }
+    const hoverBg = attachmentToken(attachmentHover.background, palette);
+    record(`${id}(${mode})`, "附件悬停/聚焦", attachmentToken(attachmentHover.color, palette), hoverBg, 4.5);
+    record(`${id}(${mode})`, "附件悬停/聚焦下载", attachmentToken(attachmentAction.color, palette), hoverBg, 4.5);
+  }
+}
+
 assert.deepEqual(failures, [], `对比度不达标：\n  ${failures.join("\n  ")}`);
 
 /* ── 5. 每套主题的深色版必须彼此可区分（否则「换主题」等于没换） ── */
@@ -189,7 +221,6 @@ assert.deepEqual(deriveDark(light.classic), darkOverrides.classic);
  * 压在深色标签底上实测只有 1.38~2.17:1 —— 「1 学分」这种 10.5px 小字几乎读不出。
  * 宿主 styles.css 的「内置插件深色兼容层」白名单里没有 .jw-* / .yk-*，兜不住这一族，
  * 所以插件侧必须自带 [data-theme-mode="dark"] 覆盖。这里按公式实算，不达 WCAG AA 就红。 */
-const pluginSrc = read("../public/plugins/cppu-notify/main.js");
 /** color-mix(in srgb, A p%, B) 与 rgba 叠加都是 sRGB 通道线性插值，共用一个 blend */
 const blend = (top, bottom, p) => {
   const A = hexToRgb(top), B = hexToRgb(bottom);

@@ -11,6 +11,7 @@ import { isAndroidRuntime } from "../androidNotify.js";
 import { createAboutCard } from "./aboutCard.js";
 import { createInterfaceCard, createThemeCard } from "./settings/appearance.js";
 import { createSettingsNavigator } from "./settings/navigator.js";
+import { usesSettingsTabs } from "./settings/layout.js";
 import { getUiPreferences } from "../uiPreferences.js";
 import { createPluginSettingsCard, isPluginBatchBusy } from "./settings/plugins.js";
 import { createAiSettingsCard } from "./settings/ai.js";
@@ -29,6 +30,7 @@ const settingsNavState = { query: "", filter: "all", expanded: [] };
 
 function disposeContents(root) {
   for (const node of root.querySelectorAll(".update-panel")) node._dispose?.();
+  for (const node of root.querySelectorAll(".has-selection-glow")) node._disposeSelectionGlow?.();
 }
 
 function revealSettingTarget(root, target) {
@@ -119,7 +121,7 @@ export function renderSettings(container, opts = {}) {
     }
     const settingsNavigator = createSettingsNavigator(settingEntries, settingsNavState, {
       pages: isAndroidRuntime(),
-      tabs: getUiPreferences().nepheleSettings,
+      tabs: usesSettingsTabs(getUiPreferences()),
       onPageChange: opts.onPageChange,
     });
     navigatorController = settingsNavigator;
@@ -141,7 +143,7 @@ export function renderSettings(container, opts = {}) {
     initialTarget = false;
   };
   let settingsIdentity = S.getState().settings;
-  const onUiPreferences = (event) => navigatorController?.setTabs(event.detail?.nepheleSettings === true);
+  const onUiPreferences = () => navigatorController?.setTabs(usesSettingsTabs(getUiPreferences()));
   window.addEventListener("tide:ui-preferences-changed", onUiPreferences);
   const storeUnsub = S.subscribe(() => {
     if (settingsIdentity === S.getState().settings || !entries) return;

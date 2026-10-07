@@ -18,6 +18,7 @@ import { CUSTOM_SIZE_LIMITS, applyWindowSize, isDesktopRuntime, windowSizeHint }
 import { navDisplayName } from "../../navAppearance.js";
 import { NARROW_REFERENCE_WIDTH, UI_SCALE_LIMITS, UI_SCALE_PRESETS, dragStableScale, getAutoScaleFactor, normalizeUiScale, parseCustomScaleInput } from "../../uiScale.js";
 import { toggleSwitch } from "../../switchControl.js";
+import { attachSelectionGlow } from "../../selectionGlow.js";
 
 /* 开关行：左侧只有名称，右侧一个滑块开关（说明文字已按要求全部去掉，见 v0.37.19）。 */
 function toggleRow(label, checked, onChange) {
@@ -81,6 +82,9 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
       class: `pref-choice-btn${prefs.fabHeight === id ? " on" : ""}`,
       onclick: () => { setUiPreferences({ fabHeight: id }); rerender(); },
     }, label));
+  }
+  for (const group of [densityBox, navBarBox, navDockBox, navGlassBox, fabHeightBox]) {
+    attachSelectionGlow(group, { selector: ".pref-choice-btn.on", persistKey: group.getAttribute("aria-label") });
   }
 
   // 「文字大小」80%~150%（TEXT_SCALE_LIMITS 单一事实源）：作用于**全部文字** ——
@@ -297,6 +301,7 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     ),
   );
   paintCustomScale();
+  attachSelectionGlow(scalePresetBox, { selector: ".pref-choice-btn.on" });
 
   const uiScaleHint = el("small", { class: "ui-scale-hint" });
   const paintScaleHint = () => {
@@ -544,6 +549,7 @@ export function createThemeCard() {
       },
     }, el("b", {}, label)));
   }
+  attachSelectionGlow(modeBox, { selector: ".theme-mode-btn.on" });
   const themeGrid = el("div", { class: "theme-grid", role: "radiogroup", "aria-label": "界面主题" });
 
   // 夜间护眼本身就是深色主题，不受模式影响；其余主题按当前模式显示对应色板。
@@ -593,6 +599,7 @@ export function createThemeCard() {
     button.addEventListener("click", () => selectTheme(item, button));
     themeGrid.append(button);
   }
+  attachSelectionGlow(themeGrid, { selector: ".theme-card.on" });
   paintModeNote();
 
   themeGrid.addEventListener("keydown", (event) => {

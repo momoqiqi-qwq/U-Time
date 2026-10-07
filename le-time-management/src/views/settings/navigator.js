@@ -1,5 +1,6 @@
 import { el } from "../../ui.js";
 import { reducedMotion } from "../../motion.js";
+import { attachSelectionGlow } from "../../selectionGlow.js";
 
 // 分类图标：复用打包内 Font Awesome solid（与快捷 dock 同款根路径）。
 // 本地小助手而不是从 shell.js 引入，避免设置视图反向依赖外壳造成循环 import。
@@ -29,6 +30,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
   const empty = el("div", { class: "settings-empty", hidden: true }, "没有找到匹配的设置项");
 
   const buttons = new Map();
+  let selectionGlow;
   let active = state.active || entries[0]?.id || "";
   let visibleIds = new Set(entries.map((entry) => entry.id));
 
@@ -130,6 +132,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
   };
 
   const paintActive = () => {
+    list.setAttribute("aria-orientation", document.documentElement.dataset.settingsNavPosition === "left" ? "vertical" : "horizontal");
     for (const [id, btn] of buttons) {
       const on = id === active;
       btn.classList.toggle("on", on);
@@ -152,6 +155,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
     if (narrow.matches) { expanded.add(id); syncExpanded(); }
     paintActive();
     paintPage({ animate });
+    selectionGlow?.sync(animate);
     // 窄屏下选中一个还是收着的分区时，把它滚到视口顶部 —— 否则点了分类名字还得自己往下翻找，
     // 看起来像「点了没反应」。已经展开过的不再滚，避免用户手动收起来后被反复拽回去。
     if (pages) {
@@ -175,10 +179,13 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
         "aria-selected": String(active === entry.id),
         onclick: () => select(entry.id),
         onkeydown: (event) => {
-          if (!tabs || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          const vertical = document.documentElement.dataset.settingsNavPosition === "left";
+          const previousKey = vertical ? "ArrowUp" : "ArrowLeft";
+          const nextKey = vertical ? "ArrowDown" : "ArrowRight";
+          if (!tabs || ![previousKey, nextKey, "Home", "End"].includes(event.key)) return;
           const ids = [...visibleIds];
           const at = ids.indexOf(entry.id);
-          const next = event.key === "Home" ? ids[0] : event.key === "End" ? ids.at(-1) : ids[(at + (event.key === "ArrowRight" ? 1 : -1) + ids.length) % ids.length];
+          const next = event.key === "Home" ? ids[0] : event.key === "End" ? ids.at(-1) : ids[(at + (event.key === nextKey ? 1 : -1) + ids.length) % ids.length];
           event.preventDefault();
           select(next);
           buttons.get(next)?.focus({ preventScroll: true });
@@ -234,6 +241,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
     }
     paintActive();
     paintPage({ animate: false });
+    selectionGlow?.sync(false);
     result.textContent = `显示 ${visibleIds.size} / ${entries.length}`;
     empty.hidden = visibleIds.size > 0;
     list.hidden = visibleIds.size === 0;
@@ -263,6 +271,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
       empty,
     ),
   );
+  selectionGlow = attachSelectionGlow(list, { selector: ".settings-nav-item.on:not([hidden])" });
 
   function back() {
     if (tabs || !pages || !state.page) return false;
@@ -286,17 +295,18 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
     }
     result.textContent = `显示 ${visibleIds.size} / ${entries.length}`;
     empty.hidden = visibleIds.size > 0; list.hidden = visibleIds.size === 0;
-    paintActive(); paintPage();
+    paintActive(); paintPage(); selectionGlow.sync(false);
   }
   let disposed = false;
-  const dispose = () => { if (disposed) return; disposed = true; narrow.removeEventListener?.("change", onModeChange); };
+  const dispose = () => { if (disposed) return; disposed = true; narrow.removeEventListener?.("change", onModeChange); selectionGlow.dispose(); };
   node._back = back;
   function setTabs(value) {
-    if (disposed || tabs === Boolean(value)) return;
+    if (disposed) return;
     tabs = Boolean(value);
     if (!tabs && pages && state.page) state.page = active;
     paintActive();
     paintPage();
+    selectionGlow.sync(false);
   }
   return { node, apply, select, panels, dispose, setTabs };
 }

@@ -47,6 +47,7 @@ for (const id of Object.keys(WINDOW_SIZE_PRESETS)) {
 for (const id of ["auto", "full", "custom"]) {
   assert.equal(WINDOW_SIZE_PRESETS[id], undefined, `${id} 是算出来的，不该出现在预设表里`);
 }
+assert.deepEqual(WINDOW_SIZE_PRESETS.small, { width: 720, height: 620 }, "桌面端必须提供可选小窗预设");
 for (const preset of Object.values(WINDOW_SIZE_PRESETS)) {
   assert.ok(preset.width >= CUSTOM_SIZE_LIMITS.minWidth && preset.height >= CUSTOM_SIZE_LIMITS.minHeight);
   assert.ok(preset.width <= CUSTOM_SIZE_LIMITS.maxWidth && preset.height <= CUSTOM_SIZE_LIMITS.maxHeight);
@@ -67,11 +68,13 @@ const largeOnSmallScreen = resolveWindowSize({ startupWindowMode: "large" }, { w
 assert.deepEqual(largeOnSmallScreen, { mode: "size", width: 1342, height: 744 }, "装不下时要退到「可用区域 − 余量」");
 const largeOnBigScreen = resolveWindowSize({ startupWindowMode: "large" }, { width: 2560, height: 1440 });
 assert.deepEqual(largeOnBigScreen, { mode: "size", ...WINDOW_SIZE_PRESETS.large }, "装得下就用预设值，不要莫名放大");
+assert.deepEqual(resolveWindowSize({ startupWindowMode: "small" }, null), { mode: "size", ...WINDOW_SIZE_PRESETS.small });
 assert.deepEqual(resolveWindowSize({ startupWindowMode: "compact" }, null), { mode: "size", ...WINDOW_SIZE_PRESETS.compact });
 
 /* ── 五、自定义尺寸要夹在可用范围内 ── */
 assert.deepEqual(clampWindowSize(200, 99999), { width: CUSTOM_SIZE_LIMITS.minWidth, height: CUSTOM_SIZE_LIMITS.maxHeight });
 assert.deepEqual(clampWindowSize(99999, 100), { width: CUSTOM_SIZE_LIMITS.maxWidth, height: CUSTOM_SIZE_LIMITS.minHeight });
+assert.deepEqual(clampWindowSize(420, 560), { width: 420, height: 560 }, "自定义窗口要允许小窗工具面板尺寸");
 assert.deepEqual(clampWindowSize("1720", "1080"), { width: 1720, height: 1080 }, "表单送来的字符串数值要能用");
 assert.deepEqual(resolveWindowSize({ startupWindowMode: "custom", startupWindowWidth: 1720, startupWindowHeight: 1080 }, { width: 2560, height: 1440 }),
   { mode: "size", width: 1720, height: 1080 });
@@ -125,6 +128,12 @@ assert.deepEqual([win.width, win.height], [1360, 860], `tauri.conf.json 默认�
 assert.equal(win.minWidth, 400);
 assert.equal(win.minHeight, 560);
 assert.ok(win.center === true, "放大后必须居中，否则会溢出屏幕右下");
+
+const smallWindowStyles = read("../src/styles.css");
+assert.match(smallWindowStyles, /@media \(min-width: 901px\) and \(max-width: 1100px\) \{[\s\S]*?\.topbar-title-copy \.sub,[\s\S]*?\.topbar \.pill \{ display: none; \}/,
+  "901~1100px 窄桌面窗口必须收起副标题与统计胶囊");
+assert.match(smallWindowStyles, /@media \(min-width: 901px\) and \(max-height: 680px\) \{[\s\S]*?\.nav button \{ min-height: 32px;/,
+  "低高度桌面窗口必须压缩导航行高");
 
 /* ── 十二、缩放视图（左下角那颗按钮）── */
 assert.deepEqual({ ...FOCUS_WINDOW_SIZE }, { width: 1600, height: 1100 }, "目标尺寸是量着需求截图定的，改它要先确认");

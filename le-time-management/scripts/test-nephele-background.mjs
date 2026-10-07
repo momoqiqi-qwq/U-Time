@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { initNepheleBackground, nepheleBackgroundState } from "../src/nepheleBackground.js";
 import { normalizeUiPreferences } from "../src/uiPreferences.js";
 
-assert.equal(normalizeUiPreferences({}).nepheleBackground, false);
+assert.equal(normalizeUiPreferences({}).nepheleBackground, true);
 assert.equal(normalizeUiPreferences({ nepheleBackground: true }).nepheleBackground, true);
 assert.equal(normalizeUiPreferences({ nepheleBackground: "true" }).nepheleBackground, false);
 for (const [motion, systemReduced, hidden, expected] of [
@@ -32,8 +32,8 @@ doc.createElement = () => ({
   setAttribute(key, value) { this.attrs[key] = value; },
   remove() { const at = attached.indexOf(this); if (at >= 0) attached.splice(at, 1); },
 });
-const dispose = initNepheleBackground({ doc, browserWindow: win, preferences: () => ({ nepheleBackground: false, motion: "system" }) });
-assert.equal(attached.length, 0, "默认关闭，不创建动画节点");
+const dispose = initNepheleBackground({ doc, browserWindow: win, preferences: () => ({ nepheleBackground: true, motion: "system" }) });
+assert.equal(attached.length, 1, "默认开启，启动时创建动画节点");
 const enable = { nepheleBackground: true, motion: "system" };
 win.emit("tide:ui-preferences-changed", enable);
 const layer = attached[0];
@@ -58,4 +58,4 @@ assert.equal(attached.length, 1, "重新开启应恢复效果");
 dispose();
 assert.equal(attached.length, 0);
 assert.equal(win.count() + doc.count() + media.count(), 0, "销毁必须注销所有监听");
-console.log("PASS: Nephele 背景默认关闭、开关重建、减少动效、隐藏暂停与恢复、无重复节点及监听清理");
+console.log("PASS: Nephele 背景默认开启、开关重建、减少动效、隐藏暂停与恢复、无重复节点及监听清理");

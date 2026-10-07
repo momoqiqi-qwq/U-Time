@@ -8,6 +8,7 @@ import { renderQuadrant } from "./views/quadrant.js";
 import { renderTimeblock } from "./views/timeblock.js";
 import { renderTimeline } from "./views/timeline.js";
 import { renderSettings } from "./views/settings.js";
+import { createSettingsLayoutControls } from "./views/settings/layout.js";
 import { renderInbox } from "./views/inbox.js";
 import { openQuickCapture } from "./capture.js";
 import { pluginViews, onNavChanged, getRegistry, setEnabled, rescan, removeExternalPlugin } from "./pluginHost.js";
@@ -1045,6 +1046,18 @@ export function renderShell(root) {
     const top = (target.top - originTop) / factor;
     const width = target.width / factor;
     const height = target.height / factor;
+    // renderNav 重建按钮后 observe() 必然先通知一次，尺寸并没有因此变化。
+    // 先换观察目标，再跳过相同几何的重算，避免这次通知取消刚启动的滑动。
+    if (navGlowObsBtns !== btn) {
+      if (navGlowObsBtns) navGlowResizeObs?.unobserve(navGlowObsBtns);
+      navGlowObsBtns = btn;
+      navGlowResizeObs?.observe(btn);
+    }
+    if (navGlowBox && navGlow.classList.contains("on") && !reducedMotion()
+      && Math.abs(navGlowBox.left - left) < .01
+      && Math.abs(navGlowBox.top - top) < .01
+      && Math.abs(navGlowBox.width - width) < .01
+      && Math.abs(navGlowBox.height - height) < .01) return;
     let from = null;
     if (navGlowBox && navGlow.classList.contains("on")) {
       const cur = navGlow.getBoundingClientRect(); // 视觉位置（含在飞的 transform）与当前尺寸
@@ -1062,12 +1075,6 @@ export function renderShell(root) {
     navGlow.style.width = `${width}px`;
     navGlow.style.height = `${height}px`;
     navGlowBox = { left, top, width, height };
-    // 选中按钮自己换尺寸（字号 / 密度档位）时也得跟：nav 的盒子未必跟着变，ResizeObserver 盯它
-    if (navGlowObsBtns !== btn) {
-      if (navGlowObsBtns) navGlowResizeObs?.unobserve(navGlowObsBtns);
-      navGlowObsBtns = btn;
-      navGlowResizeObs?.observe(btn);
-    }
     navGlow.classList.add("on");
     // 首次出现 / 从淡出恢复 / 减少动效 ⇒ 直接落位，只走 opacity 那条过渡
     if (!animate || !from || reducedMotion() || typeof navGlow.animate !== "function") return;
@@ -1513,6 +1520,7 @@ export function renderShell(root) {
         el("button", { class: "btn ghost sm", type: "button", onclick: close }, "关闭"),
       ),
       el("div", { class: "settings-modal-body" }),
+      createSettingsLayoutControls(),
     );
     function onKey(event) { if (event.key === "Escape") close(); }
     // 幂等：点遮罩关掉后，重开设置那句 `._close?.()` 还会再敲一次同一个面板。
@@ -1521,6 +1529,7 @@ export function renderShell(root) {
       if (dismissed) return;
       dismissed = true;
       panel.querySelector(".settings-modal-body")?._unsub?.();
+      panel.querySelector(".settings-modal-footer")?._dispose?.();
       if (dockLayer) {
         railResizer.before(rail);
         dockLayer.remove();

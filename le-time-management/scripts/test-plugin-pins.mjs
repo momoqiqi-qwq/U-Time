@@ -140,7 +140,7 @@ assert.match(css, /\.nav \.nav-act\.on \{ color: var\(--sun\); \}/, "已置顶�
 assert.match(css, /\.nav \.plug-seg-pinned \{/, "置顶段要有视觉区块（脱离颜色分组后靠它提示「这是置顶区」）");
 assert.match(css, /\.plugin-nav-ghost \.nav-actions \{ display: none; \}/,
   "拖拽浮起副本要藏掉操作条：ghost 不在 .nav 里，会退回无样式的 inline span 露出图标");
-assert.match(css, /\.nav \.nav-actions \{ background: var\(--paper\); box-shadow: 0 0 0 1px var\(--line\); \}/,
-  "≥901px 浅色侧栏必须覆盖操作条配色（不透明底才盖得住底下的「内置 / 导入」徽标）");
+assert.match(css, /\.nav \.nav-actions \{ background: var\(--control-bg\); box-shadow: 0 0 0 1px var\(--line\); \}/,
+  "≥901px 侧栏操作条必须使用不透明控件底色：遮住徽标，并避免深色纸面底过黑");
 
 console.log("PASS: 侧栏插件置顶（置顶表读写自愈 / 与顺序表正交 / 悬停操作条接线与样式守卫）");

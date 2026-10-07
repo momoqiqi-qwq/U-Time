@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { DEFAULT_UI_PREFERENCES, TEXT_SCALE_LIMITS, normalizeUiPreferences } from "../src/uiPreferences.js";
 
 assert.deepEqual(normalizeUiPreferences({}), DEFAULT_UI_PREFERENCES);
+assert.equal(normalizeUiPreferences({}).settingsNavPosition, "auto");
+for (const position of ["top", "left"]) {
+  assert.equal(normalizeUiPreferences({ settingsNavPosition: position }).settingsNavPosition, position);
+}
+for (const position of [null, "bottom", true]) {
+  assert.equal(normalizeUiPreferences({ settingsNavPosition: position }).settingsNavPosition, "auto");
+}
 for (const [raw, width, transparency] of [
   [{ navWidth: 20, navTransparency: -1 }, 60, 0],
   [{ navWidth: 180, navTransparency: 200 }, 100, 100],

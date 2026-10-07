@@ -28,8 +28,8 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   // 实现与三个坑见 src/uiScale.js 头部注释 —— 改这个字段前先读那一页。
   uiScale: DEFAULT_UI_SCALE,
   motion: "system",
-  nepheleBackground: false,
-  nepheleSettings: false,
+  nepheleBackground: true,
+  nepheleSettings: true,
   // 保持历史行为：老用户升级后仍交给系统浏览器；显式开启才走应用内网页窗口。
   openLinksInApp: false,
   swipeNavigation: true,
@@ -43,6 +43,8 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   notifyStack: true,
   // 设置中心的辅助说明：默认显示；“无描述”预设只隐藏说明，不影响标题、控件和状态反馈。
   showSettingsDescriptions: true,
+  // auto 保留升级前的布局；用户在设置底部选择后固定为顶部或左侧。
+  settingsNavPosition: "auto",
   startupView: "last",
   // 手机底栏高度档位：紧凑 40px / 标准 46px / 宽松 54px（按钮最小高，CSS 变量消费）
   navBarSize: "standard",
@@ -81,10 +83,11 @@ export const STARTUP_VIEW_OPTIONS = Object.freeze([
 ]);
 
 /** 启动窗口大小的可选模式。具体的像素值在 windowSize.js —— 那边才是尺寸的单一事实源。 */
-export const WINDOW_SIZE_MODES = Object.freeze(["auto", "compact", "standard", "large", "full", "custom"]);
+export const WINDOW_SIZE_MODES = Object.freeze(["auto", "small", "compact", "standard", "large", "full", "custom"]);
 
 export const WINDOW_SIZE_OPTIONS = Object.freeze([
   ["auto", "跟随屏幕 · 最高 1440 × 900"],
+  ["small", "小窗 · 720 × 620"],
   ["compact", "小巧 · 1120 × 720"],
   ["standard", "标准 · 1360 × 860（推荐）"],
   ["large", "宽大 · 1600 × 1000"],
@@ -136,6 +139,7 @@ export function normalizeUiPreferences(raw = {}) {
   next.showViewSubtitle = next.showViewSubtitle !== false;
   next.notifyStack = next.notifyStack !== false;
   next.showSettingsDescriptions = next.showSettingsDescriptions !== false;
+  if (!["auto", "top", "left"].includes(next.settingsNavPosition)) next.settingsNavPosition = "auto";
   if (!WINDOW_SIZE_MODES_SET.has(next.startupWindowMode)) next.startupWindowMode = DEFAULT_UI_PREFERENCES.startupWindowMode;
   next.startupWindowWidth = Math.round(clamp(next.startupWindowWidth, CUSTOM_SIZE_LIMITS.minWidth, CUSTOM_SIZE_LIMITS.maxWidth));
   next.startupWindowHeight = Math.round(clamp(next.startupWindowHeight, CUSTOM_SIZE_LIMITS.minHeight, CUSTOM_SIZE_LIMITS.maxHeight));
@@ -175,6 +179,7 @@ export function applyUiPreferences(raw = null, { animate = false } = {}) {
   root.dataset.centerTopStats = cfg.centerTopStats ? "on" : "off";
   root.dataset.showViewSubtitle = cfg.showViewSubtitle ? "on" : "off";
   root.dataset.settingsDescriptions = cfg.showSettingsDescriptions ? "on" : "off";
+  root.dataset.settingsNavPosition = cfg.settingsNavPosition;
   // dataset.notifyStack → data-notify-stack（写成 data-notifyStack 之类 CSS 匹配不上）
   root.dataset.notifyStack = cfg.notifyStack ? "on" : "off";
   root.style.setProperty("--ui-text-scale", String(cfg.textScale / 100));

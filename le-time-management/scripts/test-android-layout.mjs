@@ -64,18 +64,10 @@ assert.match(css, /\.tkc\s*\{[^}]*align-items:\s*flex-start/, "任务卡在变�
 assert.match(quadrant, /class: "tt-top"/, "标题与展开箭头必须包在 .tt-top 里同处一行");
 assert.match(quadrant, /const expandable = hasNote;/, "标题不再截断后，展开只服务于备注，不再看标题长度");
 
-// v0.58.0 回归：顶栏 5 键合一框（用户需求「有把这5个按钮做到1个方框里面吗」）。
-// 前史：v0.37.15/v0.39.0 因「框太多」去掉外层框、闪电/搜索/窗口键各自带小框；
-// v0.58.0 用户要求反转 —— 5 个键收进同一个方框。规则：外框有边框+底色，
-// **内层按钮一律裸图标无边框**（嵌套框才是当年「框太多」的本意），
-// hover/激活用底色表达。
-// 注意：共享规则 `.topbar-title-card, .topbar-action-card { border: 1px … }` 依然存在
-// （标题卡要用），方框判定必须落在靠后的那条覆盖规则上。
+// v0.162.1：工具仍同组排列，但外层也去框，避免顶栏描边堆叠；保留按钮状态反馈。
 const actionCardRules = [...css.matchAll(/\.topbar-action-card\s*\{([^}]*)\}/g)].map((m) => m[1]);
-// v0.58.0 方框覆盖规则的特征：4px 内边距 + 边框 + 渐变底色（与 2068 行的共享规则
-// `.topbar-title-card, .topbar-action-card` 区分开 —— 那条是标题卡用的 8px 12px）。
-const framed = actionCardRules.find((r) => /padding:\s*4px/.test(r) && /border:\s*1px/.test(r) && /background:\s*linear-gradient/.test(r)) ?? "";
-assert.ok(framed, "顶栏工具必须恢复带边框+渐变底色的方框规则（5 键合一框，v0.58.0）");
+const frameless = actionCardRules.find((r) => /padding:\s*4px/.test(r) && /border:\s*0/.test(r) && /background:\s*transparent/.test(r) && /box-shadow:\s*none/.test(r)) ?? "";
+assert.ok(frameless, "顶栏工具组应无描边、背景和阴影，避免多层横线堆叠");
 // 内层三件套必须去框：嵌套框 = 当年「框太多」的回归。
 // 判定「任一 .topbar-action-card .X … {…} 规则块含 border:0」——
 // 同一选择器在文件里有多条（2128 附近的 margin-right 覆盖、hover 规则等），

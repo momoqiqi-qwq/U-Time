@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createSettingsNavigator } from "../src/views/settings/navigator.js";
 import { normalizeUiPreferences } from "../src/uiPreferences.js";
+import { usesSettingsTabs } from "../src/views/settings/layout.js";
 
-assert.equal(normalizeUiPreferences({}).nepheleSettings, false);
+assert.equal(normalizeUiPreferences({}).nepheleSettings, true);
 assert.equal(normalizeUiPreferences({ nepheleSettings: "true" }).nepheleSettings, false);
 assert.equal(normalizeUiPreferences({ nepheleSettings: true, nepheleBackground: false }).nepheleBackground, false);
 
@@ -17,6 +18,7 @@ class Node {
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = nodes; }
   addEventListener(type, fn) { this.listeners.set(type, fn); }
+  removeEventListener(type, fn) { if (this.listeners.get(type) === fn) this.listeners.delete(type); }
   closest() { return null; }
   scrollIntoView() {}
   focus() { focused = this; }
@@ -55,6 +57,33 @@ desktop.nav.setTabs(false);
 assert.equal(desktop.search.value, "ui");
 assert.equal(desktop.entries[1].node.value, "unfinished");
 desktop.nav.dispose();
+
+// 分类位置与视觉风格正交；顶部/左侧切换仍复用分类和草稿 DOM。
+for (const nepheleSettings of [false, true]) {
+  for (const settingsNavPosition of ["left", "top"]) {
+    const prefs = normalizeUiPreferences({ nepheleSettings, settingsNavPosition });
+    assert.equal(usesSettingsTabs(prefs), true);
+  }
+}
+assert.equal(usesSettingsTabs(normalizeUiPreferences({})), true);
+const positionSwitch = fixture({ tabs: true });
+positionSwitch.entries[1].node.value = "draft";
+positionSwitch.nav.select("theme");
+document.documentElement.dataset.settingsNavPosition = "left";
+positionSwitch.nav.setTabs(true);
+assert.equal(positionSwitch.nav.node.children[0].children[2].attrs["aria-orientation"], "vertical");
+positionSwitch.buttons[1].listeners.get("keydown")({ key: "ArrowDown", preventDefault() {} });
+assert.equal(positionSwitch.state.active, "data");
+positionSwitch.search.value = "theme"; positionSwitch.nav.apply();
+document.documentElement.dataset.settingsNavPosition = "top";
+positionSwitch.nav.setTabs(true);
+assert.equal(positionSwitch.nav.node.children[0].children[2].attrs["aria-orientation"], "horizontal");
+assert.equal(positionSwitch.state.active, "theme");
+assert.equal(positionSwitch.search.value, "theme");
+assert.equal(positionSwitch.entries[1].node.value, "draft");
+assert.equal(positionSwitch.visible().length, 1);
+positionSwitch.nav.dispose();
+delete document.documentElement.dataset.settingsNavPosition;
 
 // Android: opt-in replaces directory with tabs; turning it off restores detail/back flow.
 media.matches = true;

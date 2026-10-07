@@ -1,0 +1,81 @@
+/* 显式位置覆盖默认响应式布局和 Nephele 布局，配色继续使用当前主题。 */
+.settings-modal-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 20px;
+}
+.settings-layout-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.settings-layout-button:hover,
+.settings-layout-button:focus-visible { color: var(--deep); }
+.settings-layout-button:focus-visible { outline: none; }
+.settings-layout-button:focus-visible .settings-layout-arrow { text-decoration: underline; }
+.settings-layout-arrow {
+  display: inline-block;
+  font-size: calc(20px * var(--ui-text-scale));
+  line-height: 1;
+}
+.settings-layout-button[data-next-position="top"] .settings-layout-arrow { transform: rotate(90deg); }
+
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-layout { display: grid; min-width: 0; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-sidebar { min-width: 0; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-nav-card { display: grid; position: static; margin: 0; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-catalog { display: flex; min-width: 0; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-catalog[hidden],
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-nav-item[hidden] { display: none !important; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-acc-head,
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-acc-collapse { display: none; }
+:root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"]) .settings-acc-body { padding-top: 0; }
+
+:root[data-settings-nav-position="top"] .settings-layout { grid-template-columns: minmax(0, 1fr); }
+:root[data-settings-nav-position="top"] .settings-sidebar { position: static; }
+:root[data-settings-nav-position="top"] .settings-catalog {
+  flex-direction: row; max-height: none;
+  overflow-x: auto; overflow-y: hidden; padding: 0 0 3px;
+}
+:root[data-settings-nav-position="top"] .settings-nav-item {
+  flex: 0 0 auto; width: auto; min-width: 96px;
+  justify-content: center; white-space: nowrap;
+}
+
+:root[data-settings-nav-position="left"] .settings-layout { grid-template-columns: minmax(180px, 224px) minmax(0, 1fr); }
+:root[data-settings-nav-position="left"] .settings-sidebar { position: sticky; top: 0; }
+:root[data-settings-nav-position="left"] .settings-catalog {
+  flex-direction: column;
+  max-height: max(120px, calc(var(--ui-vh, 100dvh) - 310px));
+  overflow-x: hidden; overflow-y: auto; padding: 0 2px 0 0;
+}
+:root[data-settings-nav-position="left"] .settings-nav-item {
+  flex: 0 0 auto; width: 100%; min-width: 0;
+  justify-content: flex-start; white-space: normal;
+}
+
+@media (max-width: 760px) {
+  .settings-modal-footer {
+    padding-left: calc(12px + var(--sal, env(safe-area-inset-left, 0px)));
+    padding-right: calc(12px + var(--sar, env(safe-area-inset-right, 0px)));
+    padding-bottom: calc(10px + var(--sab, env(safe-area-inset-bottom, 0px)));
+  }
+  :root[data-settings-nav-position="left"] .settings-layout { grid-template-columns: minmax(0, 116px) minmax(0, 1fr); gap: 10px; }
+  :root[data-settings-nav-position="left"] .settings-nav-card { padding: 6px; }
+  :root[data-settings-nav-position="left"] .settings-sidebar-head { padding-inline: 0; }
+  :root[data-settings-nav-position="left"] .settings-result,
+  :root[data-settings-nav-position="left"] .settings-nav-ico,
+  :root[data-settings-nav-position="left"] .settings-nav-item-copy small,
+  :root[data-settings-nav-position="left"] .settings-nav-chevron { display: none; }
+  :root[data-settings-nav-position="left"] .settings-nav-item { padding: 8px 6px; }
+}

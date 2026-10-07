@@ -26,7 +26,7 @@
     },
     throttle: {
       label: "节流刷新",
-      why: "10 分钟内再次打开直接用本地缓存、不发请求，超过 10 分钟才自动刷新；省流量、降低对超星的请求频率，数据最多滞后 10 分钟（可随时点「快速刷新」立即更新）。",
+      why: "10 分钟内再次打开直接用本地缓存、不发请求，超过 10 分钟才自动刷新；省流量、降低对超星的请求频率，数据最多滞后 10 分钟（可随时点「刷新」立即更新）。",
     },
   };
 
@@ -370,8 +370,9 @@ const CX_PY_DATA = {
       .cx2{max-width:1180px;margin:0 auto;padding:clamp(12px,2vw,24px);color:var(--ink)}
       .cx2 *{box-sizing:border-box}
       .cx2 button,.cx2 input,.cx2 select,.cx2 textarea{font:inherit}
-      .cx2-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
-      .cx2 h2{margin:0;font-size:clamp(calc(22px * var(--ui-text-scale)),3vw,calc(30px * var(--ui-text-scale)))}
+      .cx2-head{display:flex;gap:12px;align-items:center;justify-content:space-between}
+      .cx2 h2{margin:0;font-size:calc(24px * var(--ui-text-scale))}
+      .cx2-updated{margin:4px 0 0;color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale))}
       .cx2-sub{font-size:calc(12.5px * var(--ui-text-scale));color:var(--ink-2);margin:4px 0}
       .cx2-actions{display:flex;gap:7px;flex-wrap:wrap}
       .cx2-mode{display:inline-flex}
@@ -381,13 +382,32 @@ const CX_PY_DATA = {
       .cx2-mode button.on{background:var(--deep);border-color:var(--deep);color:#fff;font-weight:650}
       .cx2 button{border:1px solid var(--line);background:var(--panel);color:var(--deep);border-radius:9px;min-height:40px;padding:7px 12px;cursor:pointer}
       .cx2 button:hover{background:var(--paper)}
-      .cx2 button.primary{background:var(--deep);color:#fff;border-color:var(--deep);font-weight:650}
+      .cx2 button.primary{background:var(--deep);color:var(--on-deep,#fff);border-color:var(--deep);font-weight:650}
       .cx2 button.danger{color:color-mix(in srgb,var(--coral) 50%,var(--ink));border-color:color-mix(in srgb,var(--coral) 34%,var(--line))}
       /* 标记已读/未读：海青色框，与「未读」语义同源 */
       .cx2 button.acc{color:color-mix(in srgb,var(--sea) 55%,var(--ink));border-color:color-mix(in srgb,var(--sea) 40%,var(--line))}
       .cx2 button:disabled{opacity:.5;cursor:default}
-      .cx2-nav{display:flex;gap:7px;flex-wrap:wrap;margin:16px 0 10px;padding-bottom:10px;border-bottom:1px solid var(--line)}
-      .cx2-nav button.on{background:var(--deep);color:#fff;border-color:var(--deep)}
+      .cx2-nav{display:flex;gap:18px;overflow-x:auto;flex-wrap:nowrap;margin:18px 0 12px;padding-bottom:4px}
+      .cx2-nav button{position:relative;flex:none;border:0;border-radius:0;background:transparent;padding:8px 0;color:var(--ink-2);white-space:nowrap}
+      .cx2-nav button:hover{background:transparent;color:var(--ink)}
+      .cx2-nav button.on{background:transparent;color:var(--deep);font-weight:650}
+      .cx2-nav button.on::after{content:"";position:absolute;bottom:0;left:0;right:0;height:2px;border-radius:2px;background:var(--deep)}
+      .cx2-count{margin-left:5px;font-size:calc(11px * var(--ui-text-scale));font-variant-numeric:tabular-nums;color:var(--ink-3);font-weight:400}
+      .cx2-tools{position:relative;flex:none}
+      .cx2-tools>summary{list-style:none;display:flex;align-items:center;justify-content:center;min-height:40px;padding:7px 12px;border:1px solid var(--line);border-radius:9px;color:var(--ink-2);cursor:pointer;font-size:calc(12px * var(--ui-text-scale))}
+      .cx2-tools>summary::-webkit-details-marker{display:none}
+      .cx2-tools>summary:focus-visible{outline:2px solid var(--deep);outline-offset:2px}
+      .cx2-tools[open]>summary{color:var(--deep);border-color:var(--deep)}
+      .cx2-tools-panel{position:absolute;z-index:5;top:calc(100% + 8px);right:0;width:min(320px,calc(var(--ui-vw,100vw) - 48px));padding:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow-lg);display:grid;gap:12px}
+      .cx2-tools:not([open])>.cx2-tools-panel{display:none}
+      .cx2-tools-label{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);margin-bottom:6px}
+      .cx2-tools-panel .cx2-mode{display:flex}
+      .cx2-tools-panel .cx2-mode button{flex:1;color:var(--ink-2)}
+      .cx2-tools-panel .cx2-mode button.on{color:var(--on-deep,#fff)}
+      .cx2-tools-panel .cx2-check{white-space:normal;justify-content:space-between;flex-direction:row-reverse}
+      .cx2-tools-panel>button{text-align:left;border-color:transparent;background:transparent;color:var(--ink);padding:8px}
+      .cx2-tools-panel>button:hover{background:var(--hover-bg)}
+      .cx2-summary{display:flex;gap:6px 18px;flex-wrap:wrap;margin:8px 0 14px;color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale));font-variant-numeric:tabular-nums}
       .cx2-pill{display:inline-block;font-size:calc(10px * var(--ui-text-scale));border-radius:999px;padding:2px 7px;background:color-mix(in srgb,var(--deep) 16%,var(--panel));color:var(--deep);margin-left:5px}
       .cx2-new{background:var(--coral);color:#fff}
       .cx2-pill.cx2-late{background:var(--coral);color:#fff}
@@ -522,6 +542,9 @@ const CX_PY_DATA = {
       .cx2 footer{margin-top:24px;border-top:1px solid var(--line);padding-top:12px;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2)}
       @media(max-width:760px){.cx2{padding:12px}.cx2-grid{grid-template-columns:1fr}.cx2-fields{grid-template-columns:1fr}.cx2-wide{grid-column:auto}.cx2-actions{width:100%}.cx2-actions button{flex:1}.cx2-nav{overflow-x:auto;flex-wrap:nowrap;padding-bottom:8px}.cx2-nav button{white-space:nowrap}.cx2-toolbar .cx2-search{width:100%;flex-basis:100%}}
       @media(pointer:coarse){.cx2 button,.cx2 input:not(.switch),.cx2 select{min-height:46px}.cx2-card-actions button,.cx2-login .cx2-tabs button,.cx2-login .cx2-actions button{min-height:40px}}
+      .cx2-head>.cx2-actions{width:auto;flex:none;align-items:center;flex-wrap:nowrap}
+      .cx2-head>.cx2-actions>button{flex:none}
+      @media(max-width:760px){.cx2-nav{gap:16px}.cx2-tools>summary{min-height:46px}.cx2-updated{max-width:160px;overflow-wrap:anywhere}.cx2 h2{font-size:calc(22px * var(--ui-text-scale))}.cx2-inbox-tools .cx2-search{width:auto;min-width:0;flex-basis:0}.cx2-inbox-tools .plugin-filter-menu>summary{padding-inline:10px}}
     `; document.head.append(s);
   }
 
@@ -823,19 +846,18 @@ const CX_PY_DATA = {
     if (kind === "inbox") btns.push(`<button class="acc" data-act="mark" title="在本机标记已读 / 未读，只影响本机显示与筛选，不影响学习通平台的已读状态">${effUnread(n) ? "标记已读" : "标记未读"}</button>`);
     if (n.idCode) btns.push(`<button data-act="share" title="${esc(SHARE_TIP)}">打开通知</button>`);
     if (target) btns.push(`<button data-act="open" title="${esc(real ? OPEN_TIP : OPEN_SHARE_TIP)}">浏览器打开${real ? "（带登录态）" : ""}</button>`);
-    btns.push(`<button class="danger" data-act="del" title="仅从本机列表移除并记住，不影响学习通平台，也不影响已创建的提醒；顶部「恢复已移除」可一键放回">移除</button>`);
+    btns.push(`<button class="danger" data-act="del" title="仅从本机列表移除并记住，不影响学习通平台，也不影响已创建的提醒；「更多」中的「恢复已移除」可一键放回">移除</button>`);
     return `<div class="cx2-card-actions">${btns.join("")}</div>`;
   }
 
   function navHtml() {
-    const t = todos(), l = overdueTodos(), s = submittedOpen();
-    return `<div class="cx2-nav">${[
-      ["inbox", `收件箱 <span class="cx2-pill">${visibleInbox().length}</span>${state.newIds.size?`<span class="cx2-pill cx2-new">+${state.newIds.size}</span>`:""}`],
-      ["cats", `通知分类 <span class="cx2-pill">${visibleInbox().length}</span>`],
-      ["todo", `待办作业 <span class="cx2-pill">${t.length}</span>${l.length?`<span class="cx2-pill cx2-late" title="截止已过、且本机没探到已提交">逾期 ${l.length}</span>`:""}${s.length?`<span class="cx2-pill" title="本机探到已提交，但截止时间还没到">已提交 ${s.length}</span>`:""}`],
-      ["courses", `课程 <span class="cx2-pill">${state.courses.length}</span>`],
+    return `<nav class="cx2-nav" aria-label="学习通页面">${[
+      ["inbox", `收件箱 <span class="cx2-count">${visibleInbox().length}</span>`],
+      ["cats", "通知分类"],
+      ["todo", `待办作业 <span class="cx2-count">${todos().length}</span>`],
+      ["courses", `课程 <span class="cx2-count">${state.courses.length}</span>`],
       ["lookup", "分享码查询"],
-    ].map(([id,label])=>`<button data-tab="${id}" class="${state.tab===id?'on':''}">${label}</button>`).join('')}</div>`;
+    ].map(([id,label])=>`<button data-tab="${id}" class="${state.tab===id?'on':''}" aria-current="${state.tab===id?'page':'false'}">${label}</button>`).join('')}</nav>`;
   }
 
   /* 收件箱卡片：收件箱列表与「通知分类」页共用，避免两处漂移。 */
@@ -844,8 +866,8 @@ const CX_PY_DATA = {
   }
   function inboxHtml() {
     const rows = filteredInbox();
-    return `<div class="cx2-toolbar"><input class="cx2-search" data-search value="${esc(state.filter.kw)}" placeholder="搜索课程 / 教师 / 作业 / 考试 / 正文…"><details class="plugin-filter-menu"><summary>筛选通知${state.filter.category !== "全部" || state.filter.onlyUnread ? " · 已设置" : ""}</summary><div class="plugin-filter-menu-panel"><select class="cx2-select" data-category aria-label="通知类型">${["全部","通知","作业","考试","签到"].map(x=>`<option ${state.filter.category===x?'selected':''}>${x}</option>`).join('')}</select><label class="cx2-check"><input class="switch" role="switch" type="checkbox" data-unread ${state.filter.onlyUnread?'checked':''}> 只看平台未读</label></div></details></div>
-      <div class="cx2-kpis"><span class="cx2-kpi">本次新增 ${state.newIds.size}</span><span class="cx2-kpi" title="含本机「标记未读」的覆盖结果">未读 ${visibleInbox().filter(x=>effUnread(x)).length}</span><span class="cx2-kpi">显示 ${visibleInbox().length} / 共 ${state.inbox.length}</span>${state.ignoredIds.size?`<span class="cx2-kpi" title="仅在本机列表隐藏，原始通知仍在本地缓存里；点右上角「恢复已移除」可放回">已移除 ${state.ignoredIds.size}</span>`:''}</div>
+    return `<div class="cx2-toolbar cx2-inbox-tools"><input class="cx2-search" data-search value="${esc(state.filter.kw)}" aria-label="搜索学习通通知" placeholder="搜索课程 / 教师 / 作业 / 考试 / 正文…"><details class="plugin-filter-menu"><summary>筛选通知${state.filter.category !== "全部" || state.filter.onlyUnread ? " · 已设置" : ""}</summary><div class="plugin-filter-menu-panel"><select class="cx2-select" data-category aria-label="通知类型">${["全部","通知","作业","考试","签到"].map(x=>`<option ${state.filter.category===x?'selected':''}>${x}</option>`).join('')}</select><label class="cx2-check"><input class="switch" role="switch" type="checkbox" data-unread ${state.filter.onlyUnread?'checked':''}> 只看平台未读</label></div></details></div>
+      <div class="cx2-summary"><span>显示 ${rows.length} / 共 ${visibleInbox().length} 条</span><span title="含本机标记未读">未读 ${visibleInbox().filter(x=>effUnread(x)).length}</span>${state.newIds.size?`<span>本次新增 ${state.newIds.size}</span>`:''}</div>
       ${rows.length?`<div class="cx2-grid">${rows.map(inboxCardHtml).join('')}</div>`:'<div class="cx2-empty">没有匹配的通知。</div>'}`;
   }
   /* ── 通知分类页：顶部下拉选学年（按中国学年制从通知时间推导），下方按 通知/作业/考试/签到 分区 ── */
@@ -894,7 +916,7 @@ const CX_PY_DATA = {
   function todoHtml() {
     const lists = { open: todos(), late: overdueTodos(), submitted: submittedOpen(), done: submittedOverdue(), grading: gradingNoDue() };
     const sel = TODO_SECS.some((s) => s.key === state.filter.todoSec) ? state.filter.todoSec : "";
-    const kpis = `<div class="cx2-toolbar"><details class="plugin-filter-menu"><summary>筛选作业${sel ? " · 已设置" : ""}</summary><div class="plugin-filter-menu-panel"><div class="cx2-kpis"><button class="cx2-kpi${!sel ? " on" : ""}" data-todo-sec="" aria-pressed="${!sel}">全部</button>${TODO_SECS.map((s) => `<button class="cx2-kpi${s.key === sel ? " on" : ""}" data-todo-sec="${s.key}" aria-pressed="${s.key === sel}" title="${s.tip} · 点击只看这一档">${s.label} ${lists[s.key].length}</button>`).join("")}</div></div></details>${lists.late.length && (!sel || sel === "late") ? `<button class="danger" data-clear-late title="把当前「已逾期未提交」列表全部从本机隐藏；不影响学习通平台，也可用顶部「恢复已移除」放回">一键移除逾期</button>` : ""}</div>`;
+    const kpis = `<div class="cx2-toolbar"><details class="plugin-filter-menu"><summary>筛选作业${sel ? " · 已设置" : ""}</summary><div class="plugin-filter-menu-panel"><div class="cx2-kpis"><button class="cx2-kpi${!sel ? " on" : ""}" data-todo-sec="" aria-pressed="${!sel}">全部</button>${TODO_SECS.map((s) => `<button class="cx2-kpi${s.key === sel ? " on" : ""}" data-todo-sec="${s.key}" aria-pressed="${s.key === sel}" title="${s.tip} · 点击只看这一档">${s.label} ${lists[s.key].length}</button>`).join("")}</div></div></details>${lists.late.length && (!sel || sel === "late") ? `<button class="danger" data-clear-late title="把当前「已逾期未提交」列表全部从本机隐藏；不影响学习通平台，也可用「更多」中的「恢复已移除」放回">一键移除逾期</button>` : ""}</div>`;
     const secs = TODO_SECS.filter((s) => !sel || s.key === sel).map((s) => {
       const list = lists[s.key];
       if (!list.length && !sel && s.key !== "open") return "";
@@ -1102,14 +1124,16 @@ const CX_PY_DATA = {
   }
   function lookupHtml() {
     const n=state.notice;
-    return `<div class="cx2-lookup"><div class="cx2-toolbar"><input class="cx2-search" data-code placeholder="粘贴 32 位 idCode 或学习通分享链接"><button class="primary" data-lookup>查询全文</button></div>${n?`<div class="cx2-detail"><div class="cx2-title">${esc(n.title)}</div><div class="cx2-meta"><span>${esc(n.sender)}</span><span>${esc(n.time)}</span>${n.toNames?`<span>发送给 ${esc(n.toNames)}</span>`:''}</div><div class="body">${esc(n.body||'（无正文）')}</div><div class="cx2-card-actions"><button data-notice-remind>转为提醒</button><button data-notice-open title="${esc(OPEN_TIP)}">浏览器打开（带登录态）</button><button class="danger" data-notice-del title="仅从本机收件箱列表移除并记住，可在顶部「恢复已移除」放回">移除</button></div></div>`:'<div class="cx2-empty">收件箱本身已经包含 rtf_content 全文；这里只用于按分享码单独查询通知。</div>'}</div>`;
+    return `<div class="cx2-lookup"><div class="cx2-toolbar"><input class="cx2-search" data-code placeholder="粘贴 32 位 idCode 或学习通分享链接"><button class="primary" data-lookup>查询全文</button></div>${n?`<div class="cx2-detail"><div class="cx2-title">${esc(n.title)}</div><div class="cx2-meta"><span>${esc(n.sender)}</span><span>${esc(n.time)}</span>${n.toNames?`<span>发送给 ${esc(n.toNames)}</span>`:''}</div><div class="body">${esc(n.body||'（无正文）')}</div><div class="cx2-card-actions"><button data-notice-remind>转为提醒</button><button data-notice-open title="${esc(OPEN_TIP)}">浏览器打开（带登录态）</button><button class="danger" data-notice-del title="仅从本机收件箱列表移除并记住，可在「更多」中的「恢复已移除」放回">移除</button></div></div>`:'<div class="cx2-empty">收件箱本身已经包含 rtf_content 全文；这里只用于按分享码单独查询通知。</div>'}</div>`;
   }
 
   function paintMain() {
     syncTaskbarBadge();
     if (!active || !host || host.isConnected === false) return;
     const modeBtns = `<span class="cx2-mode" role="group" aria-label="打开插件时的刷新策略">${["auto", "throttle"].map((m) => `<button class="${state.refreshMode === m ? "on" : ""}" data-mode="${m}" title="${esc(REFRESH_MODES[m].why)}" aria-pressed="${state.refreshMode === m}">${REFRESH_MODES[m].label}</button>`).join("")}</span>`;
-    host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-sub">收件箱通知 · 未截止作业 · 课程列表 · 分享码全文</p></div><div class="cx2-actions">${modeBtns}<label class="cx2-check" title="Windows 任务栏显示未提交作业数（含逾期、近期无截止作业）；已提交、考试与已移除通知不计。每 5 分钟同步，0 条自动隐藏。"><input class="switch" role="switch" type="checkbox" data-taskbar-badge ${state.taskbarBadge ? "checked" : ""}>任务栏作业角标（${unfinishedHomework().length}）</label><button class="primary" data-refresh ${state.loading?'disabled':''}>${state.loading?'刷新中…':'快速刷新'}</button><button data-full-sync ${state.loading?'disabled':''}>完整同步</button>${state.ignoredIds.size?`<button data-ignore-reset title="把被移除的通知重新放回列表，不需要重新同步">恢复已移除（${state.ignoredIds.size}）</button>`:''}<button data-switch>切换登录</button></div></div>${navHtml()}<div class="cx2-status ${state.error?'err':''}">${state.error?esc(state.error):`${state.busy==='open'?'正在将学习通插件登录态带入应用内网页 · ':''}${state.lastSync?`上次刷新 ${esc(state.lastSync)} · `:''}收件箱使用 notice.chaoxing.com 无 IP 白名单主路径`}</div><div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?coursesHtml():lookupHtml()}</div><footer>基于 chaoxing-notify-skill v2.0.0 的已验证接口流程。Cookie/账号信息仅在选择“保存登录信息”时写入本机；Cookie 等同账号登录身份，请勿外传。</footer></div>`;
+    const tools = `<details class="cx2-tools" data-tools><summary aria-label="更多学习通操作">更多</summary><div class="cx2-tools-panel"><div><div class="cx2-tools-label">打开页面时</div>${modeBtns}</div><label class="cx2-check" title="Windows 任务栏显示未提交作业数（含逾期、近期无截止作业）；已提交、考试与已移除通知不计。每 5 分钟同步，0 条自动隐藏。"><input class="switch" role="switch" type="checkbox" data-taskbar-badge ${state.taskbarBadge ? "checked" : ""}>任务栏作业角标（${unfinishedHomework().length}）</label><button data-full-sync ${state.loading?'disabled':''} title="重新拉取全部通知，可能需要更长时间">完整同步</button>${state.ignoredIds.size?`<button data-ignore-reset title="把被移除的通知重新放回列表，不需要重新同步">恢复已移除（${state.ignoredIds.size}）</button>`:''}<button data-switch>切换登录</button></div></details>`;
+    const status = state.error || (state.busy === "open" ? "正在打开学习通网页…" : "");
+    host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-updated">${state.lastSync ? `上次刷新 ${esc(state.lastSync)}` : "尚未刷新"}</p></div><div class="cx2-actions"><button class="primary" data-refresh ${state.loading?'disabled':''} title="刷新最新通知、课程与作业状态">${state.loading?'刷新中…':'刷新'}</button>${tools}</div></div>${navHtml()}${status ? `<div class="cx2-status ${state.error?'err':''}" role="status">${esc(status)}</div>` : ""}<div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?coursesHtml():lookupHtml()}</div></div>`;
   }
 
   async function refreshAll() {
@@ -1160,6 +1184,8 @@ const CX_PY_DATA = {
 
   function wire() {
     host.addEventListener("click", async (e) => {
+      const tools = host.querySelector('[data-tools]');
+      if (tools?.open && !tools.contains(e.target)) tools.open = false;
       const loginTab=e.target.closest('[data-login-tab]');if(loginTab){const cookie=loginTab.dataset.loginTab==='cookie';host.querySelectorAll('[data-login-tab]').forEach(b=>b.classList.toggle('on',b===loginTab));host.querySelector('[data-login-password]').hidden=cookie;host.querySelector('[data-login-cookie]').hidden=!cookie;return;}
       if(e.target.closest('[data-login]')){const u=host.querySelector('[data-u]').value.trim(),p=host.querySelector('[data-p]').value,status=host.querySelector('[data-login-status]');if(!u||!p){status.textContent='请填写账号和密码';return;}state.remember=host.querySelector('[data-remember]').checked;state.creds={uname:u,password:p};status.textContent='正在登录…';try{await cxLogin(u,p);paintMain();await refreshAll();}catch(err){status.textContent=err.message||err;}return;}
       if(e.target.closest('[data-cookie-login]')){const c=host.querySelector('[data-cookie]').value.trim(),status=host.querySelector('[data-login-status]');state.remember=host.querySelector('[data-remember]').checked;state.creds=null;status.textContent='正在验证 Cookie…';try{await startCookieSession(c);paintMain();await refreshAll();}catch(err){status.textContent=err.message||err;}return;}
@@ -1173,6 +1199,7 @@ const CX_PY_DATA = {
       if(e.target.closest('[data-search-toggle]')){state.course.searchOpen=true;paintMain();return;}
       const modeBtn=e.target.closest('[data-mode]');if(modeBtn){state.refreshMode=modeBtn.dataset.mode==='throttle'?'throttle':'auto';await tide.storage.set('refreshMode',state.refreshMode);paintMain();return;}
       if(e.target.closest('[data-refresh]')){await refreshAll();return;}
+      if(e.target.closest('[data-full-sync]')){await fullSync();return;}
       if(e.target.closest('[data-clear-late]')){await ignoreNotices(overdueTodos(),'逾期作业');return;}
       if(e.target.closest('[data-switch]')){if(state.loading||probing||backgroundBusy){tide.notify('正在同步作业，请完成后再切换登录');return;}state.loggedIn=false;state.sid=null;state.cookie='';state.creds=null;state.inbox=[];state.workStatus={};state.ignoredIds=new Set();state.knownIds=new Set();state.lastSyncAt=0;await tide.storage.set('inboxCache',[]);await saveWorkStatus();await saveIgnored();await saveKnown();await tide.storage.set('lastSyncAt',0);syncTaskbarBadge();await tide.storage.set('sessionCookie',null);await tide.storage.set('creds',null);loginHtml();return;}
       const lookup=e.target.closest('[data-lookup]');if(lookup){const input=host.querySelector('[data-code]');try{state.error='';await loadNotice(input.value);paintMain();}catch(err){state.error=err.message||String(err);paintMain();}return;}
@@ -1184,7 +1211,7 @@ const CX_PY_DATA = {
     });
     host.addEventListener("input", (e) => { if(e.target.matches('[data-search]')){state.filter.kw=e.target.value;savePrefs();const pos=e.target.selectionStart;paintMain();const next=host.querySelector('[data-search]');if(next){next.focus();try{next.setSelectionRange(pos,pos);}catch{}}} });
     host.addEventListener("change", (e) => { if(e.target.matches("[data-taskbar-badge]")){setTaskbarBadgeEnabled(e.target.checked);return;} if(e.target.matches('[data-category]')){state.filter.category=e.target.value;savePrefs();paintMain();}if(e.target.matches('[data-unread]')){state.filter.onlyUnread=e.target.checked;savePrefs();paintMain();}if(e.target.matches('[data-cat-year]')){state.filter.catYear=e.target.value;savePrefs();paintMain();} });
-    host.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select'))e.stopPropagation();if(e.target.matches('[data-search]')&&e.key==='Escape'){state.course.searchOpen=false;state.filter.kw='';paintMain();}});
+    host.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select'))e.stopPropagation();if(e.key==='Escape'){const tools=host.querySelector('[data-tools]');if(tools?.open){tools.open=false;tools.querySelector('summary').focus();e.stopPropagation();return;}}if(e.target.matches('[data-search]')&&e.key==='Escape'){state.course.searchOpen=false;state.filter.kw='';paintMain();}});
   }
 
   async function render(el) {
@@ -1195,7 +1222,7 @@ const CX_PY_DATA = {
     if (!ok) { loginHtml(); return; }
     paintMain();
     // 刷新策略（用户在按钮里选）：auto=每次打开都刷新（默认）；
-    // throttle=距上次成功同步不足 10 分钟直接用缓存，想更新随时点「快速刷新」。
+    // throttle=距上次成功同步不足 10 分钟直接用缓存，想更新随时点「刷新」。
     const stale = Date.now() - (state.lastSyncAt || 0) >= AUTO_REFRESH_THROTTLE_MS;
     if (state.refreshMode === "auto" || stale) await refreshAll();
   }

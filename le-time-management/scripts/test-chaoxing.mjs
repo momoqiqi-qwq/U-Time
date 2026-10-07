@@ -193,7 +193,7 @@ assert.equal(opened.at(-1), LOGIN_JUMP(HW), '没有本机会话时按需要登�
 /* ── 6. 权限与清单：openUrl 必须在 manifest 里声明，否则按钮点了没反应 ── */
 assert.ok(source.includes('tide.util.openUrl('), '插件确实调用了 openUrl');
 assert.ok((manifest.permissions || []).includes('openUrl'), 'manifest 必须声明 openUrl 权限');
-assert.equal(manifest.version, '2.16.0');
+assert.equal(manifest.version, '2.17.0');
 const catalog = readProductSource(new URL('src/pluginCatalog.js', root), 'utf8');
 const entry = catalog.slice(catalog.indexOf('"id": "chaoxing-notify"'));
 const block = entry.slice(0, entry.indexOf('},\n  {'));
@@ -222,8 +222,8 @@ assert.match(source, /\.slice\(0, 5\)[\s\S]{0,120}\.map\(\(x\) => \(\{ title: x\
 
 /* ── 6d. 通知分类页（v2.10.0）：学年下拉 + 按分类分区 ──
    学年按中国学年制（9 月至次年 8 月）从通知时间推导；下拉选学年后只显示该学年的通知。 */
-assert.match(source, /\["cats", `通知分类 <span class="cx2-pill">\$\{visibleInbox\(\)\.length\}<\/span>`\]/,
-  '「通知分类」标签页必须带计数胶囊（和收件箱 / 待办 / 课程一致）');
+assert.match(source, /\["cats", "通知分类"\]/,
+  '通知分类入口保留，重复的收件箱计数不再显示');
 assert.match(source, /data-cat-year/, '分类页必须有学年下拉栏');
 assert.match(source, /state\.filter\.catYear/, '选中的学年必须持久化到 filter');
 assert.equal(noticeAcademicYear({ time: '2025-09-01 08:00' }), '2025-2026', '9 月属新学年');
@@ -563,7 +563,7 @@ assert.match(todoView, /已提交 · 截止 2099-02-02 09:00/, '已提交未截�
 const lateSec = todoView.match(/<section[^>]*>(?:(?!<\/section>)[\s\S])*已逾期未提交[\s\S]*?<\/section>/)[0];
 assert.doesNotMatch(lateSec, />作业:sent</, '探到已提交的那条不该再出现在逾期列表里');
 assert.match(todoView, /class="cx2-grade-head"><span class="cx2-dot dot-green"><\/span>已提交已过期[\s\S]*?>作业:sent</, '已提交已过期那条要落在自己的分区里');
-assert.match(source, /class="cx2-pill cx2-late"/, '顶部标签页要给出逾期胶囊');
+assert.ok(!source.includes('class="cx2-pill cx2-late"'), '顶部去掉逾期胶囊，具体状态由待办分区展示');
 assert.match(styleBlock, /\.cx2-card\.late\{[^}]*border-top-color/, '逾期卡描边只让三边，左边框留给类型色');
 assert.doesNotMatch(styleBlock, /\.cx2-card\.late\{[^}]*[^-]border-color:/, '用 border-color 简写会吞掉类型色的左边框');
 
@@ -634,7 +634,7 @@ assert.equal(fetched.filter((u) => /intoexamorwork/.test(u)).length - probeBefor
 /* ── 10c. 点击链路：真跑一遍 wire()，确认统计条点得动、筛选会存下来 ── */
 {
   const st = { filter: { todoSec: 'late' } };
-  const host2 = { innerHTML: '', handlers: {}, addEventListener(ev, fn) { (host2.handlers[ev] ||= []).push(fn); } };
+  const host2 = { innerHTML: '', handlers: {}, querySelector() { return null; }, addEventListener(ev, fn) { (host2.handlers[ev] ||= []).push(fn); } };
   let view = null;
   const ctx = vm.createContext({
     URL, Set, Map, Date, console, JSON, Number, String, Array, Object, Promise, RegExp,
