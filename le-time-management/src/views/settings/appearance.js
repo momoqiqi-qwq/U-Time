@@ -473,7 +473,10 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     ),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "页面动效")), motion),
     toggleRow("Nephele 云雾与星尘背景", prefs.nepheleBackground, (value) => setUiPreferences({ nepheleBackground: value })),
-    toggleRow("Nephele 风格设置界面", prefs.nepheleSettings, (value) => setUiPreferences({ nepheleSettings: value })),
+    // v0.160.0：这个开关从「只改设置弹窗」扩成**全应用外观**（核心视图 / 插件页 / 侧栏 /
+    // 顶栏 / 弹窗一起换紫调毛玻璃），所以标签里的「设置」二字去掉 —— 名字再叫「风格设置界面」
+    // 会让人以为只影响设置页。偏好键仍是旧名 nepheleSettings，改键要做数据迁移。
+    toggleRow("Nephele 风格界面", prefs.nepheleSettings, (value) => setUiPreferences({ nepheleSettings: value })),
     toggleRow("应用内打开网页", prefs.openLinksInApp, (value) => {
       setUiPreferences({ openLinksInApp: value });
       toast(value ? "网页将优先在 U-Time 内打开" : "网页将交给系统默认浏览器打开");

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createSettingsNavigator } from "../src/views/settings/navigator.js";
 import { normalizeUiPreferences } from "../src/uiPreferences.js";
 
@@ -83,4 +84,55 @@ assert.equal(narrow.visible().length, 1);
 narrow.nav.setTabs(false);
 assert.equal(narrow.visible().length, 0);
 narrow.nav.dispose();
-console.log("PASS: Nephele 设置独立开关、保留分类与草稿、搜索、键盘切换、Android 返回及窄屏目录恢复");
+
+/* ── 源码守卫：Nephele 风格必须是**应用级**的（v0.160.0 扩面）──────────────
+ *
+ * 这一段钉的是「开关从设置弹窗扩到全应用」这件事本身。只用行为测试测不出来 ——
+ * 样式表读的是 CSS 源码，DOM 假对象里没有样式引擎。三条判据：
+ *   ① 令牌挂在 :root 上（全应用继承），而不是 .settings-modal / .set-wrap 作用域内；
+ *   ② 外壳（.rail / .main / .topbar）与各视图的表面（卡片 / 列表 / 浮层）真的被覆盖到；
+ *   ③ 保留两条既有约定 —— 设置页的紫色短下划线、以及 solid 材质下关掉实时模糊的逃生口。
+ * 每条都配了反向判据（见下），所以「换个标签、样式没动」这种改动会被判红。
+ */
+const cssRaw = readFileSync(new URL("../src/styles/nephele-settings.css", import.meta.url), "utf8");
+// 先剥注释：注释里正举着「v0.158.0 的旧选择器」当反例，不剥会命中自己。
+const css = cssRaw.replace(/\/\*[\s\S]*?\*\//g, "");
+const has = (re, msg) => assert.ok(re.test(css), msg);
+
+// ① 令牌在 :root 上 —— 这是「全应用生效」的**唯一**机制（所有 var() 消费方靠继承拿到）。
+has(/:root\[data-nephele-settings="on"\]\s*\{/, "浅色令牌要挂在 :root 上（只挂 .settings-modal 就等于只改设置页）");
+has(/:root\[data-theme-mode="dark"\]\[data-nephele-settings="on"\]\s*\{/, "深色令牌同样要挂在 :root 上");
+has(/\-\-panel\s*:/, "令牌块里要真的定义 --panel（表面色的单一来源）");
+has(/\-\-deep\s*:/, "令牌块里要真的定义 --deep（强调色的单一来源）");
+assert.ok(
+  !/:root\[data-nephele-settings="on"\]\s*:is\(\s*\.settings-modal\s*,\s*\.set-wrap\s*\)/.test(css),
+  "不许把令牌作用域收回 .settings-modal / .set-wrap —— 那是 v0.158.0 的写法，扩面后必须删掉",
+);
+
+// ② 外壳与表面
+for (const sel of [".rail", ".main", ".topbar"]) {
+  assert.ok(
+    new RegExp(`:root\\[data-nephele-settings="on"\\][^{}]*\\${sel}\\b`).test(css),
+    `外壳 ${sel} 要有 Nephele 覆盖规则（否则换的只是标签）`,
+  );
+}
+has(/backdrop-filter:\s*blur\(/, "外壳要给毛玻璃（backdrop-filter: blur）—— Nephele 的签名观感");
+has(/\.topbar\s*\{[^}]*background:\s*color-mix\([^}]*transparent\)/, "顶栏要换成半透明底");
+// ⚠️ 抓的是**整条规则**（选择器 + 声明块）而不是只抓声明块 —— 表面清单写在 :is(…) 的
+//    选择器里，只抓 {} 之间那段会一个都不命中（第一次就写错在这，记一笔）。
+const surfaceMatch = css.match(/:root\[data-nephele-settings="on"\]\s*:is\([\s\S]*?\)\s*\{[^}]*\}/);
+const surface = surfaceMatch ? surfaceMatch[0] : "";
+assert.ok(surface.length > 0, "要有一条覆盖全应用表面的规则（卡片 / 列表 / 浮层一起）");
+for (const sel of [".card", ".tkc", ".ptask", ".mcard", ".drawer", ".cmd-palette", ".timeline"]) {
+  assert.ok(surface.includes(sel), `表面清单要覆盖 ${sel}`);
+}
+assert.ok(
+  !/backdrop-filter/.test(surface),
+  "列表卡片不许各带一层 backdrop-filter：云雾是常驻动画，几十个 .tkc 逐项模糊是掉帧配方（外壳模糊一层就够）",
+);
+
+// ③ 既有约定不许在扩面时被顺手改掉
+has(/\.settings-nav-item\.on::after/, "设置页的紫色短下划线要保留");
+has(/\[data-nav-glass="solid"\]/, "要保留 solid 材质下「关掉实时模糊」的逃生口（低端 WebView 省电）");
+
+console.log("PASS: Nephele 设置独立开关、保留分类与草稿、搜索、键盘切换、Android 返回、窄屏目录恢复，且风格已覆盖全应用（:root 令牌 + 外壳毛玻璃 + 表面清单 + 保留逃生口）");

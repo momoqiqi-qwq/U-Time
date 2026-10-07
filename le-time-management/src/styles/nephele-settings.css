@@ -1,22 +1,51 @@
-/* Nephele SettingsView：横向分类条、紫色短下划线与 FrostedCard。
-   仅设置界面开关启用；不修改主题和独立背景偏好。 */
-:root[data-nephele-settings="on"] :is(.settings-modal, .set-wrap) {
-  --paper: #eee7f5;
-  --bg: #eee7f5;
-  --panel: #faf7ff;
+/* Nephele 风格（**应用级**外观，v0.160.0 起）。
+   ⚠️ 文件名与 data-nephele-settings 沿用存储键 settings.ui.nepheleSettings —— 改键要做
+   数据迁移，不值当。但作用域已经**不是**「仅设置弹窗」了：v0.158.0 那版只覆盖
+   .settings-modal / .set-wrap，现在扩到全应用（所有核心视图、插件页、侧栏、顶栏与弹窗）。
+
+   只改外观，不碰别的东西：
+     · 不动令牌事实源 —— src/styles.css（浅色）与 tools/lib/theme-tokens.js（深色派生）里
+       的原始值一个都没改，这里只是**另起一套**同名令牌把它们盖住；
+     · 不动业务布局、不动插件 API；关闭开关（data-nephele-settings="off"）时本文件
+       一条规则都不命中，界面逐像素回到原样。
+
+   三层结构：
+     ① 令牌（:root 级）—— 全应用换紫调，绝大多数组件靠 var() 自动跟随；
+     ② 外壳与表面   —— 毛玻璃 + 大圆角 + 紫色描边（签名观感）；
+     ③ 设置弹窗     —— 顶部横向分类 + 紫色短下划线（v0.158.0 原有规则，原样保留）。 */
+
+/* ── ① 全局令牌 ────────────────────────────────────────────────────────────
+   写在 :root 上 ⇒ 全部视图、插件页、弹窗一次性继承。
+   特异性 (0,2,0) 与主题块 `:root[data-theme=…]` 相同，靠 index.html 的加载顺序取胜
+   （本文件排在 styles.css / theme-derived.css 之后，见 index.html）。深色那条多一个
+   属性升到 (0,3,0)，与 v0.158.0 的写法同一套路，深浅两套不会互相打架。 */
+:root[data-nephele-settings="on"] {
+  --bg: #ece5f4;
+  --paper: #f5f0fa;
+  --panel: #fbf8ff;
   --ink: #3e344f;
   --ink-2: #675c77;
   --ink-3: #786b89;
   --line: #c6b8d4;
   --line-soft: #ded3e9;
   --deep: #81559b;
+  --deep-2: #453757;
   --on-deep: #fff;
+  --on-accent: #fff;
   --control-bg: #f3edf9;
   --hover-bg: #e4d8ed;
+  --active-bg: color-mix(in srgb, var(--deep) 12%, transparent);
+  --focus-ring: color-mix(in srgb, var(--deep) 26%, transparent);
+  --shadow: 0 1px 2px rgba(78, 50, 100, .05), 0 2px 10px rgba(78, 50, 100, .05);
+  --shadow-lg: 0 18px 46px rgba(52, 30, 72, .22);
+  /* 本风格自用（不外泄给插件）：强调色 / 玻璃描边 / 玻璃底。 */
+  --nephele-accent: #81559b;
+  --nephele-edge: color-mix(in srgb, #a680bd 26%, var(--line));
+  --nephele-glass: color-mix(in srgb, var(--panel) 78%, transparent);
 }
-:root[data-theme-mode="dark"][data-nephele-settings="on"] :is(.settings-modal, .set-wrap) {
-  --paper: #211b2b;
+:root[data-theme-mode="dark"][data-nephele-settings="on"] {
   --bg: #211b2b;
+  --paper: #1a1424;
   --panel: #31263f;
   --ink: #f6eefc;
   --ink-2: #d1c2df;
@@ -24,14 +53,114 @@
   --line: #645371;
   --line-soft: #50415f;
   --deep: #d3afe9;
+  --deep-2: #150f1e;
   --on-deep: #2b1e37;
+  --on-accent: #2b1e37;
   --control-bg: #392e46;
   --hover-bg: #473552;
+  --active-bg: color-mix(in srgb, var(--deep) 16%, transparent);
+  --focus-ring: color-mix(in srgb, var(--deep) 34%, transparent);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .28), 0 2px 12px rgba(0, 0, 0, .26);
+  --shadow-lg: 0 18px 46px rgba(0, 0, 0, .48);
+  --nephele-accent: #d3afe9;
+  --nephele-edge: color-mix(in srgb, #b48ed0 28%, var(--line));
+  --nephele-glass: color-mix(in srgb, var(--panel) 74%, transparent);
 }
+
+/* ── ② 应用外壳：毛玻璃 + 圆角 ──────────────────────────────────────────────
+   桌面（≥901px）的「左竖栏 + 主区」两块板改成半透明毛玻璃 ⇒ 开着云雾背景时能透出底下的
+   云，这才是 Nephele 的观感；背景没开时透出的是同一套 --bg 色，观感一致、不会发灰。
+
+   🔴 模糊层只加在**外壳这两块大板**上，卡片一律不再叠 backdrop-filter：
+   backdrop-filter 会为每个命中元素建一层合成，且云雾是 12.5s / 17.5s 的常驻动画 ⇒
+   背景每帧都在变、每层都要重算。列表里几十个 .tkc 各带一层模糊就是低端 WebView 掉帧的
+   经典配方。大板模糊一次、卡片只做半透明，视觉等价而代价只有一层。
+   （这正是仓库既有的取舍：手机底栏材质给过 solid 档，注释写明「实时模糊是低端 WebView
+   滚动掉帧的大头」。）
+
+   data-nav-glass="solid" 是仓库既有的「关掉实时模糊」开关，这里沿用同一语义：
+   实色材质下退化成不透明板，几何与配色都不动 —— 给低端机留的逃生口。 */
+@media (min-width: 901px) {
+  :root[data-nephele-settings="on"] .rail {
+    background: var(--nephele-glass);
+    border-color: var(--nephele-edge);
+    backdrop-filter: blur(22px) saturate(1.12);
+    -webkit-backdrop-filter: blur(22px) saturate(1.12);
+  }
+  :root[data-nephele-settings="on"] .main {
+    background: color-mix(in srgb, var(--bg) 58%, transparent);
+    border-color: var(--nephele-edge);
+    backdrop-filter: blur(26px) saturate(1.08);
+    -webkit-backdrop-filter: blur(26px) saturate(1.08);
+  }
+  :root[data-nephele-settings="on"][data-nav-glass="solid"] :is(.rail, .main) {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  :root[data-nephele-settings="on"][data-nav-glass="solid"] .rail {
+    background: color-mix(in srgb, var(--panel) 94%, var(--paper));
+  }
+  :root[data-nephele-settings="on"][data-nav-glass="solid"] .main {
+    background: color-mix(in srgb, var(--bg) 76%, var(--panel));
+  }
+}
+/* 窄屏（≤900px）的外壳是「主区铺满 + 悬浮玻璃底栏」，主区本来就没有自己的底色
+   （body 的 --bg 直接透出），所以这里只给底栏换描边 —— 它已经是毛玻璃了。 */
+:root[data-nephele-settings="on"] .rail {
+  border-color: var(--nephele-edge);
+}
+:root[data-nephele-settings="on"] .topbar {
+  background: color-mix(in srgb, var(--panel) 58%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--nephele-edge) 82%, transparent);
+}
+
+/* ── ③ 表面：卡片 / 面板 / 浮层 ────────────────────────────────────────────
+   一律「半透明 + 紫色描边 + 大圆角」。这里**不加** backdrop-filter（理由见上），
+   靠 --panel 的透明度把外壳那层已经磨过的底透出来。 */
+:root[data-nephele-settings="on"] :is(
+  .card, .mcard, .set-card, .timeline, .ptask, .tkc, .plug-card,
+  .plugin-toolbar, .popmenu, .drawer, .cmd-palette
+) {
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  border-color: var(--nephele-edge);
+}
+/* 浮层（抽屉 / 命令面板）飘在外壳之上，背后是内容而不是背景板 ⇒ 这两处值得各留一层模糊。 */
+:root[data-nephele-settings="on"] :is(.drawer, .cmd-palette) {
+  backdrop-filter: blur(20px) saturate(1.1);
+  -webkit-backdrop-filter: blur(20px) saturate(1.1);
+}
+/* 输入控件与 chip 走 --control-bg，令牌已换紫 ⇒ 自动跟随，这里只补圆角与描边。 */
+:root[data-nephele-settings="on"] :is(.chip, .task-search, .plugin-toolbar) {
+  border-color: var(--nephele-edge);
+}
+/* 顶栏胶囊、页面里的 chip 与卡片同族，一起换成玻璃底。 */
+:root[data-nephele-settings="on"] .topbar .pill {
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  border-color: var(--nephele-edge);
+}
+/* 侧栏底部那排按钮（设置 / 主题 / 窗口）的文字色：基础规则写死的是深色侧栏上的浅灰
+   #ADC0C5，Nephele 的侧栏是浅紫 ⇒ 会糊成一片。改用令牌，深浅两套自动对。 */
+:root[data-nephele-settings="on"] .rail-bottom > button {
+  color: var(--ink-2);
+}
+:root[data-nephele-settings="on"] .rail-bottom > button:hover,
+:root[data-nephele-settings="on"] .rail-bottom > button.on {
+  color: var(--ink);
+  background: var(--active-bg);
+}
+:root[data-nephele-settings="on"] .rail-bottom {
+  border-top-color: color-mix(in srgb, var(--nephele-edge) 70%, transparent);
+}
+
+/* ── ④ 设置弹窗（v0.158.0 原有规则，作用域不变）──────────────────────────── */
+/* 弹窗底色改成和全应用一致的半透明玻璃。v0.158.0 那版写的是不透明 lavender
+   （--paper 90% 混 #ded1ee）配一条 backdrop-filter —— 不透明底上模糊没有可模糊的东西，
+   那条声明一直是空转。扩面之后弹窗背后就是云雾背景，这里改成半透明才真的吃得到模糊。 */
 :root[data-nephele-settings="on"] .settings-modal {
-  background: color-mix(in srgb, var(--paper) 90%, #ded1ee);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
   border-color: color-mix(in srgb, #a680bd 25%, var(--line));
   backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 :root[data-nephele-settings="on"] .settings-modal-body { background: transparent; }
 :root[data-nephele-settings="on"] .settings-layout {
@@ -52,6 +181,7 @@
   border-radius: 14px;
   background: color-mix(in srgb, var(--panel) 78%, transparent);
   backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   border-color: color-mix(in srgb, #a680bd 24%, var(--line));
   box-shadow: none;
 }
@@ -115,6 +245,7 @@
   border: 1px solid color-mix(in srgb, #a680bd 22%, var(--line));
   background: color-mix(in srgb, var(--panel) 80%, transparent);
   backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   box-shadow: 0 4px 16px #6644780d;
 }
 :root[data-nephele-settings="on"] .settings-section h2 { color: var(--nephele-accent); }

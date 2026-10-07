@@ -36,7 +36,7 @@ function seed() {
 
 async function boot() {
   // 原生桌面窗体先保持隐藏：恢复用户的默认尺寸、主题与缩放后再显示，避免看到
-  // 默认 1440×900 窗口先出现、随后被「跟随屏幕」设置放大的过程。
+  // 默认 1360×860 窗口先出现、随后被启动窗口大小设置调整的过程。
   if (api.isTauri) document.documentElement.dataset.appStarting = "true";
   // 手机端放开双指缩放：必须在首屏渲染前改 viewport（原生侧 builtInZoomControls 在
   // MainActivity.onWebViewCreate 里打开，两边缺一不可）。

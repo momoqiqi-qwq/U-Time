@@ -59,10 +59,10 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   // v0.108.0：手机底栏材质 —— frosted = 毛玻璃（默认）；solid = 实色
   // （低端 WebView 关掉 backdrop-filter，滚动更稳、更省电）。
   navGlass: "frosted",
-  // 启动窗口大小：默认「跟随屏幕」——绝大多数显示器上都会比旧的固定 1280×820 更大。
-  startupWindowMode: "auto",
-  startupWindowWidth: 1440,
-  startupWindowHeight: 900,
+  // 启动窗口大小：默认标准窗口，接近常见聊天/工作应用的中等尺寸；想更大或更小可在设置中改。
+  startupWindowMode: "standard",
+  startupWindowWidth: 1360,
+  startupWindowHeight: 860,
 });
 
 export const NAVBAR_SIZE_OPTIONS = Object.freeze([
@@ -84,9 +84,9 @@ export const STARTUP_VIEW_OPTIONS = Object.freeze([
 export const WINDOW_SIZE_MODES = Object.freeze(["auto", "compact", "standard", "large", "full", "custom"]);
 
 export const WINDOW_SIZE_OPTIONS = Object.freeze([
-  ["auto", "跟随屏幕（推荐）"],
+  ["auto", "跟随屏幕 · 最高 1440 × 900"],
   ["compact", "小巧 · 1120 × 720"],
-  ["standard", "标准 · 1360 × 860"],
+  ["standard", "标准 · 1360 × 860（推荐）"],
   ["large", "宽大 · 1600 × 1000"],
   ["full", "铺满可用区域"],
   ["custom", "自定义尺寸"],

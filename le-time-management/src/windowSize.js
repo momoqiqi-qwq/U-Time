@@ -1,6 +1,6 @@
 // 启动窗口大小。
 //
-// 需求：主界面默认开得更大一些，并且能在「总设置 → 界面与交互」里选默认大小。
+// 需求：Windows 主窗口默认不要开得过大，并且能在「总设置 → 界面与交互」里选默认大小。
 // 实现取向：**每次启动定一次**，不记忆用户手动拖过的大小 —— 需求就是「每次打开的默认界面大小」
 // 由设置决定，记忆上次反而会让设置看起来不生效。
 //
@@ -29,9 +29,10 @@ export const CUSTOM_SIZE_LIMITS = Object.freeze({
  */
 export const FOCUS_WINDOW_SIZE = Object.freeze({ width: 1600, height: 1100 });
 
-/** 「跟随屏幕」时占显示器可用区域的比例，以及拿不到显示器信息时的兜底尺寸。 */
+/** 「跟随屏幕」时占显示器可用区域的比例、上限，以及拿不到显示器信息时的兜底尺寸。 */
 const AUTO_RATIO = 0.86;
-const AUTO_FALLBACK = Object.freeze({ width: 1440, height: 900 });
+const AUTO_MAX = Object.freeze({ width: 1440, height: 900 });
+const AUTO_FALLBACK = Object.freeze({ ...WINDOW_SIZE_PRESETS.standard });
 
 /** 目标尺寸与屏幕边缘之间留的余量（逻辑像素），避免最大化条 / 边框压住内容。 */
 const SCREEN_MARGIN = 24;
@@ -77,11 +78,14 @@ export function resolveWindowSize(pref = {}, area = null) {
   }
   if (WINDOW_SIZE_PRESETS[mode]) return { mode: "size", ...fitToScreen({ ...WINDOW_SIZE_PRESETS[mode] }) };
 
-  // 其余（含 auto、未知取值）都按屏幕算。
+  // 其余（含 auto、未知取值）都按屏幕算，但在大屏上封顶到中等窗口，避免首屏接近满屏。
   if (!usable) return { mode: "size", ...AUTO_FALLBACK };
   return {
     mode: "size",
-    ...fitToScreen({ width: Math.round(usable.width * AUTO_RATIO), height: Math.round(usable.height * AUTO_RATIO) }),
+    ...fitToScreen({
+      width: Math.min(Math.round(usable.width * AUTO_RATIO), AUTO_MAX.width),
+      height: Math.min(Math.round(usable.height * AUTO_RATIO), AUTO_MAX.height),
+    }),
   };
 }
 
@@ -141,7 +145,7 @@ export function windowSizeHint(mode, pref = {}) {
   }
   const preset = WINDOW_SIZE_PRESETS[mode];
   if (preset) return `启动时为 ${preset.width} × ${preset.height}；比屏幕还大时会自动缩到可用区域内。`;
-  return "按当前显示器可用区域的约 86% 打开，通常比原来的 1280 × 820 更大；小屏上会自动收窄。";
+  return "按当前显示器可用区域的约 86% 打开，最高 1440 × 900；小屏上会自动收窄。";
 }
 
 /* ── 左下角「缩放视图」按钮 ──

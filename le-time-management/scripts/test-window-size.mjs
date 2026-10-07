@@ -1,5 +1,5 @@
 import { readProductSource } from "./lib/read-product-source.mjs";
-// 启动窗口大小：默认开得更大 + 可在「总设置 → 界面与交互」里选。
+// 启动窗口大小：默认中等窗口 + 可在「总设置 → 界面与交互」里选。
 // 外加左下角「缩放视图」按钮（一键收成固定尺寸并居中 / 再按还原）。
 //
 // 这里只测纯逻辑（resolveWindowSize / focusWindowSize / 夹取 / 偏好归一），Tauri 的 setSize 调用靠
@@ -30,11 +30,13 @@ import {
 
 const read = (p) => readProductSource(new URL(p, import.meta.url), "utf8");
 
-/* ── 一、默认值：不再写死 1280×820 ── */
-assert.equal(DEFAULT_UI_PREFERENCES.startupWindowMode, "auto", "默认必须是「跟随屏幕」，否则小屏用户会被开出屏幕外");
-assert.deepEqual([DEFAULT_UI_PREFERENCES.startupWindowWidth, DEFAULT_UI_PREFERENCES.startupWindowHeight], [1440, 900]);
-assert.equal(resolveWindowSize({}, null).width, 1440);
-assert.equal(resolveWindowSize({}, null).height, 900);
+/* ── 一、默认值：中等窗口，不要在大屏上接近满屏 ── */
+assert.equal(DEFAULT_UI_PREFERENCES.startupWindowMode, "standard", "默认必须是标准窗口，避免大屏上启动窗口过大");
+assert.deepEqual([DEFAULT_UI_PREFERENCES.startupWindowWidth, DEFAULT_UI_PREFERENCES.startupWindowHeight], [1360, 860]);
+assert.equal(resolveWindowSize(DEFAULT_UI_PREFERENCES, null).width, 1360);
+assert.equal(resolveWindowSize(DEFAULT_UI_PREFERENCES, null).height, 860);
+assert.equal(resolveWindowSize({}, null).width, 1360);
+assert.equal(resolveWindowSize({}, null).height, 860);
 
 /* ── 二、模式表 / 选项表 / 预设表必须对齐（三处写 id 最容易漂） ── */
 assert.deepEqual(WINDOW_SIZE_OPTIONS.map((x) => x[0]), [...WINDOW_SIZE_MODES], "设置页选项必须与模式表逐项对应");
@@ -50,10 +52,12 @@ for (const preset of Object.values(WINDOW_SIZE_PRESETS)) {
   assert.ok(preset.width <= CUSTOM_SIZE_LIMITS.maxWidth && preset.height <= CUSTOM_SIZE_LIMITS.maxHeight);
 }
 
-/* ── 三、auto：按屏幕算，且不能比旧默认值小 ── */
+/* ── 三、auto：按屏幕算，但大屏封顶到中等窗口 ── */
 const auto = resolveWindowSize({ startupWindowMode: "auto" }, { width: 1920, height: 1040 });
-assert.deepEqual(auto, { mode: "size", width: 1651, height: 894 });
-assert.ok(auto.width > 1280 && auto.height > 820, `跟随屏幕在 1920×1040 上应大于旧的 1280×820，实际 ${auto.width}×${auto.height}`);
+assert.deepEqual(auto, { mode: "size", width: 1440, height: 894 });
+assert.ok(auto.width <= 1440 && auto.height <= 900, `跟随屏幕在大屏上也不能过大，实际 ${auto.width}×${auto.height}`);
+const autoHuge = resolveWindowSize({ startupWindowMode: "auto" }, { width: 2560, height: 1440 });
+assert.deepEqual(autoHuge, { mode: "size", width: 1440, height: 900 });
 const autoSmall = resolveWindowSize({ startupWindowMode: "auto" }, { width: 1366, height: 768 });
 assert.ok(autoSmall.width <= 1366 - 24 && autoSmall.height <= 768 - 24, "小屏上必须缩到可用区域内");
 assert.equal(autoSmall.mode, "size");
@@ -76,12 +80,12 @@ assert.deepEqual(resolveWindowSize({ startupWindowMode: "custom", startupWindowW
 assert.deepEqual(resolveWindowSize({ startupWindowMode: "full" }, { width: 1920, height: 1080 }), { mode: "full" });
 for (const bad of [undefined, null, "", "huge", 123, {}]) {
   const out = resolveWindowSize({ startupWindowMode: bad }, { width: 1920, height: 1040 });
-  assert.deepEqual(out, { mode: "size", width: 1651, height: 894 }, `模式 ${String(bad)} 必须退回「跟随屏幕」而不是开出 0 尺寸窗口`);
+  assert.deepEqual(out, { mode: "size", width: 1440, height: 894 }, `模式 ${String(bad)} 必须退回「跟随屏幕」而不是开出 0 尺寸窗口`);
 }
 assert.ok(resolveWindowSize(null, null).width > 0, "整个偏好丢失时也要给出可用尺寸");
 
 /* ── 七、偏好归一化：非法模式与越界尺寸都要被修正 ── */
-assert.equal(normalizeUiPreferences({ startupWindowMode: "huge" }).startupWindowMode, "auto");
+assert.equal(normalizeUiPreferences({ startupWindowMode: "huge" }).startupWindowMode, "standard");
 assert.equal(normalizeUiPreferences({ startupWindowMode: "full" }).startupWindowMode, "full");
 assert.equal(normalizeUiPreferences({ startupWindowWidth: 10 }).startupWindowWidth, CUSTOM_SIZE_LIMITS.minWidth);
 assert.equal(normalizeUiPreferences({ startupWindowWidth: 99999 }).startupWindowWidth, CUSTOM_SIZE_LIMITS.maxWidth);
@@ -96,7 +100,7 @@ for (const mode of WINDOW_SIZE_MODES) {
   if (!["auto", "full"].includes(mode)) assert.match(hint, /\d+ × \d+/, `模式 ${mode} 的说明里应给出具体尺寸`);
 }
 assert.match(windowSizeHint("full"), /最大化/);
-assert.match(windowSizeHint("auto"), /86%/);
+assert.match(windowSizeHint("auto"), /最高 1440 × 900/);
 
 /* ── 九、非桌面环境：不抛异常，如实返回 not-desktop ── */
 assert.equal(isDesktopRuntime(), false, "Node 里没有 Tauri，不该被当成桌面端");
@@ -114,10 +118,10 @@ for (const marker of ["startupWindowMode", "WINDOW_SIZE_OPTIONS", "立即应用"
 const windowSizeSrc = read("../src/windowSize.js");
 assert.ok(!/from\s+"\.\/uiPreferences\.js"/.test(windowSizeSrc), "windowSize 不能反向依赖 uiPreferences，会形成循环导入");
 
-/* ── 十一、窗口初值也一起放大了（老用户重装后不至于还是小小的） ── */
+/* ── 十一、窗口初值也一起收成中等尺寸 ── */
 const tauri = JSON.parse(read("../src-tauri/tauri.conf.json"));
 const win = tauri.app.windows[0];
-assert.ok(win.width > 1280 && win.height > 820, `tauri.conf.json 默认窗口应比原来的 1280×820 大，实际 ${win.width}×${win.height}`);
+assert.deepEqual([win.width, win.height], [1360, 860], `tauri.conf.json 默认窗口应为中等尺寸，实际 ${win.width}×${win.height}`);
 assert.equal(win.minWidth, 400);
 assert.equal(win.minHeight, 560);
 assert.ok(win.center === true, "放大后必须居中，否则会溢出屏幕右下");
