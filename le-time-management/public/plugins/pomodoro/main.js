@@ -6,6 +6,14 @@
     { id: "long", label: "长休 15", min: 15 },
   ];
   const R = 86, CIRC = 2 * Math.PI * R;
+  const SCENES = [
+    { id: "sakura", label: "夜樱窗景", sheet: "a", position: "0%" },
+    { id: "rain", label: "雨天茶室", sheet: "a", position: "50%" },
+    { id: "stars", label: "星空书房", sheet: "a", position: "100%" },
+    { id: "maple", label: "秋日神社", sheet: "b", position: "0%" },
+    { id: "coast", label: "海边列车", sheet: "b", position: "50%" },
+    { id: "snow", label: "雪夜温室", sheet: "b", position: "100%" },
+  ];
 
   // 自定义时长以「秒」为唯一事实源（storage 键 customSec）。分 / 秒两个输入框只是它的两种视图，
   // 这样 1 分 30 秒就是 90，不必再靠 1.5 这种小数分钟去凑。
@@ -29,6 +37,11 @@
 
   let mode = MODES[0], left = 25 * 60, timer = null, currentTaskId = "", customSec = 25 * 60, firedStages = new Set();
   let box, timeText, ring, taskSel, dotsBox;
+  let glassDispose = null;
+  let sceneId = SCENES[0].id, sceneChanged = false;
+  const sceneReady = Promise.resolve(tide.storage.get("sceneId", sceneId)).then((saved) => {
+    if (!sceneChanged && SCENES.some((scene) => scene.id === saved)) sceneId = saved;
+  }).catch((e) => console.warn("番茄专注：卡面设置读取失败", e));
 
   let reminder = { ...REMINDER_DEFAULT };
   const reminderReady = (async () => {
@@ -402,22 +415,76 @@
   }
 
   function render(el2) {
+    glassDispose?.();
+    glassDispose = null;
     box = el2;
     el2.innerHTML = "";
 
     const card = document.createElement("div");
+    card.className = "pomodoro-timer-card";
     // 卡片底色直接取宿主面板色，与应用自己的 .card 一致。v0.55.0 之前这里读的是宿主注入的两个
     // 复合变量（「自定义背景」的「卡片不透明度 / 卡片毛玻璃」靠它们生效），那套功能已经删除、
     // 变量不再注入 —— 留着 var() 只会变成指向不存在功能的死引用。变量名见 git 历史。
     card.style.cssText = "max-width:520px;margin:30px auto;text-align:center;background:var(--panel,#fff);color:var(--ink,#22303A);border:1px solid var(--line,#E4DFD6);border-radius:18px;padding:34px 30px;box-shadow:var(--shadow,0 2px 10px rgba(34,48,58,.07))";
 
     const title = document.createElement("div");
+    title.className = "pomodoro-card-heading";
     title.style.cssText = "font-size:calc(11px * var(--ui-text-scale));letter-spacing:.3em;color:var(--ink-2,#7E8B94);margin-bottom:14px";
     title.textContent = "番 茄 专 注 · 内 置 插 件";
+    const header = document.createElement("div");
+    header.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px";
+    title.style.marginBottom = "0";
+    const settingsBtn = chip("设置", () => tide.util.openSettings("ui", "番茄计时卡液态玻璃"));
+    settingsBtn.type = "button";
+    settingsBtn.setAttribute("aria-label", "番茄插件设置");
+    settingsBtn.title = "打开番茄计时卡液态玻璃设置";
+    header.append(title, settingsBtn);
+
+    const sceneRow = document.createElement("div");
+    sceneRow.className = "pomodoro-scene-choices";
+    sceneRow.setAttribute("role", "group");
+    sceneRow.setAttribute("aria-label", "番茄卡面");
+    const syncScene = () => {
+      const scene = SCENES.find((item) => item.id === sceneId) || SCENES[0];
+      card.dataset.scene = scene.id;
+      card.style.backgroundImage = `linear-gradient(to bottom, rgba(18,16,30,.42) 0%, rgba(18,16,30,.52) 45%, var(--panel,#fff) 75%), url("/plugins/pomodoro/scenes-${scene.sheet}.png")`;
+      card.style.backgroundPosition = `center, ${scene.position} center`;
+      sceneRow.querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.scene === scene.id)));
+      card.dispatchEvent(new Event("pomodoro:scene-changed"));
+    };
+    for (const scene of SCENES) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.scene = scene.id;
+      button.setAttribute("aria-label", scene.label);
+      button.title = scene.label;
+      button.style.backgroundImage = `url("/plugins/pomodoro/scenes-${scene.sheet}.png")`;
+      button.style.backgroundPosition = `${scene.position} center`;
+      button.addEventListener("click", () => {
+        sceneId = scene.id;
+        sceneChanged = true;
+        syncScene();
+        Promise.resolve(tide.storage.set("sceneId", sceneId)).catch((e) => console.warn("番茄专注：卡面设置保存失败", e));
+      });
+      sceneRow.append(button);
+    }
 
     // 模式切换
     const modes = document.createElement("div");
-    modes.style.cssText = "display:flex;justify-content:center;gap:8px;margin-bottom:22px";
+    modes.className = "pomodoro-modes";
+    modes.setAttribute("role", "group");
+    modes.setAttribute("aria-label", "番茄计时模式");
+    modes.style.cssText = "display:flex;justify-content:center;gap:8px;margin-bottom:22px;flex-wrap:wrap";
+    const syncModes = () => {
+      modes.querySelectorAll("button").forEach((x) => {
+        const on = x.dataset.m === mode.id;
+        x.setAttribute("aria-pressed", String(on));
+        x.style.background = on ? "var(--deep,#0F4C5C)" : "var(--panel,#fff)";
+        x.style.color = on ? "var(--on-deep,#fff)" : "var(--ink-2,#7E8B94)";
+        x.style.borderColor = on ? "var(--deep,#0F4C5C)" : "var(--line,#E4DFD6)";
+      });
+      if (card.dispatchEvent && typeof Event === "function") card.dispatchEvent(new Event("pomodoro:mode-changed"));
+    };
     [...MODES, { id: "custom", label: "自定义", min: customSec / 60 }].forEach((m) => {
       const b = document.createElement("button");
       b.textContent = m.label;
@@ -425,12 +492,7 @@
       b.style.cssText = "font-size:calc(12px * var(--ui-text-scale));border-radius:16px;padding:7px 16px;border:1px solid var(--line,#E4DFD6);color:var(--ink-2,#7E8B94);background:var(--panel,#fff);cursor:pointer";
       b.addEventListener("click", () => {
         stop(); mode = m; left = modeSeconds(m); firedStages = new Set();
-        modes.querySelectorAll("button").forEach((x) => {
-          const on = x.dataset.m === m.id;
-          x.style.background = on ? "var(--deep,#0F4C5C)" : "var(--panel,#fff)";
-          x.style.color = on ? "var(--on-deep,#fff)" : "var(--ink-2,#7E8B94)";
-          x.style.borderColor = on ? "var(--deep,#0F4C5C)" : "var(--line,#E4DFD6)";
-        });
+        syncModes();
         paint();
       });
       modes.append(b);
@@ -446,6 +508,7 @@
     };
     const unitText = (text) => {
       const s = document.createElement("span");
+      s.className = "pomodoro-unit-label";
       s.textContent = text;
       s.style.cssText = "font-size:calc(12px * var(--ui-text-scale));color:var(--ink-3,#8FA2A8)";
       return s;
@@ -465,6 +528,7 @@
       catch (e) { console.warn("番茄专注：自定义时长保存失败", e); }
       stop();
       mode = { id: "custom", label: "自定义", min: customSec / 60 };
+      syncModes();
       left = customSec;
       firedStages = new Set();
       paint();
@@ -484,6 +548,7 @@
       </svg>`;
     ring = ringWrap.querySelector(".ring");
     timeText = document.createElement("div");
+    timeText.className = "pomodoro-time-text";
     timeText.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:calc(44px * var(--ui-text-scale));font-weight:300;font-variant-numeric:tabular-nums";
     timeText.textContent = fmt(left);
     ringWrap.append(timeText);
@@ -493,6 +558,7 @@
     taskSel.style.cssText = "width:100%;max-width:340px;height:36px;border:1px solid var(--line,#E4DFD6);border-radius:9px;padding:0 10px;background:var(--paper,#fff);color:var(--ink,#22303A);margin-bottom:18px";
     fillTasks();
     const selLab = document.createElement("div");
+    selLab.className = "pomodoro-task-label";
     selLab.style.cssText = "font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);margin-bottom:6px";
     selLab.textContent = "专注哪个任务（可选）";
 
@@ -520,17 +586,23 @@
 
     const panel = reminderPanel();
 
-    card.append(title, modes, customRow, ringWrap, selLab, taskSel, newTaskRow, ctrl, dotsBox, panel.node);
+    card.append(header, sceneRow, modes, customRow, ringWrap, selLab, taskSel, newTaskRow, ctrl, dotsBox, panel.node);
     el2.append(card);
+    syncScene();
+    syncModes();
+    const detachGlass = tide.ui.attachPomodoroGlass?.(card);
+    glassDispose = detachGlass || null;
     paint();
     // 同步的 render 先按默认值画，设置读完后再对齐一次。
     reminderReady.then(() => panel.sync());
+    sceneReady.then(() => { if (card.isConnected) syncScene(); });
     customReady.then(() => {
       syncCustomInputs();
       // 设置读完之前画出来的是默认 25 分。只有当前正好是自定义模式、且计时没在跑时才改写倒计时，
       // 免得把用户已经开始的这一轮冲掉。
       if (mode.id === "custom" && !timer) { left = customSec; paint(); }
     });
+    return () => { detachGlass?.(); if (glassDispose === detachGlass) glassDispose = null; };
   }
 
   function fillTasks(selectId = currentTaskId) {

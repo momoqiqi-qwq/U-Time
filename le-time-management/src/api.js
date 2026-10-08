@@ -378,6 +378,10 @@ export const api = {
     if (!isTauri) throw new Error("AI 请求仅在 Tauri 应用中可用");
     return invoke("ai_chat", { messages, temperature });
   },
+  async aiListModels(baseUrl, apiKey = "", forceRefresh = false) {
+    if (!isTauri) throw new Error("模型列表查询仅在 Tauri 应用中可用");
+    return invoke("ai_list_models", { baseUrl, apiKey, forceRefresh });
+  },
 
   /**
    * 把网页的实际亮度同步给系统栏（状态栏 / 导航栏）的图标。

@@ -29,6 +29,10 @@ let navUnsub = null;
 const settingsNavState = { query: "", filter: "all", expanded: [] };
 
 function disposeContents(root) {
+  if (root.matches?.(".sync-card")) root._dispose?.();
+  for (const node of root.querySelectorAll(".sync-card")) node._dispose?.();
+  if (root.matches?.(".ai-settings-card")) root._dispose?.();
+  for (const node of root.querySelectorAll(".ai-settings-card")) node._dispose?.();
   for (const node of root.querySelectorAll(".update-panel")) node._dispose?.();
   for (const node of root.querySelectorAll(".has-selection-glow")) node._disposeSelectionGlow?.();
 }

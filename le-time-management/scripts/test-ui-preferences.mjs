@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { DEFAULT_UI_PREFERENCES, TEXT_SCALE_LIMITS, normalizeUiPreferences } from "../src/uiPreferences.js";
 
 assert.deepEqual(normalizeUiPreferences({}), DEFAULT_UI_PREFERENCES);
+assert.equal(normalizeUiPreferences({}).fontMode, "nephele");
+assert.equal(normalizeUiPreferences({ fontMode: "system", nepheleSettings: true }).fontMode, "system");
+assert.equal(normalizeUiPreferences({ fontMode: "nephele", nepheleSettings: false }).fontMode, "nephele");
+for (const fontMode of [null, "unknown", true]) {
+  assert.equal(normalizeUiPreferences({ fontMode }).fontMode, "nephele");
+}
 assert.equal(normalizeUiPreferences({}).settingsNavPosition, "auto");
 for (const position of ["top", "left", "right"]) {
   assert.equal(normalizeUiPreferences({ settingsNavPosition: position }).settingsNavPosition, position);
@@ -42,6 +48,9 @@ assert.equal(normalizeUiPreferences({ centerTopStats: "true" }).centerTopStats, 
 assert.equal(normalizeUiPreferences({ showViewSubtitle: false }).showViewSubtitle, false);
 assert.equal(normalizeUiPreferences({}).showSettingsDescriptions, true);
 assert.equal(normalizeUiPreferences({ showSettingsDescriptions: false }).showSettingsDescriptions, false);
+assert.equal(normalizeUiPreferences({}).showPluginDescriptions, false);
+assert.equal(normalizeUiPreferences({ showPluginDescriptions: true }).showPluginDescriptions, true);
+assert.equal(normalizeUiPreferences({ showPluginDescriptions: "true" }).showPluginDescriptions, false);
 // 通知堆叠：默认开，只有显式 false 才回到逐条竖排（与 centerTopStats 同一套 !==false 约定，
 // 老存档里没有这个键 ⇒ 落到新默认，不会被误判成「用户关过」）
 assert.equal(normalizeUiPreferences({}).notifyStack, true);

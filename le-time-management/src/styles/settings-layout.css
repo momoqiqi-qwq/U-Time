@@ -32,17 +32,20 @@
 }
 .settings-layout-button[data-next-position="top"] .settings-layout-arrow { transform: rotate(90deg); }
 .settings-layout-button[data-next-position="right"] .settings-layout-arrow { transform: rotate(180deg); }
+.settings-layout-switching .settings-nav-card,
 .settings-layout-switching .settings-content,
 .settings-layout-switching .settings-sidebar-head,
 .settings-layout-switching .settings-search,
+.settings-layout-switching .settings-catalog,
 .settings-layout-switching .settings-nav-item {
-  will-change: transform, opacity;
+  will-change: left, top, width, height;
 }
-.settings-layout.settings-layout-switching .settings-catalog { overflow: visible; }
-.settings-layout-switching .settings-catalog .selection-glow { visibility: hidden; }
-.settings-layout.settings-layout-switching .settings-nav-item.on {
-  background: color-mix(in srgb, var(--deep) 9%, var(--panel));
+.settings-layout.settings-layout-switching .settings-catalog,
+.settings-layout.settings-layout-switching .settings-nav-card {
+  overflow: hidden;
+  scrollbar-width: none;
 }
+.settings-layout-switching { overflow-anchor: none; }
 
 :root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-layout { display: grid; min-width: 0; }
 :root:is([data-settings-nav-position="top"], [data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-sidebar { min-width: 0; }

@@ -31,6 +31,14 @@ function toggleRow(label, checked, onChange) {
 export function createInterfaceCard({ rerender = () => {} } = {}) {
   const prefs = getUiPreferences();
   const settings = S.getState().settings;
+  const fontModeBox = el("div", { class: "pref-choice", role: "group", "aria-label": "字体模式" });
+  for (const [id, label] of [["nephele", "Nephele"], ["system", "系统默认"]]) {
+    fontModeBox.append(el("button", {
+      class: `pref-choice-btn${prefs.fontMode === id ? " on" : ""}`,
+      "aria-pressed": String(prefs.fontMode === id),
+      onclick: () => { setUiPreferences({ fontMode: id }); rerender(); },
+    }, label));
+  }
   const densityBox = el("div", { class: "pref-choice", role: "group", "aria-label": "界面密度" });
   for (const [id, label] of [["comfortable", "舒适"], ["compact", "紧凑"]]) {
     densityBox.append(el("button", {
@@ -83,7 +91,7 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
       onclick: () => { setUiPreferences({ fabHeight: id }); rerender(); },
     }, label));
   }
-  for (const group of [densityBox, navBarBox, navDockBox, navGlassBox, fabHeightBox]) {
+  for (const group of [fontModeBox, densityBox, navBarBox, navDockBox, navGlassBox, fabHeightBox]) {
     attachSelectionGlow(group, { selector: ".pref-choice-btn.on", persistKey: group.getAttribute("aria-label") });
   }
 
@@ -467,6 +475,7 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "底栏透明度"), el("small", {}, "在当前材质上增加透明度，图标和文字保持清晰")), navTransparencyRange),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "悬浮键高度")), fabHeightBox),
     toggleRow("悬浮键左右互换（‹ 在右 · ⋮ 在左）", prefs.fabSwap, (value) => setUiPreferences({ fabSwap: value })),
+    el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "字体模式")), fontModeBox),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "文字大小")), el("span", { class: "pref-range" }, textScale, textScaleOut)),
     el("div", { class: "setting-row setting-col" },
       el("div", { class: "setting-row-head" },
@@ -482,6 +491,7 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     // 顶栏 / 弹窗一起换紫调毛玻璃），所以标签里的「设置」二字去掉 —— 名字再叫「风格设置界面」
     // 会让人以为只影响设置页。偏好键仍是旧名 nepheleSettings，改键要做数据迁移。
     toggleRow("Nephele 风格界面", prefs.nepheleSettings, (value) => setUiPreferences({ nepheleSettings: value })),
+    toggleRow("番茄计时卡液态玻璃", prefs.pomodoroLiquidGlass, (value) => setUiPreferences({ pomodoroLiquidGlass: value })),
     toggleRow("应用内打开网页", prefs.openLinksInApp, (value) => {
       setUiPreferences({ openLinksInApp: value });
       toast(value ? "网页将优先在 U-Time 内打开" : "网页将交给系统默认浏览器打开");

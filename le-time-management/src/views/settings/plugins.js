@@ -5,6 +5,8 @@ import { getRegistry, setEnabled, rescan, removeExternalPlugin, pluginViews } fr
 import { PROJECT_LINKS } from "../../projectLinks.js";
 import { pluginAccent, pluginDisplayIcon, pluginDisplayName } from "../../pluginAppearance.js";
 import { reducedMotion } from "../../motion.js";
+import { getUiPreferences, setUiPreferences } from "../../uiPreferences.js";
+import { toggleSwitch } from "../../switchControl.js";
 
 const selectedPlugins = new Set();
 let pluginManageQuery = "";
@@ -71,6 +73,15 @@ export function createPluginSettingsCard({ rerender = () => {} } = {}) {
   );
   pluginFilter.value = pluginManageFilter;
   const pluginVisibleCount = el("span", { class: "market-count" });
+  const pluginDescToggle = toggleSwitch({
+    checked: getUiPreferences().showPluginDescriptions,
+    ariaLabel: "显示插件介绍",
+    onChange: (checked) => setUiPreferences({ showPluginDescriptions: checked }),
+  });
+  const pluginDescControl = el("label", { class: "plugin-desc-toggle" },
+    el("span", {}, "显示介绍"),
+    pluginDescToggle,
+  );
   const applyPluginManageFilter = () => {
     pluginManageQuery = pluginSearch.value;
     pluginManageFilter = pluginFilter.value;
@@ -88,7 +99,7 @@ export function createPluginSettingsCard({ rerender = () => {} } = {}) {
   };
   pluginSearch.addEventListener("input", applyPluginManageFilter);
   pluginFilter.addEventListener("change", applyPluginManageFilter);
-  plugCard.append(el("div", { class: "plugin-search-row" }, pluginSearch, pluginFilter, pluginVisibleCount));
+  plugCard.append(el("div", { class: "plugin-search-row" }, pluginSearch, pluginFilter, pluginDescControl, pluginVisibleCount));
   // 清掉已经不存在的选择，避免重扫后误操作。
   for (const id of [...selectedPlugins]) if (!regs.some((r) => r.id === id)) selectedPlugins.delete(id);
 

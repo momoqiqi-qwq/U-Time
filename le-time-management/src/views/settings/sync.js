@@ -13,6 +13,7 @@ import { api } from "../../api.js";
 import * as S from "../../store.js";
 import { el, toast } from "../../ui.js";
 import { toggleSwitch } from "../../switchControl.js";
+import { attachSelectionGlow } from "../../selectionGlow.js";
 import { createAutoBackup } from "../../dataCenter.js";
 import { parseLanTarget, lanInfo, lanPullSnapshot, lanPushSnapshot, describeLanInfo, DEFAULT_LAN_PORT } from "../../lanSync.js";
 import { canScanQr, scanQr } from "../../qrScan.js";
@@ -24,6 +25,20 @@ import {
   saveStoredSyncPassword, loadStoredSyncPassword, clearStoredSyncPassword,
   uploadWebDav, downloadWebDav, isPotentiallyUnsafeWebDav,
 } from "../../syncLayer.js";
+
+let disclosureId = 0;
+
+// 网盘选项与说明共用高度过渡；关闭后禁用内部焦点，但保留 DOM 完成收缩。
+function syncDisclosure(content) {
+  const node = el("div", { class: "sync-disclosure", id: `webdav-disclosure-${++disclosureId}`, "aria-hidden": "true" },
+    el("div", { class: "sync-disclosure-inner" }, content));
+  node.inert = true;
+  return { node, setOpen(open) {
+    node.classList.toggle("is-open", open);
+    node.setAttribute("aria-hidden", String(!open));
+    node.inert = !open;
+  } };
+}
 
 export async function createSyncCard({ appVersion = "", os = "" } = {}) {
   const settings = S.getState().settings;
@@ -38,7 +53,60 @@ export async function createSyncCard({ appVersion = "", os = "" } = {}) {
   const stateChip = el("span", { class: "ai-vault-state" });
 
   /* ── ① 选网盘 ── */
-  const presetChips = el("div", { class: "sync-presets" });
+  const presetChips = el("div", { class: "sync-presets", role: "listbox", "aria-label": "网盘类型" });
+  const presetPanel = syncDisclosure(presetChips);
+  const presetName = el("b", {});
+  const presetHint = el("small", {});
+  const presetTrigger = el("button", {
+    class: "sync-preset-trigger", type: "button", "data-motion": "off",
+    "aria-label": "选择同步网盘", "aria-haspopup": "listbox", "aria-expanded": "false",
+    "aria-controls": presetPanel.node.id,
+  }, el("span", { class: "sync-preset-copy" }, presetName, presetHint),
+    el("i", { class: "sync-preset-arrow", "aria-hidden": "true" }));
+  const presetDropdown = el("div", { class: "sync-preset-dropdown" }, presetTrigger, presetPanel.node);
+  let presetOpen = false;
+  let presetGlow;
+  const closeOnOutside = event => { if (!presetDropdown.contains(event.target)) setPresetOpen(false); };
+  function setPresetOpen(open, { focus = false } = {}) {
+    presetOpen = open;
+    if (!open && presetChips.contains(document.activeElement)) presetTrigger.focus({ preventScroll: true });
+    presetTrigger.setAttribute("aria-expanded", String(open));
+    presetPanel.setOpen(open);
+    document.removeEventListener("pointerdown", closeOnOutside, true);
+    if (open) document.addEventListener("pointerdown", closeOnOutside, true);
+    if (open) presetGlow?.sync(false);
+    if (open && focus) presetChips.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
+  }
+  presetTrigger.addEventListener("click", () => setPresetOpen(!presetOpen));
+  presetDropdown.addEventListener("focusout", event => {
+    // blur/focusout 的微任务可能早于新元素获得焦点；优先用 relatedTarget 判断内部切换。
+    if (event.relatedTarget) {
+      if (!presetDropdown.contains(event.relatedTarget)) setPresetOpen(false);
+      return;
+    }
+    setTimeout(() => {
+      if (!presetDropdown.contains(document.activeElement)) setPresetOpen(false);
+    }, 0);
+  });
+  presetDropdown.addEventListener("keydown", event => {
+    if (event.key === "Escape" && presetOpen) {
+      event.preventDefault(); event.stopPropagation();
+      setPresetOpen(false); presetTrigger.focus({ preventScroll: true });
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    if (!presetOpen) {
+      setPresetOpen(true, { focus: true });
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") return;
+    }
+    const options = [...presetChips.querySelectorAll(".sync-preset")];
+    const current = options.indexOf(document.activeElement);
+    const index = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+      : current < 0 ? (event.key === "ArrowDown" ? 0 : options.length - 1)
+        : (current + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+    options[index]?.focus({ preventScroll: true });
+  });
   const rootInput = el("input", { type: "url", placeholder: "https://…/dav", autocomplete: "off", spellcheck: "false" });
   const folderInput = el("input", { type: "text", placeholder: "U-Time", autocomplete: "off", spellcheck: "false" });
   const userInput = el("input", { type: "text", autocomplete: "username", spellcheck: "false" });
@@ -61,6 +129,8 @@ export async function createSyncCard({ appVersion = "", os = "" } = {}) {
   const howtoList = el("ol", { class: "sync-howto" });
   const howtoNote = el("p", { class: "sync-howto-note" });
   const howtoToggle = el("button", { class: "btn ghost sm", type: "button" });
+  const howtoPanel = syncDisclosure(howtoList);
+  howtoToggle.setAttribute("aria-controls", howtoPanel.node.id);
   let howtoOpen = false;
   howtoToggle.addEventListener("click", () => { howtoOpen = !howtoOpen; paintPresetTexts(); });
 
@@ -79,7 +149,8 @@ export async function createSyncCard({ appVersion = "", os = "" } = {}) {
     accountLabel.textContent = preset.accountLabel;
     passwordLabel.textContent = preset.passwordLabel;
     howtoList.replaceChildren(...(preset.howto || []).map((line) => el("li", {}, line)));
-    howtoList.style.display = howtoOpen ? "" : "none";
+    howtoPanel.setOpen(howtoOpen);
+    howtoToggle.setAttribute("aria-expanded", String(howtoOpen));
     howtoToggle.style.display = (preset.howto || []).length ? "" : "none";
     howtoToggle.textContent = howtoOpen ? "收起说明" : "怎么填这一栏？";
     howtoNote.textContent = preset.howtoNote || "";
@@ -91,7 +162,7 @@ export async function createSyncCard({ appVersion = "", os = "" } = {}) {
   const step1 = el("div", { class: "sync-step" },
     el("div", { class: "sync-step-head" }, el("i", { class: "sync-step-badge" }, "1"), el("b", {}, "选一个网盘")),
     el("p", { class: "sync-step-note" }, "不知道选哪个就点「坚果云」：国内能直连，免费版就够用。"),
-    el("div", { class: "sync-step-body" }, presetChips),
+    el("div", { class: "sync-step-body" }, presetDropdown),
   );
   const step2Note = el("p", { class: "sync-step-note" });
   const paintStepNote = () => {
@@ -110,7 +181,7 @@ export async function createSyncCard({ appVersion = "", os = "" } = {}) {
       el("div", { class: "sync-remember-row" },
         el("span", {}, "记住密码"),
         el("div", { class: "sync-remember-hint" }, "加密存在本机，不会跟着快照上传到网盘"), remember),
-      howtoNote, howtoList,
+      howtoNote, howtoPanel.node,
     ),
   );
   const runBtn = el("button", { class: "btn pri sync-run", type: "button" });
@@ -144,24 +215,37 @@ export async function createSyncCard({ appVersion = "", os = "" } = {}) {
 
   const isConfigured = () => Boolean(cfg.root && cfg.lastSyncAt);
 
+  card._dispose = () => document.removeEventListener("pointerdown", closeOnOutside, true);
+  // 选项只创建一次，刷新文案与状态时保持焦点和正在进行的收放动画。
+  presetChips.append(...WEBDAV_PRESETS.map((p) => el("button", {
+    class: "sync-preset", type: "button", role: "option", "data-preset": p.id, "data-motion": "off",
+    onclick: () => {
+      cfg.presetId = p.id;
+      preset = p;
+      // 可编辑地址与账号草稿继续保留；坚果云使用固定根地址。
+      if (!p.rootEditable) rootInput.value = p.root;
+      rootInput.readOnly = !p.rootEditable;
+      rootInput.placeholder = p.rootPlaceholder || "https://…/dav";
+      if (!folderInput.value.trim()) folderInput.value = p.folder;
+      userInput.placeholder = p.accountPlaceholder;
+      passInput.placeholder = passwordPlaceholder();
+      paintAll();
+      setPresetOpen(false);
+      presetTrigger.focus({ preventScroll: true });
+      S.saveNow();
+    },
+  }, el("b", {}, p.label), el("small", {}, p.tagline))));
+  presetGlow = attachSelectionGlow(presetChips, { selector: ".sync-preset.on" });
+
   function paintPresets() {
-    presetChips.replaceChildren(...WEBDAV_PRESETS.map((p) => el("button", {
-      class: `sync-preset${p.id === preset.id ? " on" : ""}`,
-      type: "button",
-      onclick: () => {
-        cfg.presetId = p.id;
-        preset = p;
-        // 不可编辑根地址的预设（坚果云）直接覆盖；可编辑的只换占位提示，别把用户填的抹掉。
-        if (!p.rootEditable) rootInput.value = p.root;
-        rootInput.readOnly = !p.rootEditable;
-        rootInput.placeholder = p.rootPlaceholder || "https://…/dav";
-        if (!folderInput.value.trim()) folderInput.value = p.folder;
-        userInput.placeholder = p.accountPlaceholder;
-        passInput.placeholder = passwordPlaceholder();
-        paintAll();
-        S.saveNow();
-      },
-    }, el("b", {}, p.label), el("small", {}, p.tagline))));
+    presetName.textContent = preset.label;
+    presetHint.textContent = preset.tagline;
+    for (const option of presetChips.querySelectorAll(".sync-preset")) {
+      const selected = option.dataset.preset === preset.id;
+      option.classList.toggle("on", selected);
+      option.setAttribute("aria-selected", String(selected));
+    }
+    presetGlow.sync();
   }
 
   function paintAll() {
@@ -356,9 +440,12 @@ function createLanSection(settings, { appVersion = "", os = "" } = {}) {
     el("li", {}, "不方便扫码就走老路：电脑上「复制链接」发到手机，粘进上面那栏再点「连接看看电脑上有什么」"),
   );
   const howtoToggle = el("button", { class: "btn ghost sm", type: "button" }, "电脑上要怎么准备？");
+  const howtoPanel = syncDisclosure(howto);
+  howtoToggle.setAttribute("aria-controls", howtoPanel.node.id);
   let howtoOpen = false;
   const paintHowto = () => {
-    howto.style.display = howtoOpen ? "" : "none";
+    howtoPanel.setOpen(howtoOpen);
+    howtoToggle.setAttribute("aria-expanded", String(howtoOpen));
     howtoToggle.textContent = howtoOpen ? "收起说明" : "电脑上要怎么准备？";
   };
   howtoToggle.addEventListener("click", () => { howtoOpen = !howtoOpen; paintHowto(); });
@@ -506,6 +593,6 @@ function createLanSection(settings, { appVersion = "", os = "" } = {}) {
         onclick: () => window.dispatchEvent(new CustomEvent("tide:open-settings", { detail: { section: "lan" } })),
       }, "本机就是电脑 · 去启动服务") : null,
     ),
-    result, howto,
+    result, howtoPanel.node,
   );
 }

@@ -213,7 +213,7 @@
   white-space: nowrap;
   box-shadow: none;
 }
-:root[data-nephele-settings="on"] .settings-nav-item-copy b { font-size: calc(12px * var(--ui-text-scale)); font-weight: 600; }
+:root[data-font-mode="nephele"] .settings-nav-item-copy b { font-size: calc(12px * var(--ui-text-scale)); font-weight: 600; }
 :root[data-nephele-settings="on"] .settings-nav-item[hidden],
 :root[data-nephele-settings="on"] .settings-catalog[hidden] { display: none !important; }
 :root[data-nephele-settings="on"] .settings-nav-item-copy small,
@@ -263,7 +263,7 @@
 :root[data-nephele-settings="on"] .settings-section .setting-copy {
   min-width: 0;
 }
-:root[data-nephele-settings="on"] .settings-section .setting-copy b {
+:root[data-font-mode="nephele"] .settings-section .setting-copy b {
   font-weight: 500;
 }
 :root[data-nephele-settings="on"] .settings-section .setting-row :is(
@@ -282,8 +282,21 @@
   text-align-last: end;
   cursor: pointer;
 }
+/* 关闭状态也保留轻量框体，与展开菜单的圆角、描边同源。 */
+:root[data-nephele-settings="on"] .set-wrap .settings-section select:not([multiple]):not([size]) {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--nephele-edge);
+  border-color: var(--nephele-edge) !important;
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--control-bg) 72%, var(--panel)) !important;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 5%, transparent);
+}
 :root[data-nephele-settings="on"] .settings-section .setting-row input[type="number"] {
   text-align: end;
+}
+:root[data-nephele-settings="on"] .settings-section .setting-row .setting-number-unit input.setting-number-input {
+  padding-inline: 0;
 }
 :root[data-nephele-settings="on"] .settings-section .setting-row input[type="time"] {
   width: 116px;
@@ -298,7 +311,7 @@
   margin-inline-start: 8px;
 }
 :root[data-nephele-settings="on"] .settings-section .setting-row :is(
-  select:not([multiple]):not([size]), input[type="number"], input[type="time"]
+  select:not([multiple]):not([size]), input[type="time"]
 ):hover:not(:disabled):not(:focus) {
   background: var(--active-bg) !important;
   color: var(--ink);
@@ -417,6 +430,6 @@
 }
 @media (max-width: 800px) {
   :root[data-nephele-settings="on"] .settings-nav-item { min-width: 84px; padding-inline: 10px; }
-  :root[data-nephele-settings="on"] .settings-nav-item-copy b { font-size: calc(11px * var(--ui-text-scale)); }
+  :root[data-font-mode="nephele"] .settings-nav-item-copy b { font-size: calc(11px * var(--ui-text-scale)); }
   :root[data-nephele-settings="on"] .settings-section > .card { padding: 16px; }
 }

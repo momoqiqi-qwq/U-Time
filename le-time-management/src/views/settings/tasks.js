@@ -23,16 +23,23 @@ export function createTaskSettingsCard() {
     };
     const field = (key, label, type) => {
       const input = el("input", { type, value: cfg[key], "aria-label": label,
-        ...(type === "number" ? { min: 15, max: 1440, step: 1, style: "width:100px" } : {}) });
+        ...(type === "number" ? { min: 15, max: 1440, step: 1, class: "setting-number-input" } : {}) });
+      const fitNumber = () => {
+        if (type === "number") input.style.width = `calc(${Math.max(2, input.value.length)}ch + 2px)`;
+      };
+      fitNumber();
+      if (type === "number") input.addEventListener("input", fitNumber);
       input.addEventListener("change", () => {
         if (!input.value || !input.checkValidity()) {
           input.value = String(getTaskPreferences(S.getState().settings)[key]);
+          fitNumber();
           toast(type === "number" ? "请输入 15～1440 分钟的整数" : "请输入有效时刻");
           return;
         }
         input.value = String(save(key, input.value));
+        fitNumber();
       });
-      return row(label, type === "number" ? el("span", { class: "volume-row" }, input, el("span", {}, "分钟")) : input);
+      return row(label, type === "number" ? el("span", { class: "setting-number-unit" }, input, el("span", {}, "分钟")) : input);
     };
     card.replaceChildren(
       el("h2", {}, "任务与排程"),

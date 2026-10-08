@@ -95,6 +95,14 @@ assert.doesNotMatch(source, /--custom-panel-mix|--custom-panel-glass/,
 assert.ok(!fs.existsSync(new URL('../src/background.js', import.meta.url)),
   'src/background.js（自定义背景模块）必须已删除');
 
+/* v0.169.0 起卡面切换会派发 DOM 事件（`pomodoro:scene-changed`），宿主侧监听它重画玻璃片。
+   极简 DOM 得补上 Event / dispatchEvent 这两个标准 API —— vm 的新全局里没有内置 Event，
+   不补的话插件在 render 里直接 ReferenceError，红的是测试桩而不是插件。 */
+const sceneEvents = [];
+class FakeEvent {
+  constructor(type) { this.type = String(type); }
+}
+
 /* 极简 DOM：够 render() 跑起来即可 */
 function fakeEl(tag = 'div') {
   const node = {
@@ -111,6 +119,7 @@ function fakeEl(tag = 'div') {
     querySelector: () => fakeEl(),
     querySelectorAll: () => [],
     closest: () => null,
+    dispatchEvent: (event) => { if (event && event.type === 'pomodoro:scene-changed') sceneEvents.push(event); return true; },
   };
   return node;
 }
@@ -120,6 +129,7 @@ const played = [];
 const storage = new Map();
 const uiCtx = vm.createContext({
   console,
+  Event: FakeEvent,
   clearInterval: () => {}, setInterval: () => 1,
   document: { createElement: fakeEl, createTextNode: (text) => ({ textContent: text }) },
   tide: {
@@ -156,6 +166,8 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 // 界面构建本身：提醒面板里的 TDZ / 变量顺序问题会在这里直接抛出来。
 fx.render(fakeEl('div'));
 await tick();
+assert.ok(sceneEvents.length >= 1,
+  '渲染卡面时必须派发 pomodoro:scene-changed —— 宿主靠它重画玻璃片，不派发玻璃卡就停在旧卡面');
 
 const base = { focusNotify: true, focusSound: true, breakNotify: true, breakSound: true, sound: 'chime', volume: 0.6, customAudio: null, customAudioName: '' };
 const reset = () => { notified.length = 0; played.length = 0; };

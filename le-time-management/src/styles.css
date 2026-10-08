@@ -236,6 +236,9 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 button { font-family: inherit; border: none; background: none; cursor: pointer; color: inherit; }
+:root[data-font-mode="system"] body {
+  font-family: system-ui, sans-serif;
+}
 button, .tkc, .ptask, .block, .mcard { will-change: transform; }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--sea) 70%, #fff);
@@ -1481,6 +1484,11 @@ button, .nav { touch-action: manipulation; }
 .setting-row.setting-col .reminder-picks { justify-content:flex-start; max-width:none; }
 .volume-row, .audio-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
 .volume-row input { width:180px; }
+/* 数字和单位作为一个不可拆开的值；输入宽度由数字位数决定。 */
+.setting-number-unit { display:inline-flex; align-items:center; justify-content:flex-end; flex:none; gap:4px; white-space:nowrap; }
+.setting-number-unit input.setting-number-input { box-sizing:border-box; flex:none; min-width:calc(2ch + 2px); border-width:1px; padding:6px 0; text-align:end; font-variant-numeric:tabular-nums; appearance:textfield; }
+.setting-number-unit input.setting-number-input::-webkit-inner-spin-button,
+.setting-number-unit input.setting-number-input::-webkit-outer-spin-button { appearance:none; margin:0; }
 .audio-name { color:var(--ink-2); max-width:210px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .reminder-note { margin-top:10px; }
 /* ── v0.73.0 · 系统通知与到点长鸣 ── */
@@ -1925,6 +1933,8 @@ button.about-list-row:hover { background:color-mix(in srgb,var(--deep) 5%,transp
 
 /* ── v0.10 · 插件权限与设置工具 ── */
 .plugin-search-row{display:flex;gap:8px;align-items:center;margin:10px 0}.plugin-search-input{flex:1;min-width:0;height:36px;border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:0 10px;color:var(--ink);font:inherit}.plugin-filter-select{height:36px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);padding:0 8px}
+.plugin-desc-toggle{display:inline-flex;align-items:center;gap:7px;min-height:36px;color:var(--ink-2);font-size:calc(12px * var(--ui-text-scale));white-space:nowrap}
+:root[data-plugin-descriptions="off"] .settings-section .plug-card .pd{display:none!important}
 /* 插件筛选统一收进原生 details：summary 是唯一常驻按钮，选项只在展开时占位。 */
 .plugin-filter-menu{position:relative;display:inline-block;max-width:100%;vertical-align:middle}
 .plugin-filter-menu>summary{list-style:none;display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:7px 13px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font-size:calc(12px * var(--ui-text-scale));font-weight:650;cursor:pointer;user-select:none}
@@ -1944,7 +1954,7 @@ button.about-list-row:hover { background:color-mix(in srgb,var(--deep) 5%,transp
 /* ── v0.10 · 同步与快捷键 ── */
 .shortcut-grid{display:grid;grid-template-columns:150px minmax(0,1fr);gap:8px 10px;align-items:center;margin-top:10px}.shortcut-status{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);line-height:1.65;margin-top:8px}.plugin-shortcut-block{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}.shortcut-sub-title{display:block;font-size:calc(13.5px * var(--ui-text-scale));color:var(--ink);margin-bottom:2px}.shortcut-hint{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);line-height:1.65;margin:2px 0 0}.shortcut-name{display:flex;align-items:center;gap:8px;min-width:0}.shortcut-name-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.shortcut-kbd{flex:none;font-size:calc(10.5px * var(--ui-text-scale));font-weight:600;color:var(--ink-2);background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:1px 6px;white-space:nowrap}.shortcut-none{flex:none;font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3)}
 
-@media(max-width:700px){.cmd-palette{top:calc(var(--ui-vh, 100dvh) * 0.07);max-height:calc(var(--ui-vh, 100dvh) * 0.84)}.cmd-search kbd{display:none}.cmd-kind{min-width:0;padding:5px}.cmd-kind .cmd-kind-text{display:none}.cmd-kind-ico svg{width:14px;height:14px}.cmd-enter{display:none}.cmd-foot .foot-desktop{display:none}.cmd-foot .foot-mobile{display:inline}.market-search-toggle{display:inline-flex}.market:not(.open-search) .market-search-row{display:none}.market:not(.open-search) .market-head{margin-bottom:12px}.plugin-search-row{align-items:stretch;flex-direction:column}.shortcut-grid{grid-template-columns:1fr}.quick-cap{top:calc(var(--ui-vh, 100dvh) * 0.1)}}
+@media(max-width:700px){.cmd-palette{top:calc(var(--ui-vh, 100dvh) * 0.07);max-height:calc(var(--ui-vh, 100dvh) * 0.84)}.cmd-search kbd{display:none}.cmd-kind{min-width:0;padding:5px}.cmd-kind .cmd-kind-text{display:none}.cmd-kind-ico svg{width:14px;height:14px}.cmd-enter{display:none}.cmd-foot .foot-desktop{display:none}.cmd-foot .foot-mobile{display:inline}.market-search-toggle{display:inline-flex}.market:not(.open-search) .market-search-row{display:none}.market:not(.open-search) .market-head{margin-bottom:12px}.plugin-search-row{align-items:stretch;flex-direction:column}.plugin-desc-toggle{justify-content:space-between}.shortcut-grid{grid-template-columns:1fr}.quick-cap{top:calc(var(--ui-vh, 100dvh) * 0.1)}}
 
 /* ═══════════ 时间视图切换器 v0.10.2 ═══════════ */
 .tb-shell { height: 100%; min-height: 0; display: flex; flex-direction: column; }
@@ -3001,7 +3011,7 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 /* 设置值平时融入面板，点击或键盘聚焦才显出编辑框。
    保留控件原有尺寸；!important 用来覆盖全局控件底色和深色描边。
    开关、滑杆、颜色和文件选择器继续保留各自的外观。 */
-.set-wrap .settings-section :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), select, textarea) {
+.set-wrap .settings-section :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), textarea) {
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none;

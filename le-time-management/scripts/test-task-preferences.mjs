@@ -42,6 +42,7 @@ S.getState().settings.taskDefaults.autoScheduleStart = "05:30";
 
 // Run the real settings-card event handlers with a minimal DOM fixture.
 class Node {
+  style = {};
   constructor(tag, attrs = {}, ...children) { this.tag = tag; this.attrs = attrs; this.children = children.flat(); this.value = String(attrs.value ?? ""); this.handlers = {}; }
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
@@ -58,6 +59,11 @@ const card = create();
 const descendants = (node) => [node, ...node.children.filter((c) => c instanceof Node).flatMap(descendants)];
 const find = (label) => descendants(card).find((n) => n.attrs["aria-label"] === label || n.attrs.ariaLabel === label);
 const input = find("默认预估时长");
+input.value = "1111111"; input.handlers.input();
+assert.equal(input.style.width, "calc(7ch + 2px)", "long numeric drafts expand before the unit");
+input.handlers.change();
+assert.equal(input.value, "47", "layout sizing does not bypass duration validation");
+assert.equal(input.style.width, "calc(2ch + 2px)", "rejected drafts restore compact sizing");
 input.value = "73"; input.handlers.change();
 assert.equal(getTaskPreferences(S.getState().settings).defaultEstMin, 73);
 input.value = "0"; input.handlers.change();

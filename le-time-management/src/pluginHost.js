@@ -12,6 +12,8 @@ import { pushInbox } from "./automation.js";
 import { spreadsheetFileToCsv } from "./spreadsheet.js";
 import { renderNativeSchedule } from "./nativeSchedule.js";
 import { BUILTIN_SOUNDS, playSound, resolveSound } from "./sound.js";
+import { attachPomodoroGlass } from "./pomodoroGlass.js";
+import { attachSelectionGlow } from "./selectionGlow.js";
 
 const pluginDisposers = new Map();
 let badgeQueue = Promise.resolve();
@@ -267,6 +269,19 @@ function makeApi(man, source) {
     },
 
     ui: {
+      attachPomodoroGlass(element) {
+        requirePermission(man, pid, "ui");
+        if (pid !== "pomodoro") throw new Error("液态玻璃计时卡仅对番茄专注插件开放");
+        const release = attachPomodoroGlass(element);
+        const modes = element.querySelector(".pomodoro-modes");
+        const glow = modes ? attachSelectionGlow(modes, { selector: 'button[aria-pressed="true"]' }) : null;
+        const syncGlow = () => glow?.sync();
+        element.addEventListener("pomodoro:mode-changed", syncGlow);
+        if (!pluginDisposers.has(pid)) pluginDisposers.set(pid, new Set());
+        const dispose = () => { release(); glow?.dispose(); element.removeEventListener("pomodoro:mode-changed", syncGlow); pluginDisposers.get(pid)?.delete(dispose); };
+        pluginDisposers.get(pid).add(dispose);
+        return dispose;
+      },
       async taskbarBadgeSupported() {
         return api.isTauri && (await api.appInfo()).os === "windows";
       },
@@ -426,7 +441,7 @@ function makeApi(man, source) {
       parseWhen: (...args) => { requirePermission(man, pid, "timeParse"); return parseWhen(...args); },
       guessCategory: (...args) => { requirePermission(man, pid, "timeParse"); return guessCategory(...args); },
       guessQuad: (...args) => { requirePermission(man, pid, "timeParse"); return guessQuad(...args); },
-      openSettings: (section = "") => { requirePermission(man, pid, "ui"); return window.dispatchEvent(new CustomEvent("tide:open-settings", { detail: { section } })); },
+      openSettings: (section = "", target = "") => { requirePermission(man, pid, "ui"); return window.dispatchEvent(new CustomEvent("tide:open-settings", { detail: { section, target } })); },
       navigate: (view) => { requirePermission(man, pid, "ui"); return window.dispatchEvent(new CustomEvent("tide:navigate", { detail: view })); },
       desEncryptHex: (plain, key) => { requirePermission(man, pid, "http"); return api.desEncryptHex(plain, key); },
       web: {

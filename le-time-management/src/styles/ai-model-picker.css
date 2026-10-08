@@ -1,0 +1,37 @@
+.ai-model-picker { min-width: 0; }
+.ai-model-input-row { display: flex; gap: 6px; align-items: center; }
+.ai-model-input-row input { min-width: 0; flex: 1; }
+.ai-model-toggle { flex: none; min-width: 34px; min-height: 34px; }
+.ai-model-arrow {
+  display: block; width: 8px; height: 8px; margin: 0 2px 3px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg); transition: transform 320ms cubic-bezier(.4,0,.2,1);
+}
+.ai-model-toggle[aria-expanded="true"] .ai-model-arrow { transform: translateY(3px) rotate(225deg); }
+.ai-model-disclosure {
+  display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden;
+  transition: grid-template-rows 320ms cubic-bezier(.4,0,.2,1), opacity 220ms ease, visibility 0s 320ms;
+}
+.ai-model-disclosure.is-open { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition-delay: 0s; }
+.ai-model-disclosure-inner { min-height: 0; overflow: hidden; }
+.ai-model-content { margin: 8px 0 2px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+.ai-model-options { position: relative; isolation: isolate; display: grid; gap: 3px; max-height: 230px; overflow-y: auto; margin-top: 6px; }
+.ai-model-option {
+  position: relative; z-index: 1; display: grid; gap: 3px; width: 100%; min-width: 0;
+  padding: 8px 10px; border: 1px solid transparent; border-radius: 7px;
+  background: transparent; color: var(--ink); text-align: left; cursor: pointer;
+}
+.ai-model-option b { font-size: calc(12px * var(--ui-text-scale)); overflow-wrap: anywhere; }
+.ai-model-option small { color: var(--ink-2); overflow-wrap: anywhere; }
+.ai-model-option:hover { background: color-mix(in srgb, var(--deep) 7%, transparent); }
+.ai-model-option.on { color: var(--deep); }
+.ai-model-options .selection-glow { border-radius: 7px; background: color-mix(in srgb, var(--deep) 9%, var(--paper)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--deep) 35%, var(--line)); }
+.ai-model-option:focus-visible, .ai-model-toggle:focus-visible { outline: 2px solid var(--deep); outline-offset: -2px; }
+.ai-model-empty { margin: 8px 2px; line-height: 1.6; color: var(--ink-2); }
+.ai-model-tools { display: flex; align-items: flex-start; gap: 8px; }
+.ai-model-tools > button { flex: none; }
+.ai-model-status { margin: 4px 0 0; min-width: 0; color: var(--ink-2); line-height: 1.6; overflow-wrap: anywhere; }
+:root[data-ui-motion="reduced"] :is(.ai-model-disclosure, .ai-model-arrow) { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-ui-motion="full"]) :is(.ai-model-disclosure, .ai-model-arrow) { transition: none; }
+}

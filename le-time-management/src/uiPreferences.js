@@ -24,12 +24,22 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   // 默认紧凑：小屏与笔记本上信息密度优先；想要宽松的用户可在设置里切回「舒适」
   density: "compact",
   textScale: 100,
+  fontMode: "nephele",
   // 界面整体缩放（80~150）：与只动字号的 textScale 分工不同，这里连控件、间距、图标一起缩放。
   // 实现与三个坑见 src/uiScale.js 头部注释 —— 改这个字段前先读那一页。
   uiScale: DEFAULT_UI_SCALE,
   motion: "system",
   nepheleBackground: true,
   nepheleSettings: true,
+  pomodoroLiquidGlass: false,
+  pomodoroGlassMaterial: "glass",
+  pomodoroGlassDistortion: 0.65,
+  pomodoroGlassHighlight: 1.8,
+  pomodoroGlassRadius: 42,
+  pomodoroGlassScatter: 8,
+  pomodoroGlassFlow: 0.35,
+  pomodoroGlassX: 0.5,
+  pomodoroGlassY: 0.32,
   // 保持历史行为：老用户升级后仍交给系统浏览器；显式开启才走应用内网页窗口。
   openLinksInApp: false,
   swipeNavigation: true,
@@ -43,6 +53,8 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   notifyStack: true,
   // 设置中心的辅助说明：默认显示；“无描述”预设只隐藏说明，不影响标题、控件和状态反馈。
   showSettingsDescriptions: true,
+  // 插件管理列表的信息密度优先：默认不显示插件介绍，用户可在插件页临时打开。
+  showPluginDescriptions: false,
   // auto 保留升级前的布局；用户在设置底部选择后固定为顶部、左侧或右侧。
   settingsNavPosition: "auto",
   startupView: "last",
@@ -112,6 +124,7 @@ function clamp(v, lo, hi) {
 export function normalizeUiPreferences(raw = {}) {
   const next = { ...DEFAULT_UI_PREFERENCES, ...(raw || {}) };
   if (!DENSITIES.has(next.density)) next.density = DEFAULT_UI_PREFERENCES.density;
+  if (!["nephele", "system"].includes(next.fontMode)) next.fontMode = DEFAULT_UI_PREFERENCES.fontMode;
   if (!MOTIONS.has(next.motion)) next.motion = DEFAULT_UI_PREFERENCES.motion;
   if (!NAVBAR_SIZES.has(next.navBarSize)) next.navBarSize = DEFAULT_UI_PREFERENCES.navBarSize;
   if (!NAV_DOCKS.has(next.navDock)) next.navDock = DEFAULT_UI_PREFERENCES.navDock;
@@ -130,6 +143,17 @@ export function normalizeUiPreferences(raw = {}) {
   next.openLinksInApp = next.openLinksInApp === true;
   next.nepheleBackground = next.nepheleBackground === true;
   next.nepheleSettings = next.nepheleSettings === true;
+  next.pomodoroLiquidGlass = next.pomodoroLiquidGlass === true;
+  if (!["glass", "blur", "round"].includes(next.pomodoroGlassMaterial)) next.pomodoroGlassMaterial = DEFAULT_UI_PREFERENCES.pomodoroGlassMaterial;
+  for (const [key, min, max] of [
+    ["pomodoroGlassDistortion", 0, 3], ["pomodoroGlassHighlight", 0, 4],
+    ["pomodoroGlassRadius", 0, 110], ["pomodoroGlassScatter", 0, 30],
+    ["pomodoroGlassFlow", 0, 1], ["pomodoroGlassX", 0, 1], ["pomodoroGlassY", 0, 1],
+  ]) {
+    const value = next[key];
+    next[key] = value === null || value === "" || !Number.isFinite(Number(value))
+      ? DEFAULT_UI_PREFERENCES[key] : clamp(value, min, max);
+  }
   next.swipeNavigation = next.swipeNavigation !== false;
   next.showTopStats = next.showTopStats !== false;
   // v0.57.0 起 centerTopStats 默认 true：只有显式 false 才算关（缺省 = 开）。
@@ -139,6 +163,7 @@ export function normalizeUiPreferences(raw = {}) {
   next.showViewSubtitle = next.showViewSubtitle !== false;
   next.notifyStack = next.notifyStack !== false;
   next.showSettingsDescriptions = next.showSettingsDescriptions !== false;
+  next.showPluginDescriptions = next.showPluginDescriptions === true;
   if (!["auto", "top", "left", "right"].includes(next.settingsNavPosition)) next.settingsNavPosition = "auto";
   if (!WINDOW_SIZE_MODES_SET.has(next.startupWindowMode)) next.startupWindowMode = DEFAULT_UI_PREFERENCES.startupWindowMode;
   next.startupWindowWidth = Math.round(clamp(next.startupWindowWidth, CUSTOM_SIZE_LIMITS.minWidth, CUSTOM_SIZE_LIMITS.maxWidth));
@@ -158,9 +183,11 @@ export function applyUiPreferences(raw = null, { animate = false } = {}) {
   if (typeof document === "undefined") return cfg;
   const root = document.documentElement;
   root.dataset.uiDensity = cfg.density;
+  root.dataset.fontMode = cfg.fontMode;
   root.dataset.uiMotion = cfg.motion;
   root.dataset.nepheleBackground = cfg.nepheleBackground ? "on" : "off";
   root.dataset.nepheleSettings = cfg.nepheleSettings ? "on" : "off";
+  root.dataset.pomodoroLiquidGlass = cfg.pomodoroLiquidGlass ? "on" : "off";
   root.dataset.openLinksInApp = cfg.openLinksInApp ? "on" : "off";
   // 注意：dataset.navbar 才生成 data-navbar；写成 dataset.navBar 会变成 data-nav-bar，
   // CSS 的 :root[data-navbar=…] 选择器就匹配不上了
@@ -179,6 +206,7 @@ export function applyUiPreferences(raw = null, { animate = false } = {}) {
   root.dataset.centerTopStats = cfg.centerTopStats ? "on" : "off";
   root.dataset.showViewSubtitle = cfg.showViewSubtitle ? "on" : "off";
   root.dataset.settingsDescriptions = cfg.showSettingsDescriptions ? "on" : "off";
+  root.dataset.pluginDescriptions = cfg.showPluginDescriptions ? "on" : "off";
   root.dataset.settingsNavPosition = cfg.settingsNavPosition;
   // dataset.notifyStack → data-notify-stack（写成 data-notifyStack 之类 CSS 匹配不上）
   root.dataset.notifyStack = cfg.notifyStack ? "on" : "off";

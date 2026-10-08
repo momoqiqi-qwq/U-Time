@@ -18,6 +18,7 @@ mod update;
 mod browser;
 mod storage;
 mod vault;
+mod ai_models;
 use vault::{load_ai_secret, validate_ai_base_url, ai_chat_endpoint};
 #[cfg(test)]
 use vault::{aead_encrypt, aead_decrypt};
@@ -2170,6 +2171,7 @@ pub fn run() {
             vault::ai_vault_status,
             vault::ai_vault_clear,
             ai_chat,
+            ai_models::ai_list_models,
             lan_start,
             lan_stop,
             lan_status,

@@ -161,14 +161,7 @@ pub(crate) fn ai_vault_save(
         return Err("模型名称不能为空".into());
     }
     let existing = load_ai_secret(&app).ok();
-    let key = if api_key.trim().is_empty() {
-        existing
-            .as_ref()
-            .map(|x| x.api_key.clone())
-            .ok_or("首次保存时必须填写 API Key")?
-    } else {
-        api_key.trim().to_string()
-    };
+    let key = crate::ai_models::resolve_key(&base_url, &api_key, existing.as_ref())?;
     let secret = AiSecretConfig {
         base_url: base_url.trim().trim_end_matches('/').to_string(),
         api_key: key,
@@ -217,6 +210,7 @@ pub(crate) fn ai_vault_clear(app: AppHandle) -> Result<(), String> {
     if data_path.exists() {
         fs::remove_file(data_path).map_err(|e| format!("清除 AI 凭据失败: {e}"))?;
     }
+    crate::ai_models::clear_cache();
     Ok(())
 }
 
