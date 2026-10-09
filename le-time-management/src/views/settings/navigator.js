@@ -1,6 +1,8 @@
 import { el } from "../../ui.js";
 import { reducedMotion } from "../../motion.js";
 import { attachSelectionGlow } from "../../selectionGlow.js";
+import { SETTINGS_SEARCH_ENTRIES } from "../../settingsSearchIndex.js";
+import { pinyinInitialsOf } from "../../pinyinInitial.js";
 
 // 分类图标：复用打包内 Font Awesome solid（与快捷 dock 同款根路径）。
 // 本地小助手而不是从 shell.js 引入，避免设置视图反向依赖外壳造成循环 import。
@@ -17,7 +19,28 @@ function faIcon(name) {
 // 窄屏断点与 styles.css 的 ≤980px 设置页规则保持一致。
 const NARROW_QUERY = "(max-width: 980px)";
 
-export function createSettingsNavigator(entries, state = {}, { pages = false, tabs = false, onPageChange = () => {} } = {}) {
+// 搜索结果一次最多列几条 —— 单字查询（「字」「色」）能命中几十项，全铺出来等于没有排序。
+const MAX_OPTION_RESULTS = 12;
+
+const normalize = (text) => String(text ?? "").trim().toLowerCase();
+
+/* 单个设置项的打分。与命令面板同一套口径（标题 → 拼音首字母 → 关键词），
+   所以「wzdx」和「文字」都能落到「文字大小」这一条上。 */
+function scoreOption(item, q) {
+  const title = normalize(item.title);
+  const keys = normalize(item.keywords);
+  if (title === q) return 1000;
+  if (title.startsWith(q)) return 800;
+  if (title.includes(q)) return 600;
+  const py = pinyinInitialsOf(`${item.title} ${item.keywords}`);
+  if (py === q) return 760;
+  if (py.startsWith(q)) return 700;
+  if (py.includes(q)) return 520;
+  if (keys.includes(q)) return 250;
+  return -1;
+}
+
+export function createSettingsNavigator(entries, state = {}, { pages = false, tabs = false, onPageChange = () => {}, onPickOption = null } = {}) {
   const search = el("input", {
     class: "settings-search",
     type: "search",
@@ -33,6 +56,66 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
   let selectionGlow;
   let active = state.active || entries[0]?.id || "";
   let visibleIds = new Set(entries.map((entry) => entry.id));
+
+  /* ── 具体设置项索引（v0.170.0）──────────────────────────────────────────────
+     左栏搜索原来只筛「分类」：输入「字」剩下 4 个分类，点进去还得自己在长分区里翻。
+     现在同时列出命中的**具体设置项**，点一行直接落到那个控件上（滚动 + 高亮）。
+     索引复用全局搜索那份 SETTINGS_SEARCH_ENTRIES —— 两处各抄一份迟早会飘。
+     索引没收录的分区（警大登录设置 / 测试）用分区名兜底，保证 14 个分区都找得到。 */
+  const indexedSections = new Set(SETTINGS_SEARCH_ENTRIES.map((item) => item.section));
+  const optionIndex = [
+    ...SETTINGS_SEARCH_ENTRIES,
+    ...entries.filter((entry) => !indexedSections.has(entry.id))
+      .map((entry) => ({ section: entry.id, title: entry.label || entry.id, keywords: entry.keywords || entry.hint || "" })),
+  ];
+  const sectionLabel = new Map(entries.map((entry) => [entry.id, entry.label || entry.id]));
+
+  const results = el("div", { class: "settings-search-results", role: "list", "aria-label": "匹配的设置项", hidden: true });
+  const resultsHead = el("div", { class: "settings-search-results-head" });
+  let optionItems = [];
+  let optionRows = [];
+  let activeOption = -1;
+  let optionQuery = "";
+
+  function matchOptions(q) {
+    if (!q) return [];
+    return optionIndex
+      .map((item) => ({ item, score: scoreOption(item, q) }))
+      .filter((hit) => hit.score >= 0)
+      .sort((a, b) => b.score - a.score || a.item.title.localeCompare(b.item.title, "zh-CN"))
+      .slice(0, MAX_OPTION_RESULTS)
+      .map((hit) => hit.item);
+  }
+
+  function paintOptionActive() {
+    optionRows.forEach((row, index) => row.classList.toggle("on", index === activeOption));
+  }
+
+  function pickOption(item) {
+    if (typeof onPickOption === "function") { onPickOption(item.section, item.title); return; }
+    select(item.section);
+  }
+
+  /* 搜索词一变就把高亮收回去 —— 否则上一次选中的行号会落到新结果的另一条上。 */
+  function paintOptions(q) {
+    if (q !== optionQuery) { optionQuery = q; activeOption = -1; }
+    const matches = matchOptions(q);
+    optionItems = matches;
+    optionRows = matches.map((item) => el("button", {
+      class: "settings-option-result",
+      type: "button",
+      role: "listitem",
+      title: `${sectionLabel.get(item.section) || item.section} · ${item.title}`,
+      onclick: () => pickOption(item),
+    },
+      el("span", { class: "settings-option-title" }, item.title),
+      el("small", { class: "settings-option-section" }, sectionLabel.get(item.section) || item.section),
+    ));
+    resultsHead.textContent = matches.length ? `匹配的设置项 · ${matches.length}` : "";
+    results.replaceChildren(...(matches.length ? [resultsHead, ...optionRows] : []));
+    results.hidden = matches.length === 0;
+    paintOptionActive();
+  }
 
   /* ── 窄屏（Android / 手机）：横向分类行 → 手风琴 ──
      手机上 11 个分类要横向滑才看得全，而且一次只显示一块内容，「下面还有什么」完全看不见。
@@ -245,6 +328,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
     result.textContent = `显示 ${visibleIds.size} / ${entries.length}`;
     empty.hidden = visibleIds.size > 0;
     list.hidden = visibleIds.size === 0;
+    paintOptions(q);
   };
 
   /* 断点变化（手机横竖屏切换、桌面窗口拉窄）时重算一次布局。
@@ -258,6 +342,25 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
   narrow.addEventListener?.("change", onModeChange);
 
   search.addEventListener("input", apply);
+  /* 键盘出口：搜索框里就能上下选、回车直达 —— 桌面端不用鼠标在窄栏里点。
+     注意这里只碰 optionRows 这个数组，不用 querySelectorAll（保持可在假 DOM 里跑）。 */
+  search.addEventListener("keydown", (event) => {
+    if (!optionRows.length) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const next = activeOption + (event.key === "ArrowDown" ? 1 : -1);
+      activeOption = next < 0 ? -1 : Math.min(optionRows.length - 1, next);
+      paintOptionActive();
+      optionRows[activeOption]?.scrollIntoView?.({ block: "nearest" });
+    } else if (event.key === "Enter" && activeOption >= 0 && optionItems[activeOption]) {
+      event.preventDefault();
+      pickOption(optionItems[activeOption]);
+    } else if (event.key === "Escape" && search.value) {
+      event.preventDefault();
+      search.value = "";
+      apply();
+    }
+  });
   paintButtons();
 
   const node = el("aside", { class: "settings-sidebar" },
@@ -267,6 +370,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
         result,
       ),
       search,
+      results,
       list,
       empty,
     ),
@@ -295,6 +399,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
     }
     result.textContent = `显示 ${visibleIds.size} / ${entries.length}`;
     empty.hidden = visibleIds.size > 0; list.hidden = visibleIds.size === 0;
+    paintOptions(q);
     paintActive(); paintPage(); selectionGlow.sync(false);
   }
   let disposed = false;

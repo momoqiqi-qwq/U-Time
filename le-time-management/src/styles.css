@@ -2914,6 +2914,47 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   height: 40px;
   border-radius: 11px;
 }
+/* v0.170.0 · 左栏搜索的「具体设置项」结果：点一行直接落到对应分区的那个控件上。
+   窄屏（≤980px）分类列表整体隐藏（走手风琴），这一块就成了搜索唯一的出口，别跟着一起藏。
+   [hidden] 必须 !important —— 上面的 display:flex 是作者样式，会盖掉 UA 的 [hidden]。 */
+.settings-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: min(46vh, calc(var(--ui-vh, 100dvh) - 300px));
+  overflow: auto;
+  padding-right: 2px;
+}
+.settings-search-results[hidden] { display: none !important; }
+.settings-search-results-head {
+  padding: 1px 3px 2px;
+  color: var(--ink-3);
+  font-size: calc(10.5px * var(--ui-text-scale));
+}
+.settings-option-result {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--deep) 5%, transparent);
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+  transition: .16s ease;
+}
+.settings-option-result:hover,
+.settings-option-result.on {
+  border-color: color-mix(in srgb, var(--deep) 26%, var(--line));
+  background: color-mix(in srgb, var(--deep) 12%, var(--panel));
+  color: var(--deep);
+}
+.settings-option-title { min-width: 0; font-size: calc(12px * var(--ui-text-scale)); font-weight: 600; }
+.settings-option-section { flex: none; color: var(--ink-3); font-size: calc(10px * var(--ui-text-scale)); }
+.settings-option-result.on .settings-option-section { color: inherit; }
 .settings-catalog {
   display: flex;
   flex-direction: column;

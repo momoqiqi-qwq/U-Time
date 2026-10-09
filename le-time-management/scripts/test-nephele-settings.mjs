@@ -34,10 +34,12 @@ function fixture(options = {}) {
   const entries = ["ui", "theme", "data"].map(id => ({ id, label: id, node: new Node() }));
   const nav = createSettingsNavigator(entries, state, options);
   nav.apply();
+  // 卡片子节点顺序（v0.170.0 起）：0 头部、1 搜索框、2 具体设置项结果、3 分类目录、4 空态。
   const search = nav.node.children[0].children[1];
-  const buttons = nav.node.children[0].children[2].children;
+  const catalog = nav.node.children[0].children[3];
+  const buttons = catalog.children;
   const visible = () => nav.panels.filter(p => !p.hidden && !p.children[1].hidden);
-  return { nav, state, search, buttons, visible, entries };
+  return { nav, state, search, catalog, buttons, visible, entries };
 }
 // Desktop: only active panel, retain original DOM and unfinished input while toggling.
 const desktop = fixture();
@@ -71,19 +73,19 @@ positionSwitch.entries[1].node.value = "draft";
 positionSwitch.nav.select("theme");
 document.documentElement.dataset.settingsNavPosition = "left";
 positionSwitch.nav.setTabs(true);
-assert.equal(positionSwitch.nav.node.children[0].children[2].attrs["aria-orientation"], "vertical");
+assert.equal(positionSwitch.catalog.attrs["aria-orientation"], "vertical");
 positionSwitch.buttons[1].listeners.get("keydown")({ key: "ArrowDown", preventDefault() {} });
 assert.equal(positionSwitch.state.active, "data");
 document.documentElement.dataset.settingsNavPosition = "right";
 positionSwitch.nav.setTabs(true);
-assert.equal(positionSwitch.nav.node.children[0].children[2].attrs["aria-orientation"], "vertical");
+assert.equal(positionSwitch.catalog.attrs["aria-orientation"], "vertical");
 positionSwitch.buttons[2].listeners.get("keydown")({ key: "ArrowUp", preventDefault() {} });
 assert.equal(positionSwitch.state.active, "theme");
 assert.equal(positionSwitch.entries[1].node.value, "draft");
 positionSwitch.search.value = "theme"; positionSwitch.nav.apply();
 document.documentElement.dataset.settingsNavPosition = "top";
 positionSwitch.nav.setTabs(true);
-assert.equal(positionSwitch.nav.node.children[0].children[2].attrs["aria-orientation"], "horizontal");
+assert.equal(positionSwitch.catalog.attrs["aria-orientation"], "horizontal");
 assert.equal(positionSwitch.state.active, "theme");
 assert.equal(positionSwitch.search.value, "theme");
 assert.equal(positionSwitch.entries[1].node.value, "draft");

@@ -127,11 +127,26 @@ export function renderSettings(container, opts = {}) {
       pages: isAndroidRuntime(),
       tabs: usesSettingsTabs(getUiPreferences()),
       onPageChange: opts.onPageChange,
+      onPickOption: pickSettingOption,
     });
     navigatorController = settingsNavigator;
     opts.onNavigator?.(settingsNavigator);
     // 窄屏走手风琴：分区由 navigator 包成「标题行 + 可收放内容」，这里按它给的顺序渲染
     const content = el("div", { class: "settings-content" }, ...settingsNavigator.panels);
+
+    /* 左栏搜索点到「具体设置项」（v0.170.0）：先把懒加载的分区渲染出来（否则锚点还不存在），
+       再切到该分区，最后把那个控件滚到眼前并高亮一下。
+       定位范围收在**目标分区自己的节点**里 —— 用整个 content 找的话，另一个分区里
+       先出现的同文控件会抢走匹配，而它在桌面是隐藏的（scrollIntoView 不动、高亮也看不见），
+       表现就是「点了没反应」。 */
+    async function pickSettingOption(section, target) {
+      const entry = entries.find((item) => item.id === section);
+      if (entry) await entry.ensure();
+      if (disposed) return;
+      settingsNavigator.select(section);
+      revealSettingTarget(entry?.node || content, target);
+    }
+
     const layout = el("div", { class: `settings-layout${isAndroidRuntime() ? " settings-pages" : ""}` }, settingsNavigator.node, content);
     // 设置中心头卡已移除：纯展示内容占掉首屏空间，左侧分类导航本身已承担引导职责。
     wrap.replaceChildren(layout);
@@ -142,7 +157,7 @@ export function renderSettings(container, opts = {}) {
     if (initialTarget && opts.target) {
       const targetEntry = entries.find(entry => entry.id === opts.section);
       if (targetEntry) await targetEntry.ensure();
-      if (!disposed) revealSettingTarget(content, opts.target);
+      if (!disposed) revealSettingTarget(targetEntry?.node || content, opts.target);
     }
     initialTarget = false;
   };
