@@ -1,7 +1,7 @@
 import { attachPluginListDrag } from "./pluginListDrag.js";
 // 应用外壳：侧栏导航 + 顶栏 + 视图切换
 import * as S from "./store.js";
-import { appIcon, outlineAppIcon } from "./icons.js";
+import { outlineAppIcon } from "./icons.js";
 import { api } from "./api.js";
 import { appConfirm, appPrompt, bottomInsetPx, el, isSelfActivationKey, toast } from "./ui.js";
 import { renderQuadrant } from "./views/quadrant.js";
@@ -395,6 +395,11 @@ export function renderShell(root) {
   paintTopTheme();
   new MutationObserver(paintTopTheme).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme-mode"] });
 
+  // v0.175.0：顶栏设置键改用**线性**图标（outlineAppIcon → FontAwesome gear，走 currentColor），
+  // 不再用 appIcon("settings") 那张随包 PNG。理由：PNG 是 Icons8 **Color** 彩色图（实测主色
+  // #607888 / #405860 的青灰齿轮），而顶栏其余按键（搜索、闪电、月亮、时钟、云）全是白色
+  // 单色 FA 图标 —— 同一个工具栏里只有齿轮是彩色的，深浅色模式下都对不齐。换成线性图标后
+  // 与邻居同色、同粗细，且跟着 --ink-2 / hover 的 --deep 自动变色，Nephele 下也不用特判。
   const topSettings = el("button", {
     class: "top-mini-btn top-settings-trigger",
     title: "设置 · 拖动或 Alt+←/→ 调整位置",
@@ -402,7 +407,7 @@ export function renderShell(root) {
     "aria-haspopup": "dialog",
     type: "button",
     onclick: () => openSettingsModal(),
-  }, el("span", { class: "top-settings-glyph", "aria-hidden": "true" }, appIcon("settings")));
+  }, el("span", { class: "top-settings-glyph", "aria-hidden": "true" }, outlineAppIcon("settings")));
 
   const topbarActionCard = el("div", { class: "topbar-action-card", role: "toolbar", "aria-label": "可拖动排序的顶栏工具", "data-noswipe": "", "data-tauri-drag-region": dragRegion });
   const topbar = el("header", { class: "topbar", "data-tauri-drag-region": dragRegion },

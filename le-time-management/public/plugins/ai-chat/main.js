@@ -13,6 +13,10 @@
 //   · 宿主限制：一次 ≤24 条消息、文本总量 ≤60000 字符 ⇒ 历史按轮数截断、快照按条数封顶；
 //   · 安全区：本视图不建浮层、不往宿主容器外挂节点、不按视口尺寸定位（铁律四与
 //     scripts/test-plugin-safe-area.mjs 会拦这三类）；吸底输入框靠 .plugview 的满高 flex 列实现。
+//
+// v0.175.0 加了「思考强度」：头部一颗按钮循环 自动 → 低 → 中 → 高，档位跟着请求走
+// （tide.ai.chat 的 reasoningEffort → Rust 的 reasoning_effort）。做成一整颗按钮而不是
+// 分段控件或下拉栏的理由写在 THINK_LEVELS 上方。
 (function () {
   const VIEW_ID = "ai-chat";
   const THREAD_KEY = "thread";
@@ -21,6 +25,7 @@
   const ID_KEY = "identity";     // 双方头像与名称
   const DRAFT_KEY = "draft";     // 没发出去的输入
   const SESSIONS_KEY = "sessions";
+  const THINK_KEY = "thinkEffort"; // 思考强度（v0.175.0）
   const KEEP = 40;          // 本地留存的对话条数
   const SEND_TURNS = 10;    // 送给模型的最近条数（含本轮提问，24 条上限留足余量）
   const SNAP_CAP = 25;      // 快照每段最多列几条
@@ -29,6 +34,27 @@
   const NAME_MAX = 12;      // 名称上限，再长气泡上方的标签就顶到边了
   const AVATAR_SIDE = 128;  // 头像统一压成正方形边长（圆形显示用）
   const DEFAULT_NAME = { me: "我", ai: "AI 助手" };
+
+  /* 思考强度（v0.175.0）：四档循环，`id` 空串 = 不带 reasoning_effort 字段。
+     为什么做成「一颗按钮循环」而不是分段控件 / 下拉栏：
+       · 分段控件属于铁律六的「单选切换」，选中高亮要滑动到新选项，而那个滑动光块是宿主
+         src/selectionGlow.js 的 attachSelectionGlow()，插件侧拿不到（插件只有 tide.*）；
+       · 下拉栏属于铁律七，要自己写展开 + 收起双向动画；更要紧的是本视图的硬纪律是
+         「不建浮层」（见文件头注释，test-ai-chat 与 test-plugin-safe-area 都盯着），
+         弹层还得自己让开四条安全区。
+     一颗按钮循环三档既能设置，又不引入浮层，也不产生「一组选项」需要滑动高亮，
+     两条铁律都不触碰。当前档位直接写在按钮文字里，不必点开才知道选的是什么。 */
+  const THINK_LEVELS = [
+    { id: "", label: "自动", hint: "不指定思考强度，由模型自己决定（默认）" },
+    { id: "low", label: "低", hint: "少想一点，回得更快、更省 token" },
+    { id: "medium", label: "中", hint: "速度与深度折中" },
+    { id: "high", label: "高", hint: "想得更久，适合复杂推理与长链路任务" },
+  ];
+  const thinkLevel = () => THINK_LEVELS.find((l) => l.id === thinkEffort) || THINK_LEVELS[0];
+  const isThinkLevel = (id) => THINK_LEVELS.some((l) => l.id === id);
+  // 按钮 title 里的「点击依次切换：自动 → 低 → 中 → 高」是常量。它写在 paintThink() 里
+  // 会随每次重绘重新 map + join 一遍，提出来只算一次（本视图切走再回来就会重绘）。
+  const THINK_CYCLE = THINK_LEVELS.map((l) => l.label).join(" → ");
 
   let thread = [];
   let notices = [];         // 跨插件消息（新的在前），跨重启保留
@@ -40,6 +66,7 @@
   let seenLastAt = 0;       // 上次渲染时最后一条消息的时间，用来判断「来了新消息但人没在看底部」
   let modelLabel = "";
   let configured = false;
+  let thinkEffort = "";    // 思考强度档位（"" / low / medium / high），跨重启保留
   let ui = null;          // 当前渲染出来的 DOM（切走再回来会重建）
   let sessions = [];
   let sessionId = "";
@@ -584,7 +611,8 @@
     paintBusy();
     try {
       await syncNotices();          // 发送前再并一次，刚推来的消息这一轮就能被问到
-      const reply = await tide.ai.chat(buildMessages(), { temperature: 0.3 });
+      // reasoningEffort 为 ""（自动档）时，宿主与 Rust 都不往请求体里塞 reasoning_effort 字段。
+      const reply = await tide.ai.chat(buildMessages(), { temperature: 0.3, reasoningEffort: thinkEffort });
       const parsed = parseReply(reply);
       thread.push({ role: "assistant", text: parsed.body, at: Date.now(), suggestions: parsed.suggestions });
     } catch (e) {
@@ -628,6 +656,9 @@
 .aichat-model{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);border:1px solid var(--line,#E4DFD6);border-radius:999px;padding:3px 10px;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .aichat-chip{font-size:calc(11.5px * var(--ui-text-scale));border:1px solid var(--line,#E4DFD6);background:var(--panel,#fff);color:var(--ink-2,#7E8B94);border-radius:999px;padding:4px 11px;cursor:pointer;flex:none}
 .aichat-chip.on{background:var(--deep,#0F4C5C);border-color:var(--deep,#0F4C5C);color:var(--on-deep,#fff);font-weight:600}
+/* 思考强度按钮（v0.175.0）自己的钩子。别让它复挂 .aichat-think —— 那个类是「正在思考…」
+   三个跳动圆点（见下方 .aichat-think i 的 animation），复用后按钮里将来塞个 <i> 就会冒点。 */
+.aichat-effort{display:inline-flex;gap:5px;align-items:center}
 .aichat-log{flex:1;min-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:2px 0}
 .aichat-jump{align-self:center;flex:none;height:26px;padding:0 12px;border-radius:999px;border:1px solid var(--line,#E4DFD6);background:var(--panel,#fff);color:var(--ink-2,#7E8B94);font-family:inherit;font-size:calc(11px * var(--ui-text-scale));cursor:pointer}
 .aichat-jump:hover{border-color:var(--deep,#0F4C5C);color:var(--deep,#0F4C5C)}
@@ -893,12 +924,34 @@ button.aichat-avatar{padding:0;cursor:pointer}
     renderThread();
   }
 
+  /** 把当前思考强度画到按钮上：文字里直接写出档位，「自动」不点亮（= 没额外要求）。 */
+  function paintThink() {
+    if (!ui?.think) return;
+    const level = thinkLevel();
+    ui.think.textContent = `思考强度 ${level.label}`;
+    ui.think.classList.toggle("on", level.id !== "");
+    ui.think.setAttribute("aria-label", `思考强度：${level.label}，点击切换下一档`);
+    ui.think.title = `${level.hint}。点击依次切换：${THINK_CYCLE}`;
+  }
+
+  /** 档位在按钮上就地轮换，不动别的状态 —— 下一句话就按新档发出。 */
+  function cycleThink() {
+    const index = THINK_LEVELS.findIndex((l) => l.id === thinkEffort);
+    const next = THINK_LEVELS[(index + 1) % THINK_LEVELS.length];
+    thinkEffort = next.id;
+    tide.storage.set(THINK_KEY, thinkEffort);
+    paintThink();
+  }
+
   async function loadOnce() {
     if (loaded) return;
     const st = await tide.ai.status().catch(() => ({ configured: false }));
     configured = !!st?.configured;
     modelLabel = st?.model || "";
     withContext = await tide.storage.get(CTX_KEY, true) !== false;
+    // 脏值兜底：存进去的档位认不出来就退回「自动」，别把一个非法值递给 Rust（它会直接报错）。
+    const savedThink = String((await tide.storage.get(THINK_KEY, "")) ?? "");
+    thinkEffort = isThinkLevel(savedThink) ? savedThink : "";
     thread = await tide.storage.get(THREAD_KEY, []) || [];
     notices = (await tide.storage.get(NOTICE_KEY, [])) || [];
     identity = normalizeIdentity(await tide.storage.get(ID_KEY, null));
@@ -942,6 +995,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
       <div class="aichat-head">
         <button type="button" class="aichat-menu" data-menu aria-label="展开对话历史" title="对话历史" aria-controls="aichat-history" aria-expanded="false"><span></span><span></span><span></span></button>
         <button class="aichat-chip" data-ctx>带本机数据</button>
+        <button type="button" class="aichat-chip aichat-effort" data-think></button>
       </div>
       <div class="aichat-backdrop" aria-hidden="true"></div>
       <aside class="aichat-sidebar" id="aichat-history" aria-label="对话历史" aria-hidden="true" inert>
@@ -987,6 +1041,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
       model: root.querySelector(".aichat-model"),
       feed: root.querySelector(".aichat-feed"),
       ctx: root.querySelector("[data-ctx]"),
+      think: root.querySelector("[data-think]"),
       clear: root.querySelector("[data-clear]"),
       jump: root.querySelector(".aichat-jump"),
       idBtn: root.querySelector("[data-id]"),
@@ -997,6 +1052,8 @@ button.aichat-avatar{padding:0;cursor:pointer}
     ui.ctx.setAttribute("aria-pressed", String(withContext));
     ui.ctx.title = withContext ? "每次提问都会把本机任务、近三天时间块与插件消息一起发给模型" : "已关闭：只问通用问题，不上传本机数据";
     ui.ctx.onclick = () => setContext(!withContext);
+    paintThink();
+    ui.think.onclick = cycleThink;
     ui.model.onclick = () => window.dispatchEvent(new CustomEvent("tide:open-settings", { detail: { section: "ai" } }));
     const menu = root.querySelector("[data-menu]");
     const sidebar = root.querySelector(".aichat-sidebar");

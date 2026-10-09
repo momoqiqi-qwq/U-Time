@@ -171,8 +171,15 @@ if (st.configured) {
     { role: "system", content: "只回一句话" },
     { role: "user", content: "把这段摘要成一句" },
   ], { temperature: 0.3 });
+
+  // 可选：思考强度。省略（或传 ""/"auto"）＝ 请求体里根本不出现 reasoning_effort，
+  // 由模型按自己的默认值走 —— 自建网关对不认识的字段常常直接 400，所以默认不塞。
+  const deep = await tide.ai.chat(messages, { temperature: 0.3, reasoningEffort: "high" });
 }
 ```
+
+`reasoningEffort` 只放行 `"low"` / `"medium"` / `"high"`（OpenAI 兼容侧的约定字段
+`reasoning_effort`），其余值会直接抛错而不是原样透传；`""` / `"auto"` 与省略等价。
 
 复用「设置 → AI 与自动任务」里用户自己配置的 Base URL / 模型 / API Key（OpenAI 兼容的 `/chat/completions`），密钥只存在 Rust 侧加密保险箱，插件拿不到也看不到。三条限制：
 

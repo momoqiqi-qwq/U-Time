@@ -2760,7 +2760,16 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   justify-content: center;
 }
 .top-settings-glyph { display: inline-flex; }
-.top-settings-trigger .app-icon { width: 18px; height: 18px; }
+/* v0.175.0：设置键的图标由彩色 PNG 换成线性 SVG（.app-outline-icon），尺寸与顶栏同类键同档
+   （搜索 / 月亮 15px，历史 / 同步 16px），fill 走 currentColor ⇒ 与其余顶栏图标同白。
+   这段只认 .app-outline-icon：该键的内容写死在 shell.js 的 outlineAppIcon("settings") 里，
+   不会再塞进彩色 PNG（那条 .app-icon 尺寸规则随之删除）。 */
+.top-settings-trigger .app-outline-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
 .topbar-action-card .pill {
   background: color-mix(in srgb, var(--deep) 6%, transparent);
   color: var(--ink-2);

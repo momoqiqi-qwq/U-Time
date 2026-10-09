@@ -18,6 +18,7 @@ const mainSrc = read("../public/plugins/ai-chat/main.js");
 const manifest = JSON.parse(read("../public/plugins/ai-chat/manifest.json"));
 const host = read("../src/pluginHost.js");
 const api = read("../src/api.js");
+const rust = read("../src-tauri/src/lib.rs");
 const catalog = read("../src/pluginCatalog.js");
 const miniCatalog = read("../../miniprogram/core/pluginCatalog.js");
 const doc = read("../public/plugins/plugin-guide/plugin-development.md");
@@ -27,9 +28,9 @@ const doc = read("../public/plugins/plugin-guide/plugin-development.md");
 assert.match(host, /ai: "AI 对话（/, "PLUGIN_PERMISSION_LABELS 必须有 ai 条目，否则报错文案只剩英文 ai");
 assert.match(host, /ai: \{[\s\S]{0,900}requirePermission\(man, pid, "ai"\)[\s\S]{0,400}requirePermission\(man, pid, "ai"\)/,
   "tide.ai 的 chat 与 status 两个方法都必须过权限闸门，漏一个就是未声明也能调");
-assert.match(host, /return api\.aiChat\(messages, opts\.temperature\)/, "chat 必须复用 api.aiChat（凭据只在 Rust 侧）");
+assert.match(host, /return api\.aiChat\(messages, opts\.temperature[,)]/, "chat 必须复用 api.aiChat（凭据只在 Rust 侧）");
 assert.match(host, /return api\.aiVaultStatus\(\)/, "status 必须复用 api.aiVaultStatus，插件才有「配没配」可判");
-assert.match(api, /async aiChat\(messages, temperature = 0\.2\)/, "api.aiChat 的默认温度不能悄悄改掉");
+assert.match(api, /async aiChat\(messages, temperature = 0\.2[,)]/, "api.aiChat 的默认温度不能悄悄改掉");
 assert.match(host, /非流式/, "宿主注释必须写明上游非流式，否则下一个写插件的人会以为能拿增量");
 
 /* 跨插件消息：宿主在 emit 处抄收，读口单独一道权限 */
@@ -185,6 +186,8 @@ vm.runInContext(
     + "    get draft() { return draft; }, set draft(v) { draft = v; },\n"
     + "    set loaded(v) { loaded = v; },\n"
     + "    get withContext() { return withContext; }, set withContext(v) { withContext = v; },\n"
+    + "    THINK_LEVELS, cycleThink, paintThink,\n"
+    + "    get thinkEffort() { return thinkEffort; }, set thinkEffort(v) { thinkEffort = v; },\n"
     + "  };\n"
     + "  tide.ui.registerView({",
   ),
@@ -582,4 +585,74 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
   sandbox.tide.ai.chat = originalChat;
 }
 
-console.log("PASS: AI 对话插件 —— 权限 / 快照 / 建议写入撤销 / 一轮问答 / 历史迁移 / 会话与草稿隔离 / 请求保护");
+/* 思考强度（v0.175.0）：档位必须真的进请求体，而「自动」必须一个字段都不加。
+   这条链有四段（插件 → tide.ai → api → Rust），断一段界面照样显示、请求却没带上，
+   所以四段各钉一条断言，再真跑一遍循环与落盘。 */
+{
+  // vm 里造出来的数组与宿主不同原型，逐项串成字符串比（同文件开头的既有约定）。
+  const ids = fx.THINK_LEVELS.map((l) => l.id).join(",");
+  assert.equal(ids, ",low,medium,high",
+    "档位顺序必须是 自动 → 低 → 中 → 高（自动排第一，也是新装的默认值）");
+  assert.equal(fx.THINK_LEVELS[0].id, "", "「自动」必须是空串 —— 它代表请求体里根本不出现 reasoning_effort");
+  assert.ok(fx.THINK_LEVELS.every((l) => l.label && l.hint), "每一档都要有按钮文字与说明，否则点了不知道选了什么");
+
+  /* 按钮自己的类名（v0.175.0 打磨）：`.aichat-think` 不是「思考强度」的钩子，它是
+     「正在思考…」那三个跳动圆点的类（下方 .aichat-think i 挂着 animation）。新按钮
+     复挂它的话，今天只是白蹭了 display/gap，哪天往按钮里塞个 <i> 就会当场冒出三个点。
+     所以钉死两件事：按钮用 .aichat-effort，圆点继续用 .aichat-think。 */
+  // 按钮按类名清单来判（而不是钉一整串 class="..."）：类顺序换了也照样判得出来。
+  const thinkBtn = mainSrc.match(/<button[^>]*\bdata-think\b[^>]*>/);
+  assert.ok(thinkBtn, "模板里要有思考强度按钮（data-think 是渲染与测试的共同抓手）");
+  const thinkCls = ((thinkBtn[0].match(/class="([^"]*)"/) || [])[1] || "").trim().split(/\s+/);
+  assert.ok(thinkCls.includes("aichat-effort"), "思考强度按钮要用自己的类名 .aichat-effort");
+  assert.ok(!thinkCls.includes("aichat-think"),
+    "思考强度按钮不能复挂 .aichat-think —— 那是「正在思考…」圆点的类（.aichat-think i 挂着圆点动画），挂上后按钮里一旦有 <i> 就会冒出三个点");
+  assert.match(mainSrc, /\.aichat-effort\{display:inline-flex/, "自己的类名要有对应样式，否则按钮掉回默认行盒、与相邻 chip 不齐");
+  assert.match(mainSrc, /<span class="aichat-think"><i><\/i><i><\/i><i><\/i> 正在思考…<\/span>/,
+    "圆点指示器仍要挂在 .aichat-think 上（改名的只是按钮，别把指示器一起改了）");
+
+  // 按钮 title 的「点击依次切换：…」提成常量只算一次；paintThink() 每次重绘都跑，别再 map + join。
+  assert.match(mainSrc, /const THINK_CYCLE = THINK_LEVELS\.map\(\(l\) => l\.label\)\.join\(" → "\)/,
+    "切换提示串要提成模块级常量");
+  assert.match(mainSrc, /点击依次切换：\$\{THINK_CYCLE\}/, "paintThink() 要复用这个常量");
+  assert.equal((mainSrc.match(/THINK_LEVELS\.map\(/g) || []).length, 1,
+    "THINK_LEVELS.map 只准出现在常量定义处 —— 出现在重绘路径上就是每次重绘重新拼一遍");
+
+  assert.match(mainSrc, /tide\.ai\.chat\(buildMessages\(\), \{ temperature: 0\.3, reasoningEffort: thinkEffort \}\)/,
+    "档位必须真的跟着请求发出去，只画在界面上等于没接");
+  assert.match(host, /api\.aiChat\(messages, opts\.temperature, opts\.reasoningEffort\)/, "宿主必须把档位透下去");
+  assert.match(api, /invoke\("ai_chat", \{ messages, temperature, reasoningEffort \}\)/, "api 层要把档位递给 Rust");
+  assert.match(rust, /reasoning_effort: Option<String>/, "ai_chat 必须收 reasoningEffort 参数");
+  assert.match(rust, /"low" \| "medium" \| "high" => body\["reasoning_effort"\] = json!\(effort\)/,
+    "只有三档能落进请求体，别把任意字符串透传给上游");
+  assert.match(rust, /"" \| "auto" => \{\}/, "自动档必须一个字段都不加 —— 有的网关不认这个键，多塞就 400");
+  assert.match(rust, /思考强度只能是 low \/ medium \/ high/, "非法档位要报中文错误，别让它变成上游一句看不懂的 400");
+  assert.match(doc, /reasoningEffort/, "插件开发文档必须写清这个可选参数");
+  assert.match(doc, /reasoning_effort/, "文档要写明落到上游的字段名");
+
+  storage.clear();
+  fx.loaded = false;
+  await fx.loadOnce();
+  assert.equal(fx.thinkEffort, "", "新装默认是自动档");
+  const seen = [];
+  for (let i = 0; i < 4; i++) { fx.cycleThink(); seen.push(fx.thinkEffort); }
+  assert.equal(seen.join(","), "low,medium,high,", "点四下要转回自动，不能停在末尾或跳档");
+  assert.equal(storage.get("thinkEffort"), "", "每次切换都要落盘（最后一档是空串也要存）");
+
+  fx.thinkEffort = "high";
+  calls.chat.length = 0;
+  await fx.ask("随便问一句");
+  assert.equal(calls.chat.at(-1).opts.reasoningEffort, "high", "选中的档位要出现在这一轮的请求里");
+
+  fx.thinkEffort = "";
+  calls.chat.length = 0;
+  await fx.ask("再问一句");
+  assert.equal(calls.chat.at(-1).opts.reasoningEffort, "", "自动档照样往下传空串，由宿主 / Rust 决定不加字段");
+
+  storage.set("thinkEffort", "super-high");
+  fx.loaded = false;
+  await fx.loadOnce();
+  assert.equal(fx.thinkEffort, "", "认不出来的档位要退回自动，别把一个非法值递给 Rust（它会直接报错）");
+}
+
+console.log("PASS: AI 对话插件 —— 权限 / 快照 / 建议写入撤销 / 一轮问答 / 历史迁移 / 会话与草稿隔离 / 思考强度 / 请求保护");

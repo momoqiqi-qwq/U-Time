@@ -146,6 +146,28 @@ assert.ok(
   "不许把令牌作用域收回 .settings-modal / .set-wrap —— 那是 v0.158.0 的写法，扩面后必须删掉",
 );
 
+// ①+ 侧栏自己的底色（v0.175.0）：侧栏此前和内容区共用同一族「面板色」，
+//     两块板并排分不出谁是谁，所以另起一个更饱和的薰衣草紫。
+has(/--nephele-rail:\s*#e4d7f4/, "浅色侧栏要有自己的底色令牌 --nephele-rail");
+has(
+  /:root\[data-theme-mode="dark"\]\[data-nephele-settings="on"\][\s\S]*?--nephele-rail:\s*#342350/,
+  "深色侧栏同样要定义 --nephele-rail（漏了深色下会继承浅色那个 #e4d7f4）",
+);
+has(
+  /background:\s*color-mix\(in srgb, var\(--nephele-rail\)\s*90%,\s*transparent\)/,
+  "侧栏要真的消费 --nephele-rail —— 只在令牌块里挂个定义等于没改",
+);
+has(
+  /background:\s*color-mix\(in srgb, var\(--nephele-rail\)\s*96%,\s*var\(--paper\)\)/,
+  "solid 材质下侧栏要有自己的等价写法，别退回通用玻璃底",
+);
+// 反向判据：被 --nephele-rail 取代的那个通用玻璃底令牌已无消费方，
+// 留着会被后来人当成活的去改它（它只挂定义、无人 var() 引用）。
+assert.ok(
+  !/--nephele-glass/.test(css),
+  "已无消费方的 --nephele-glass 必须删干净（挂着一份死令牌比没有更容易误导）",
+);
+
 // ② 外壳与表面
 for (const sel of [".rail", ".main", ".topbar"]) {
   assert.ok(
@@ -168,8 +190,25 @@ assert.ok(
   "列表卡片不许各带一层 backdrop-filter：云雾是常驻动画，几十个 .tkc 逐项模糊是掉帧配方（外壳模糊一层就够）",
 );
 
+// ②+ 插件中心「去容器框」（v0.175.0）：.market 自带一圈卡片边框，嵌进 .main > .view 后
+//     就成了「框套框」；Nephele 的插件页是排版直接落在窗口上的。
+has(
+  /:root\[data-nephele-settings="on"\]\s*\.main:has\(>\s*\.view\s*>\s*\.market\)\s*\{/,
+  "插件中心去框必须用 .main:has(> .view > .market) —— 只认「当前视图正是插件中心」，别扩大到所有视图",
+);
+has(
+  /\.main:has\(>\s*\.view\s*>\s*\.market\)\s+\.topbar\s*\{/,
+  "插件页顶上那条 topbar 的板同样要撤，只撤主区会留一条框边",
+);
+// ⚠️ 上面两条 :has() 靠的是「.market 正好是 .view 的直接子节点」这一层结构，样式表自身
+//    保证不了它，所以连 shell.js 的挂载方式一起钉住：改成 append、或中间多包一层 wrapper，
+//    规则会**静默失效**（选择器不报错，只是不再命中），界面看起来就退回框套框。
+const shellSrc = readFileSync(new URL("../src/shell.js", import.meta.url), "utf8");
+assert.match(shellSrc, /renderMarket\(view\)/, "插件中心必须挂在 .view 上：:has(> .view > .market) 依赖这层父子关系");
+assert.match(shellSrc, /container\.replaceChildren\(wrap\)/, "插件中心要保持独占 .view（replaceChildren），多包一层会让 :has() 静默失效");
+
 // ③ 既有约定不许在扩面时被顺手改掉
 has(/\.settings-nav-item\.on::after/, "设置页的紫色短下划线要保留");
 has(/\[data-nav-glass="solid"\]/, "要保留 solid 材质下「关掉实时模糊」的逃生口（低端 WebView 省电）");
 
-console.log("PASS: Nephele 设置独立开关、保留分类与草稿、搜索、键盘切换、Android 返回、窄屏目录恢复，且风格已覆盖全应用（:root 令牌 + 外壳毛玻璃 + 表面清单 + 保留逃生口）");
+console.log("PASS: Nephele 设置独立开关、保留分类与草稿、搜索、键盘切换、Android 返回、窄屏目录恢复，且风格已覆盖全应用（:root 令牌 + 外壳毛玻璃 + 表面清单 + 侧栏自有底色 + 插件中心去框 + 保留逃生口）");

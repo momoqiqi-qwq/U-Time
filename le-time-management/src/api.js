@@ -374,9 +374,17 @@ export const api = {
     if (!isTauri) return;
     return invoke("ai_vault_clear");
   },
-  async aiChat(messages, temperature = 0.2) {
+  /**
+   * 一次非流式 AI 对话。
+   *
+   * `reasoningEffort` 是**可选**的思考强度（v0.175.0）：`""`/`"auto"` = 不带这个字段，
+   * 其余只放行 `low` / `medium` / `high`，由 Rust 侧校验后写进请求体的 `reasoning_effort`。
+   * 缺省空串 —— 老调用方（aiAutomation / aiIngest / 设置页的自检）一行都不用改，
+   * 行为与加这个参数之前逐位相同。
+   */
+  async aiChat(messages, temperature = 0.2, reasoningEffort = "") {
     if (!isTauri) throw new Error("AI 请求仅在 Tauri 应用中可用");
-    return invoke("ai_chat", { messages, temperature });
+    return invoke("ai_chat", { messages, temperature, reasoningEffort });
   },
   async aiListModels(baseUrl, apiKey = "", forceRefresh = false) {
     if (!isTauri) throw new Error("模型列表查询仅在 Tauri 应用中可用");

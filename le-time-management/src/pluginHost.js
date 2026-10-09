@@ -406,7 +406,9 @@ function makeApi(man, source) {
     ai: {
       chat: (messages, opts = {}) => {
         requirePermission(man, pid, "ai");
-        return api.aiChat(messages, opts.temperature);
+        // opts.reasoningEffort（v0.175.0）：可选思考强度，""/"auto" = 不带该字段，
+        // 其余 low/medium/high 由 Rust 侧校验。老插件只传 temperature 也照旧。
+        return api.aiChat(messages, opts.temperature, opts.reasoningEffort);
       },
       // {configured, baseUrl, model, keyMasked}：插件据此决定是问 AI 还是引导去配置。
       status: () => { requirePermission(man, pid, "ai"); return api.aiVaultStatus(); },

@@ -316,6 +316,7 @@ async fn ai_chat(
     app: AppHandle,
     messages: Vec<AiMessage>,
     temperature: Option<f64>,
+    reasoning_effort: Option<String>,
 ) -> Result<String, String> {
     let secret = load_ai_secret(&app)?;
     validate_ai_base_url(&secret.base_url)?;
@@ -349,11 +350,26 @@ async fn ai_chat(
         .build()
         .map_err(|e| format!("AI HTTP 客户端初始化失败: {e}"))?;
     let endpoint = ai_chat_endpoint(&secret.base_url);
-    let body = json!({
+    let mut body = json!({
         "model": secret.model,
         "messages": messages,
         "temperature": temperature.unwrap_or(0.2).clamp(0.0, 2.0),
     });
+    // 思考强度（v0.175.0）。只在用户**显式**选了档位时才把这个字段放进请求体：
+    // `reasoning_effort` 是 OpenAI 兼容侧的约定字段，但并非所有自建网关都认它，
+    // 多塞一个它不认识的键常常直接 400。默认档（空串 / "auto"）就完全不出现，
+    // 让各家模型按自己的默认值走 —— 「不干预」比「替用户猜一个档」安全。
+    //
+    // 取值只放行 low / medium / high（OpenAI o 系、DeepSeek V3.2 等都在用这套词），
+    // 其余一律报错而不是原样透传：透传等于把这个字段变成任意 JSON，写错一个词
+    // 用户只会看到上游一句看不懂的 400。
+    if let Some(effort) = reasoning_effort.as_deref().map(str::trim) {
+        match effort {
+            "" | "auto" => {}
+            "low" | "medium" | "high" => body["reasoning_effort"] = json!(effort),
+            other => return Err(format!("思考强度只能是 low / medium / high，收到「{other}」")),
+        }
+    }
     let resp = client
         .post(endpoint)
         .bearer_auth(&secret.api_key)
