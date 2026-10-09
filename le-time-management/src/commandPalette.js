@@ -7,8 +7,8 @@ import { pluginShortcutEntries } from "./pluginShortcutEntries.js";
 import { openTaskDrawer } from "./views/drawer.js";
 import { openQuickCapture } from "./capture.js";
 import { closeLayer } from "./motion.js";
-import { SETTINGS_SEARCH_ENTRIES } from "./settingsSearchIndex.js";
-import { pinyinInitialsOf } from "./pinyinInitial.js";
+import { SETTINGS_SEARCH_ENTRIES, SETTINGS_SECTION_LABELS } from "./settingsSearchIndex.js";
+import { scoreSearchEntry } from "./searchMatch.js";
 
 let modal = null;
 let input = null;
@@ -59,25 +59,11 @@ function navigate(view) {
 }
 
 function normalize(text) { return String(text || "").trim().toLowerCase(); }
-function searchText(entry) {
-  return `${entry.title || ""} ${entry.sub || ""} ${entry.keywords || ""}`;
-}
-function initials(entry) {
-  return pinyinInitialsOf(searchText(entry));
-}
+// 打分与设置页左栏搜索同一套（src/searchMatch.js）：标题 → 标题词段缩写 → 关键词词段缩写。
+// 「zt」在两边都只会落到「字体模式 / 文字大小」这类真的以「字体」开头的条目上。
 function score(entry, q) {
   if (!q) return entry.priority || 0;
-  const title = normalize(entry.title), sub = normalize(entry.sub), keys = normalize(entry.keywords);
-  const py = initials(entry);
-  if (title === q) return 1000;
-  if (title.startsWith(q)) return 800;
-  if (py === q) return 760;
-  if (py.startsWith(q)) return 700;
-  if (title.includes(q)) return 600;
-  if (py.includes(q)) return 520;
-  if (sub.includes(q)) return 350;
-  if (keys.includes(q)) return 250;
-  return -1;
+  return scoreSearchEntry(entry, q);
 }
 
 function entries() {
@@ -111,7 +97,7 @@ function entries() {
   const settings = SETTINGS_SEARCH_ENTRIES.map((item) => ({
     kind: "设置",
     title: item.title,
-    sub: `设置 · ${item.section === "ui" ? "界面与交互" : item.section === "highlights" ? "关键词标注" : item.section === "reminders" ? "任务提醒" : item.section === "data" ? "数据中心" : item.section === "sync" ? "可选同步" : item.section === "ai" ? "AI 与自动任务" : item.section === "shortcuts" ? "全局快捷键" : item.section === "lan" ? "局域网联动" : item.section === "plugins" ? "插件管理" : item.section === "about" ? "关于" : "主题"}`,
+    sub: `设置 · ${SETTINGS_SECTION_LABELS[item.section] || item.section}`,
     keywords: item.keywords,
     // 空查询时让命令、导航、插件和真实任务优先；一旦输入关键词，匹配分仍会把设置项顶上来。
     priority: 4,

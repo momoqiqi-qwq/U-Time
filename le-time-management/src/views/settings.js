@@ -37,24 +37,62 @@ function disposeContents(root) {
   for (const node of root.querySelectorAll(".has-selection-glow")) node._disposeSelectionGlow?.();
 }
 
-function revealSettingTarget(root, target) {
-  const wanted = String(target || "").trim().replace(/\s+/g, " ").toLowerCase();
-  if (!wanted) return;
-  const candidates = [...root.querySelectorAll([
-    ".setting-row", ".pref-presets", ".ai-field", ".sync-step", ".sync-field",
-    ".data-section-title", ".plugin-title-row", ".about-section-title", ".update-panel",
-    "h2", "h3", "label", "button", "input", "select", "[aria-label]",
-  ].join(","))];
-  const value = (node) => [node.textContent, node.getAttribute?.("aria-label"), node.getAttribute?.("placeholder"), node.getAttribute?.("title")]
-    .filter(Boolean).join(" ").trim().replace(/\s+/g, " ").toLowerCase();
-  const exact = candidates.find((node) => value(node) === wanted);
-  const matched = exact || candidates.find((node) => value(node).includes(wanted));
+/* 目标选项定位：从分区节点里挑出**最贴合**的那个元素，滚到眼前并短暂高亮。
+ *
+ * 旧写法维护了一份手写的候选选择器白名单（.setting-row / .ai-field / .sync-step / …），
+ * 漏一个容器就有一条索引「点了没反应」。实测漏过：
+ *   .about-meta（运行平台 / 数据策略 / 设备联动）、.shortcut-grid（命令面板 / 快速捕获）、
+ *   .plugin-shortcut-block（插件快捷键）、.lan-push-label、内联样式的局域网状态行。
+ * 现在改成通用解析：只看元素**自身**的直接文本（不含子孙），取最深的一层；
+ * 命中全等就立刻返回，否则退而求其次取第一个包含的。这样新增任何版式都不用回来补白名单。
+ */
+const TARGET_ANCHORS = [
+  ".setting-row", ".pref-presets", ".pref-choice", ".ai-field", ".sync-step", ".sync-field",
+  ".data-section-title", ".plugin-title-row", ".about-section-title", ".update-panel",
+  ".about-meta", ".shortcut-grid", ".plugin-shortcut-block", ".lan-push-row", ".keyword-rule",
+  ".theme-mode", ".theme-grid", ".mobile-preview-tools", ".about-actions", ".data-actions",
+].join(",");
+
+const normalizeTargetText = (text) => String(text ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+
+/** 元素自身的直接文本（不含子孙）—— 用 textContent 会一路命中到整张卡。 */
+function ownText(node) {
+  let out = "";
+  for (const child of node.childNodes || []) if (child.nodeType === 3) out += child.data;
+  return out;
+}
+
+function findSettingTarget(root, wanted) {
+  let partial = null;
+  for (const node of root.querySelectorAll("*")) {
+    // 无文字的元素靠 aria-label / placeholder / title 参与匹配（「显示模式」「界面主题」
+    // 「搜索插件管理列表」这几个控件界面上只有标签、没有正文）。
+    const texts = [ownText(node), node.getAttribute?.("aria-label"), node.getAttribute?.("placeholder"), node.getAttribute?.("title")]
+      .filter(Boolean).map(normalizeTargetText).filter(Boolean);
+    if (!texts.length) continue;
+    if (texts.some((text) => text === wanted)) return node;
+    if (!partial && texts.some((text) => text.includes(wanted))) partial = node;
+  }
+  return partial;
+}
+
+export function revealSettingTarget(root, target) {
+  const wanted = normalizeTargetText(target);
+  if (!wanted || !root) return;
+  let matched = findSettingTarget(root, wanted);
   if (!matched) return;
-  const anchor = matched.closest?.(".setting-row,.pref-presets,.ai-field,.sync-step,.sync-field,.data-section-title,.plugin-title-row,.about-section-title,.update-panel") || matched;
+  // <option> 自己没有盒子（getBoundingClientRect 恒为 0），高亮它等于没高亮 —— 落到它的 <select>。
+  while (matched && matched.tagName === "OPTION" && matched.parentElement) matched = matched.parentElement;
+  const anchor = matched.closest?.(TARGET_ANCHORS) || matched;
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    anchor.scrollIntoView?.({ block: "center", behavior: "smooth" });
-    anchor.classList.add("setting-search-target");
-    setTimeout(() => anchor.classList.remove("setting-search-target"), 1800);
+    /* 命中的控件可能在当前状态下不渲染：「配好了，以后怎么同步」所在的 .sync-daily
+       要配好网盘才展开（sync.js 里按 isConfigured() 切 display），平台专属开关在别的
+       平台上根本没有。这时退回**分区本身**，至少让用户看到跳到了哪一块 ——
+       否则滚动与高亮落在一个 0×0 的元素上，看起来还是「点了没反应」。 */
+    const landing = anchor.getClientRects?.().length ? anchor : (root.closest?.(".settings-section") || root);
+    landing.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    landing.classList.add("setting-search-target");
+    setTimeout(() => landing.classList.remove("setting-search-target"), 1800);
   }));
 }
 
@@ -143,7 +181,9 @@ export function renderSettings(container, opts = {}) {
       const entry = entries.find((item) => item.id === section);
       if (entry) await entry.ensure();
       if (disposed) return;
-      settingsNavigator.select(section);
+      // force：点具体设置项是「用户明确点名」，不受左栏那次文字筛选的约束 ——
+      // 搜「zt」时分类名一个都不含 zt，不 force 的话 select 会直接返回，表现就是「点了没反应」。
+      settingsNavigator.select(section, { force: true });
       revealSettingTarget(entry?.node || content, target);
     }
 

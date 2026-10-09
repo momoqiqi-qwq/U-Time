@@ -2,7 +2,7 @@ import { el } from "../../ui.js";
 import { reducedMotion } from "../../motion.js";
 import { attachSelectionGlow } from "../../selectionGlow.js";
 import { SETTINGS_SEARCH_ENTRIES } from "../../settingsSearchIndex.js";
-import { pinyinInitialsOf } from "../../pinyinInitial.js";
+import { matchesSearchEntry, scoreSearchEntry } from "../../searchMatch.js";
 
 // 分类图标：复用打包内 Font Awesome solid（与快捷 dock 同款根路径）。
 // 本地小助手而不是从 shell.js 引入，避免设置视图反向依赖外壳造成循环 import。
@@ -22,22 +22,19 @@ const NARROW_QUERY = "(max-width: 980px)";
 // 搜索结果一次最多列几条 —— 单字查询（「字」「色」）能命中几十项，全铺出来等于没有排序。
 const MAX_OPTION_RESULTS = 12;
 
-const normalize = (text) => String(text ?? "").trim().toLowerCase();
+/* 单个设置项的打分与全局命令面板同一套（src/searchMatch.js）：
+   标题 → 标题词段缩写 → 标题整串缩写 → 关键词词段缩写 → 关键词。
+   「zt」因此能落到「字体模式」（标题词段缩写全等）与「文字大小」（关键词「字体」），
+   而不再命中「顶部任务统计居中」这类首字母长串里偶然出现 zt 的条目。 */
+const scoreOption = (item, q) => scoreSearchEntry(item, q);
 
-/* 单个设置项的打分。与命令面板同一套口径（标题 → 拼音首字母 → 关键词），
-   所以「wzdx」和「文字」都能落到「文字大小」这一条上。 */
-function scoreOption(item, q) {
-  const title = normalize(item.title);
-  const keys = normalize(item.keywords);
-  if (title === q) return 1000;
-  if (title.startsWith(q)) return 800;
-  if (title.includes(q)) return 600;
-  const py = pinyinInitialsOf(`${item.title} ${item.keywords}`);
-  if (py === q) return 760;
-  if (py.startsWith(q)) return 700;
-  if (py.includes(q)) return 520;
-  if (keys.includes(q)) return 250;
-  return -1;
+/* 分类是否命中：中文分类名与它的关键词也要吃拼音缩写，
+   否则搜「zt」时左侧分类会一条不剩（「显示 0 / 14」），
+   而右侧明明列着命中的设置项 —— 两边自相矛盾。 */
+function entryMatches(entry, q) {
+  if (!q) return true;
+  if (matchesSearchEntry({ title: entry.label || entry.id, keywords: entry.keywords || "" }, q)) return true;
+  return String(entry.node?.textContent || "").toLowerCase().includes(q);
 }
 
 export function createSettingsNavigator(entries, state = {}, { pages = false, tabs = false, onPageChange = () => {}, onPickOption = null } = {}) {
@@ -45,12 +42,12 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
     class: "settings-search",
     type: "search",
     value: state.query || "",
-    placeholder: "搜索设置，例如：背景、快捷键、WebDAV、提醒…",
+    placeholder: "搜索设置：背景、快捷键、WebDAV…也认拼音缩写（zt → 字体）",
     "aria-label": "搜索设置",
   });
   const result = el("span", { class: "settings-result" });
   const list = el("div", { class: "settings-catalog", role: "tablist", "aria-label": "设置分类" });
-  const empty = el("div", { class: "settings-empty", hidden: true }, "没有找到匹配的设置项");
+  const empty = el("div", { class: "settings-empty", hidden: true }, "没有找到匹配的设置项或分类");
 
   const buttons = new Map();
   let selectionGlow;
@@ -93,7 +90,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
 
   function pickOption(item) {
     if (typeof onPickOption === "function") { onPickOption(item.section, item.title); return; }
-    select(item.section);
+    select(item.section, { force: true });
   }
 
   /* 搜索词一变就把高亮收回去 —— 否则上一次选中的行号会落到新结果的另一条上。 */
@@ -225,9 +222,19 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
     }
   };
 
-  const select = (id, { animate = true } = {}) => {
+  const select = (id, { animate = true, force = false } = {}) => {
     const entry = entries.find((item) => item.id === id);
-    if (!entry || !visibleIds.has(id)) return;
+    if (!entry) return;
+    if (!visibleIds.has(id)) {
+      /* 从搜索结果里点具体设置项时，目标分区常常不在「按文字筛出来」的分类里 ——
+         搜「zt」时 14 个分类名一个都不含 zt。旧写法在这里直接 return，
+         于是分区不切、内容不显示，用户看到的就是「点了没反应」（实测 v0.171.0）。
+         force 只给「用户明确点名了某条设置项」这条路径用，普通点击仍受筛选约束。 */
+      if (!force) return;
+      visibleIds.add(id);
+      const btn = buttons.get(id);
+      if (btn) btn.hidden = false;   // 左栏也要露出这一项，否则选中态在列表里找不到
+    }
     active = id;
     state.active = id;
     const wasExpanded = expanded.has(id);
@@ -294,12 +301,11 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
     visibleIds = new Set();
     let firstVisible = null;
     for (const entry of entries) {
-      const haystack = `${entry.label || ""} ${entry.keywords || ""} ${entry.node.textContent || ""}`.toLowerCase();
       if (q && entry.ensure) entry.ensure().then(() => {
         // 搜索仍覆盖设置项正文；懒加载完成后用同一次查询更新结果。
         if (search.value.trim().toLowerCase() === q) paintSearchResults();
       });
-      const searchOk = !q || haystack.includes(q);
+      const searchOk = entryMatches(entry, q);
       const btn = buttons.get(entry.id);
       if (btn) btn.hidden = !searchOk;
       if (searchOk) {
@@ -325,11 +331,22 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
     paintActive();
     paintPage({ animate: false });
     selectionGlow?.sync(false);
-    result.textContent = `显示 ${visibleIds.size} / ${entries.length}`;
-    empty.hidden = visibleIds.size > 0;
-    list.hidden = visibleIds.size === 0;
+    // 先画结果区，再写计数与空态 —— 空态要同时看「分类有没有命中」与「设置项有没有命中」。
     paintOptions(q);
+    paintSearchSummary();
   };
+
+  /* 计数与空态。
+     旧写法只看分类：搜「zt」时分类 0 命中，于是左边同时显示「没有找到匹配的设置项」
+     与下面一排命中的设置项 —— 自相矛盾。现在分类与设置项任一有命中就不算空。 */
+  function paintSearchSummary() {
+    const hasOptions = optionItems.length > 0;
+    result.textContent = visibleIds.size
+      ? `显示 ${visibleIds.size} / ${entries.length}`
+      : hasOptions ? `匹配 ${optionItems.length} 项设置` : `0 / ${entries.length}`;
+    empty.hidden = visibleIds.size > 0 || hasOptions;
+    list.hidden = visibleIds.size === 0;
+  }
 
   /* 断点变化（手机横竖屏切换、桌面窗口拉窄）时重算一次布局。
      v0.49.1：这里不再自动展开当前分类，初始化时也不再预展开 —— 窄屏（手机 / APK）
@@ -390,16 +407,15 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
   function paintSearchResults() {
     if (disposed) return;
     const q = search.value.trim().toLowerCase();
-    visibleIds = new Set(entries.filter(entry => `${entry.label || ""} ${entry.keywords || ""} ${entry.node.textContent || ""}`.toLowerCase().includes(q)).map(entry => entry.id));
+    visibleIds = new Set(entries.filter((entry) => entryMatches(entry, q)).map((entry) => entry.id));
     for (const [id, button] of buttons) button.hidden = !visibleIds.has(id);
     if (!visibleIds.has(active)) active = visibleIds.values().next().value || "";
     state.active = active;
     if (narrow.matches && !pages && q) {
       expanded = new Set(visibleIds); syncExpanded();
     }
-    result.textContent = `显示 ${visibleIds.size} / ${entries.length}`;
-    empty.hidden = visibleIds.size > 0; list.hidden = visibleIds.size === 0;
     paintOptions(q);
+    paintSearchSummary();
     paintActive(); paintPage(); selectionGlow.sync(false);
   }
   let disposed = false;
