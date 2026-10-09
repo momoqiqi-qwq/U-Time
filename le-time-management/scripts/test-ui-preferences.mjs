@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { DEFAULT_UI_PREFERENCES, TEXT_SCALE_LIMITS, normalizeUiPreferences } from "../src/uiPreferences.js";
 
 assert.deepEqual(normalizeUiPreferences({}), DEFAULT_UI_PREFERENCES);
@@ -51,6 +52,14 @@ assert.equal(normalizeUiPreferences({ showSettingsDescriptions: false }).showSet
 assert.equal(normalizeUiPreferences({}).showPluginDescriptions, false);
 assert.equal(normalizeUiPreferences({ showPluginDescriptions: true }).showPluginDescriptions, true);
 assert.equal(normalizeUiPreferences({ showPluginDescriptions: "true" }).showPluginDescriptions, false);
+// 「显示介绍」只吃设置页那份列表会漏掉插件中心：两处描述必须共用同一条 off 规则。
+// 插件中心在 .view 里、不在 .settings-section 下，所以它的选择器不能带那层前缀。
+const pluginDescRule = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8")
+  .match(/:root\[data-plugin-descriptions="off"\][^{]*\{[^}]*\}/)?.[0] || "";
+for (const selector of [".settings-section .plug-card .pd", ".market-card-desc"]) {
+  assert.ok(pluginDescRule.includes(selector), `插件介绍 off 规则缺少 ${selector}`);
+}
+assert.match(pluginDescRule, /display:\s*none\s*!important/);
 // 通知堆叠：默认开，只有显式 false 才回到逐条竖排（与 centerTopStats 同一套 !==false 约定，
 // 老存档里没有这个键 ⇒ 落到新默认，不会被误判成「用户关过」）
 assert.equal(normalizeUiPreferences({}).notifyStack, true);

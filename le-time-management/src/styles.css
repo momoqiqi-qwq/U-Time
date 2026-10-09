@@ -1934,7 +1934,8 @@ button.about-list-row:hover { background:color-mix(in srgb,var(--deep) 5%,transp
 /* ── v0.10 · 插件权限与设置工具 ── */
 .plugin-search-row{display:flex;gap:8px;align-items:center;margin:10px 0}.plugin-search-input{flex:1;min-width:0;height:36px;border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:0 10px;color:var(--ink);font:inherit}.plugin-filter-select{height:36px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);padding:0 8px}
 .plugin-desc-toggle{display:inline-flex;align-items:center;gap:7px;min-height:36px;color:var(--ink-2);font-size:calc(12px * var(--ui-text-scale));white-space:nowrap}
-:root[data-plugin-descriptions="off"] .settings-section .plug-card .pd{display:none!important}
+:root[data-plugin-descriptions="off"] .settings-section .plug-card .pd,
+:root[data-plugin-descriptions="off"] .market-card-desc{display:none!important}
 /* 插件筛选统一收进原生 details：summary 是唯一常驻按钮，选项只在展开时占位。 */
 .plugin-filter-menu{position:relative;display:inline-block;max-width:100%;vertical-align:middle}
 .plugin-filter-menu>summary{list-style:none;display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:7px 13px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font-size:calc(12px * var(--ui-text-scale));font-weight:650;cursor:pointer;user-select:none}

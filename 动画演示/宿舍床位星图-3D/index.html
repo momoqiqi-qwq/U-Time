@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>大学宿舍床位星图 · 3D 上下形式</title>
+<style>
+  :root {
+    --paper: #f6f3ec;
+    --card: #fffdf8;
+    --sky: #101722;    --ink: #1b2027;
+    --ink-soft: #6b7480;
+    --line: #d9d3c6;
+    --accent: #2f6df6;
+    --upper: #4d8dff;
+    --lower: #ffb454;
+    --shadow: 0 1px 2px rgba(20, 24, 30, .06), 0 12px 30px rgba(20, 24, 30, .08);
+  }
+  html[data-mode="dark"] {
+    --paper: #0b0f15;
+    --card: #151d27;
+    --sky: #070b12;
+    --ink: #e8edf5;
+    --ink-soft: #8b95a5;
+    --line: #2b3542;
+    --accent: #6aa6ff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 14px 34px rgba(0, 0, 0, .45);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 22px 18px 50px; background: var(--paper); color: var(--ink);
+    font-family: "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 21px; margin: 0 0 4px; letter-spacing: .5px; }
+  .lede { color: var(--ink-soft); font-size: 13px; margin: 0 0 16px; line-height: 1.7; }
+
+  .bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 14px; margin-bottom: 14px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+  }
+  .seg { position: relative; display: inline-flex; padding: 4px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); }
+  .seg .glow {
+    position: absolute; top: 4px; left: 0; height: calc(100% - 8px); width: 0; border-radius: 999px;
+    background: var(--accent); opacity: .16; pointer-events: none;
+    transition: transform .3s cubic-bezier(.22, .8, .24, 1), width .3s cubic-bezier(.22, .8, .24, 1);
+  }
+  .seg button { position: relative; z-index: 1; border: 0; background: transparent; color: var(--ink-soft); font: inherit; font-size: 13px; padding: 6px 15px; border-radius: 999px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { color: var(--ink); font-weight: 600; }
+  html[data-motion="off"] .seg .glow { transition: none; }
+  .grp { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-soft); }
+  .switch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-soft); cursor: pointer; user-select: none; }
+  .switch input { accent-color: var(--accent); width: 15px; height: 15px; }
+  button.act { font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; padding: 6px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
+  button.act:hover { border-color: var(--accent); color: var(--accent); }
+  .spacer { flex: 1 1 auto; }
+
+  .cols { display: flex; gap: 14px; align-items: stretch; }
+  .stage { flex: 1 1 auto; min-width: 0; background: var(--sky); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); position: relative; overflow: hidden; height: min(76vh, 780px); }
+  .stage canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  .stage.drag canvas { cursor: grabbing; }
+  .tip {
+    position: absolute; pointer-events: none; opacity: 0; transform: translate(-50%, -130%);
+    padding: 6px 10px; border-radius: 9px; font-size: 12.5px; white-space: nowrap;
+    background: rgba(8, 12, 18, .88); color: #eef3fb; border: 1px solid rgba(255, 255, 255, .18);
+    transition: opacity .14s;
+  }
+  .tip.on { opacity: 1; }
+  .corner { position: absolute; left: 14px; bottom: 12px; font-size: 11.5px; color: rgba(238, 243, 251, .55); line-height: 1.7; }
+
+  aside { width: 262px; flex: 0 0 262px; display: flex; flex-direction: column; gap: 12px; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 13px; box-shadow: var(--shadow); }
+  .panel h3 { margin: 0 0 9px; font-size: 12.5px; color: var(--ink-soft); font-weight: 500; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 8px; font-size: 12.5px; cursor: pointer; }
+  .row:hover, .row.on { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .row .st { font-size: 15px; line-height: 1; }
+  .row .nm { margin-left: auto; color: var(--ink-soft); }
+  .kv { font-size: 12px; color: var(--ink-soft); line-height: 1.9; }
+  .kv b { color: var(--ink); font-weight: 600; }
+  .note { font-size: 11.5px; color: var(--ink-soft); line-height: 1.8; }
+  @media (max-width: 860px) { .cols { flex-direction: column; } aside { width: auto; flex: none; } .stage { height: 62vh; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>大学宿舍床位星图 · 3D</h1>
+  <p class="lede">
+    场景里只有星：一颗星 = 一个人的一张床。平面位置取真实床位坐标，高度取真实铺位高度，
+    所以上铺和下铺正好落在同一条铅垂线上 —— 拉开侧视角就能看出「上下」这层关系。
+  </p>
+
+  <div class="bar">
+    <div class="seg" id="segLayout">
+      <span class="glow"></span>
+      <button data-k="four" aria-pressed="true">四人间</button>
+      <button data-k="six" aria-pressed="false">六人间</button>
+      <button data-k="eight" aria-pressed="false">八人间</button>
+    </div>
+
+    <span class="grp">视角
+      <span class="seg" id="segView">
+        <span class="glow"></span>
+        <button data-v="solid" aria-pressed="true">立体</button>
+        <button data-v="top" aria-pressed="false">俯视</button>
+        <button data-v="side" aria-pressed="false">正视</button>
+      </span>
+    </span>
+
+    <label class="switch"><input id="inSpin" type="checkbox" checked />自动旋转</label>
+    <label class="switch"><input id="inLines" type="checkbox" />星座连线</label>
+
+    <span class="spacer"></span>
+    <button class="act" id="btnTheme">浅色</button>
+  </div>
+
+  <div class="cols">
+    <div class="stage" id="stage">
+      <div class="tip" id="tip"></div>
+      <div class="corner">拖动转视角 · 滚轮缩放 · 悬停看床位 · 点击选中</div>
+    </div>
+
+    <aside>
+      <div class="panel">
+        <h3>床位（按星等 = 高度）</h3>
+        <div id="list"></div>
+      </div>
+      <div class="panel">
+        <h3>图例</h3>
+        <div class="kv">
+          <span style="color:var(--upper)">★</span> <b>上铺</b> 床面高 <b id="hUp"></b><br />
+          <span style="color:var(--lower)">★</span> <b>下铺</b> 床面高 <b id="hLow"></b><br />
+          房间 <b id="roomSize"></b>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>口径</h3>
+        <div class="note">
+          床面高度取常见实测值：上铺床板 1.75 m + 床垫 ≈ 1.98 m，下铺床板 0.32 m + 床垫 ≈ 0.55 m。
+          平面坐标来自同目录 2D 页的同一套床位算法（1 单位 = 1 mm 换算成米）。
+          床位姓名与 2D 页共用 localStorage，在 2D 页改过名这里就会带上。
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var GREEK = ["α", "β", "γ", "δ", "ε", "ζ", "η", "θ"];
+  var CIRCLED = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧"];
+  var H_UP = 1.98, H_LOW = 0.55;
+  var ROOMS = { four: { w: 3600, d: 7200 }, six: { w: 4200, d: 7800 }, eight: { w: 4800, d: 9000 } };
+  var KEY_2D = "dorm-bed-star-chart", KEY_3D = "dorm-bed-star-chart-3d";
+
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) document.documentElement.setAttribute("data-motion", "off");
+
+  var view = { layout: "four", view: "solid", lines: false, spin: !reduce };
+  var mode = "dark";
+  try {
+    var s3 = JSON.parse(localStorage.getItem(KEY_3D) || "null");
+    if (s3) {
+      if (ROOMS[s3.layout]) view.layout = s3.layout;
+      if (["solid", "top", "side"].indexOf(s3.view) >= 0) view.view = s3.view;
+      view.lines = !!s3.lines;
+      view.spin = s3.spin === false ? false : !reduce;
+    }
+  } catch (e) {}
+
+  function namesFor(k) {
+    try {
+      var s = JSON.parse(localStorage.getItem(KEY_2D) || "null");
+      return (s && s.names && s.names[k]) || {};
+    } catch (e) { return {}; }
+  }
+  function save3d() {
+    try { localStorage.setItem(KEY_3D, JSON.stringify(view)); } catch (e) {}
+  }
+
+  /* ---------- 床位：平面中心 (mm) + 铺位高度 (m) ---------- */
+
+  function bedsFor(k) {
+    var r = ROOMS[k], w = r.w, d = r.d, out = [];
+    if (k === "four") {
+      [[450, 1300], [w - 450, 1300], [450, 3700], [w - 450, 3700]].forEach(function (p, i) {
+        out.push({ key: "b" + (i + 1), no: i + 1, level: "上铺", greek: GREEK[i], h: H_UP, px: p[0], pz: p[1] });
+      });
+      return out;
+    }
+    var n = k === "six" ? 3 : 4;
+    var px = [500, 500, w - 500, w - 500], pz = [1300, 3700, 1300, 3700];
+    for (var i = 0; i < n; i++) {
+      out.push({ key: "b" + (i + 1) + "u", no: i * 2 + 1, level: "上铺", greek: GREEK[i * 2], h: H_UP, px: px[i], pz: pz[i] });
+      out.push({ key: "b" + (i + 1) + "l", no: i * 2 + 2, level: "下铺", greek: GREEK[i * 2 + 1], h: H_LOW, px: px[i], pz: pz[i] });
+    }
+    return out;
+  }
+
+  /* ---------- three 场景 ---------- */
+
+  var stage = document.getElementById("stage"), tip = document.getElementById("tip");
+  var SKY = { dark: 0x070b12, light: 0x141b28 };
+  var scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(SKY.dark, 7, 24);
+  var camera = new THREE.PerspectiveCamera(45, 1, 0.05, 120);
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  stage.insertBefore(renderer.domElement, tip);
+
+  var starGeo = new THREE.ExtrudeGeometry(sparkle(0.2, 0.082), { depth: 0.03, bevelEnabled: false });
+  starGeo.center();
+
+  function sparkle(R, r) {
+    var sh = new THREE.Shape(), i, a, rad;
+    for (i = 0; i < 8; i++) {
+      a = -Math.PI / 2 + i * Math.PI / 4;
+      rad = i % 2 ? r : R;
+      if (i === 0) sh.moveTo(Math.cos(a) * rad, Math.sin(a) * rad);
+      else sh.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+    }
+    sh.closePath();
+    return sh;
+  }
+
+  var group = new THREE.Group();
+  scene.add(group);
+  var lineObj = null, lineMat = null, meshes = [], picked = null, rowHover = null, roster = {};
+
+  function colorOf(b) { return b.level === "上铺" ? 0x4d8dff : 0xffb454; }
+
+  function build() {
+    meshes.forEach(function (m) { group.remove(m); m.material.dispose(); });
+    meshes = [];
+    if (lineObj) { group.remove(lineObj); lineObj.geometry.dispose(); lineMat.dispose(); lineObj = null; lineMat = null; }
+    var r = ROOMS[view.layout], beds = bedsFor(view.layout);
+    roster = namesFor(view.layout);
+    picked = null;
+    beds.forEach(function (b) {
+      var mat = new THREE.MeshBasicMaterial({ color: colorOf(b), side: THREE.DoubleSide, transparent: true, fog: true });
+      var m = new THREE.Mesh(starGeo, mat);
+      m.position.set((b.px - r.w / 2) / 1000, b.h, (b.pz - r.d / 2) / 1000);
+      m.userData = b;
+      m.userData.phase = Math.random() * 6.283;
+      group.add(m);
+      meshes.push(m);
+      b.mesh = m;
+    });
+    if (view.lines && beds.length > 1) {
+      var pts = beds.map(function (b) { return new THREE.Vector3((b.px - r.w / 2) / 1000, b.h, (b.pz - r.d / 2) / 1000); });
+      lineMat = new THREE.LineDashedMaterial({ color: 0x8fb6ff, dashSize: 0.22, gapSize: 0.16, transparent: true, opacity: .95 });
+      lineObj = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat);
+      lineObj.computeLineDistances();
+      group.add(lineObj);
+    }
+    document.getElementById("roomSize").textContent = (r.w / 1000).toFixed(2) + " × " + (r.d / 1000).toFixed(2) + " m";
+    renderList(beds);
+    fitRadius();
+  }
+
+  function renderList(beds) {
+    var host = document.getElementById("list");
+    host.innerHTML = "";
+    beds.forEach(function (b) {
+      var c = roster[b.key] || {};
+      var row = document.createElement("div");
+      row.className = "row";
+      row.dataset.key = b.key;
+      row.innerHTML = '<span class="st" style="color:' + (b.level === "上铺" ? "var(--upper)" : "var(--lower)") + '">★</span>' +
+        "<span>" + (c.no || CIRCLED[b.no - 1] || b.no) + " " + b.level + " · " + b.greek + "</span>" +
+        '<span class="nm">' + (c.name || b.h.toFixed(2) + " m") + "</span>";
+      row.addEventListener("mouseenter", function () { rowHover = b.mesh; });
+      row.addEventListener("mouseleave", function () { rowHover = null; });
+      row.addEventListener("click", function () { picked = picked === b.mesh ? null : b.mesh; syncRows(); });
+      host.appendChild(row);
+    });
+    syncRows();
+  }
+  function syncRows() {
+    Array.prototype.forEach.call(document.querySelectorAll("#list .row"), function (row) {
+      var m = picked;
+      row.classList.toggle("on", !!m && m.userData.key === row.dataset.key);
+    });
+  }
+
+  /* ---------- 相机 ---------- */
+
+  var target = new THREE.Vector3(0, 1.1, 0), sph = { r: 9, th: 0.7, ph: 1.12 };
+  var want = null;
+
+  function fitR() { return boundRadius() * 3.1; }
+  function fitRadius() {
+    sph.r = fitR();
+    applyView(true);
+  }
+  function boundRadius() {
+    var b = 0;
+    meshes.forEach(function (m) {
+      b = Math.max(b, Math.hypot(m.position.x, m.position.y - target.y, m.position.z));
+    });
+    return b;
+  }
+  function applyView(instant) {
+    var preset = view.view === "top" ? { th: 0.7, ph: 0.12 }
+      : view.view === "side" ? { th: Math.PI / 2, ph: Math.PI / 2 - 0.06 }
+      : { th: 0.62, ph: 1.05 };
+    want = { th: preset.th, ph: preset.ph, r: fitR() };
+    if (instant) { sph.th = want.th; sph.ph = want.ph; sph.r = want.r; }
+  }
+  function place() {
+    sph.ph = Math.max(0.05, Math.min(Math.PI - 0.05, sph.ph));
+    sph.r = Math.max(2.2, Math.min(30, sph.r));
+    camera.position.set(
+      target.x + sph.r * Math.sin(sph.ph) * Math.sin(sph.th),
+      target.y + sph.r * Math.cos(sph.ph),
+      target.z + sph.r * Math.sin(sph.ph) * Math.cos(sph.th)
+    );
+    camera.lookAt(target);
+  }
+
+  var el = renderer.domElement, drag = null;
+  el.addEventListener("pointerdown", function (e) {
+    drag = { x: e.clientX, y: e.clientY, th: sph.th, ph: sph.ph, moved: 0 };
+    stage.classList.add("drag");
+    el.setPointerCapture(e.pointerId);
+  });
+  el.addEventListener("pointermove", function (e) {
+    var rect = el.getBoundingClientRect();
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    tipXY = [e.clientX - rect.left, e.clientY - rect.top];
+    if (drag) {
+      var dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      drag.moved = Math.max(drag.moved, Math.abs(dx) + Math.abs(dy));
+      sph.th = drag.th - dx * 0.006;
+      sph.ph = drag.ph - dy * 0.006;
+      want = null;
+    }
+  });
+  el.addEventListener("pointerup", function (e) {
+    stage.classList.remove("drag");
+    if (drag && drag.moved < 4) pick();
+    drag = null;
+  });
+  el.addEventListener("pointerleave", function () { drag = null; stage.classList.remove("drag"); tip.classList.remove("on"); });
+  el.addEventListener("wheel", function (e) { e.preventDefault(); sph.r *= 1 + Math.sign(e.deltaY) * 0.08; want = null; }, { passive: false });
+
+  var mouse = new THREE.Vector2(-2, -2), ray = new THREE.Raycaster(), tipXY = [0, 0];
+  function pick() {
+    ray.setFromCamera(mouse, camera);
+    var hit = ray.intersectObjects(meshes)[0];
+    picked = hit ? hit.object : null;
+    syncRows();
+  }
+
+  /* ---------- 循环 ---------- */
+
+  var clock = new THREE.Clock();
+  function tick() {
+    requestAnimationFrame(tick);
+    var t = clock.getElapsedTime();
+    if (want) {
+      var k = reduce ? 1 : 0.12;
+      sph.th += (want.th - sph.th) * k;
+      sph.ph += (want.ph - sph.ph) * k;
+      sph.r += (want.r - sph.r) * k;
+      if (Math.abs(want.th - sph.th) < 0.002 && Math.abs(want.r - sph.r) < 0.01) want = null;
+    } else if (view.spin && !drag) sph.th += 0.0016;
+    place();
+    scene.fog.near = sph.r * .85;
+    scene.fog.far = sph.r * 2.8;
+    var base = sph.r / 7.4;
+
+    ray.setFromCamera(mouse, camera);
+    var hit = drag ? null : ray.intersectObjects(meshes)[0];
+    var rayHover = hit ? hit.object : null;
+    if (hit) {
+      var b = hit.object.userData, c = roster[b.key] || {};
+      tip.innerHTML = (c.no || CIRCLED[b.no - 1] || b.no) + " " + b.level + " · " + b.greek +
+        (c.name ? " · " + esc(c.name) : "") + " · 高 " + b.h.toFixed(2) + " m";
+      tip.style.left = tipXY[0] + "px";
+      tip.style.top = tipXY[1] + "px";
+      tip.classList.add("on");
+    } else tip.classList.remove("on");
+
+    meshes.forEach(function (m) {
+      m.quaternion.copy(camera.quaternion);
+      var on = m === picked || m === rowHover || m === rayHover;
+      var tw = reduce ? 1 : 1 + 0.07 * Math.sin(t * 1.7 + m.userData.phase);
+      m.scale.setScalar(base * (on ? 1.5 : 1) * tw);
+      m.material.opacity = on ? 1 : 0.92;
+    });
+    renderer.render(scene, camera);
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+
+  function resize() {
+    var w = stage.clientWidth, h = stage.clientHeight;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener("resize", resize);
+
+  /* ---------- 控件 ---------- */
+
+  function wireSeg(root, onPick) {
+    var glow = root.querySelector(".glow");
+    function move(btn, animate) {
+      if (!animate || reduce) glow.style.transition = "none";
+      glow.style.width = btn.offsetWidth + "px";
+      glow.style.transform = "translateX(" + btn.offsetLeft + "px)";
+      if (!animate || reduce) requestAnimationFrame(function () { glow.style.transition = ""; });
+    }
+    function sync(animate) {
+      Array.prototype.forEach.call(root.querySelectorAll("button"), function (b) {
+        var on = onPick(b) === true;
+        b.setAttribute("aria-pressed", String(on));
+        if (on) move(b, animate);
+      });
+    }
+    root.addEventListener("click", function (e) {
+      var b = e.target.closest("button");
+      if (!b) return;
+      onPick(b, true);
+      sync(true);
+    });
+    sync(false);
+    window.addEventListener("resize", function () { sync(false); });
+    return sync;
+  }
+
+  var syncLayout = wireSeg(document.getElementById("segLayout"), function (b, set) {
+    if (set) { view.layout = b.dataset.k; save3d(); build(); }
+    return b.dataset.k === view.layout;
+  });
+  var syncView = wireSeg(document.getElementById("segView"), function (b, set) {
+    if (set) { view.view = b.dataset.v; save3d(); applyView(false); }
+    return b.dataset.v === view.view;
+  });
+
+  var inSpin = document.getElementById("inSpin"), inLines = document.getElementById("inLines");
+  inSpin.checked = view.spin;
+  inLines.checked = view.lines;
+  inSpin.addEventListener("change", function () { view.spin = inSpin.checked; save3d(); });
+  inLines.addEventListener("change", function () { view.lines = inLines.checked; save3d(); build(); });
+
+  var btnTheme = document.getElementById("btnTheme");
+  function applyTheme() {
+    document.documentElement.setAttribute("data-mode", mode);
+    var sky = mode === "dark" ? SKY.dark : SKY.light;
+    renderer.setClearColor(sky, 1);
+    scene.fog.color.setHex(sky);
+    btnTheme.textContent = mode === "dark" ? "浅色" : "深色";
+  }
+  btnTheme.addEventListener("click", function () { mode = mode === "dark" ? "light" : "dark"; applyTheme(); });
+
+  document.getElementById("hUp").textContent = H_UP.toFixed(2) + " m";
+  document.getElementById("hLow").textContent = H_LOW.toFixed(2) + " m";
+
+  applyTheme();
+  build();
+  resize();
+  tick();
+})();
+</script>
+</body>
+</html>

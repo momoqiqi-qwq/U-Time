@@ -27,6 +27,10 @@ const DD_NAME_MAX = 12;     // 轮换名（如「宿舍值日」/「公区卫生
 const DD_MEMBER_MAX = 16;   // 成员名
 const DD_LOCATION_MAX = 12;
 const DD_LOCATION_NAME_MAX = 24;
+// 宿舍床位数（桌面端 3D 星图用）。小程序不画这张图，但**必须跟着归一化** ——
+// 不然一份脏数据在桌面被夹回默认档、在小程序原样留存，两端备份恢复后就不一致了。
+const DD_ROOM_SIZES = [0, 4, 6, 8];
+const DD_ROOM_DEFAULT = 4;
 
 function ddValidDate(s) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s || ""))) return false;
@@ -118,6 +122,14 @@ function ddLocations(raw) {
 
 function ddUid(prefix) { return (prefix || "m") + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
+/** 宿舍人数归一化：没设过（老数据 / null / 空串）或认不出的值退回默认档；0 是「明确关掉」。 */
+function ddRoomSize(v) {
+  const s = v == null ? "" : String(v).trim();
+  if (!s) return DD_ROOM_DEFAULT;
+  const n = Math.round(Number(s));
+  return DD_ROOM_SIZES.indexOf(n) >= 0 ? n : DD_ROOM_DEFAULT;
+}
+
 /* ── 轮换组的归一化 / 迁移 ── */
 /** 一套轮换的默认值。 */
 function ddDefaultGroup(today, name) {
@@ -127,6 +139,7 @@ function ddDefaultGroup(today, name) {
     startDate: ddValidDate(today) ? today : store.todayStr(),
     periodDays: 7,
     perRound: 1,
+    roomSize: DD_ROOM_DEFAULT,
     pauseRanges: [],
     locations: [],
     locationPeriodDays: 7,
@@ -150,6 +163,8 @@ function ddNormalizeGroup(raw, today) {
   g.pauseRanges = ddPauseRanges(g.pauseRanges);
   // 每轮人数：1 = 单人（历史默认）。不 clamp 到当前成员数（成员会变），计算时用模运算兜底。
   g.perRound = Math.min(DD_MEMBER_MAX, Math.max(1, Math.round(Number(g.perRound) || 1)));
+  // 宿舍床位数：只认 0（关闭）/ 4 / 6 / 8，与桌面端 ROOM_SIZES / normalizeRoomSize 同一套语义。
+  g.roomSize = ddRoomSize(g.roomSize);
   g.remindTime = ddNormalizeTime(g.remindTime) || "08:00";
   g.remindEnabled = g.remindEnabled !== false;
   g.sound = String(g.sound || "beep");
@@ -421,19 +436,19 @@ function ddDuplicateGroup(groups, id, today) {
   if (idx < 0) return null;
   const src = list[idx];
   const reid = (arr) => (arr || []).map((m) => ({ id: ddUid("m"), name: m.name }));
+  // ⚠️ 与桌面端同一条规矩：**先 ...src 全带走**，再逐个覆盖必须换掉的。
+  // 曾经这里是一张手写的字段清单，结果漏了 locations / locationPeriodDays / pauseRanges ——
+  // 在手机上复制一套「宿舍值日」，地点轮换和假期暂停会**静默消失**（桌面端是 ...src，不会）。
+  // 手写清单还有个更隐蔽的毛病：以后桌面端加新字段，这里不会报错，只会悄悄丢。
   const created = ddNormalizeGroup({
+    ...src,
     id: ddUid("g"),
     name: ddCopyName(src.name, list),
-    startDate: src.startDate,
-    periodDays: src.periodDays,
-    perRound: src.perRound,
-    remindEnabled: src.remindEnabled,
-    remindTime: src.remindTime,
-    sound: src.sound,
     members: reid(src.members),
     removed: reid(src.removed),
-    overrides: {},
-    lastNotified: "",
+    overrides: {},      // 记的是成员 id，端过来全是悬空引用
+    lastNotified: "",   // 副本没提醒过，别让它顶着源组的标记当天不提醒
+    // startDate 刻意保留（不覆盖）：同一宿舍的两套值日才会在同一天换人
   }, today);
   // 紧跟源组插入，而不是甩到列表末尾
   return {

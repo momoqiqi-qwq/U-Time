@@ -191,6 +191,8 @@ function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = 
       + '    isCycleStartDay, reminderDue, periodOf, perRoundOf, locationAt, locationsHtml,\n'
       + '    nextBigText, render, heroHtml, rowsHtml, groupChipsHtml, swapHtml, rulesHtml, setActiveGroup, addGroup, removeGroup, renameGroup,\n'
       + '    duplicateGroup, importMembers, tabMenuHtml,\n'
+      + '    roomHtml, roomBeds, roomBunks, roomDims, roomBunkCount, roomScene, roomBounds, roomProjectAll, roomProjectPoint, roomView,\n'
+      + '    normalizeRoomSize, roomSizeOf, ROOM_SIZES, ROOM_VIEWS, ROOM_VIEW_DEFAULT, ROOM_BOX_WIDE, ROOM_BOX_NARROW, roomBox, ROOM_BUNK_SPLIT,\n'
       + '    get tabMenu() { return tabMenu; }, set tabMenu(v) { tabMenu = v; },\n'
       + '    get MY_GEN() { return MY_GEN; }, set MY_GEN(v) { MY_GEN = v; } };\n'
       + '  tide.ui.registerView({ id: VIEW_ID,'
@@ -1089,8 +1091,10 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
    两组共用 m 开头的同一批 id 时，在副本里换人会把原组的排班一起改掉。 */
 {
   const A = GROUP({
-    id: 'gA', name: '宿舍值日', remindEnabled: false, periodDays: 3, perRound: 2,
+    id: 'gA', name: '宿舍值日', remindEnabled: false, periodDays: 3, perRound: 2, roomSize: 6,
     startDate: '2026-09-10', sound: 'chime', remindTime: '07:30',
+    locations: ['走廊', '浴室'], locationPeriodDays: 2,
+    pauseRanges: [{ start: '2026-10-01', end: '2026-10-07' }],
     overrides: { '2026-09-17': 'mB' }, lastNotified: '2026-09-17',
     removed: [{ id: 'mX', name: '已走的人' }],
   });
@@ -1108,6 +1112,12 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
   assert.equal(created.remindTime, '07:30');
   assert.equal(created.sound, 'chime');
   assert.equal(created.remindEnabled, false, '提醒开关的状态（含关掉）也要带走');
+  // 复制必须是「整套配置原样搬走」：漏一个字段 = 用户在副本上白设一遍。
+  // 桌面端靠 ...src 全带走，这里逐条钉住（小程序端曾经是手写清单，就是漏了这三样才修的）。
+  assert.deepEqual(JSON.parse(JSON.stringify(created.locations)), ['走廊', '浴室'], '地点列表要带走');
+  assert.equal(created.locationPeriodDays, 2, '地点周期要带走');
+  assert.deepEqual(JSON.parse(JSON.stringify(created.pauseRanges)), [{ start: '2026-10-01', end: '2026-10-07' }], '假期暂停段要带走');
+  assert.equal(created.roomSize, 6, '宿舍人数档要带走');
 
   // 名字带走、id 全新
   assert.equal(created.members.map((m) => m.name).join(','), '阿青,小北,老陈', '成员顺序与名字要带走');
@@ -1280,8 +1290,10 @@ assert.match(miniWxml, /bindtap="onDdGroupMenu"/, 'WXML 标签上必须有「⋯
 {
   const seed = () => ([
     {
-      id: 'gA', name: '宿舍值日', startDate: '2026-09-10', periodDays: 3, perRound: 2,
+      id: 'gA', name: '宿舍值日', startDate: '2026-09-10', periodDays: 3, perRound: 2, roomSize: 8,
       remindEnabled: false, remindTime: '07:30', sound: 'chime',
+      locations: ['走廊', '浴室'], locationPeriodDays: 2,
+      pauseRanges: [{ start: '2026-10-01', end: '2026-10-07' }],
       members: [{ id: 'mA', name: '阿青' }, { id: 'mB', name: '小北' }],
       removed: [{ id: 'mZ', name: '走的人' }], overrides: { '2026-09-17': 'mB' }, lastNotified: '2026-09-17',
     },
@@ -1301,6 +1313,12 @@ assert.match(miniWxml, /bindtap="onDdGroupMenu"/, 'WXML 标签上必须有「⋯
   assert.equal(copy.remindEnabled, false, '「提醒已关掉」不能被归一化偷偷打开');
   assert.equal(copy.remindTime, '07:30');
   assert.equal(copy.sound, 'chime');
+  assert.equal(copy.roomSize, 8, '宿舍人数档要带走');
+  // 这三样曾经在手写字段清单里被漏掉 —— 手机上复制一套「宿舍值日」，地点轮换与假期暂停
+  // 会静默消失（桌面端 ...src 不会）。现在两端都是 ...src，且逐条钉住。
+  assert.deepEqual(JSON.parse(JSON.stringify(copy.locations)), ['走廊', '浴室'], '地点列表要带走（漏了就是用户白设一遍）');
+  assert.equal(copy.locationPeriodDays, 2, '地点周期要带走');
+  assert.deepEqual(JSON.parse(JSON.stringify(copy.pauseRanges)), [{ start: '2026-10-01', end: '2026-10-07' }], '假期暂停段要带走');
   assert.equal(copy.members.map((m) => m.name).join(','), '阿青,小北');
   assert.ok(!copy.members.some((m) => m.id === 'mA' || m.id === 'mB'), '成员 id 必须重新生成（与桌面端同一条规矩）');
   assert.equal(copy.removed.length, 1, '「已移除」名单也带走');
@@ -1393,4 +1411,253 @@ console.log('PASS: dorm-duty 多套轮换互不串台、旧数据迁移不丢字
   assert.equal(fx.assigneeFor(untouched, '2026-09-20').id, MEMBERS[0].id, '其他组不受影响');
   assert.equal(fx.normalizeGroup(GROUP({ pauseRanges: 'bad' }), '2026-09-20').pauseRanges.length, 0);
   console.log('PASS: 假期暂停首尾、交叠合并、非法日期、原轮次续排、成员地点顺延、提醒停止及跨端逐日一致');
+}
+
+/* 宿舍床位星图（3D 4/6/8 人间）：几何 + 相机投影 + 渲染 + 跨端字段一致。
+   星点坐标、同铺上下能不能分开、不同铺会不会挤在一起，全都是几何问题 ——
+   源码里怎么写看着都对，只能把 roomProjectAll() 真跑出来逐点验。
+   阈值按「桌面卡片 854px 宽」折算成像素，因为可读性判据是像素而不是取景框单位。 */
+{
+  const mini = createRequire(import.meta.url)('../../miniprogram/core/pluginRuntime.js');
+  const { fx } = bootPlugin({ today: '2026-09-17', seed: quietSeed() });
+  const CARD_W = 854;                                        // 桌面端卡片实测宽度
+  const BOX = fx.roomBox();                                  // 单测环境没有 window ⇒ 恒为宽版
+  const px = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) / BOX.w * CARD_W;
+
+  /* 9.1 roomSize 归一化：只认 0/4/6/8，没设过退回默认档 */
+  assert.equal(fx.normalizeGroup(GROUP(), '2026-09-17').roomSize, 4, '老数据没有这个字段时给默认档');
+  assert.equal(fx.defaultGroup('2026-09-17', null).roomSize, 4, '新建组也是默认档');
+  for (const n of [0, 4, 6, 8]) assert.equal(fx.normalizeGroup(GROUP({ roomSize: n }), '2026-09-17').roomSize, n, `${n} 是合法档位`);
+  assert.equal(fx.normalizeGroup(GROUP({ roomSize: '6' }), '2026-09-17').roomSize, 6, '字符串数字也要认（备份 JSON 里常见）');
+  for (const bad of [5, -1, 7, '坏了', true, [], {}, null, '']) {
+    assert.equal(fx.normalizeRoomSize(bad), 4, `认不出的值 ${JSON.stringify(bad)} 退回默认档`);
+  }
+  assert.equal(fx.normalizeRoomSize(0), 0, '0 是「明确关掉」，不能被当成「没设过」');
+  assert.equal(fx.normalizeRoomSize('0'), 0);
+
+  /* 9.2 铺位与星点：4/6/8 人 → 2/3/4 张上下铺，每张先下铺后上铺；贴左右两面墙 */
+  for (const [size, bunks] of [[4, 2], [6, 3], [8, 4]]) {
+    assert.equal(fx.roomBunkCount(size), bunks, `${size} 人间 = ${bunks} 张上下铺`);
+    const dim = fx.roomDims(size);
+    assert.equal(dim.left + dim.right, bunks, '左右两面墙的铺数之和 = 总铺数');
+    assert.ok(dim.left >= dim.right, '多出来的那张铺放左墙（先左后右的序号才从前往后走）');
+    const list = fx.roomBunks(size);
+    assert.equal(list.length, bunks);
+    for (const b of list) {
+      const nearLeft = Math.abs(b.x - (0.35 + 0.5)) < 1e-6;
+      const nearRight = Math.abs(b.x - (dim.w - 0.85)) < 1e-6;
+      assert.ok(nearLeft || nearRight, `铺位 x=${b.x} 必须贴着左右两面墙之一`);
+      assert.ok(b.z > 0 && b.z < dim.d, '铺位要落在房间进深里');
+    }
+    // 同一面墙上的铺位不能重叠（铺长 2.0，缝隙 0.35）
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+      if (list[i].x !== list[j].x) continue;
+      assert.ok(Math.abs(list[i].z - list[j].z) >= 2.0 + 0.35 - 1e-6, '同墙两张铺不能叠在一起');
+    }
+    const beds = fx.roomBeds(size);
+    assert.equal(beds.length, size, `${size} 人间正好 ${size} 颗星`);
+    assert.equal(beds.map((b) => b.level).join(','), Array.from({ length: bunks }, () => 'lower,upper').join(','),
+      '每张铺先下铺后上铺 —— 序号才与成员名单位次一一对应');
+    for (let i = 0; i < beds.length; i += 2) {
+      assert.ok(beds[i + 1].y > beds[i].y, '上铺的星必须比下铺高');
+      assert.notEqual(beds[i].x, beds[i + 1].x, '同铺两颗星还要沿铺宽错开 —— 俯视时才分得开');
+    }
+  }
+
+  /* 9.3 相机：三个档位都能把星星分得开、不出 NaN、不撞上万向节死锁 */
+  for (const size of [4, 6, 8]) {
+    const scene = fx.roomScene(size);
+    for (const view of fx.ROOM_VIEWS) {
+      const L = fx.roomProjectAll(scene, { view: view.id, th: view.th, ph: view.ph, dist: 1, spin: false });
+      const pts = L.stars.concat(L.slabs.flatMap((s) => s.quads.flat()), L.posts.flatMap((s) => s.segs.flat()));
+      for (const p of pts) {
+        assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.k),
+          `${size} 人间 ${view.label}：投影不能出 NaN（NaN 会让整张图变成空白）`);
+        assert.ok(p.x >= -1 && p.x <= BOX.w + 1 && p.y >= -1 && p.y <= BOX.h + 1,
+          `${size} 人间 ${view.label}：点 (${p.x.toFixed(1)},${p.y.toFixed(1)}) 跑出取景框`);
+      }
+      // 星距判据：桌面 854px 宽下至少 34px（星星 30px，再挤就叠上了）
+      let min = Infinity, pair = '';
+      for (let i = 0; i < L.stars.length; i++) for (let j = i + 1; j < L.stars.length; j++) {
+        const d = px(L.stars[i], L.stars[j]);
+        if (d < min) { min = d; pair = `${i + 1}/${j + 1}`; }
+      }
+      assert.ok(min >= 34, `${size} 人间 ${view.label}：第 ${pair} 颗星只差 ${min.toFixed(0)}px，星星和名字会糊在一起`);
+      // 近大远小要真的体现，但压幅得收住（直接拿 k 当字号会让前排巨大）
+      const k = L.stars.map((p) => L.kAt(p));
+      assert.ok(Math.min(...k) >= 0.85 && Math.max(...k) <= 1.001, `字号系数必须压在 0.86~1，实得 ${Math.min(...k)}~${Math.max(...k)}`);
+      assert.ok(Math.max(...k) - Math.min(...k) > 0.1, '近大远小要看得出来，否则没有纵深');
+      assert.ok(L.order.length === fx.roomBunkCount(size), '远近排序要覆盖每一张铺');
+    }
+  }
+  // 俯视要刻意留一点俯角：贴到 0 会撞上万向节死锁（相机 up 向量算不出来）
+  for (const v of fx.ROOM_VIEWS) {
+    assert.ok(v.ph > 0.12 && v.ph < Math.PI - 0.12, `${v.label} 的俯角要避开两极`);
+  }
+  // 方位角刻意不选「正对房间对角线」（8 人间约 0.72 rad）—— 那个角度上「前左低铺」与
+  // 「后右高铺」会叠成一个点（实测只剩 10px，已写进 ROOM_VIEWS 的注释）。
+  for (const v of fx.ROOM_VIEWS) {
+    assert.ok(Math.abs(v.th - 0.72) > 0.15 && Math.abs(v.th - (0.72 + Math.PI)) > 0.15,
+      `${v.label} 的方位角 ${v.th} 太贴近房间对角线，会把两个对角铺位叠在一起`);
+  }
+
+  /* 9.4 渲染：数量、序号、当班高亮、空床、超编、视角档 */
+  const EIGHT = ['阿青', '小北', '老陈', '小林', '阿May', '团子', '老张', '小满'];
+  const many = (roomSize) => fx.normalizeGroup(GROUP({
+    roomSize, members: EIGHT.map((name, i) => ({ id: 'm' + i, name })), periodDays: 7,
+  }), '2026-09-17');
+
+  const g8 = many(8);
+  const html8 = fx.roomHtml(g8, fx.snapshot(g8));
+  assert.equal((html8.match(/data-room-bed="/g) || []).length, 8, '8 人间要画 8 颗星');
+  assert.equal((html8.match(/class="dd-bed-no">/g) || []).length, 8, '每颗星都要有序号');
+  for (let i = 1; i <= 8; i++) assert.match(html8, new RegExp(`class="dd-bed-no">${i}<`), `第 ${i} 颗星的序号要是 ${i}`);
+  for (const name of EIGHT) assert.ok(html8.includes(`>${name}<`), `星星上要有「${name}」`);
+  assert.match(html8, /class="dd-bed (?:up|down) now"/, '今天当班的人那颗星要高亮');
+  assert.equal((html8.match(/ now"/g) || []).length, 1, '单人值日只该亮一颗');
+  assert.equal((html8.match(/class="dd-bed down/g) || []).length + (html8.match(/class="dd-bed up/g) || []).length, 8,
+    '每颗星都要带上 up/down —— 名字挂星星上方还是下方全靠它');
+  assert.equal((html8.match(/class="dd-bed down/g) || []).length, 4, '8 人间 4 个下铺');
+  assert.equal((html8.match(/class="dd-bed up/g) || []).length, 4, '8 人间 4 个上铺');
+  assert.match(html8, /<svg class="dd-bed-glyph" viewBox="-50 -50 100 100"><polygon points="/, '星星是内联 SVG —— 只有它能同时画出实心与空心两态');
+  assert.equal((html8.match(/dd-room-slab/g) || []).length, 8, '4 张铺 × 上下两块铺板');
+  assert.equal((html8.match(/dd-room-post/g) || []).length, 16, '4 张铺 × 4 根立柱');
+  assert.ok(!html8.includes('dd-room-floor'), '不画地板：按房间取景会把一半画面让给地板，星图缩成一小团');
+  assert.equal((html8.match(/dd-room-flow/g) || []).length, 1, '只有一条轮换连线');
+  const pts = html8.match(/dd-room-flow" points="([^"]+)"/)[1].trim().split(/\s+/);
+  assert.equal(pts.length, 8, '连线要串起 8 颗星，一颗都不能漏');
+  assert.match(html8, /class="dd-room-loop"/, '尾端要有绕回第 1 位的虚线（值日是个环）');
+  assert.match(html8, new RegExp(`viewBox="0 0 ${BOX.w} ${BOX.h}"`), 'SVG 取景框要和 roomBox() 一致');
+  assert.match(html8, new RegExp(`style="aspect-ratio:${BOX.w}/${BOX.h}"`), '容器比例必须与取景框同一份事实源（各写一份就会错位）');
+  assert.match(html8, /preserveAspectRatio="none"/, '取景框靠百分比定位与 SVG 重合，必须 none');
+  assert.ok(!html8.includes('没排进这间宿舍'), '8 人住 8 人间不该提示超编');
+  // 视角档
+  assert.equal((html8.match(/data-room-view="/g) || []).length, fx.ROOM_VIEWS.length, '每个机位一颗按钮');
+  assert.match(html8, /data-room-view="solid"[^>]*aria-pressed="true"/, '默认机位是立体');
+  assert.match(html8, /data-room-spin/, '要有自动旋转开关');
+  assert.match(html8, /data-room-beds/, '要有「显示床铺」开关');
+  assert.match(html8, /<input type="checkbox" data-room-beds checked>/, '默认画床架（与原型稿观感一致时才关）');
+  assert.match(html8, /data-room-beds="on"/, '容器上要带当前状态，样式那条规则靠它生效');
+  assert.match(html8, /<div class="dd-room" data-room /, '星图容器要能被 bindRoom 认出来');
+
+  // 超编：名单 8 人只画 4 颗星，且要说清还有几个人没排进去
+  const g4 = many(4);
+  const html4 = fx.roomHtml(g4, fx.snapshot(g4));
+  assert.equal((html4.match(/data-room-bed="/g) || []).length, 4, '4 人间只画 4 颗星');
+  assert.ok(!html4.includes('>小满<'), '没排进去的成员不该出现在星星上');
+  assert.match(html4, /还有 4 位成员没排进这间宿舍/, '超编必须提示，否则用户以为人被吞了');
+
+  // 空床：2 个人住 4 人间 → 后两颗是空床，且不可点
+  const g2 = fx.normalizeGroup(GROUP({ roomSize: 4, members: MEMBERS.slice(0, 2) }), '2026-09-17');
+  const html2 = fx.roomHtml(g2, fx.snapshot(g2));
+  assert.equal((html2.match(/class="dd-bed (?:up|down) empty"/g) || []).length, 2, '空床要有独立的空态样式');
+  assert.equal((html2.match(/data-room-bed="/g) || []).length, 4);
+  assert.equal((html2.match(/data-room-id="/g) || []).length, 2, '只有有人睡的床才带成员 id（空床不可点）');
+  assert.equal((html2.match(/disabled/g) || []).length, 2, '空床按钮要 disabled');
+  assert.match(html2, />空床</, '空床要写明「空床」');
+
+  // 人数档与关闭
+  assert.match(html2, /data-room-size="0"[^>]*>关闭</, '要有「关闭」档');
+  for (const n of [4, 6, 8]) assert.match(html2, new RegExp(`data-room-size="${n}"`), `要有 ${n} 人间档`);
+  assert.match(html2, /data-room-size="4"[^>]*aria-pressed="true"/, '当前档要有选中态');
+  const offG = fx.normalizeGroup(GROUP({ roomSize: 0 }), '2026-09-17');
+  const off = fx.roomHtml(offG, fx.snapshot(offG));
+  assert.ok(!off.includes('dd-room-svg'), '关闭时不画星图');
+  assert.match(off, /选一个 4 \/ 6 \/ 8 人间/, '关闭时要说清怎么打开');
+  assert.match(off, /data-room-size="0"[^>]*aria-pressed="true"/, '关闭档自己是选中态');
+
+  // 每轮多人的当班高亮要亮多颗（不是只亮第一个）
+  const multi = fx.normalizeGroup(GROUP({
+    roomSize: 6, perRound: 3, periodDays: 7,
+    members: EIGHT.slice(0, 6).map((name, i) => ({ id: 'm' + i, name })),
+  }), '2026-09-17');
+  assert.equal((fx.roomHtml(multi, fx.snapshot(multi)).match(/ now"/g) || []).length, 3, '每轮 3 人就该亮 3 颗星');
+
+  /* 9.5 视角状态：脏值要兜住，别让一次坏存储把星图变成空白 */
+  const dump = (g) => fx.roomHtml(g, fx.snapshot(g));
+  const gv = many(4);
+  fx.state.roomView = { view: '坏的', spin: true, th: 'NaN?', ph: 99, dist: 99 };
+  const dirty = dump(gv);
+  assert.match(dirty, /data-room-view="solid"[^>]*aria-pressed="true"/, '认不出的机位要退回默认档');
+  assert.ok(dirty.includes('dd-room-flow" points="'), '坏角度不能把星图画成空白');
+  assert.ok(!/NaN/.test(dirty), '投影结果里不能出现 NaN 字面量');
+  fx.state.roomView = { view: 'top', spin: false, th: NaN, ph: NaN, dist: 1 };
+  assert.match(dump(gv), /data-room-view="top"[^>]*aria-pressed="true"/, '机位要认');
+  assert.ok(!/NaN/.test(dump(gv)), '缺角度时用该机位的默认角度兜');
+
+  /* 「显示床铺」开关：只改显隐，不许动几何 —— 开关一拨星星就跳位置会让人以为坏了 */
+  const scene8 = fx.roomScene(8);
+  fx.state.roomView = { view: 'solid', spin: false, th: NaN, ph: NaN, dist: 1, beds: true };
+  const withBeds = dump(g8);
+  const geoOn = fx.roomProjectAll(scene8, fx.roomView(), fx.roomBox());
+  fx.state.roomView = { view: 'solid', spin: false, th: NaN, ph: NaN, dist: 1, beds: false };
+  const withoutBeds = dump(g8);
+  const geoOff = fx.roomProjectAll(scene8, fx.roomView(), fx.roomBox());
+  assert.match(withBeds, /data-room-beds="on"/, '开着时容器标 on');
+  assert.match(withoutBeds, /data-room-beds="off"/, '关掉时容器标 off');
+  assert.match(withoutBeds, /<input type="checkbox" data-room-beds>/, '关掉后勾选框不该还带 checked');
+  assert.equal((withBeds.match(/dd-room-slab/g) || []).length, (withoutBeds.match(/dd-room-slab/g) || []).length,
+    '铺板元素照旧生成、由 CSS 隐藏 —— roomDraw() 原地重画那条路才不用分叉');
+  assert.deepEqual(geoOff.stars.map((p) => [+p.x.toFixed(6), +p.y.toFixed(6)]),
+    geoOn.stars.map((p) => [+p.x.toFixed(6), +p.y.toFixed(6)]),
+    '开关不能改投影：取景范围永远按「含铺位」算，否则星星会当场跳位置');
+  fx.state.roomView = { view: 'solid', spin: false, th: NaN, ph: NaN, dist: 1, beds: 0 };
+  assert.match(dump(g8), /data-room-beds="on"/, '只有显式 false 才算关（0/缺省/老数据都按画处理）');
+  fx.state.roomView = { view: 'solid', spin: false, th: NaN, ph: NaN, dist: 1, beds: true };
+
+  /* 9.6 样式与接线 */
+  assert.match(PLUGIN_SRC, /style="aspect-ratio:\$\{box\.w\}\/\$\{box\.h\}"/, '容器比例要由 roomBox() 内联写死，CSS 里那份只是无 JS 兜底');
+  assert.equal(fx.ROOM_BOX_WIDE.w / fx.ROOM_BOX_WIDE.h, 140 / 105, '宽屏取景框是 4:3');
+  assert.equal(fx.ROOM_BOX_NARROW.w / fx.ROOM_BOX_NARROW.h, 105 / 140, '手机取景框是竖版 3:4 —— 星距实测能到 1.8 倍');
+  assert.match(PLUGIN_SRC, /:root\[data-nephele-background="on"\] \.dd-room-card\{/, 'nephele 背景开着时卡片要透光');
+  assert.match(PLUGIN_SRC, /\.dd-bed-name\{position:absolute;left:50%;top:calc\(100% \+ 2px\)/, '名字必须脱流：留在流里会把按钮撑高，星星中心就偏离锚点');
+  assert.match(PLUGIN_SRC, /\.dd-bed\.up \.dd-bed-name\{top:auto;bottom:calc\(100% \+ 2px\)\}/, '上铺的名字挂星星上方（侧视时同铺两颗星几乎竖直相叠）');
+  assert.match(PLUGIN_SRC, /\.dd-bed\.down \.dd-bed-glyph polygon\{fill:none/, '下铺是空心星（颜色统一，靠实心/空心区分上下铺）');
+  assert.match(PLUGIN_SRC, /touch-action:pan-y/, '手机上要能左右拖转视角、上下拖滚页面');
+  assert.match(PLUGIN_SRC, /:root\[data-ui-motion="reduced"\] \.dd-room-flow/, '减少动效时要停掉连线的流动');
+  assert.match(PLUGIN_SRC, /data-room-size="\$\{n\}"/, '人数档由 ROOM_SIZES 生成，别写死三颗按钮');
+  assert.match(PLUGIN_SRC, /ROOM_VIEWS\.map\(/, '视角档由 ROOM_VIEWS 生成');
+  assert.match(PLUGIN_SRC, /root\.querySelectorAll\("\[data-room-size\]"\)/, '人数档要真的绑上事件');
+  assert.match(PLUGIN_SRC, /root\.querySelectorAll\("\[data-room-view\]"\)/, '视角档要真的绑上事件');
+  assert.match(PLUGIN_SRC, /data-room-bed\]\[data-room-id/, '点星星要能定位到成员列表那一行');
+  assert.match(PLUGIN_SRC, /roomDragMoved > 4/, '拖动过之后补发的那次 click 不能当成「点星星找人对号」');
+  assert.match(PLUGIN_SRC, /requestAnimationFrame/, '自动旋转靠 rAF');
+  assert.match(PLUGIN_SRC, /roomReduceMotion\(\)/, '自动旋转必须被「减少动效」压掉（CSS 拦不住 rAF）');
+  assert.match(PLUGIN_SRC, /if \(roomDragMoved <= 4\) return;[\s\S]{0,240}?setPointerCapture/,
+    '指针捕获要等到「真的拖起来了」之后 —— 在 pointerdown 就捕获会把 click 重定向到 host 上，星星全点不动（已真机复现）');
+  assert.match(PLUGIN_SRC, /!roomReduceMotion\(\) && !document\.hidden && !roomHover/,
+    '鼠标压在星图上要暂停自动旋转：边转边点星星会点空');
+  assert.match(PLUGIN_SRC, /if \(e\.pointerType === "touch"\) return;\s*\n\s*roomHover = true/,
+    '悬停暂停只认鼠标 / 触控笔 —— 触摸设备的 :hover 会粘住，手指一碰就再也不转了');
+  assert.match(PLUGIN_SRC, /roomBox\(\) !== roomLive\.box/, '窗口跨过断点（横竖屏切换）要整页重画，否则 viewBox 与星星百分比各说各话');
+  assert.match(PLUGIN_SRC, /const ROOM_BOX_NARROW = \{ w: 105, h: 140 \}/, '手机用竖版取景框 —— 横版下星距只剩 21px，名字必压');
+  assert.match(PLUGIN_SRC, /dd-mrow\.dd-flash/, '定位后要有可辨认的闪烁样式');
+  assert.match(PLUGIN_SRC, /\$\{roomHtml\(g, s\)\}/, '星图卡片必须接进 paint()');
+  assert.match(PLUGIN_SRC, /bindRoom\(g, s\)/, 'bind() 里要真的把星图绑上');
+  assert.match(PLUGIN_SRC, /roomStopSpin\(\);\s*\n\s*roomLive = null;/, '视图被换掉时要停掉自动旋转，否则 rAF 会一直对着摘掉的节点跑');
+  assert.match(PLUGIN_SRC, /tide\.storage\.set\("roomView"/, '视角要落盘（跨轮换共用）');
+  assert.match(PLUGIN_SRC, /\.dd-room\[data-room-beds="off"\] :is\(\.dd-room-slab,\.dd-room-post\)\{display:none\}/,
+    '「显示床铺」关掉时靠一条 CSS 规则隐藏铺板与立柱');
+  assert.match(PLUGIN_SRC, /q\("\[data-room-beds\]"\)\?\.addEventListener\("change"/, '显示床铺的勾选框要真的绑上事件');
+  assert.match(PLUGIN_SRC, /host\.dataset\.roomBeds = state\.roomView\.beds \? "on" : "off"/,
+    '拨开关要就地改容器属性 —— 整页重画会让名字闪一下、还会丢焦点');
+  assert.match(PLUGIN_SRC, /永久[\s\S]{0,80}?铺板与立柱算进去|铺板与立柱算进去/,
+    'roomBounds 的注释要写明「开关不动几何」，免得以后有人顺手按开关改取景');
+
+  /* 9.7 跨端：roomSize 在两端归一化出同一个值，备份恢复才不丢设置 */
+  for (const [v, expected] of [[0, 0], [4, 4], [8, 8], [5, 4], ['6', 6], [null, 4], ['', 4]]) {
+    assert.equal(fx.normalizeGroup(GROUP({ roomSize: v }), '2026-09-17').roomSize, expected, `桌面端 ${JSON.stringify(v)} → ${expected}`);
+    assert.equal(mini.ddNormalizeGroup(GROUP({ roomSize: v }), '2026-09-17').roomSize, expected, `小程序 ${JSON.stringify(v)} → ${expected}`);
+  }
+  // 复制整套轮换**必须用 ...src 全带走**，不能退回手写字段清单 —— 手写清单漏字段不报错，
+  // 只会静默丢（locations / locationPeriodDays / pauseRanges 就这么丢过一次）。
+  assert.match(miniRuntime, /ddDuplicateGroup[\s\S]{0,600}?\.\.\.src/,
+    '小程序 ddDuplicateGroup 必须先 ...src 再覆盖，别写手写字段清单');
+  assert.match(PLUGIN_SRC, /const copy = normalizeGroup\(\{\s*\n\s*\.\.\.src,/,
+    '桌面端 duplicateGroup 也必须是 ...src 全带走');
+  // 小程序不画这张图，但复制整套轮换时必须把档位带走，否则手机复制一次就把桌面的设置抹了
+  const dup = mini.ddDuplicateGroup(mini.ddGroups([GROUP({ roomSize: 8, id: 'gA' })], '2026-09-17'), 'gA', '2026-09-17');
+  assert.equal(dup.created.roomSize, 8, '小程序复制整套轮换要带走宿舍人数');
+
+  console.log('PASS: 宿舍床位星图（roomSize 归一化 0/4/6/8、4/6/8 人 2/3/4 张上下铺贴左右墙且先下后上、三机位投影不出 NaN/不越框/星距 ≥34px/近大远小压幅、默认机位与对角线拉开、序号与名单同序、铺板立柱数量、当班高亮含每轮多人、空床与超编、关闭档、视角脏值兜底、显示床铺开关（只改显隐不动几何）、nephele 透光与减少动效、拖动与点选不打架、跨端字段一致）');
 }

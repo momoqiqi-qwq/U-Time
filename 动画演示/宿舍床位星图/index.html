@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>大学宿舍床位星图 · 4 / 6 / 8 人间真实比例平面图</title>
+<style>
+  :root {
+    --paper: #f6f3ec;
+    --card: #fffdf8;
+    --ink: #1b2027;
+    --ink-soft: #6b7480;
+    --line: #d9d3c6;
+    --accent: #2f6df6;
+    --shadow: 0 1px 2px rgba(20, 24, 30, .06), 0 12px 30px rgba(20, 24, 30, .08);
+  }
+  html[data-mode="dark"] {
+    --paper: #0f141a;
+    --card: #161d26;
+    --ink: #e8edf5;
+    --ink-soft: #8b95a5;
+    --line: #2b3542;
+    --accent: #6aa6ff;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .5), 0 14px 34px rgba(0, 0, 0, .45);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 22px 18px 60px;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 21px; margin: 0 0 4px; letter-spacing: .5px; }
+  .lede { color: var(--ink-soft); font-size: 13px; margin: 0 0 18px; line-height: 1.7; }
+
+  .bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    padding: 12px 14px; margin-bottom: 14px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+  }
+  .seg { position: relative; display: inline-flex; padding: 4px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); }
+  .seg .glow {
+    position: absolute; top: 4px; left: 0; height: calc(100% - 8px); width: 0;
+    border-radius: 999px; background: var(--accent); opacity: .16;
+    transition: transform .3s cubic-bezier(.22, .8, .24, 1), width .3s cubic-bezier(.22, .8, .24, 1);
+    pointer-events: none;
+  }
+  .seg button {
+    position: relative; z-index: 1; border: 0; background: transparent; color: var(--ink-soft);
+    font: inherit; font-size: 13px; padding: 6px 15px; border-radius: 999px; cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { color: var(--ink); font-weight: 600; }
+  html[data-motion="off"] .seg .glow { transition: none; }
+
+  .field { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-soft); }
+  .field input {
+    width: 82px; font: inherit; font-size: 13px; color: var(--ink);
+    padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper);
+  }
+  .switch { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-soft); cursor: pointer; user-select: none; }
+  .switch input { accent-color: var(--accent); width: 15px; height: 15px; }
+  button.act {
+    font: inherit; font-size: 13px; color: var(--ink); cursor: pointer;
+    padding: 6px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
+  }
+  button.act:hover { border-color: var(--accent); color: var(--accent); }
+  .spacer { flex: 1 1 auto; }
+
+  .stage { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 10px; position: relative; }
+  svg { display: block; width: 100%; height: auto; }
+  .hit { cursor: pointer; }
+  .readout {
+    min-height: 20px; margin: 10px 2px 2px; font-size: 12.5px; color: var(--ink-soft);
+    display: flex; gap: 14px; flex-wrap: wrap;
+  }
+  .readout b { color: var(--ink); font-weight: 600; }
+  .note { font-size: 12px; color: var(--ink-soft); line-height: 1.8; margin: 14px 2px 0; }
+
+  .pop {
+    position: absolute; z-index: 5; width: 244px; padding: 12px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+    font-size: 12.5px;
+  }
+  .pop[hidden] { display: none; }
+  .pop h4 { margin: 0 0 9px; font-size: 12px; color: var(--ink-soft); font-weight: 500; line-height: 1.5; }
+  .pop label { display: block; margin-bottom: 8px; color: var(--ink-soft); }
+  .pop input {
+    width: 100%; margin-top: 3px; font: inherit; font-size: 13px; color: var(--ink);
+    padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper);
+  }
+  .pop .row { display: flex; gap: 8px; margin-top: 4px; }
+  .pop .row button { flex: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>大学宿舍床位星图</h1>
+  <p class="lede">
+    按真实毫米比例绘制：SVG 的 1 个单位 = 1 mm，床、桌、走道之间的面积关系是真的。
+    上下铺共用同一块地面投影，图中沿进深错开显示，只为把两颗星标清楚（图例已注明）。
+  </p>
+
+  <div class="bar">
+    <div class="seg" id="seg">
+      <span class="glow" id="segGlow"></span>
+      <button data-k="four" aria-pressed="true">四人间 · 上床下桌</button>
+      <button data-k="six" aria-pressed="false">六人间 · 上下铺</button>
+      <button data-k="eight" aria-pressed="false">八人间 · 上下铺</button>
+    </div>
+
+    <span class="field">宽 <input id="inW" type="number" step="100" min="2400" max="7000" /> mm</span>
+    <span class="field">深 <input id="inD" type="number" step="100" min="4500" max="12000" /> mm</span>
+
+    <label class="switch"><input id="inLines" type="checkbox" />星座连线</label>
+    <label class="switch"><input id="inDims" type="checkbox" checked />尺寸标注</label>
+
+    <span class="spacer"></span>
+    <button class="act" id="btnTheme">深色</button>
+    <button class="act" id="btnReset">清空姓名</button>
+    <button class="act" id="btnPng">导出 PNG</button>
+  </div>
+
+  <div class="stage" id="stage">
+    <div id="svgHost"></div>
+    <div class="pop" id="pop" hidden>
+      <h4 id="popTitle">编辑床位</h4>
+      <label>床号<input id="popNo" maxlength="8" /></label>
+      <label>姓名<input id="popName" maxlength="12" /></label>
+      <div class="row">
+        <button class="act" id="popSave">保存</button>
+        <button class="act" id="popCancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="readout" id="readout">鼠标移到任一颗床位星上可看真实投影尺寸，点击可以直接改床号和姓名。</div>
+
+  <p class="note">
+    家具尺寸取常见值：上床下桌组合床投影 2000×900（书桌 1200×600 / 衣柜 600×500 / 爬梯 250），
+    上下铺架投影 2000×1000，长桌 2400×700，座椅 450×450，行李柜 600×450，门洞宽 900（向内开），窗 1500。
+    房间宽 / 深可以改成自己的实测值，尺寸标注和走道净宽会重算；净宽不足 900 mm 会标红。
+  </p>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var GREEK = ["α", "β", "γ", "δ", "ε", "ζ", "η", "θ"];
+  var CIRCLED = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧"];
+
+  var THEMES = {
+    light: {
+      paper: "#f6f3ec", card: "#fffdf8", ink: "#1b2027", inkSoft: "#6b7480",
+      wall: "#2b3138", opening: "#fffdf8",
+      bedFill: "#e3eaf4", bedStroke: "#7b8ba0", lowerFill: "#eef2f7",
+      tableFill: "#f0e7d5", wardrobeFill: "#e6dcc8", chairFill: "#e9e2d3",
+      hidden: "#9aa3ae", accent: "#2f6df6", bad: "#c8402f", dim: "#8a8477",
+      star: "#2f6df6", starLine: "#b0c4ee"
+    },
+    dark: {
+      paper: "#0f141a", card: "#161d26", ink: "#e8edf5", inkSoft: "#8b95a5",
+      wall: "#d7dde6", opening: "#161d26",
+      bedFill: "#22304a", bedStroke: "#6d87ad", lowerFill: "#1a2532",
+      tableFill: "#33291a", wardrobeFill: "#3a3225", chairFill: "#2d3138",
+      hidden: "#5b6675", accent: "#6aa6ff", bad: "#ff7a63", dim: "#6b7684",
+      star: "#6aa6ff", starLine: "#3d5f96"
+    }
+  };
+
+  // 家具净尺寸（mm）
+  var UNIT_L = 2000, UNIT_D = 900;   // 上床下桌组合床
+  var BUNK_L = 2000, BUNK_D = 1000;  // 上下铺床架
+  var CHAIR = 450, LUG_W = 600, LUG_D = 450;
+  var DOOR_W = 900, WIN_W = 1500, WALL_T = 120, PAD = 1500;
+
+  var STORE_KEY = "dorm-bed-star-chart";
+  var state = {
+    layout: "four",
+    rooms: { four: { w: 3600, d: 7200 }, six: { w: 4200, d: 7800 }, eight: { w: 4800, d: 9000 } },
+    lines: false,
+    dims: true,
+    names: { four: {}, six: {}, eight: {} }
+  };
+  var mode = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var T = THEMES[mode];
+
+  /* ---------- svg primitives ---------- */
+
+  function el(name, attrs, parent) {
+    var n = document.createElementNS(SVGNS, name);
+    if (attrs) for (var k in attrs) if (attrs[k] !== undefined && attrs[k] !== null) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function txt(s, attrs, parent) {
+    var n = el("text", attrs, parent);
+    n.textContent = s;
+    return n;
+  }
+  function rect(x, y, w, h, o) {
+    o = o || {};
+    return el("rect", {
+      x: x, y: y, width: w, height: h, fill: o.fill || "none",
+      stroke: o.stroke || "none", "stroke-width": o.sw || 0,
+      "stroke-dasharray": o.dash || "none", rx: o.rx || 0
+    });
+  }
+  function line(x1, y1, x2, y2, o) {
+    o = o || {};
+    return el("line", {
+      x1: x1, y1: y1, x2: x2, y2: y2, stroke: o.stroke || T.ink,
+      "stroke-width": o.sw || 16, "stroke-dasharray": o.dash || "none"
+    });
+  }
+  function path(d, o) {
+    o = o || {};
+    return el("path", { d: d, fill: o.fill || "none", stroke: o.stroke || "none", "stroke-width": o.sw || 16, "stroke-dasharray": o.dash || "none" });
+  }
+  function text(s, parent, x, y, o) {
+    o = o || {};
+    return txt(s, {
+      x: x, y: y, fill: o.fill || T.ink, "font-size": o.size || 118,
+      "text-anchor": o.anchor || "middle", "dominant-baseline": "middle",
+      "font-weight": o.weight || 400,
+      transform: o.rot ? "rotate(" + o.rot + " " + x + " " + y + ")" : undefined
+    }, parent);
+  }
+
+  /* ---------- furniture ---------- */
+
+  // 上床下桌：床在上层，书桌 / 衣柜 / 爬梯都在这块 900×2000 投影内
+  function loft(g, x, y) {
+    g.appendChild(rect(x, y, UNIT_D, UNIT_L, { fill: T.bedFill, stroke: T.bedStroke, sw: 24 }));
+    g.appendChild(rect(x + 150, y + 150, 600, 1100, { fill: T.tableFill, stroke: T.hidden, sw: 14, dash: "60 40" }));
+    text("书桌", g, x + 450, y + 235, { size: 96, fill: T.hidden });
+    g.appendChild(rect(x + 150, y + 1300, 600, 500, { fill: T.wardrobeFill, stroke: T.bedStroke, sw: 14 }));
+    text("衣柜", g, x + 450, y + 1385, { size: 96, fill: T.inkSoft });
+    for (var i = 0; i < 3; i++) {
+      g.appendChild(line(x + 120, y + 1860 + i * 50, x + 780, y + 1860 + i * 50, { stroke: T.hidden, sw: 20 }));
+    }
+    return {
+      cx: x + UNIT_D / 2, cy: y + 500,
+      hit: { x: x, y: y, w: UNIT_D, h: UNIT_L },
+      frame: UNIT_D + "×" + UNIT_L, occupy: UNIT_D + "×" + UNIT_L
+    };
+  }
+
+  // 上下铺：地面只有一块 1000×2000 投影，两铺上下相压；图中沿进深错开只为标清两颗星
+  function bunk(g, x, y) {
+    var half = BUNK_D / 2;
+    g.appendChild(rect(x, y, BUNK_D, BUNK_L, { fill: "none", stroke: T.bedStroke, sw: 26 }));
+    g.appendChild(rect(x, y, half, BUNK_L, { fill: T.bedFill, stroke: T.bedStroke, sw: 14 }));
+    g.appendChild(rect(x + half, y, half, BUNK_L, { fill: T.lowerFill, stroke: T.hidden, sw: 14, dash: "70 45" }));
+    return {
+      bands: [
+        { cx: x + half / 2, cy: y + 500, hit: { x: x, y: y, w: half, h: BUNK_L } },
+        { cx: x + half * 1.5, cy: y + 500, hit: { x: x + half, y: y, w: half, h: BUNK_L } }
+      ],
+      frame: BUNK_D + "×" + BUNK_L, occupy: half + "×" + BUNK_L + "（示意）"
+    };
+  }
+
+  function tableItem(g, x, y, w, h) {
+    g.appendChild(rect(x, y, w, h, { fill: T.tableFill, stroke: T.hidden, sw: 18 }));
+    text("长桌", g, x + w / 2, y + h / 2, { size: 104, fill: T.inkSoft });
+  }
+  function chairItem(g, x, y) {
+    g.appendChild(rect(x, y, CHAIR, CHAIR, { fill: T.chairFill, stroke: T.hidden, sw: 12 }));
+  }
+  function lugItem(g, x, y, w, h) {
+    g.appendChild(rect(x, y, w, h, { fill: T.wardrobeFill, stroke: T.bedStroke, sw: 14 }));
+    text("行李柜", g, x + w / 2, y + h / 2, { size: 92, fill: T.inkSoft });
+  }
+
+  /* ---------- layouts ---------- */
+
+  function buildFour(w, d) {
+    var root = el("g"), stars = [], clearances = [], rows = [300, 2700];
+    [[0, rows[0]], [w - UNIT_D, rows[0]], [0, rows[1]], [w - UNIT_D, rows[1]]].forEach(function (p, k) {
+      var f = loft(root, p[0], p[1]);
+      stars.push({
+        key: "b" + (k + 1), no: k + 1, level: "上铺", greek: GREEK[k], solid: true,
+        cx: f.cx, cy: f.cy, hit: f.hit, frame: f.frame, occupy: f.occupy
+      });
+      chairItem(root, p[0] === 0 ? UNIT_D : w - UNIT_D - CHAIR, p[1] + 700 - CHAIR / 2);
+    });
+    lugItem(root, 300, d - LUG_D, 1000, LUG_D);
+    lugItem(root, w - 1300, d - LUG_D, 1000, LUG_D);
+    clearances.push({ x1: UNIT_D + CHAIR, x2: w - UNIT_D - CHAIR, y: 1000, text: "走道净宽" });
+    return { root: root, stars: stars, clearances: clearances };
+  }
+
+  function buildSix(w, d) {
+    return bunkRoom(w, d, [[0, 300], [0, 2700], [w - BUNK_D, 300]], [[w - 700, 2700, 700, 2400]],
+      [2950, 3900, 4850].map(function (cy) { return [w - 700 - CHAIR, cy - CHAIR / 2]; }),
+      [350, 1050, w - 950], 3900);
+  }
+
+  function buildEight(w, d) {
+    var chairs = [];
+    [5600, 6600].forEach(function (cy) {
+      chairs.push([700, cy - CHAIR / 2], [w - 700 - CHAIR, cy - CHAIR / 2]);
+    });
+    return bunkRoom(w, d, [[0, 300], [0, 2700], [w - BUNK_D, 300], [w - BUNK_D, 2700]],
+      [[0, 5200, 700, 2000], [w - 700, 5200, 700, 2000]], chairs,
+      [400, 1150, w - 1750, w - 1000], 6600);
+  }
+
+  function bunkRoom(w, d, bunkPos, tables, chairs, lugX, clearY) {
+    var root = el("g"), stars = [], clearances = [];
+    bunkPos.forEach(function (b, k) {
+      var f = bunk(root, b[0], b[1]);
+      [[GREEK[k * 2], "上铺", true, 0], [GREEK[k * 2 + 1], "下铺", false, 1]].forEach(function (m) {
+        var bd = f.bands[m[3]];
+        stars.push({
+          key: "b" + (k + 1) + (m[3] ? "l" : "u"), no: k * 2 + m[3] + 1, level: m[1], greek: m[0],
+          solid: m[2], cx: bd.cx, cy: bd.cy, hit: bd.hit, frame: f.frame, occupy: f.occupy
+        });
+      });
+    });
+    tables.forEach(function (t) { tableItem(root, t[0], t[1], t[2], t[3]); });
+    chairs.forEach(function (c) { chairItem(root, c[0], c[1]); });
+    lugX.forEach(function (x) { lugItem(root, x, d - LUG_D, LUG_W, LUG_D); });
+    clearances.push({ x1: BUNK_D, x2: w - BUNK_D, y: 1300, text: "床间净宽" });
+    if (tables.length) {
+      clearances.push({
+        x1: tables.length > 1 ? 700 + CHAIR : BUNK_D,
+        x2: w - 700 - CHAIR, y: clearY, text: "桌前净宽"
+      });
+    }
+    return { root: root, stars: stars, clearances: clearances };
+  }
+
+  var LAYOUTS = {
+    four: { title: "四人间 · 上床下桌", build: buildFour, winW: 1200 },
+    six: { title: "六人间 · 上下铺", build: buildSix, winW: WIN_W },
+    eight: { title: "八人间 · 上下铺", build: buildEight, winW: WIN_W }
+  };
+
+  /* ---------- openings ---------- */
+
+  function openings(svg, w, d, winW) {
+    // 窗：北墙（上短边）两扇
+    var gap = 400, x0 = Math.round((w - (winW * 2 + gap)) / 2);
+    [x0, x0 + winW + gap].forEach(function (x) {
+      svg.appendChild(rect(x, -WALL_T, winW, WALL_T + 2, { fill: T.opening }));
+      svg.appendChild(line(x, -WALL_T / 2 - 24, x + winW, -WALL_T / 2 - 24, { stroke: T.wall, sw: 18 }));
+      svg.appendChild(line(x, -WALL_T / 2 + 24, x + winW, -WALL_T / 2 + 24, { stroke: T.wall, sw: 18 }));
+      text("窗 " + winW, svg, x + winW / 2, -WALL_T - 150, { size: 96, fill: T.inkSoft });
+    });
+    // 门：南墙（下短边）居中，向内开
+    var dx = Math.round(w / 2 - DOOR_W / 2), hy = d;
+    svg.appendChild(rect(dx, d - 2, DOOR_W, WALL_T + 4, { fill: T.opening }));
+    svg.appendChild(line(dx, hy, dx, hy - DOOR_W, { stroke: T.wall, sw: 26 }));
+    svg.appendChild(path("M " + dx + " " + (hy - DOOR_W) + " A " + DOOR_W + " " + DOOR_W + " 0 0 1 " + (dx + DOOR_W) + " " + hy, { stroke: T.hidden, sw: 14, dash: "40 35" }));
+    text("门 " + DOOR_W, svg, dx + DOOR_W / 2, d + WALL_T + 190, { size: 96, fill: T.inkSoft });
+  }
+
+  /* ---------- annotations ---------- */
+
+  function dimH(svg, x1, x2, y, s) {
+    svg.appendChild(line(x1, y, x2, y, { stroke: T.dim, sw: 14 }));
+    svg.appendChild(line(x1, y - 60, x1, y + 60, { stroke: T.dim, sw: 14 }));
+    svg.appendChild(line(x2, y - 60, x2, y + 60, { stroke: T.dim, sw: 14 }));
+    text(s, svg, (x1 + x2) / 2, y - 130, { size: 104, fill: T.dim });
+  }
+  function dimV(svg, y1, y2, x, s) {
+    svg.appendChild(line(x, y1, x, y2, { stroke: T.dim, sw: 14 }));
+    svg.appendChild(line(x - 60, y1, x + 60, y1, { stroke: T.dim, sw: 14 }));
+    svg.appendChild(line(x - 60, y2, x + 60, y2, { stroke: T.dim, sw: 14 }));
+    text(s, svg, x, (y1 + y2) / 2, { size: 104, fill: T.dim, rot: -90 });
+  }
+  function estWidth(s, size) {
+    var w = 0;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charCodeAt(i);
+      w += c > 0x2e80 ? size : (c === 32 ? size * .3 : size * .56);
+    }
+    return w;
+  }
+  function clearance(svg, c) {
+    var v = Math.round(c.x2 - c.x1), bad = v < 900, col = bad ? T.bad : T.accent;
+    svg.appendChild(line(c.x1, c.y, c.x2, c.y, { stroke: col, sw: 16 }));
+    svg.appendChild(path("M " + c.x1 + " " + c.y + " l 130 -60 l 0 120 z", { fill: col }));
+    svg.appendChild(path("M " + c.x2 + " " + c.y + " l -130 -60 l 0 120 z", { fill: col }));
+    var cap = c.text + " " + v + (bad ? " ✗ 不足 900" : " ✓"), size = 116;
+    var bw = estWidth(cap, size) + 150, cx = (c.x1 + c.x2) / 2;
+    svg.appendChild(rect(cx - bw / 2, c.y - 205, bw, 235, { fill: T.card, stroke: col, sw: 10, rx: 46 }));
+    text(cap, svg, cx, c.y - 88, { size: size, fill: col, weight: 600 });
+  }
+
+  function starShape(parent, s) {
+    var g = el("g", { transform: "translate(" + s.cx + " " + s.cy + ")" }, parent);
+    var pts = [], R = 180, r = 74;
+    for (var i = 0; i < 8; i++) {
+      var a = -Math.PI / 2 + i * Math.PI / 4, rad = i % 2 ? r : R;
+      pts.push((Math.cos(a) * rad).toFixed(1) + "," + (Math.sin(a) * rad).toFixed(1));
+    }
+    el("polygon", {
+      points: pts.join(" "), fill: s.solid === false ? T.card : T.star,
+      stroke: T.star, "stroke-width": 28, "stroke-linejoin": "round"
+    }, g);
+    return g;
+  }
+
+  /* ---------- render ---------- */
+
+  var host = document.getElementById("svgHost");
+  var readout = document.getElementById("readout");
+  var current = null;
+
+  function render() {
+    T = THEMES[mode];
+    document.documentElement.setAttribute("data-mode", mode);
+    var cfg = LAYOUTS[state.layout], room = state.rooms[state.layout];
+    var w = room.w, d = room.d, names = state.names[state.layout] || {};
+
+    var svg = el("svg", {
+      xmlns: SVGNS,
+      "font-family": '"Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif',
+      viewBox: (-PAD) + " " + (-PAD) + " " + (w + PAD * 2) + " " + (d + PAD * 2 + 1200),
+      width: w + PAD * 2, height: d + PAD * 2 + 1200
+    });
+    svg.appendChild(rect(-PAD, -PAD, w + PAD * 2, d + PAD * 2 + 1200, { fill: T.card }));
+
+    var built = cfg.build(w, d);
+
+    svg.appendChild(rect(-WALL_T, -WALL_T, w + WALL_T * 2, d + WALL_T * 2, { fill: T.wall }));
+    svg.appendChild(rect(0, 0, w, d, { fill: T.paper }));
+    openings(svg, w, d, cfg.winW);
+
+    svg.appendChild(built.root);
+
+    if (state.lines && built.stars.length > 1) {
+      var dd = built.stars.map(function (s, i) { return (i ? "L" : "M") + s.cx + " " + s.cy; }).join(" ");
+      svg.appendChild(el("path", { d: dd, fill: "none", stroke: T.starLine, "stroke-width": 24, "stroke-dasharray": "120 90" }));
+    }
+
+    built.stars.forEach(function (s) {
+      starShape(svg, s);
+      var c = names[s.key] || {};
+      var cap = (c.no || CIRCLED[s.no - 1] || s.no) + s.greek;
+      var cw = estWidth(cap, 134) + 96;
+      svg.appendChild(rect(s.cx - cw / 2, s.cy + 190, cw, 210, { fill: T.card, stroke: T.bedStroke, sw: 10, rx: 44 }));
+      text(cap, svg, s.cx, s.cy + 295, { size: 134, weight: 700 });
+      if (c.name) {
+        var nw = estWidth(c.name, 108) + 80;
+        svg.appendChild(rect(s.cx - nw / 2, s.cy + 400, nw, 170, { fill: T.card, stroke: T.bedStroke, sw: 8, rx: 36 }));
+        text(c.name, svg, s.cx, s.cy + 485, { size: 108, fill: T.inkSoft });
+      }
+
+      var hit = el("rect", {
+        x: s.hit.x, y: s.hit.y, width: s.hit.w, height: s.hit.h,
+        fill: "transparent", class: "hit"
+      });
+      svg.appendChild(hit);
+      hoverable(hit, s);
+    });
+
+    if (state.dims) {
+      dimH(svg, 0, w, -WALL_T - 430, w + " mm（" + (w / 1000).toFixed(2) + " m）");
+      dimV(svg, 0, d, -WALL_T - 430, d + " mm（" + (d / 1000).toFixed(2) + " m）");
+      built.clearances.forEach(function (c) { clearance(svg, c); });
+    }
+
+    text(cfg.title, svg, -PAD + 40, -PAD + 210, { size: 260, anchor: "start", weight: 700 });
+    text("1 单位 = 1 mm · 按真实比例绘制 · 共 " + built.stars.length + " 颗星 / " + w + "×" + d + " mm",
+      svg, -PAD + 44, -PAD + 480, { size: 118, fill: T.inkSoft, anchor: "start" });
+
+    var ly = d + WALL_T + 470;
+    [["上铺（实线投影）", T.bedFill, T.bedStroke, "none"],
+     ["下铺（同投影 · 示意错开）", T.lowerFill, T.hidden, "70 45"],
+     ["书桌 / 长桌（下层）", T.tableFill, T.hidden, "60 40"],
+     ["衣柜 · 行李柜 · 座椅", T.wardrobeFill, T.bedStroke, "none"]].forEach(function (it, i) {
+      var x = -PAD + 40 + (i % 2) * 2200, y = ly + Math.floor(i / 2) * 300;
+      svg.appendChild(rect(x, y, 300, 170, { fill: it[1], stroke: it[2], sw: 14, dash: it[3] }));
+      text(it[0], svg, x + 350, y + 85, { size: 104, fill: T.inkSoft, anchor: "start" });
+    });
+    var sbx = w + PAD - 1300, sby = -PAD + 150;
+    svg.appendChild(rect(sbx, sby, 1000, 74, { fill: T.ink }));
+    svg.appendChild(rect(sbx + 500, sby, 500, 74, { fill: T.card, stroke: T.ink, sw: 14 }));
+    text("0", svg, sbx, sby + 160, { size: 100, fill: T.inkSoft });
+    text("1 m", svg, sbx + 1000, sby + 160, { size: 100, fill: T.inkSoft });
+
+    host.innerHTML = "";
+    host.appendChild(svg);
+    current = svg;
+  }
+
+  function hoverable(hit, s) {
+    hit.addEventListener("mouseenter", function () {
+      hit.setAttribute("fill", T.star);
+      hit.setAttribute("fill-opacity", "0.12");
+      var c = (state.names[state.layout] || {})[s.key] || {};
+      readout.innerHTML =
+        "<span><b>" + (c.no || CIRCLED[s.no - 1] || s.no) + " " + s.level + " · " + s.greek + "</b>" +
+        (c.name ? " · " + esc(c.name) : "") + "</span>" +
+        "<span>单铺占位 " + s.occupy + " mm</span>" +
+        "<span>床架地面投影 " + s.frame + " mm</span>" +
+        "<span>点击改床号 / 姓名</span>";
+    });
+    hit.addEventListener("mouseleave", function () {
+      hit.setAttribute("fill", "transparent");
+      hit.removeAttribute("fill-opacity");
+    });
+    hit.addEventListener("click", function () { openPop(hit, s); });
+  }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch];
+    });
+  }
+
+  /* ---------- popover ---------- */
+
+  var pop = document.getElementById("pop"), stage = document.getElementById("stage");
+  var popTitle = document.getElementById("popTitle"), popNo = document.getElementById("popNo"), popName = document.getElementById("popName");
+  var popKey = null;
+
+  function openPop(hit, s) {
+    popKey = s.key;
+    var c = (state.names[state.layout] || {})[s.key] || {};
+    popTitle.textContent = s.level + " · " + s.greek + "（占位 " + s.occupy + " mm · 床架投影 " + s.frame + " mm）";
+    popNo.value = c.no || (CIRCLED[s.no - 1] || s.no);
+    popName.value = c.name || "";
+    pop.hidden = false;
+    var r = hit.getBoundingClientRect(), sr = stage.getBoundingClientRect();
+    pop.style.left = Math.min(Math.max(8, r.left - sr.left + r.width / 2 - 122), sr.width - 252) + "px";
+    pop.style.top = Math.max(8, r.top - sr.top - 168) + "px";
+    popName.focus();
+  }
+  function closePop() { pop.hidden = true; popKey = null; }
+
+  document.getElementById("popSave").addEventListener("click", function () {
+    state.names[state.layout][popKey] = { no: popNo.value.trim(), name: popName.value.trim() };
+    save(); closePop(); render();
+  });
+  document.getElementById("popCancel").addEventListener("click", closePop);
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closePop(); });
+  document.addEventListener("mousedown", function (e) {
+    if (!pop.hidden && !pop.contains(e.target) && !e.target.classList.contains("hit")) closePop();
+  });
+
+  /* ---------- controls ---------- */
+
+  var seg = document.getElementById("seg"), glow = document.getElementById("segGlow");
+  var inW = document.getElementById("inW"), inD = document.getElementById("inD");
+
+  function moveGlow(btn, animate) {
+    if (!animate || reduce) glow.style.transition = "none";
+    glow.style.width = btn.offsetWidth + "px";
+    glow.style.transform = "translateX(" + btn.offsetLeft + "px)";
+    if (!animate || reduce) requestAnimationFrame(function () { glow.style.transition = ""; });
+  }
+  function syncSeg(animate) {
+    var btns = Array.prototype.slice.call(seg.querySelectorAll("button"));
+    btns.forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.k === state.layout)); });
+    btns.forEach(function (b) { if (b.getAttribute("aria-pressed") === "true") moveGlow(b, animate); });
+  }
+  seg.addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (!b) return;
+    state.layout = b.dataset.k;
+    closePop(); syncSeg(true); syncRoom(); save(); render();
+  });
+
+  function syncRoom() {
+    var r = state.rooms[state.layout];
+    inW.value = r.w; inD.value = r.d;
+  }
+  function clamp(v, a, b) { return Math.min(Math.max(v, a), b); }
+  function onRoom() {
+    var r = state.rooms[state.layout];
+    r.w = clamp(parseInt(inW.value, 10) || r.w, 2400, 7000);
+    r.d = clamp(parseInt(inD.value, 10) || r.d, 4500, 12000);
+    closePop(); save(); render();
+  }
+  inW.addEventListener("change", onRoom);
+  inD.addEventListener("change", onRoom);
+
+  document.getElementById("inLines").addEventListener("change", function (e) { state.lines = e.target.checked; save(); render(); });
+  document.getElementById("inDims").addEventListener("change", function (e) { state.dims = e.target.checked; save(); render(); });
+
+  var btnTheme = document.getElementById("btnTheme");
+  btnTheme.addEventListener("click", function () {
+    mode = mode === "dark" ? "light" : "dark";
+    btnTheme.textContent = mode === "dark" ? "浅色" : "深色";
+    render();
+  });
+  document.getElementById("btnReset").addEventListener("click", function () {
+    state.names[state.layout] = {};
+    closePop(); save(); render();
+  });
+
+  /* ---------- export ---------- */
+
+  document.getElementById("btnPng").addEventListener("click", function () {
+    closePop();
+    var clone = current.cloneNode(true);
+    Array.prototype.forEach.call(clone.querySelectorAll(".hit"), function (n) { n.remove(); });
+    var vb = current.getAttribute("viewBox").split(" ").map(Number);
+    var outW = 2600, outH = Math.round(outW * vb[3] / vb[2]);
+    clone.setAttribute("width", outW);
+    clone.setAttribute("height", outH);
+    var img = new Image();
+    img.onload = function () {
+      var cv = document.createElement("canvas");
+      cv.width = outW; cv.height = outH;
+      var ctx = cv.getContext("2d");
+      ctx.fillStyle = T.card;
+      ctx.fillRect(0, 0, outW, outH);
+      ctx.drawImage(img, 0, 0, outW, outH);
+      cv.toBlob(function (blob) {
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "宿舍床位星图-" + LAYOUTS[state.layout].title.replace(/[^0-9a-zA-Z\u4e00-\u9fa5]/g, "") + ".png";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
+        readout.textContent = "已导出 PNG（" + outW + "×" + outH + " px）。";
+      }, "image/png");
+    };
+    img.onerror = function () { readout.textContent = "导出失败：浏览器拒绝把这张 SVG 位图化，可以改用系统截图。"; };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(clone));
+  });
+
+  /* ---------- persistence ---------- */
+
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+  function load() {
+    try {
+      var s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+      if (!s || !s.rooms || !s.names) return;
+      if (LAYOUTS[s.layout]) state.layout = s.layout;
+      ["four", "six", "eight"].forEach(function (k) {
+        if (s.rooms[k] && s.rooms[k].w && s.rooms[k].d) state.rooms[k] = s.rooms[k];
+        if (!s.names[k]) s.names[k] = {};
+      });
+      state.lines = !!s.lines;
+      state.dims = s.dims !== false;
+      state.names = s.names;
+    } catch (e) {}
+  }
+
+  if (reduce) document.documentElement.setAttribute("data-motion", "off");
+  load();
+  btnTheme.textContent = mode === "dark" ? "浅色" : "深色";
+  document.getElementById("inLines").checked = state.lines;
+  document.getElementById("inDims").checked = state.dims;
+  syncRoom();
+  render();
+  syncSeg(false);
+  window.addEventListener("resize", function () { syncSeg(false); });
+})();
+</script>
+</body>
+</html>

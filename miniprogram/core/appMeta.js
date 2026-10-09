@@ -1,7 +1,7 @@
 // Generated/synchronized by tools/sync-version.js. Keep product copy here, version is checked automatically.
 module.exports = {
   name: "U-Time",
-  version: "0.172.0",
+  version: "0.174.0",
   edition: "微信小程序版",
   frameworks: ["微信小程序原生运行时", "CommonJS JavaScript", "与 Tauri 端同源的数据模型/时间解析"],
   releaseNotes: [
