@@ -52,11 +52,18 @@ assert.equal(normalizeUiPreferences({ showSettingsDescriptions: false }).showSet
 assert.equal(normalizeUiPreferences({}).showPluginDescriptions, false);
 assert.equal(normalizeUiPreferences({ showPluginDescriptions: true }).showPluginDescriptions, true);
 assert.equal(normalizeUiPreferences({ showPluginDescriptions: "true" }).showPluginDescriptions, false);
-// 「显示介绍」只吃设置页那份列表会漏掉插件中心：两处描述必须共用同一条 off 规则。
+// 「显示介绍」只吃设置页那份列表会漏掉插件中心：两处列表的描述**与作者行**必须共用同一条 off 规则。
+// 曾经只收了描述，于是关掉开关后每张卡片还留一行「作者 …」（插件中心的 author 字段有的塞了整段
+// 更新记录，能撑到 7 行）。四个选择器一个都不能少。
 // 插件中心在 .view 里、不在 .settings-section 下，所以它的选择器不能带那层前缀。
 const pluginDescRule = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8")
   .match(/:root\[data-plugin-descriptions="off"\][^{]*\{[^}]*\}/)?.[0] || "";
-for (const selector of [".settings-section .plug-card .pd", ".market-card-desc"]) {
+for (const selector of [
+  ".settings-section .plug-card .pd",   // 设置 · 插件管理：描述
+  ".settings-section .plug-card .pm",   // 设置 · 插件管理：作者行
+  ".market-card-desc",                  // 插件中心：描述
+  ".market-card-meta",                  // 插件中心：作者行
+]) {
   assert.ok(pluginDescRule.includes(selector), `插件介绍 off 规则缺少 ${selector}`);
 }
 assert.match(pluginDescRule, /display:\s*none\s*!important/);
