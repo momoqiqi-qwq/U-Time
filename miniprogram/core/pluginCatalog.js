@@ -328,7 +328,7 @@ const plugins = [
   {
     "id": "dorm-duty",
     "name": "轮换值日",
-    "version": "1.7.0",
+    "version": "1.8.0",
     "author": "U-Time内置",
     "icon": "broom",
     "faIcon": "broom",

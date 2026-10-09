@@ -492,9 +492,16 @@
       .dd-row.past b,.dd-row.past .dd-d{color:var(--ink-3,#A9B2BA)}
       .dd-mrow{display:grid;grid-template-columns:26px 28px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line-soft,#F0ECE5)}
       .dd-lrow{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line-soft,#F0ECE5)}
-      .dd-mrow.current .dd-mno{color:var(--deep,#0F4C5C);font-weight:750}.dd-mrow.current .dd-in{border-color:var(--mint,#2EC4B6)}
+      /* 「今天当班」与「正在拖动」共用同一个绿色（--mint）—— 两者都是「这一行是当前的」。
+         用 outline（不吃布局）而不是 border：.dd-mrow 是 grid，加 border 会让整行高 2px，
+         拖动经过时上下几行会跟着抖一下。 */
+      .dd-mrow.current{background:color-mix(in srgb,var(--mint,#2EC4B6) 12%,transparent);border-radius:10px;outline:2px solid var(--mint,#2EC4B6);outline-offset:-2px}
+      .dd-mrow.current .dd-mno{color:var(--mint,#2EC4B6);font-weight:750}
+      .dd-mrow.current .dd-in{border-color:var(--mint,#2EC4B6)}
       .dd-mrow:last-child{border-bottom:0}
-      .dd-mrow.dragging{opacity:.72;background:color-mix(in srgb,var(--deep,#0F4C5C) 6%,transparent)}
+      /* 拖动中的行：绿色描边 + 抬起来（阴影）。真实行跟着指针走（不是克隆），
+         所以不能像象限卡片那样压到 .3 透明度 —— 名字要一直读得清。 */
+      .dd-mrow.dragging{position:relative;z-index:5;background:var(--panel,#fff);border-radius:10px;outline:2px solid var(--mint,#2EC4B6);outline-offset:-2px;box-shadow:0 12px 26px color-mix(in srgb,var(--ink,#22303A) 24%,transparent);cursor:grabbing;will-change:transform}
       .dd-mno{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A1A9AF);text-align:center;font-variant-numeric:tabular-nums}
       .dd-drag{width:28px;height:32px;border:0;background:transparent;color:var(--ink-3,#A1A9AF);cursor:grab;font-size:calc(16px * var(--ui-text-scale));line-height:1;display:grid;place-items:center;padding:0;touch-action:none}
       .dd-drag:active{cursor:grabbing;color:var(--deep,#0F4C5C)}
@@ -697,50 +704,110 @@
     return true;
   }
 
+  /* 成员拖动排序（手感对齐 dnd-kit 的 sortable，参考 tauri-shortcut-launcher 的侧栏拖动）：
+       · 按下把手后先等 4px 位移才进入拖动态 —— 只点一下不该闪出一圈绿框；
+       · 被拖的行跟着指针走（transform），**不克隆幽灵卡**：行里有个 <input>，
+         克隆一份会让用户以为能在副本上改名，而焦点与输入值都在原件上；
+       · 其余行用 WAAPI FLIP 从旧位置滑到新位置，松手后不会再整列跳一下；
+       · 序号按槽位**在拖动过程中**就重编 —— 松手前用户已经看到「我会排到第 2 位」，
+         而不是松手瞬间 1..6 集体改一次。 */
   function bindMemberDrag(g, commit) {
     const list = root?.querySelector("[data-members]");
     if (!list) return;
+    const ACTIVATE_PX = 4;      // 与参考实现 PointerSensor 的 activationConstraint.distance 同值
+    const FLIP_MS = 180;
     let drag = null;
+
     const rows = () => [...list.querySelectorAll(".dd-mrow")];
-    const clear = () => {
-      if (drag?.row) drag.row.classList.remove("dragging");
-      drag = null;
+    const reduceMotion = () => {
+      try { return !!window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches; } catch { return false; }
     };
+    /** 量几何前先让在跑的让位动画落定：带残余 transform 的 rect 会把槽位判定带偏
+        （象限拖拽踩过这个坑）。cancel() 只是让行直接落到它的布局位置，不会闪。 */
+    const topOf = (node) => {
+      node.getAnimations?.().forEach((a) => a.cancel());
+      return node.getBoundingClientRect().top;
+    };
+    /** 序号列 = DOM 顺序，拖动中每换一次槽位就重编。 */
+    function renumber() {
+      rows().forEach((node, i) => {
+        const no = node.querySelector(".dd-mno");
+        if (no && no.textContent !== String(i + 1)) no.textContent = String(i + 1);
+        node.querySelector("[data-name]")?.setAttribute("aria-label", `第 ${i + 1} 位成员的名字`);
+      });
+    }
+    /** FLIP：先量旧位置 → 改 DOM → 让每行从旧位置滑到新位置。被拖的行由指针驱动，不参与。 */
+    function flip(mutate) {
+      const before = rows().map((node) => [node, topOf(node)]);
+      mutate();
+      if (reduceMotion()) return;
+      for (const [node, top] of before) {
+        if (node === drag?.row) continue;
+        const dy = top - node.getBoundingClientRect().top;
+        if (!dy) continue;
+        node.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }],
+          { duration: FLIP_MS, easing: "cubic-bezier(.22,.8,.22,1)" });
+      }
+    }
+    /** 收尾：摘掉全局兜底监听 + 清掉拖动态样式（顺序是否落库由 finish 决定）。 */
+    function endDrag() {
+      document.removeEventListener("pointerup", docUp, true);
+      document.removeEventListener("pointercancel", docCancel, true);
+      const row = drag?.row;
+      drag = null;
+      if (!row) return;
+      row.classList.remove("dragging");
+      row.style.transform = "";
+      row.style.willChange = "";
+      renumber();
+    }
+    async function finish(commitIt) {
+      if (!drag) return;
+      const d = drag;
+      const to = rows().map((node) => node.dataset.id).indexOf(d.id);
+      const changed = commitIt && d.active && to >= 0 && d.startIndex >= 0 && to !== d.startIndex;
+      endDrag();
+      if (!changed) return;
+      await commit(() => { moveMemberTo(g, d.id, to); });
+    }
+    // setPointerCapture 失败、或指针在行外松手时，事件不会回到把手 —— 必须走 document 兜底，
+    // 否则会话挂死：行停在拖动态、顺序也不落库。capture=true 保证比行内处理器先跑（不会双提交）。
+    function docUp() { finish(true); }
+    function docCancel() { finish(false); }
+
     list.querySelectorAll("[data-drag]").forEach((handle) => {
       handle.addEventListener("pointerdown", (e) => {
         const row = e.currentTarget.closest(".dd-mrow");
         if (!row || e.button > 0) return;
         e.preventDefault();
-        const order = rows().map((node) => node.dataset.id);
-        drag = { id: row.dataset.id, row, order, startIndex: order.indexOf(row.dataset.id), slot: order.indexOf(row.dataset.id) };
-        row.classList.add("dragging");
-        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+        const startIndex = rows().map((node) => node.dataset.id).indexOf(row.dataset.id);
+        // slot 用的是「去掉被拖行之后」的槽位坐标：被拖行前面有 startIndex 行，初值就是它。
+        drag = { id: row.dataset.id, row, startIndex, slot: startIndex, startY: e.clientY, active: false };
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* 靠 document 兜底 */ }
+        document.addEventListener("pointerup", docUp, true);
+        document.addEventListener("pointercancel", docCancel, true);
       });
       handle.addEventListener("pointermove", (e) => {
         if (!drag) return;
-        const order = rows();
-        let slot = order.length - 1;
-        for (let i = 0; i < order.length; i++) {
-          const rect = order[i].getBoundingClientRect();
-          if (e.clientY < rect.top + rect.height / 2) { slot = i; break; }
+        if (!drag.active) {
+          if (Math.abs(e.clientY - drag.startY) < ACTIVATE_PX) return;
+          drag.active = true;
+          drag.row.classList.add("dragging");
+          drag.row.style.willChange = "transform";
+        }
+        drag.row.style.transform = `translateY(${e.clientY - drag.startY}px)`;
+        const others = rows().filter((node) => node !== drag.row);
+        let slot = others.length;
+        for (let i = 0; i < others.length; i++) {
+          if (e.clientY < topOf(others[i]) + others[i].offsetHeight / 2) { slot = i; break; }
         }
         if (slot === drag.slot) return;
         drag.slot = slot;
-        const peer = order[slot];
-        if (peer && peer !== drag.row) list.insertBefore(drag.row, slot > order.indexOf(drag.row) ? peer.nextSibling : peer);
+        flip(() => list.insertBefore(drag.row, others[slot] || null));
+        renumber();
       });
-      const finish = async () => {
-        if (!drag) return;
-        const id = drag.id;
-        const nextOrder = rows().map((node) => node.dataset.id);
-        const to = nextOrder.indexOf(id);
-        const changed = to >= 0 && drag.startIndex >= 0 && to !== drag.startIndex;
-        clear();
-        if (!changed) return;
-        await commit(() => { moveMemberTo(g, id, to); });
-      };
-      handle.addEventListener("pointerup", finish);
-      handle.addEventListener("pointercancel", clear);
+      handle.addEventListener("pointerup", () => { finish(true); });
+      handle.addEventListener("pointercancel", () => { finish(false); });
     });
   }
 
@@ -856,7 +923,7 @@
         </section>
         <section class="dd-card">
           <div class="dd-title">${faIcon("people-group")}成员 · 轮换顺序</div>
-          <div class="dd-note">按真实轮换顺序排列；绿色边框表示今天当班。拖动或点 ↑↓ 调整顺序。</div>
+          <div class="dd-note">按真实轮换顺序排列；绿色描边表示今天当班（拖动时被拖的那行也是绿框）。拖动 ⋮⋮ 或点 ↑↓ 调整顺序，拖动过程中序号实时跟着变。</div>
           <div data-members>${membersHtml(g)}</div>
           <div class="dd-add">
             <input class="dd-in" data-new maxlength="${MEMBER_MAX}" placeholder="输入成员名字，回车即可添加" aria-label="新成员名字">
