@@ -337,7 +337,10 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
    光块的包含块会回落到 .rail（fixed）—— shell.js 的坐标算法按"光块归零后自量 rect"写，
    两种形态共用一套公式，不依赖包含块到底是哪一个。 */
 .nav { display: flex; flex-direction: column; gap: 3px; flex: 1; overflow-y: auto; position: relative; }
-.nav .sec { font-size: calc(10px * var(--ui-text-scale)); letter-spacing: .22em; color: #5F7E86; margin: 14px 10px 6px; }
+/* v0.181.0：`.nav .sec`（插件列表上方那行「插 件 视 图 / 上下拖动排序」）已整行删除，
+   那条字号 / letter-spacing / margin 规则跟着删掉（DOM 见 shell.js 的 .plug-list）。
+   取而代之的是下面 .rail-divider —— 它不写在这儿，写在文件末尾的分隔线区块里，
+   因为底部操作条那条线要和它共用同一份几何。 */
 .nav button {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 12px; border-radius: 9px; font-size: calc(13.5px * var(--ui-text-scale)); color: #9DB4B0;
@@ -761,7 +764,7 @@ body.rail-resizing iframe { pointer-events: none !important; }
 
 /* ── 插件市场 ── */
 .market { padding: 18px 22px 26px; }
-.market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.market-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--market-card-w, 180px), 1fr)); gap: 12px; }
 .mcard {
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 20px 12px 16px; border-radius: var(--radius);
@@ -1139,9 +1142,13 @@ button, .nav { touch-action: manipulation; }
   }
   .brand { display: none; }
   .nav { flex: 1; display: contents; flex-direction: row; gap: 0; overflow: visible; }
-  .nav .sec { display: none; }
   .plug-list { display: none; }   /* 插件入口收进「插件市场」页 */
-  .rail-bottom[data-rail-dock] { border-top: 0; padding-top: 0; order: 0; width: auto; display: contents; }
+  /* v0.181.0：底栏模式没有这两条分隔线 —— 插件列表整块被隐藏（上一行），
+     底部操作条那条线原来靠 .rail-bottom 的 border-top: 0 关掉，现在线是 ::before，
+     必须显式 display: none（.rail-bottom 在窄屏是 display: contents，
+     伪元素会被提到 .rail 里变成一个 1px 的散件）。 */
+  .rail-bottom::before { display: none; }
+  .rail-bottom[data-rail-dock] { order: 0; width: auto; display: contents; }
   .rail-bottom[data-rail-dock] > .rail-dock-btn { width: auto; flex: 1; min-width: 0; }
   /* 特异性高于下方全局 .nav button / .ic 规则（602/605 行），否则 38px 图标与 50px 高会盖回来 */
   .rail .nav button {
@@ -1481,7 +1488,15 @@ button, .nav { touch-action: manipulation; }
 .app-outline-icon { display: none; }
 
 /* v0.6 · 左下角设置 + 任务提醒 */
-.rail-bottom { flex: none; border-top: 1px solid rgba(255,255,255,.08); padding-top: 7px; }
+/* v0.181.0：底部操作条上方那条分隔线从 `border-top` 换成绝对定位的 `::before` ——
+   只有伪元素做得成「左右内缩的细线」，border 永远贴满整条边；绝对定位是因为
+   `.rail-bottom` 同时是 `.rail-dock`（flex 行容器，见 feature-layouts.css），
+   普通伪元素在那里会退化成零宽 flex item。padding-top 仍是 7px：
+   线上方 1px + 下方 7px，与旧的 `border-top` + `padding-top: 7px` 同一份几何。
+   线的颜色同时换成主题令牌 --line（侧栏本身就是一块主题面板，`.rail` 的 border 就是 --line）：
+   旧的 rgba(255,255,255,.08) 压在浅色侧栏上等于看不见，那样「上下两条线对齐」无从谈起。
+   几何与插件列表上方那条共用，见文件末尾的「侧栏分隔线」区块。 */
+.rail-bottom { flex: none; position: relative; padding-top: 7px; }
 .rail-bottom > button { width: 100%; display: flex; align-items: center; gap: 10px; border: 0; background: transparent; color: #ADC0C5; border-radius: 10px; padding: 7px 9px; cursor: pointer; min-height: 50px; }
 .rail-bottom > button:hover { background: rgba(255,255,255,.06); color: #fff; }
 .rail-bottom > button.on { background: rgba(255,255,255,.12); color: #fff; font-weight: 600; }
@@ -1552,7 +1567,7 @@ button, .nav { touch-action: manipulation; }
   50% { box-shadow: var(--shadow-lg), 0 0 0 4px color-mix(in srgb, var(--danger) 45%, transparent); }
 }
 @media (max-width: 760px) {
-  .rail-bottom { border-top:0; padding-top:0; order:0; width:auto; display:contents; }
+  .rail-bottom { order:0; width:auto; display:contents; }
   .rail-bottom > button { display:flex; flex:1; min-width:0; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-height:var(--nav-btn-h, 46px); padding:3px 2px; border-radius:10px; font-size:calc(10px * var(--ui-text-scale)); line-height:1.1; }
   .rail-bottom > button .ic { width:var(--nav-ic, 22px); height:var(--nav-ic, 22px); border-radius:8px; }
   .reminder-picks { max-width:100%; justify-content:flex-start; }
@@ -1690,7 +1705,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .brand { padding: 4px 8px 16px; }
 
   .nav { gap: 4px; padding-right: 1px; }
-  .nav .sec { color: var(--ink-3); letter-spacing: .16em; margin: 14px 9px 6px; }
+  /* v0.181.0：`.nav .sec`（插件列表标题行）已删，见文件末尾「侧栏分隔线」区块。 */
   .nav button {
     min-height: 40px;
     padding: 7px 9px;
@@ -1801,13 +1816,18 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, te
 .ptask { border: 1px solid var(--line); border-radius: 10px; box-shadow: none; }
 .ptask:hover { border-color: color-mix(in srgb, var(--deep) 20%, var(--line)); background: var(--control-bg); }
 
-.market-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+/* 列宽下限与卡片最小高度都取 uiPreferences 写进 :root 的变量：在插件中心拖动任意一张卡片
+   就能调整**全部**卡片的大小（见 src/marketCardResize.js）。兜底值 = 拖动前的原值。 */
+.market-grid { grid-template-columns: repeat(auto-fill, minmax(var(--market-card-w, 180px), 1fr)); gap: 10px; }
 .mcard {
   align-items: flex-start;
   text-align: left;
   padding: 16px;
   gap: 8px;
-  min-height: 142px;
+  /* 0 = 不设最小高度、随内容自适应（这正是拖动前的行为）。窄屏那条
+     `.market-manage-card{min-height:0}` 在本层更靠后、会盖掉这一条，
+     所以那边已改成同一个变量；两处必须一起看。 */
+  min-height: var(--market-card-h, 0px);
   border-radius: var(--radius);
   box-shadow: none;
 }
@@ -1963,7 +1983,7 @@ button.about-list-row:hover { background:color-mix(in srgb,var(--deep) 5%,transp
 .quick-cap-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.quick-cap-head b{display:block;font-size:calc(16px * var(--ui-text-scale))}.quick-cap-head small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));margin-top:4px}.quick-cap-input{width:100%;min-height:138px;resize:vertical;box-sizing:border-box;border:1px solid var(--line);border-radius:12px;background:var(--paper);color:var(--ink);padding:12px;line-height:1.65;font:inherit}.quick-cap-input:focus{outline:2px solid color-mix(in srgb,var(--deep) 24%,transparent);border-color:var(--deep)}.quick-cap-actions{display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
 
 /* ── v0.10 · 插件中心搜索管理 ── */
-.market-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.market-head-tools{display:flex;align-items:center;gap:8px}.market-count{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);white-space:nowrap;padding-top:0}.market-search-toggle{display:none;width:34px;height:34px;flex:none;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink-2);cursor:pointer;padding:0;font:inherit}.market-search-toggle:hover{border-color:color-mix(in srgb,var(--deep) 42%,var(--line));color:var(--deep)}.market-search-glyph{font-size:calc(16px * var(--ui-text-scale));line-height:1}.market-search-row{display:flex;gap:8px;margin:4px 0 12px}.market-search{width:100%;height:34px;border:1px solid var(--line);padding:0 16px;color:var(--ink);font:inherit}/* 🔴 圆角与底色为什么要另起一条高特异性规则：第 1746 行那条通用输入框规则（input:not([type="checkbox"])…）用 !important 把 background / border-radius 钉成 --control-bg / 8px，特异性 (0,3,1) 压过 .market-search 的 (0,1,0) —— 两边都带 !important 时**比的是特异性，不是先后**，所以光写 !important 没用（v0.176.0 真机探针实测：只写 999px 或 999px !important，computed 都还是 8px）。下面这条把选择器抬到 (0,5,1) 才拿得回来，搜索框才能和筛选胶囊（.market-filter，999px）是同一套语言。 */input.market-search:not([type="checkbox"]):not([type="radio"]):not([type="range"]){border-radius:999px !important;background:var(--panel) !important}.market-search::placeholder{color:var(--ink-2)}.market-search:focus{outline:2px solid color-mix(in srgb,var(--deep) 18%,transparent);border-color:var(--deep)}.market-filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.market-filter{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2);cursor:pointer}.market-filter.on{background:var(--deep);border-color:var(--deep);color:var(--on-deep)}.market-filter-count{display:inline-block;margin-left:5px;padding:0 5px;min-width:14px;border-radius:999px;font-size:calc(9.5px * var(--ui-text-scale));line-height:15px;text-align:center;background:color-mix(in srgb,currentColor 14%,transparent);color:inherit}.market-filter.on .market-filter-count{background:color-mix(in srgb,currentColor 22%,transparent)}.market-manage-card{display:flex;flex-direction:column;align-items:stretch;gap:8px;text-align:left;cursor:default;min-height:0}.market-manage-card.disabled{opacity:.7}.market-card-head{display:flex;align-items:center;gap:9px}.market-card-title{display:flex;min-width:0;flex-direction:column}.market-card-title b{font-size:calc(13px * var(--ui-text-scale))}.market-card-title small{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3);margin-top:2px}.market-card-desc{font-size:calc(11.5px * var(--ui-text-scale));line-height:1.55;color:var(--ink-2);margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.market-card-meta{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3)}.market-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}.market-empty{grid-column:1/-1;padding:34px;text-align:center;border:1px dashed var(--line);border-radius:12px;color:var(--ink-3);font-size:calc(12px * var(--ui-text-scale))}
+.market-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.market-head-tools{display:flex;align-items:center;gap:8px}.market-count{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);white-space:nowrap;padding-top:0}.market-search-toggle{display:none;width:34px;height:34px;flex:none;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink-2);cursor:pointer;padding:0;font:inherit}.market-search-toggle:hover{border-color:color-mix(in srgb,var(--deep) 42%,var(--line));color:var(--deep)}.market-search-glyph{font-size:calc(16px * var(--ui-text-scale));line-height:1}.market-search-row{display:flex;gap:8px;margin:4px 0 12px}.market-search{width:100%;height:34px;border:1px solid var(--line);padding:0 16px;color:var(--ink);font:inherit}/* 🔴 圆角与底色为什么要另起一条高特异性规则：第 1746 行那条通用输入框规则（input:not([type="checkbox"])…）用 !important 把 background / border-radius 钉成 --control-bg / 8px，特异性 (0,3,1) 压过 .market-search 的 (0,1,0) —— 两边都带 !important 时**比的是特异性，不是先后**，所以光写 !important 没用（v0.176.0 真机探针实测：只写 999px 或 999px !important，computed 都还是 8px）。下面这条把选择器抬到 (0,5,1) 才拿得回来，搜索框才能和筛选胶囊（.market-filter，999px）是同一套语言。 */input.market-search:not([type="checkbox"]):not([type="radio"]):not([type="range"]){border-radius:999px !important;background:var(--panel) !important}.market-search::placeholder{color:var(--ink-2)}.market-search:focus{outline:2px solid color-mix(in srgb,var(--deep) 18%,transparent);border-color:var(--deep)}.market-filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.market-filter{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2);cursor:pointer}.market-filter.on{background:var(--deep);border-color:var(--deep);color:var(--on-deep)}.market-filter-count{display:inline-block;margin-left:5px;padding:0 5px;min-width:14px;border-radius:999px;font-size:calc(9.5px * var(--ui-text-scale));line-height:15px;text-align:center;background:color-mix(in srgb,currentColor 14%,transparent);color:inherit}.market-filter.on .market-filter-count{background:color-mix(in srgb,currentColor 22%,transparent)}.market-manage-card{display:flex;flex-direction:column;align-items:stretch;gap:8px;text-align:left;cursor:default;min-height:var(--market-card-h, 0px)}.market-manage-card.disabled{opacity:.7}.market-card-head{display:flex;align-items:center;gap:9px}.market-card-title{display:flex;min-width:0;flex-direction:column}.market-card-title b{font-size:calc(13px * var(--ui-text-scale))}.market-card-title small{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3);margin-top:2px}.market-card-desc{font-size:calc(11.5px * var(--ui-text-scale));line-height:1.55;color:var(--ink-2);margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.market-card-meta{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3)}.market-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}.market-empty{grid-column:1/-1;padding:34px;text-align:center;border:1px dashed var(--line);border-radius:12px;color:var(--ink-3);font-size:calc(12px * var(--ui-text-scale))}
 
 /* ── v0.10 · 插件权限与设置工具 ── */
 .plugin-search-row{display:flex;gap:8px;align-items:center;margin:10px 0}.plugin-search-input{flex:1;min-width:0;height:36px;border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:0 10px;color:var(--ink);font:inherit}.plugin-filter-select{height:36px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);padding:0 8px}
@@ -2665,7 +2685,9 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   .switch, .switch::after { transition: none; }
 }
 
-.market-card-actions { align-items: center; justify-content: space-between; }
+/* 操作区一律右对齐（v0.181.0 用户要求）：启停滑块落在卡片右下角。
+   卡片本身是打开入口，左下角不再挂任何控件。 */
+.market-card-actions { align-items: center; justify-content: flex-end; }
 .market-switch-control,
 .plugin-card-controls { display: inline-flex; align-items: center; gap: 7px; flex: none; }
 .market-switch-text,
@@ -3707,11 +3729,8 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   /* 过渡带里侧栏只有 176px，字标降到 22px 仍留得下；黑体比无衬线宽，别照旧值 13px 缩。 */
   .brand b { font-size: calc(22px * var(--ui-text-scale)); }
   .nav { gap: 2px; }
-  .nav .sec {
-    margin: 8px 7px 4px;
-    letter-spacing: .08em;
-    font-size: calc(9px * var(--ui-text-scale));
-  }
+  /* 过渡带（176px 侧栏）：分隔线跟着两侧内缩收一点，但左右仍是同一个值 —— 两条线要对齐。 */
+  .plug-list > .rail-divider { margin-top: 8px; margin-bottom: 4px; }
   .nav button {
     min-height: 34px;
     padding: 5px 7px;
@@ -3771,7 +3790,7 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   .app { padding: 6px; gap: 6px; }
   .rail { padding-top: 8px; padding-bottom: 8px; }
   .brand { padding-bottom: 8px; }
-  .nav .sec { margin-top: 7px; margin-bottom: 3px; }
+  .plug-list > .rail-divider { margin-top: 7px; margin-bottom: 3px; }
   .nav button { min-height: 32px; padding-top: 4px; padding-bottom: 4px; }
   .nav button .ic { width: 25px !important; height: 25px !important; }
   .topbar { height: calc(44px + var(--sat, env(safe-area-inset-top, 0px))); }
@@ -3789,14 +3808,51 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
    其余项的逐项追赶由 shell.js 的 WAAPI FLIP 完成。
    v0.102 颜色分组后，拖拽单位从 .plug-list 变成每一段 .plug-seg。 */
 .plug-seg > button[data-plugin-id] { cursor: grab; touch-action: pan-y; }
-.plug-list-sec{display:flex;align-items:center;justify-content:space-between;gap:8px}
+
+/* ═══ v0.181.0 · 侧栏里的两条细横线 ═══
+   用户需求原文：「请去掉图中的文字（在侧边栏那里），变成一个横线。上下两条横线对齐，
+   并缩短一些。」
+
+   侧栏（≥901px 的 .rail）里只有这两条横线：
+     ① 插件列表上方 —— `.plug-list > .rail-divider`（原来是「插 件 视 图 / 上下拖动排序」那行字，
+        见 shell.js 的 .plug-list）；
+     ② 底部操作条上方 —— `.rail-bottom::before`（原来是 .rail-bottom 的 border-top）。
+   左右内缩量由**同一个变量** --rail-line-inset 给（= 9px，导航图标那一列的位置，也就是被删掉
+   那行标题文字的起始位置），所以两条线天然等宽、左右对齐；这个内缩也让它们比侧栏外框
+   （`.rail` 那圈 1px border，通栏）短一截 —— 就是需求里的「缩短一些」。
+   ⚠️ 别再给其中一条单独写 left/right/margin-left/margin-right，一写就破对齐。
+
+   ⚠️ ② 为什么必须绝对定位：`.rail-bottom` 同时是 `.rail-dock`，而 feature-layouts.css 里有一条
+   把它设成 flex 行容器（display:flex + flex-direction:row，v0.53.0 起操作条是横排图标条）。
+   （这里刻意不把那两条声明连大括号抄出来：`scripts/test-rail-dock.mjs` 是用「类名 + 左大括号」
+   这种字面量去 indexOf 定位真正的规则块的，注释里出现同样的字面量会把它的切片带偏。）
+   在行容器里放一个「通栏 1px」的普通伪元素，它会变成零宽的 flex item —— 量出来 width=0，
+   线上什么都没有（本改动第一版就是这么哑掉的）。绝对定位既不参与布局、也不吃 flex 规则。 */
+:root { --rail-line-inset: 9px; }
+.rail-divider,
+.rail-bottom::before {
+  content: "";
+  height: 1px;
+  background: var(--line);
+}
+/* ① 插件列表上方：上下留白沿用被删掉那行标题的节奏（原来 .nav .sec 是 14px / 6px）。 */
+.plug-list > .rail-divider {
+  margin: 14px var(--rail-line-inset) 6px;
+}
+/* ② 底部操作条上方：线贴盒子顶边，到下面按钮的 7px 由 .rail-bottom 的 padding-top 给。 */
+.rail-bottom::before {
+  position: absolute;
+  top: 0;
+  left: var(--rail-line-inset);
+  right: var(--rail-line-inset);
+}
+
 /* v0.152.0 置顶段：置顶插件脱离了颜色分组、单独成块固定在最上方，
    所以借 .plug-group 那套视觉语言（极淡底 + 左侧竖条）说「这是一个区块」，
    底色换成主题强调色 --sun，与下面按插件色分组的卡片区分开。 */
 .nav .plug-seg-pinned { margin: 3px 0 6px; padding: 2px 4px 4px; border-radius: 11px;
   background: color-mix(in srgb, var(--sun) 9%, transparent);
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--sun) 60%, transparent); }
-.plug-list-sec small{font-size:calc(10px * var(--ui-text-scale));font-weight:500;letter-spacing:0;color:var(--ink-3);white-space:nowrap}
 .plug-seg.plugin-drag-live { cursor: grabbing; user-select: none; -webkit-user-select: none; }
 .plug-seg.plugin-drag-live > button[data-plugin-id] { cursor: grabbing; }
 .nav .plug-seg > button.nav-dragging {
@@ -3950,6 +4006,21 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 }
 .market-card-more:hover { color: var(--deep); border-color: color-mix(in srgb, var(--deep) 42%, var(--line)); }
 
+/* ── 插件中心卡片尺寸：拖动调整（v0.181.0）──
+   --market-card-w / --market-card-h 由 uiPreferences 写进 :root，网格列宽与卡片最小高度取它们，
+   所以拖动时只改两个变量、全部卡片一起变（src/marketCardResize.js）。
+   拖动中只挂 .market-resizing：关掉卡片过渡与 hover 位移，避免每帧重排时抖。 */
+.market-grid.market-resizing { cursor: grabbing; }
+.market-grid.market-resizing .mcard,
+.market-grid.market-resizing .mcard:hover { transition: none; transform: none; }
+.market-size-hint {
+  position: fixed; left: 0; top: 0; z-index: 2300; pointer-events: none;
+  padding: 4px 9px; border-radius: 8px; white-space: nowrap;
+  background: color-mix(in srgb, var(--ink) 88%, transparent); color: var(--panel);
+  font-size: calc(11px * var(--ui-text-scale)); font-variant-numeric: tabular-nums;
+  box-shadow: var(--shadow-lg);
+}
+
 .plugin-nav-ghost {
   position: fixed; left: 0; top: 0; z-index: 1200; box-sizing: border-box;
   display: flex; align-items: center; gap: 9px; padding: 7px 9px;
@@ -3988,7 +4059,8 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   .market-manage-card .perr { grid-column: 1 / -1; }
   .market-manage-card .market-card-desc,
   .market-manage-card .market-card-meta { display: none; }
-  .market-manage-card .market-card-actions { grid-column: 2; grid-row: 1; margin: 0; }
+  /* 窄屏条目是一行两列（左标题 / 右操作区），align-self:end 让滑块贴住条目右下角。 */
+  .market-manage-card .market-card-actions { grid-column: 2; grid-row: 1; margin: 0; align-self: end; }
   /* v0.180.0：卡片上的「打开」按钮已删（卡片本身就是入口），操作区只剩启停滑块与「⋯」。 */
   .market-manage-card .market-switch-text { display: none; }
   .market-manage-card .market-switch-control { margin: 0; }

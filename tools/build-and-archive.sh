@@ -58,6 +58,17 @@ bash scripts/build-android-apk.sh all
 cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
    "$OUT/UTime-$VER-universal.apk"
 
+# ---------- 3.5 清掉 MOTW（网络来源标记）----------
+# 产物只要经过一次浏览器/网盘/GitHub 下载就会被写上 Zone.Identifier，双击时 Windows 弹
+# 「打开文件 - 安全警告：无法验证发布者。你确定要运行此软件吗？」。归集后立刻清掉，
+# 本机双击不再弹；只删附加数据流，文件内容与 SHA256 不变（下面 4 的摘要照旧）。
+echo "==== 清除 MOTW（Zone.Identifier）===="
+OUTW="$(cygpath -w "$OUT" 2>/dev/null || echo "$OUT")"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \
+  "Get-ChildItem -LiteralPath '$OUTW' -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" \
+  && echo "  ✓ MOTW 已清除（$OUTW）"
+echo "  提示：全局关掉该弹窗（含浏览器/网盘下载的安装包）跑一次 tools/no-security-warning.ps1"
+
 # ---------- 4. 校验 + 摘要 ----------
 echo "==== 校验产物版本 ===="
 python -c "

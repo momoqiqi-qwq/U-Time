@@ -34,6 +34,8 @@ const env={document:doc,el:(...a)=>new N(...a),S:{pluginState:id=>states[id]},ge
   pluginDisplayName:(_,n)=>n,pluginDisplayIcon:()=>new N('i'),pluginAccent:()=>'',pluginOrderState:()=>[],normalizePluginOrder:ids=>ids,pluginColor:()=>null,
   isAndroidRuntime:()=>true,reducedMotion:()=>reduced,isSelfActivationKey:()=>true,faIcon:()=>new N('i'),switchTo:id=>routes.push(id),toast:t=>messages.push(t),
   flipByKey:(_,opts)=>opts.mutate(),fadeAway:()=>Promise.resolve(),openPluginContextMenu:()=>{},
+  // v0.181.0：卡片尺寸拖动（src/marketCardResize.js）在 renderMarket 里接入，这里给替身。
+  attachMarketCardResize:()=>()=>{},resetMarketCardSize:()=>{},
   setEnabled:async(id,on)=>{requests++;await new Promise(resolve=>release=resolve);if(fail)throw Error('test failure');states[id].enabled=on;for(let i=views.length-1;i>=0;i--)if(views[i].pluginId===id)views.splice(i,1);if(on) views.push({id:id+'-fresh',pluginId:id,title:'Fresh'}, {id:id+'-second',pluginId:id,title:'Second'});refresh();},
 };
 const module = new Function(...Object.keys(env), `let marketQuery='',marketFilter='all',marketSearchOpen=false,repaintMarket,refreshMarketState; const marketTogglePending=new Set(); ${code}; return {renderMarket,refresh:()=>refreshMarketState()};`)(...Object.values(env));

@@ -34,7 +34,8 @@ const stylesCss = read("src/styles.css");
 /* ── 1. DOM：品牌区只剩名称 ── */
 const brandBody = /el\("div",\s*\{\s*class:\s*"brand"\s*\},([\s\S]*?)\),\s*nav,/.exec(shellSrc)?.[1];
 assert.ok(brandBody, "在 shell.js 里找不到 rail 内的 .brand 品牌区（选择器或结构变了？）");
-assert.match(brandBody, /el\("b",\s*\{\s*\}\s*,\s*"U-Time"\)/, "品牌区必须有一颗写着 U-Time 的 <b>");
+assert.match(brandBody, /el\("b",\s*\{\s*\}\s*,\s*"U-Time Work"\)/, "品牌区必须有一颗写着 U-Time Work 的 <b>（v0.181.0 从 U-Time 改的名）");
+assert.doesNotMatch(brandBody, /el\("b",\s*\{\s*\}\s*,\s*"U-Time"\)/, "旧文案 U-Time 不许留在品牌区（改名是 v0.181.0 的用户需求）");
 assert.doesNotMatch(brandBody, /class:\s*"mark"/, "品牌区的图标 .mark 已按需求删除，不许再长回来");
 assert.doesNotMatch(brandBody, /el\("small"/, "品牌区的副标题 <small>U-TIME</small> 已删除（名称已经写在字标里）");
 

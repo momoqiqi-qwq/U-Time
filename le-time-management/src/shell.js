@@ -32,6 +32,7 @@ import { getThemeMode, resolveThemeMode, setThemeMode } from "./theme.js";
 import { RAIL_WIDTH_LIMITS, RAIL_WIDTH_STEP, applyRailWidth, clampRailWidth, normalizeRailWidth, steppedRailWidth } from "./railWidth.js";
 import { getUiScaleFactor } from "./uiScale.js";
 import { attachToolbarDrag } from "./toolbarDrag.js";
+import { attachMarketCardResize, resetMarketCardSize } from "./marketCardResize.js";
 import { openUpdateHistory } from "./updateHistory.js";
 
 // 注意：模块导入阶段 state 还未初始化，activeView 必须延迟到 renderShell 时读取
@@ -325,10 +326,14 @@ export function renderShell(root) {
      `<small>U-TIME</small>` —— 名称已经写在字标里，再叠一行同义大写只是噪音。
      名称本身换成 Nephele Workshop 那套哥特字标（UnifrakturCook + 粉紫→珊瑚橙横向渐变），
      字体、渐变、发光与「背景绘制区止于 padding box」的坑全在 styles.css 的 `.brand b` 那条注释里。
-     窄屏（≤900px）本来就把 .brand 整个 display:none，所以这次改动只作用于 ≥901px 的桌面侧栏。 */
+     窄屏（≤900px）本来就把 .brand 整个 display:none，所以这次改动只作用于 ≥901px 的桌面侧栏。
+     v0.181.0：字标文案从 `U-Time` 改成 `U-Time Work`（用户需求「把 U-Time 改成 U-Time Work」）。
+     哥特体下它比原名宽约 1.8 倍，`.brand b` 的 28px 字号是**按新名字**核过的 ——
+     默认 224px 侧栏（内容 202px − .brand 左右 padding）里仍留得住，且 white-space:nowrap
+     不会折行；`scripts/test-brand-wordmark.mjs` 里钉了「不溢出」这条。 */
   const rail = el("aside", { class: "rail" },
       el("div", { class: "brand" },
-      el("b", {}, "U-Time"),
+      el("b", {}, "U-Time Work"),
     ),
     nav,
     railDock,
@@ -922,12 +927,15 @@ export function renderShell(root) {
       }
     }
     if (!pluginViews.length) { syncNavGlow(); return; }
-    // 桌面端侧栏仍保留插件直达列表；移动端底栏只留核心入口（.plug-list 被隐藏）
+    /* 桌面端侧栏仍保留插件直达列表；移动端底栏只留核心入口（.plug-list 被隐藏）。
+       v0.181.0：原来那行「插 件 视 图 ／ 上下拖动排序」整行删掉，改成一条细横线
+       （用户需求原文：「请去掉图中的文字（在侧边栏那里），变成一个横线」）。
+       线的几何全部写在 styles.css 的 .rail-divider 那条规则里 —— 它与底部操作条上方那条
+       （.rail-bottom::before）共用同一个声明块，所以两条线永远等宽、左右对齐。
+       被删掉的是两个 UI 事实：分组标题（插件列表本来就自成一段）与拖拽提示（拖动时
+       原位空槽 + 克隆项跟随本身就是反馈，提示语不再单占一行）。 */
     const box = el("div", { class: "plug-list" },
-      el("div", { class: "sec plug-list-sec" },
-        el("span", {}, "插 件 视 图"),
-        desktopWindow ? el("small", {}, "上下拖动排序") : null,
-      ),
+      el("div", { class: "rail-divider", "aria-hidden": "true" }),
     );
     // 一个插件可以注册多个视图（cppu-notify 就有通知 / 一卡通 / 教务四视图共 6 个）。
     // 颜色与顺序都是插件级的：先按插件归拢，它的视图整串跟着插件走，一个都不能丢。
@@ -1940,6 +1948,17 @@ export function renderShell(root) {
     const search = el("input", { class: "market-search", type: "search", value: query, placeholder: "搜索插件名称 / ID / 功能 / 作者…", "aria-label": "搜索插件" });
     const filterBox = el("div", { class: "market-filters" });
     const grid = el("div", { class: "market-grid" });
+    // 卡片尺寸（v0.181.0）：在任意一张卡片上按住拖动即可调整**全部**卡片的大小
+    // （水平位移 = 宽，垂直位移 = 高，见 src/marketCardResize.js）。
+    // 网格空白处双击恢复默认 —— 拖动是唯一入口，得留一条零成本的退路。
+    attachMarketCardResize(grid, {
+      onCommit: (size) => toast(`卡片大小：宽 ${size.marketCardWidth} × 高 ${size.marketCardHeight}`),
+    });
+    grid.addEventListener("dblclick", (event) => {
+      if (event.target !== grid) return;
+      resetMarketCardSize();
+      toast("卡片大小已恢复默认");
+    });
     const cardRefreshers = new Map();
     let registrySnapshot = [], visibleIds = new Set();
     // 启停只同步现有节点；导入/删除或筛选成员变化才执行 FLIP 重排。
