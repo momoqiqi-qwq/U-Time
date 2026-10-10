@@ -192,7 +192,8 @@ function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = 
       + '    nextBigText, render, heroHtml, rowsHtml, groupChipsHtml, swapHtml, rulesHtml, setActiveGroup, addGroup, removeGroup, renameGroup,\n'
       + '    duplicateGroup, importMembers, tabMenuHtml,\n'
       + '    roomHtml, roomBeds, roomBunks, roomDims, roomBunkCount, roomScene, roomBounds, roomProjectAll, roomProjectPoint, roomView,\n'
-      + '    normalizeRoomSize, roomSizeOf, ROOM_SIZES, ROOM_VIEWS, ROOM_VIEW_DEFAULT, ROOM_BOX_WIDE, ROOM_BOX_NARROW, roomBox, ROOM_BUNK_SPLIT,\n'
+      + '    roomZoomDist, roomWheelPx, ROOM_ZOOM_MIN, ROOM_ZOOM_MAX, ROOM_ZOOM_PINCH_GAIN, ROOM_ZOOM_WHEEL_GAIN, ROOM_ZOOM_MAX_PX,\n'
+      + '    normalizeRoomSize, roomSizeOf, ROOM_SIZES, ROOM_VIEWS, ROOM_VIEW_DEFAULT, ROOM_BOX_WIDE, ROOM_BOX_NARROW, roomBox, ROOM_BUNK_SPLIT, roomTurnDeg,\n'
       + '    get tabMenu() { return tabMenu; }, set tabMenu(v) { tabMenu = v; },\n'
       + '    get MY_GEN() { return MY_GEN; }, set MY_GEN(v) { MY_GEN = v; } };\n'
       + '  tide.ui.registerView({ id: VIEW_ID,'
@@ -1539,6 +1540,27 @@ console.log('PASS: dorm-duty 多套轮换互不串台、旧数据迁移不丢字
   assert.match(html8, /<input type="checkbox" data-room-beds checked>/, '默认画床架（与原型稿观感一致时才关）');
   assert.match(html8, /data-room-beds="on"/, '容器上要带当前状态，样式那条规则靠它生效');
   assert.match(html8, /<div class="dd-room" data-room /, '星图容器要能被 bindRoom 认出来');
+  /* 旋转条 + 「停止」按钮 + 名字按钮（v0.177.0）
+     原来只有一个「自动旋转」勾选框：想停在某个角度只能等它转过去。 */
+  assert.match(html8, /<input class="dd-room-turn" data-room-turn type="range" min="0" max="360" step="1" value="\d+"/,
+    '星图**下面**要有旋转条：range 滑杆，值域 0..360 度');
+  assert.match(html8, /data-room-turn-val>\d+°</, '旋转条旁边要显示当前角度');
+  assert.match(html8, /class="dd-room-turnbar">\s*<span class="dd-room-turnlabel">/, '旋转条自带标签行');
+  assert.match(html8, /<div class="dd-room"[^]*?<\/div>\s*<div class="dd-room-turnbar">/, '旋转条要排在星图容器之后（“下面”）');
+  assert.match(html8, /class="dd-room-stop spinning" data-room-spin type="button"[^>]*>停止</,
+    '正在自动旋转时按钮写「停止」（按下即固定当前角度）');
+  assert.equal((html8.match(/data-room-rename="/g) || []).length, 8, '每颗有人的星上，名字都要能点开改名');
+  assert.equal((html8.match(/title="点击名字以改名"/g) || []).length, 8, '名字按钮要写明「点击名字以改名」');
+  assert.match(html8, /<button class="dd-bed-star" type="button" data-room-bed="/,
+    '星点自己是一颗按钮（热区与名字分开）');
+  assert.ok(!/<button class="dd-bed[ "]/.test(html8),
+    '外层容器不能再是 <button> —— 里面还嵌了名字按钮，button 里不能嵌 button');
+  // 0 / π / 2π / 负角都要落到滑杆的 0..359
+  assert.equal(fx.roomTurnDeg(0), 0, '0 弧度 = 0°');
+  assert.equal(fx.roomTurnDeg(Math.PI), 180, 'π = 180°');
+  assert.equal(fx.roomTurnDeg(Math.PI * 2), 0, '一整圈归一成 0°（滑杆不越界）');
+  assert.equal(fx.roomTurnDeg(-Math.PI / 2), 270, '负角度也要落回 0..359');
+  assert.equal(fx.roomTurnDeg(NaN), 0, '脏值不能把滑杆写成 NaN');
 
   // 超编：名单 8 人只画 4 颗星，且要说清还有几个人没排进去
   const g4 = many(4);
@@ -1643,6 +1665,43 @@ console.log('PASS: dorm-duty 多套轮换互不串台、旧数据迁移不丢字
     '拨开关要就地改容器属性 —— 整页重画会让名字闪一下、还会丢焦点');
   assert.match(PLUGIN_SRC, /永久[\s\S]{0,80}?铺板与立柱算进去|铺板与立柱算进去/,
     'roomBounds 的注释要写明「开关不动几何」，免得以后有人顺手按开关改取景');
+  /* 旋转条 / 停止按钮 / 点名字改名 的绑定（v0.177.0） */
+  assert.match(PLUGIN_SRC, /data-room-rename="\$\{esc\(m\.id\)\}"/, '名字按钮要带上成员 id，才反查得到是谁');
+  assert.match(PLUGIN_SRC, /title="点击名字以改名"/, '名字按钮要有「点击名字以改名」的提示');
+  assert.match(PLUGIN_SRC, /root\.querySelectorAll\("\[data-room-rename\]"\)/, '点名字改名要真的绑上事件');
+  assert.match(PLUGIN_SRC, /promptFn\(`给「\$\{cur\.name\}」改个名字`/, '改名走 promptFn —— Android 的 onJsPrompt 也实现了，真机上能用');
+  assert.match(PLUGIN_SRC, /q\("\[data-room-spin\]"\)\?\.addEventListener\("click"/, '「停止」按钮要真的绑上事件');
+  assert.match(PLUGIN_SRC, /q\("\[data-room-turn\]"\)/, '旋转条要真的绑上事件');
+  assert.match(PLUGIN_SRC, /roomTurnSettleSoon\(\)/, '滑杆松手后要落位：没按停止就接着自动旋转');
+  assert.match(PLUGIN_SRC, /roomTurnDragging = true;[\s\S]{0,120}?roomStopSpin\(\)/,
+    '拖动旋转条期间要停掉自动旋转，否则每帧回写会把手指顶回去');
+  assert.match(PLUGIN_SRC, /if \(!root \|\| roomTurnDragging\) return;/, '拖动中不许回写滑杆（会跟手指打架）');
+  assert.match(PLUGIN_SRC, /wrap\.classList\.toggle\("now", now\)/,
+    'roomDraw 里类名要落到外层 .dd-bed —— 热区拆成里外两层之后，写在里层会把「今天当班」的绿色洗掉');
+  assert.match(PLUGIN_SRC, /\.dd-room-stop\{/, '「停止 / 继续旋转」要有自己的样式');
+  assert.match(PLUGIN_SRC, /--range-progress/, '滑杆已填充的那一段靠 --range-progress（宿主那条全局 range 规则就是这么读的）');
+
+  /* 9.8 星图缩放：鼠标滚轮 / 触控板捏合（v0.179.0）。
+     触控板捏合在 Chromium 里 = 带 ctrlKey 的 wheel（与鼠标 Ctrl+滚轮同一条路），
+     但事件又密又碎（一次捏合几十上百个、每个 deltaY 只有个位数像素）。
+     原来的 `Math.sign(e.deltaY) * 0.09` 是「按事件个数跳档」⇒ 捏合第一帧就顶到上下限，
+     用户看到的就是「捏合不可用」。这几条都只有真手势才看得见，所以钉在源码上。 */
+  assert.match(PLUGIN_SRC, /addEventListener\("wheel"[\s\S]{0,400}?\{ passive: false \}/,
+    'wheel 监听必须 passive:false —— passive 下 preventDefault 是空操作，捏合会去缩放整个 WebView（整个界面跟着变大）');
+  assert.match(PLUGIN_SRC, /e\.ctrlKey \? ROOM_ZOOM_PINCH_GAIN : ROOM_ZOOM_WHEEL_GAIN/,
+    '触控板捏合（ctrl+wheel）与鼠标滚轮 / 两指滚动要走不同的增益：捏合事件碎、单帧位移小，增益不放大就是「捏半天不动」');
+  assert.doesNotMatch(PLUGIN_SRC, /Math\.sign\(e\.deltaY\)/,
+    '不能再按「事件个数」跳档：一次触控板捏合几十上百个碎事件，第一帧就会顶到上下限（这正是捏合不可用的原因）');
+  assert.match(PLUGIN_SRC, /host\.closest\?\.\("\.dd-room-card"\) \|\| host/,
+    '缩放要绑在整张卡片上而不是只有中间那块 `[data-room]`：卡片四周的空档也能捏合');
+  assert.match(PLUGIN_SRC, /roomZoomSettleSoon\(\)/,
+    '缩放落盘必须延后：一次捏合上百个 wheel，逐个 save() 就是几百次 tide.storage.set，落盘链堵住后画面会卡');
+  assert.match(PLUGIN_SRC, /dist: Number\.isFinite\(dist\) \? Math\.max\(ROOM_ZOOM_MIN, Math\.min\(ROOM_ZOOM_MAX, dist\)\) : 1/,
+    'roomView() 的夹取必须与缩放常量同源，否则两处上下限会各走各的');
+  assert.match(PLUGIN_SRC, /左右拖动转视角[^<]*捏合/,
+    '提示文案要提到捏合 —— 用户不会去试一个没写出来的手势');
+  assert.match(PLUGIN_SRC, /触控板在图上直接捏合就能缩放/,
+    '图注也要写明触控板捏合（星图的用法只有图注这一处说明）');
 
   /* 9.7 跨端：roomSize 在两端归一化出同一个值，备份恢复才不丢设置 */
   for (const [v, expected] of [[0, 0], [4, 4], [8, 8], [5, 4], ['6', 6], [null, 4], ['', 4]]) {
@@ -1659,5 +1718,73 @@ console.log('PASS: dorm-duty 多套轮换互不串台、旧数据迁移不丢字
   const dup = mini.ddDuplicateGroup(mini.ddGroups([GROUP({ roomSize: 8, id: 'gA' })], '2026-09-17'), 'gA', '2026-09-17');
   assert.equal(dup.created.roomSize, 8, '小程序复制整套轮换要带走宿舍人数');
 
-  console.log('PASS: 宿舍床位星图（roomSize 归一化 0/4/6/8、4/6/8 人 2/3/4 张上下铺贴左右墙且先下后上、三机位投影不出 NaN/不越框/星距 ≥34px/近大远小压幅、默认机位与对角线拉开、序号与名单同序、铺板立柱数量、当班高亮含每轮多人、空床与超编、关闭档、视角脏值兜底、显示床铺开关（只改显隐不动几何）、nephele 透光与减少动效、拖动与点选不打架、跨端字段一致）');
+  /* 9.9 星图缩放的数学：滚轮 / 触控板捏合（v0.179.0）。
+     纯函数 roomZoomDist(dist, wheelEvent, pagePx)，所以能在这里直接喂事件对象。
+     契约：① 方向：deltaY<0（向上滚 / 双指外张）= 放大（dist 变小）；
+     ② 总量只由**位移**决定，与事件个数无关 —— 这是「捏合能不能用」的分水岭；
+     ③ 单帧位移有上限，一次超大 delta 不许一帧跳过整段行程；
+     ④ 等比映射可逆；⑤ 夹在 [ROOM_ZOOM_MIN, ROOM_ZOOM_MAX]。 */
+  {
+    const { fx } = bootPlugin();
+    const pinch = (dy, extra) => ({ deltaY: dy, deltaMode: 0, ctrlKey: true, ...extra });
+    const roll = (dy, extra) => ({ deltaY: dy, deltaMode: 0, ctrlKey: false, ...extra });
+
+    assert.ok(fx.roomZoomDist(1, roll(-100)) < 1, 'deltaY<0 要放大（dist 变小 = 离得更近）');
+    assert.ok(fx.roomZoomDist(1, roll(100)) > 1, 'deltaY>0 要缩小（dist 变大）');
+    assert.equal(fx.roomZoomDist(1, pinch(0)), 1, '零位移不动（捏合的起手帧 deltaY 就是 0）');
+
+    // 鼠标滚轮一格（Chrome 的 100px）≈ 原来的 9%，手感不变
+    const notch = fx.roomZoomDist(1, roll(100));
+    assert.ok(notch > 1.05 && notch < 1.13, `鼠标滚轮一格仍应约 9%（实测 ${notch.toFixed(3)}）`);
+
+    // 🔴 捏合的分水岭：40 个 4px 的碎事件 vs 4 个 40px 的事件，位移都是 160px ⇒ 结果必须一样。
+    //    旧实现（Math.sign 步进）在这里是 40 档 vs 4 档，差 10 倍。
+    let dense = 1;
+    for (let i = 0; i < 40; i++) dense = fx.roomZoomDist(dense, pinch(-4));
+    let chunky = 1;
+    for (let i = 0; i < 4; i++) chunky = fx.roomZoomDist(chunky, pinch(-40));
+    assert.ok(Math.abs(dense - chunky) < 1e-9,
+      `捏合总量只跟手势位移有关、与事件个数无关（40×4px → ${dense.toFixed(4)}，4×40px → ${chunky.toFixed(4)}）`);
+    assert.ok(dense > 0.6 && dense < 0.75, `160px 的捏合要落在「明显放大但远没到底」的区间（实测 ${dense.toFixed(3)}）`);
+
+    // 单帧上限：一次 160px 的大 delta 不许跑得比「同样的 160px 分帧滑」更远
+    const oneShot = fx.roomZoomDist(1, pinch(-160));
+    assert.ok(oneShot > dense, '单次超位移要被 ROOM_ZOOM_MAX_PX 夹住，不能一帧跳过整段行程');
+    assert.ok(oneShot > 0.85, `单帧最多约 13%（实测 ${oneShot.toFixed(3)}）—— 旧实现单帧就是 9% 且不看位移`);
+
+    // 可逆：等量反向捏合回到原值（等比映射的性质，也是「捏过头能捏回来」的前提）
+    let back = 1;
+    for (let i = 0; i < 10; i++) back = fx.roomZoomDist(back, pinch(-8));
+    for (let i = 0; i < 10; i++) back = fx.roomZoomDist(back, pinch(8));
+    assert.ok(Math.abs(back - 1) < 1e-12, `等量反向捏合必须回到原值（实测 ${back}）`);
+
+    // 夹取：捏到底就停在常量上，不越界、也不产生 NaN
+    let lo = 1;
+    for (let i = 0; i < 200; i++) lo = fx.roomZoomDist(lo, pinch(-50));
+    assert.equal(lo, fx.ROOM_ZOOM_MIN, '一直放大只会停在 ROOM_ZOOM_MIN');
+    let hi = lo;
+    for (let i = 0; i < 400; i++) hi = fx.roomZoomDist(hi, pinch(50));
+    assert.equal(hi, fx.ROOM_ZOOM_MAX, '一直缩小只会停在 ROOM_ZOOM_MAX');
+    assert.ok(Number.isFinite(fx.roomZoomDist(undefined, roll(100))), 'dist 缺省（老数据 / 首帧）不能算出 NaN');
+    assert.ok(Number.isFinite(fx.roomZoomDist(NaN, roll(100))), 'dist 是脏值不能算出 NaN');
+    assert.ok(fx.roomZoomDist(NaN, roll(-100)) < 1, 'dist 脏值时按 1 起算，方向仍然对');
+    assert.equal(fx.roomZoomDist(1, { deltaY: NaN, deltaMode: 0 }), 1, 'deltaY 是 NaN 时不动（不能把 dist 变成 NaN）');
+
+    // deltaMode 折算：Firefox / 部分鼠标驱动报的是「行」，不折算就是「缩放几乎不动」
+    assert.ok(Math.abs(fx.roomZoomDist(1, roll(3, { deltaMode: 1 })) - fx.roomZoomDist(1, roll(48))) < 1e-9,
+      'deltaMode=1（行）要按 16px/行折算');
+    assert.ok(Math.abs(fx.roomZoomDist(1, roll(1, { deltaMode: 2 }), 400) - fx.roomZoomDist(1, roll(400))) < 1e-9,
+      'deltaMode=2（页）要按视口高度折算');
+    assert.ok(Math.abs(fx.roomZoomDist(1, roll(1, { deltaMode: 2 })) - fx.roomZoomDist(1, roll(400))) < 1e-9,
+      '拿不到视口高度时按兜底页高折算，而不是当成 1px');
+
+    // 增益：捏合 > 滚轮（碎事件单帧位移小，增益不放大就「捏半天不动」）
+    assert.ok(fx.ROOM_ZOOM_PINCH_GAIN > fx.ROOM_ZOOM_WHEEL_GAIN,
+      '捏合增益必须大于滚轮增益，否则触控板上捏一下只动一点点');
+    assert.equal(fx.ROOM_ZOOM_MIN, 0.55, '下限与历史行为一致（老数据的 dist 就是按 0.55 夹的）');
+    assert.equal(fx.ROOM_ZOOM_MAX, 1.9, '上限与历史行为一致');
+    assert.ok(fx.ROOM_ZOOM_MAX_PX > 0, '单帧位移上限必须存在，否则一次超大 delta 会一帧到底');
+  }
+
+  console.log('PASS: 宿舍床位星图（roomSize 归一化 0/4/6/8、4/6/8 人 2/3/4 张上下铺贴左右墙且先下后上、三机位投影不出 NaN/不越框/星距 ≥34px/近大远小压幅、默认机位与对角线拉开、序号与名单同序、铺板立柱数量、当班高亮含每轮多人、空床与超编、关闭档、视角脏值兜底、显示床铺开关（只改显隐不动几何）、旋转条（0..360 度）与「停止 / 继续旋转」按钮、点名字改名（热区与星点分成两颗按钮）、nephele 透光与减少动效、拖动与点选不打架、跨端字段一致、缩放（滚轮 / 触控板捏合：按位移等比、单帧有上限、可逆、夹取与 deltaMode 折算））');
 }

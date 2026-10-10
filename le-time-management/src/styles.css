@@ -235,6 +235,18 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
+/* 品牌字标用的哥特黑体（v0.178.0）。**只给左上角 `.brand b` 用**，不进 body 的字体栈 ——
+   全应用正文换成黑体是灾难。随包分发：`public/fonts/UnifrakturCook-Bold.woff2`（17 KB，latin 子集），
+   许可 SIL OFL-1.1，原始许可文本在同目录 `public/fonts/OFL.txt`，署名见 `public/OPEN_SOURCE_NOTICES.md`。
+   `font-display: swap`：字体在本地磁盘上，首帧几乎不可能缺席；真缺了就先显示系统黑体再换，
+   比 block（先隐形）体面。 */
+@font-face {
+  font-family: "UnifrakturCook";
+  src: url("/fonts/UnifrakturCook-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
 button { font-family: inherit; border: none; background: none; cursor: pointer; color: inherit; }
 :root[data-font-mode="system"] body {
   font-family: system-ui, sans-serif;
@@ -279,13 +291,45 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
      已经是包含块，这里补的是桌面）。 */
   position: relative;
 }
-.brand { display: flex; align-items: center; gap: 10px; padding: 2px 10px 20px; }
-.brand .mark { width: 30px; height: 30px; border-radius: 9px; flex: none;
-  background: conic-gradient(var(--q1) 0 90deg, var(--sun) 90deg 180deg, var(--q3) 180deg 270deg, var(--sea) 270deg 360deg);
-  position: relative; }
-.brand .mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--deep-2); }
-.brand b { font-size: calc(16px * var(--ui-text-scale)); letter-spacing: .2em; color: #fff; font-weight: 600; }
-.brand small { display: block; font-size: calc(9px * var(--ui-text-scale)); letter-spacing: .18em; color: #7FA0A8; margin-top: 2px; }
+/* ── 左上角品牌字标（v0.178.0）──
+   用户需求：左上角的图标与名称「只保留名称」，名称字体参照 Nephele Workshop 的 logo。
+   所以 `.mark`（那枚四色圆环）与副标题 `small` 一起删掉（DOM 见 shell.js 的 .brand），只剩一颗 `<b>`。
+
+   渐变字的四个要点（踩过就会再踩，写死在这里）：
+   ① 必须 `background-clip: text` + 透明字色，`color` 与 `-webkit-text-fill-color` 两条都写；
+      只写一条时，另一条会在某些路径上把字填回实心。
+   ② **背景的绘制区域止于 border box** —— 字形一旦冒出盒子（黑体字上下都冒头），
+      溢出那截没有背景可裁，会直接**看不见**。所以 line-height 与 padding 都留了余量，
+      别为了「紧凑」删掉它们；`display: inline-block` 是让盒子按字标自己算宽高。
+   ③ 发光**不能用 `text-shadow`**：阴影画在元素背景**之上**，会把渐变整个盖住。
+      只能用 `filter: drop-shadow()`（见下面的深色规则）。
+   ④ 浅色与深色是**色相相同、亮度不同**的两套四档渐变。参考图那组粉紫→珊瑚橙压在浅色侧栏上
+      只有 2.0~2.5:1，等于糊在纸上；浅色档按「保持色相与饱和度、压暗到侧栏最不利底色也 ≥3.5:1」
+      实算得出。侧栏底色有**两种**：Nephele 风格界面开着时是那层淡紫毛玻璃（实测 #E0D0F0 上下，
+      由 nephele-background.css 的云层叠出来），关掉时才是接近纯白的 --panel 混色 ——
+      两者都算过，取更严的那条。两条色值都被测试钉着。 */
+.brand { display: flex; align-items: center; padding: 2px 10px 20px; }
+.brand b {
+  display: inline-block;
+  font-family: "UnifrakturCook", "Old English Text MT", "UnifrakturMaguntia", "Lucida Blackletter", "Blackadder ITC", Georgia, serif;
+  font-weight: 700;
+  font-size: calc(28px * var(--ui-text-scale));
+  line-height: 1.34;
+  letter-spacing: .015em;
+  padding: 0 .1em .06em;
+  white-space: nowrap;
+  background-image: linear-gradient(90deg, #B62394 0%, #C61557 32%, #C32A10 67%, #9C5211 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+/* 深色：参考图原色四档 + 一层同色系柔光。按 `data-theme-mode` 而不是 `data-theme="night"`
+   —— 「跟随系统变深」与「浅色主题 + 深色模式」都必须命中（写 night 会两条全漏）。 */
+:root[data-theme-mode="dark"] .brand b {
+  background-image: linear-gradient(90deg, #E781CF 0%, #F17EA9 32%, #F48A78 67%, #EDA15E 100%);
+  filter: drop-shadow(0 0 5px rgba(241, 126, 169, .42));
+}
 
 /* position: relative 是 v0.152.0 给光块（.nav-glow）加的包含块：桌面 .nav 是滚动容器
    （overflow-y: auto），光块作为它的绝对定位后代**随列表一起滚动**，天然贴合所在行。
@@ -1641,19 +1685,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     box-shadow: var(--shadow);
     overflow: hidden;
   }
-  .brand { padding: 4px 8px 16px; gap: 11px; }
-  .brand .mark {
-    width: 32px; height: 32px; border-radius: 9px;
-    background: var(--deep);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 16%, transparent);
-  }
-  .brand .mark::after {
-    inset: 9px;
-    background: var(--panel);
-    box-shadow: 7px -7px 0 -4px var(--sun), -7px 7px 0 -4px var(--sea);
-  }
-  .brand b { color: var(--ink); font-size: calc(15px * var(--ui-text-scale)); letter-spacing: .08em; font-weight: 700; }
-  .brand small { color: var(--ink-3); letter-spacing: .1em; }
+  /* v0.178.0：品牌区只剩一颗字标，`gap` 与 `.mark` / `small` 那几条规则一并删除。
+     字号不在这里覆盖 —— 基础 `.brand b` 那条（28px × --ui-text-scale）就是桌面尺寸。 */
+  .brand { padding: 4px 8px 16px; }
 
   .nav { gap: 4px; padding-right: 1px; }
   .nav .sec { color: var(--ink-3); letter-spacing: .16em; margin: 14px 9px 6px; }
@@ -1929,19 +1963,28 @@ button.about-list-row:hover { background:color-mix(in srgb,var(--deep) 5%,transp
 .quick-cap-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.quick-cap-head b{display:block;font-size:calc(16px * var(--ui-text-scale))}.quick-cap-head small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));margin-top:4px}.quick-cap-input{width:100%;min-height:138px;resize:vertical;box-sizing:border-box;border:1px solid var(--line);border-radius:12px;background:var(--paper);color:var(--ink);padding:12px;line-height:1.65;font:inherit}.quick-cap-input:focus{outline:2px solid color-mix(in srgb,var(--deep) 24%,transparent);border-color:var(--deep)}.quick-cap-actions{display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
 
 /* ── v0.10 · 插件中心搜索管理 ── */
-.market-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.market-head-tools{display:flex;align-items:center;gap:8px}.market-count{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);white-space:nowrap;padding-top:0}.market-search-toggle{display:none;width:34px;height:34px;flex:none;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink-2);cursor:pointer;padding:0;font:inherit}.market-search-toggle:hover{border-color:color-mix(in srgb,var(--deep) 42%,var(--line));color:var(--deep)}.market-search-glyph{font-size:calc(16px * var(--ui-text-scale));line-height:1}.market-search-row{display:flex;gap:8px;margin:12px 0 9px}.market-search{width:100%;height:38px;border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:0 12px;color:var(--ink);font:inherit}.market-search:focus{outline:2px solid color-mix(in srgb,var(--deep) 18%,transparent);border-color:var(--deep)}.market-filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.market-filter{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2);cursor:pointer}.market-filter.on{background:var(--deep);border-color:var(--deep);color:var(--on-deep)}.market-filter-count{display:inline-block;margin-left:5px;padding:0 5px;min-width:14px;border-radius:999px;font-size:calc(9.5px * var(--ui-text-scale));line-height:15px;text-align:center;background:color-mix(in srgb,currentColor 14%,transparent);color:inherit}.market-filter.on .market-filter-count{background:color-mix(in srgb,currentColor 22%,transparent)}.market-manage-card{display:flex;flex-direction:column;align-items:stretch;gap:8px;text-align:left;cursor:default;min-height:0}.market-manage-card.disabled{opacity:.7}.market-card-head{display:flex;align-items:center;gap:9px}.market-card-title{display:flex;min-width:0;flex-direction:column}.market-card-title b{font-size:calc(13px * var(--ui-text-scale))}.market-card-title small{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3);margin-top:2px}.market-card-desc{font-size:calc(11.5px * var(--ui-text-scale));line-height:1.55;color:var(--ink-2);margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.market-card-meta{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3)}.market-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}.market-empty{grid-column:1/-1;padding:34px;text-align:center;border:1px dashed var(--line);border-radius:12px;color:var(--ink-3);font-size:calc(12px * var(--ui-text-scale))}
+.market-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.market-head-tools{display:flex;align-items:center;gap:8px}.market-count{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);white-space:nowrap;padding-top:0}.market-search-toggle{display:none;width:34px;height:34px;flex:none;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink-2);cursor:pointer;padding:0;font:inherit}.market-search-toggle:hover{border-color:color-mix(in srgb,var(--deep) 42%,var(--line));color:var(--deep)}.market-search-glyph{font-size:calc(16px * var(--ui-text-scale));line-height:1}.market-search-row{display:flex;gap:8px;margin:4px 0 12px}.market-search{width:100%;height:34px;border:1px solid var(--line);padding:0 16px;color:var(--ink);font:inherit}/* 🔴 圆角与底色为什么要另起一条高特异性规则：第 1746 行那条通用输入框规则（input:not([type="checkbox"])…）用 !important 把 background / border-radius 钉成 --control-bg / 8px，特异性 (0,3,1) 压过 .market-search 的 (0,1,0) —— 两边都带 !important 时**比的是特异性，不是先后**，所以光写 !important 没用（v0.176.0 真机探针实测：只写 999px 或 999px !important，computed 都还是 8px）。下面这条把选择器抬到 (0,5,1) 才拿得回来，搜索框才能和筛选胶囊（.market-filter，999px）是同一套语言。 */input.market-search:not([type="checkbox"]):not([type="radio"]):not([type="range"]){border-radius:999px !important;background:var(--panel) !important}.market-search::placeholder{color:var(--ink-2)}.market-search:focus{outline:2px solid color-mix(in srgb,var(--deep) 18%,transparent);border-color:var(--deep)}.market-filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}.market-filter{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2);cursor:pointer}.market-filter.on{background:var(--deep);border-color:var(--deep);color:var(--on-deep)}.market-filter-count{display:inline-block;margin-left:5px;padding:0 5px;min-width:14px;border-radius:999px;font-size:calc(9.5px * var(--ui-text-scale));line-height:15px;text-align:center;background:color-mix(in srgb,currentColor 14%,transparent);color:inherit}.market-filter.on .market-filter-count{background:color-mix(in srgb,currentColor 22%,transparent)}.market-manage-card{display:flex;flex-direction:column;align-items:stretch;gap:8px;text-align:left;cursor:default;min-height:0}.market-manage-card.disabled{opacity:.7}.market-card-head{display:flex;align-items:center;gap:9px}.market-card-title{display:flex;min-width:0;flex-direction:column}.market-card-title b{font-size:calc(13px * var(--ui-text-scale))}.market-card-title small{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3);margin-top:2px}.market-card-desc{font-size:calc(11.5px * var(--ui-text-scale));line-height:1.55;color:var(--ink-2);margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.market-card-meta{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3)}.market-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}.market-empty{grid-column:1/-1;padding:34px;text-align:center;border:1px dashed var(--line);border-radius:12px;color:var(--ink-3);font-size:calc(12px * var(--ui-text-scale))}
 
 /* ── v0.10 · 插件权限与设置工具 ── */
 .plugin-search-row{display:flex;gap:8px;align-items:center;margin:10px 0}.plugin-search-input{flex:1;min-width:0;height:36px;border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:0 10px;color:var(--ink);font:inherit}.plugin-filter-select{height:36px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);padding:0 8px}
 .plugin-desc-toggle{display:inline-flex;align-items:center;gap:7px;min-height:36px;color:var(--ink-2);font-size:calc(12px * var(--ui-text-scale));white-space:nowrap}
-/* 「显示介绍」关掉时，描述**和作者行**都要收起来 —— 作者行也是插件介绍的一部分，
-   只收描述会留下一行「作者 …」（插件中心的 author 字段有的塞了整段更新记录，能撑到 7 行）。
-   两处列表的 DOM 各一套：设置页是 .plug-info > .pd/.pm，插件中心是 .market-card-desc/.market-card-meta；
-   插件中心在 .view 里、不在 .settings-section 下，所以它的选择器不能带那层前缀。 */
+/* 「显示介绍」关掉时，一张插件卡片上除了「图标 + 名称 + 操作」，其余说明性文字全收起来：
+   描述、作者行、版本号与「内置」徽标、开关左侧那枚状态文字（「已开启」/「已关闭」）。
+   只收描述会留下作者行（插件中心的 author 字段有的塞了整段更新记录，能撑到 7 行）；
+   只收正文又会留下「v1.7.1 · 内置」和一串「已开启」，卡片照样被撑高 —— 这三样都是介绍文案。
+   两处列表的 DOM 各一套：
+     设置页   .plug-info > .pd（描述）/ .pm（作者）/ .pn .src（内置、版本徽标）/ .plugin-switch-label（开关左侧状态）
+     插件中心 .market-card-desc / .market-card-meta / .market-card-title small（版本·内置）/ .market-switch-text（开关左侧状态）
+   插件中心在 .view 里、不在 .settings-section 下，所以它的选择器不能带那层前缀；
+   .plugin-switch-label 与 .market-switch-text 是插件列表专有类名，直接写即可。 */
 :root[data-plugin-descriptions="off"] .settings-section .plug-card .pd,
 :root[data-plugin-descriptions="off"] .settings-section .plug-card .pm,
+:root[data-plugin-descriptions="off"] .settings-section .plug-card .pn .src,
+:root[data-plugin-descriptions="off"] .plugin-switch-label,
 :root[data-plugin-descriptions="off"] .market-card-desc,
-:root[data-plugin-descriptions="off"] .market-card-meta{display:none!important}
+:root[data-plugin-descriptions="off"] .market-card-meta,
+:root[data-plugin-descriptions="off"] .market-card-title small,
+:root[data-plugin-descriptions="off"] .market-switch-text{display:none!important}
 /* 插件筛选统一收进原生 details：summary 是唯一常驻按钮，选项只在展开时占位。 */
 .plugin-filter-menu{position:relative;display:inline-block;max-width:100%;vertical-align:middle}
 .plugin-filter-menu>summary{list-style:none;display:inline-flex;align-items:center;gap:8px;min-height:40px;padding:7px 13px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);font-size:calc(12px * var(--ui-text-scale));font-weight:650;cursor:pointer;user-select:none}
@@ -3660,10 +3703,9 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
     padding: 10px 7px 9px;
   }
   .rail-resizer { margin: 0 -11px; }
-  .brand { padding: 2px 7px 10px; gap: 8px; }
-  .brand .mark { width: 28px; height: 28px; }
-  .brand b { font-size: calc(13px * var(--ui-text-scale)); letter-spacing: .04em; }
-  .brand small { display: none; }
+  .brand { padding: 2px 7px 10px; }
+  /* 过渡带里侧栏只有 176px，字标降到 22px 仍留得下；黑体比无衬线宽，别照旧值 13px 缩。 */
+  .brand b { font-size: calc(22px * var(--ui-text-scale)); }
   .nav { gap: 2px; }
   .nav .sec {
     margin: 8px 7px 4px;

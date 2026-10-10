@@ -57,4 +57,31 @@ const remaining=root.querySelector('.market-plugin-switch');remaining.focus();pe
 assert.equal(root.querySelector('.market-empty').textContent,'当前筛选下没有插件');assert.equal(active,search,'removing focused filtered card restores focus');
 assert.ok(!code.includes('setTimeout(() => renderMarket'));
 assert.match(shell,/else if \(activeView === "market"\) refreshMarketState\?\.\(\)/);
-console.log('PASS: plugin toggle keeps DOM/scroll/focus, guards concurrency, updates view links/counts, handles failure/filtering and reduced motion');
+
+/* ── 插件中心布局（v0.176.0）：计数行删除、搜索框紧跟标签行、搜索框与筛选胶囊同款风格 ──
+   三条都是「静态断言看不出、用户一眼能看出」的：计数行留着只会把搜索框顶到标签下方第二行，
+   圆角写错则搜索框与标签行不是同一套语言。 */
+const wrap = root.children[0];
+const idxOf = (cls) => wrap.children.findIndex((n) => typeof n === 'object' && n.classes.has(cls));
+const iFilters = idxOf('market-filters'), iSearchRow = idxOf('market-search-row'), iHead = idxOf('market-head');
+assert.ok(iFilters >= 0 && iSearchRow > iFilters, '搜索行必须排在标签行之后');
+assert.equal(iSearchRow, iHead + 1, '搜索行要紧跟在标签行（手机上还夹着搜索开关那一行）后面，中间不许再插计数行');
+assert.equal(root.querySelector('.market-count'), null, '🔴 插件中心里不许再有「显示 N / N」计数（筛选档每枚自带数量）');
+assert.ok(!code.includes('显示 ${rows.length}'), '市场代码里不该再渲染「显示 N / N」');
+const headTools = wrap.children[iHead].children[0];
+assert.equal(headTools.children.length, 1, '顶栏工具区只剩手机端的搜索开关（计数已删）');
+assert.equal(headTools.children[0].classes.has('market-search-toggle'), true);
+
+const styles = readProductSource(new URL("../src/styles.css", import.meta.url), "utf8");
+const PILL = /input\.market-search:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="range"\]\)\{([^}]*)\}/;
+const pill = styles.match(PILL)?.[1] ?? "";
+assert.ok(pill, '🔴 圆角/底色必须写在抬高特异性的选择器上：第 1746 行那条通用 input 规则用 !important 把 background/border-radius 钉成 --control-bg/8px，'
+  + '特异性 (0,3,1) 压过 .market-search 的 (0,1,0)；两边都带 !important 时**比的是特异性**，所以只写 !important 没用（v0.176.0 真机探针实测）');
+assert.match(pill, /border-radius:999px !important/, '搜索框必须和筛选胶囊同款圆角（图3 风格）');
+assert.match(pill, /background:var\(--panel\) !important/, '底色要和胶囊同源（--panel），不然被 --control-bg 抢走，两枚控件不是一个色');
+assert.doesNotMatch(styles, /\.market-search\{[^}]*border-radius/, '🔴 别在 .market-search 里再写一份圆角/底色：那份 (0,1,0) 会被压掉，是死代码');
+assert.match(styles, /\.market-search\{[^}]*border:1px solid var\(--line\)/, '搜索框描边要与胶囊同源');
+assert.match(styles, /\.market-search::placeholder\{color:var\(--ink-2\)\}/, '框内提示文字要用胶囊的文字色（否则比标签更抢眼）');
+assert.match(styles, /\.market-search-row\{[^}]*margin:4px 0 12px/, '搜索行与标签行之间要收紧，不能空出一整行的距');
+
+console.log('PASS: plugin toggle keeps DOM/scroll/focus, guards concurrency, updates view links/counts, handles failure/filtering and reduced motion; market layout: count row removed, search right after the filter pills, pill-shaped search box');

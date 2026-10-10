@@ -38,6 +38,18 @@ Icons8 的免费使用条款要求在产品中提供署名链接，因此“关�
 
 Font Awesome 图标按 CC BY 4.0 许可使用，完整说明以上述随包文件和 Font Awesome 官方许可证为准。
 
+## 字体
+
+左上角品牌字标（`U-Time` 那一行）使用 **UnifrakturCook**（Bold 700，latin 子集）随包分发：
+
+- `public/fonts/UnifrakturCook-Bold.woff2`（17 KB）
+- `public/fonts/OFL.txt`（上游原始许可文本）
+
+版权归 **j. 'mach' wust（2010）与 Peter Wiegel（2009）** 所有，保留字体名 UnifrakturCook，
+按 **SIL Open Font License 1.1** 授权：允许随本软件一起分发，不得单独出售字体本身，修改后须改名。
+本项目对该字体未做任何修改。它只用于品牌字标（`src/styles.css` 的 `@font-face` 与 `.brand b`），
+其余界面文字仍走系统字体栈。
+
 ## 内置插件中的上游来源
 
 ### 课程表 / ShiguangSchedule

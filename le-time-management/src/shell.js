@@ -320,10 +320,15 @@ export function renderShell(root) {
     "aria-label": "快捷操作",
     "data-rail-dock": "",
   });
+  /* v0.178.0：左上角品牌区只留名称（用户需求「名称和图标修改为仅保留名称」）。
+     被删掉的两样东西：① `<span class="mark">` 那枚四色圆环图标；② 重复一行的副标题
+     `<small>U-TIME</small>` —— 名称已经写在字标里，再叠一行同义大写只是噪音。
+     名称本身换成 Nephele Workshop 那套哥特字标（UnifrakturCook + 粉紫→珊瑚橙横向渐变），
+     字体、渐变、发光与「背景绘制区止于 padding box」的坑全在 styles.css 的 `.brand b` 那条注释里。
+     窄屏（≤900px）本来就把 .brand 整个 display:none，所以这次改动只作用于 ≥901px 的桌面侧栏。 */
   const rail = el("aside", { class: "rail" },
       el("div", { class: "brand" },
-      el("span", { class: "mark" }),
-      el("div", {}, el("b", {}, "U-Time"), el("small", {}, "U-TIME")),
+      el("b", {}, "U-Time"),
     ),
     nav,
     railDock,
@@ -1933,7 +1938,6 @@ export function renderShell(root) {
     let filter = marketFilter;
 
     const search = el("input", { class: "market-search", type: "search", value: query, placeholder: "搜索插件名称 / ID / 功能 / 作者…", "aria-label": "搜索插件" });
-    const count = el("span", { class: "market-count" });
     const filterBox = el("div", { class: "market-filters" });
     const grid = el("div", { class: "market-grid" });
     const cardRefreshers = new Map();
@@ -2042,7 +2046,6 @@ export function renderShell(root) {
       // 不会在列表末尾再冒出一个同名组头。
       const slot = new Map(normalizePluginOrder(sorted.map((rec) => rec.id), pluginColor).map((id, index) => [id, index]));
       const rows = sorted.sort((a, b) => slot.get(a.id) - slot.get(b.id));
-      count.textContent = `显示 ${rows.length} / ${getRegistry().length}`;
       grid.replaceChildren();
       if (!rows.length) {
         grid.append(el("div", { class: "market-empty" }, query ? `没有找到“${query}”相关插件` : "当前筛选下没有插件"));
@@ -2235,11 +2238,13 @@ export function renderShell(root) {
       },
     }, el("span", { class: "market-search-glyph", "aria-hidden": "true" }, "⌕"));
     if (marketSearchOpen) wrap.classList.add("open-search");
-    // 搜索开关与计数放在筛选按钮下面（用户反馈：顶部只留筛选档，别多占一行）
+    // 搜索开关放在筛选按钮下面（用户反馈：顶部只留筛选档，别多占一行）。
+    // 这里原来还带着一个「显示 N / N」计数，已移除：筛选档每枚自带数量，
+    // 那行唯一的实际作用是**把搜索框和标签行隔开一行**（用户要求搜索紧跟标签行）。
     wrap.append(
       filterBox,
       el("div", { class: "market-head" },
-        el("div", { class: "market-head-tools" }, searchToggle, count),
+        el("div", { class: "market-head-tools" }, searchToggle),
       ),
       el("div", { class: "market-search-row", id: "market-search-row" }, search),
       grid,

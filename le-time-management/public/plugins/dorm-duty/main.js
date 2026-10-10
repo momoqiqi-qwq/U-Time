@@ -51,7 +51,7 @@
 
      摆法照用户原型稿：上下铺贴着左右两面墙面对面摆，每面墙最多两张，铺间留缝，
      中间是过道（不是沿后墙一字排开）。相机可绕房间转：立体 / 俯视 / 正视三个档位，
-     也能直接拖动，滚轮缩放。工具栏还有「自动旋转」与「显示床铺」两个开关 ——
+     也能直接拖动，滚轮 / 触控板捏合缩放。工具栏还有「自动旋转」与「显示床铺」两个开关 ——
      后者关掉就只剩星星与连线（原型稿 3D 版就是这个观感）。
 
      同一张铺的上下两颗星**沿铺宽略微错开**（±ROOM_BUNK_SPLIT），并且上铺实心星、
@@ -631,6 +631,26 @@
       .dd-room-spin{display:inline-flex;align-items:center;gap:6px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);cursor:pointer;user-select:none}
       .dd-room-spin input{accent-color:var(--deep,#0F4C5C);width:14px;height:14px;margin:0}
       .dd-room-hint{margin-left:auto;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A1A9AF)}
+      /* 「停止 / 继续旋转」：按下就把当前角度钉住（不再自动旋转），再按一下恢复。
+         分工是「旋转条负责转到某个角度，这颗按钮负责就停在这儿」——
+         原来只有一个「自动旋转」开关，想停在某个角度只能等它转过去。 */
+      .dd-room-stop{height:28px;padding:0 12px;border-radius:999px;flex:none;
+        border:1px solid color-mix(in srgb,var(--deep,#0F4C5C) 34%,var(--line,#DCD6CB));
+        background:var(--panel,#fff);color:var(--deep,#0F4C5C);font-family:inherit;
+        font-size:calc(11.5px * var(--ui-text-scale));font-weight:700;cursor:pointer}
+      .dd-room-stop:hover{border-color:var(--deep,#0F4C5C)}
+      .dd-room-stop:focus-visible{outline:2px solid var(--deep,#0F4C5C);outline-offset:2px}
+      /* 已经在转 → 按钮写「停止」并压暗一点（它是个次要动作，别抢星图的视线）；
+         已经停下 → 写「继续旋转」，恢复成实心描边，好找。 */
+      .dd-room-stop.spinning{background:color-mix(in srgb,var(--deep,#0F4C5C) 10%,var(--panel,#fff))}
+      /* 旋转条：放在星图**下面**一行，拖动即转到对应角度。
+         滑杆的轨道 / 拇指样式来自宿主的 input[type="range"] 全局规则，
+         已填充的那一段靠 --range-progress（宿主自己也是这么喂的），见 roomSyncTurn()。 */
+      .dd-room-turnbar{display:flex;align-items:center;gap:10px;margin-top:10px}
+      .dd-room-turnlabel{flex:none;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+      .dd-room-turn{flex:1;min-width:120px;margin:0}
+      .dd-room-turnval{flex:none;min-width:44px;text-align:right;font-size:calc(11.5px * var(--ui-text-scale));
+        font-variant-numeric:tabular-nums;color:var(--ink-2,#7E8B94)}
       .dd-room{position:relative;aspect-ratio:4/3;min-height:240px;border-radius:16px;overflow:hidden;
         touch-action:pan-y;cursor:grab;
         border:1px solid color-mix(in srgb,var(--line,#E4DFD6) 78%,transparent);
@@ -657,9 +677,12 @@
       .dd-bed{position:absolute;z-index:2;display:block;padding:0;border:0;background:none;font:inherit;color:inherit;
         cursor:pointer;transform:translate(-50%,-50%);transition:transform .15s ease;
         width:calc(var(--dd-bed) * var(--k,1));height:calc(var(--dd-bed) * var(--k,1))}
-      .dd-bed:hover:not(.empty),.dd-bed:focus-visible{transform:translate(-50%,-50%) scale(1.09)}
-      .dd-bed:focus-visible{outline:2px solid var(--deep,#0F4C5C);outline-offset:4px;border-radius:12px}
-      .dd-bed-star{position:relative;display:block;width:100%;height:100%}
+      .dd-bed:hover:not(.empty),.dd-bed:focus-within{transform:translate(-50%,-50%) scale(1.09)}
+      :is(.dd-bed-star,.dd-bed-name):focus-visible{outline:2px solid var(--deep,#0F4C5C);outline-offset:4px;border-radius:12px}
+      /* 星星与名字是**两颗各自独立的按钮**：点星 = 跳到成员列表那一行，点名字 = 就地改名。
+         所以 .dd-bed 从 <button> 降级成普通容器（HTML 不许 button 里再嵌 button），
+         交互热区交给里面这两颗；外层的定位 / 缩放 / 悬停放大照旧。 */
+      .dd-bed-star{position:relative;display:block;width:100%;height:100%;padding:0;border:0;background:none;font:inherit;color:inherit;cursor:pointer}
       /* 星星是内联 SVG 而不是 CSS clip-path：只有 SVG 才能用同一份路径画出「实心 / 空心」两态
          （上铺实心、下铺空心，颜色统一），clip-path 做不到描边。 */
       .dd-bed-glyph{display:block;width:100%;height:100%;overflow:visible;
@@ -677,7 +700,7 @@
          （实测 ≤380px 宽必现）。分开挂之后互不遮挡，顺带把「哪颗是上铺」也画清楚了。 */
       .dd-bed-name{position:absolute;left:50%;top:calc(100% + 2px);transform:translateX(-50%);
         max-width:4.8em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 5px;border-radius:6px;
-        font-size:calc(11px * var(--ui-text-scale));font-weight:650;line-height:1.5;
+        font-size:calc(11px * var(--ui-text-scale));font-weight:650;line-height:1.5;border:0;font-family:inherit;cursor:pointer;
         background:color-mix(in srgb,var(--panel,#fff) 66%,transparent);color:var(--ink,#22303A)}
       .dd-bed.up .dd-bed-name{top:auto;bottom:calc(100% + 2px)}
       /* 今天当班的星星：绿色 + 一圈虚线轨道。跟成员列表里的绿色描边同源（--mint）。 */
@@ -693,7 +716,7 @@
       .dd-bed.empty{cursor:default}
       .dd-bed.empty .dd-bed-glyph{opacity:.3;filter:none;animation:none}
       .dd-bed.empty .dd-bed-no{background:color-mix(in srgb,var(--deep,#0F4C5C) 32%,transparent);box-shadow:none}
-      .dd-bed.empty .dd-bed-name{background:transparent;color:var(--ink-3,#A1A9AF);font-weight:600}
+      .dd-bed.empty .dd-bed-name{background:transparent;color:var(--ink-3,#A1A9AF);font-weight:600;cursor:default}
       /* 点星星 → 成员列表里对应那行闪一下，用来回答「3 号是谁」。 */
       .dd-mrow.dd-flash{background:color-mix(in srgb,var(--mint,#2EC4B6) 18%,transparent);border-radius:10px;transition:background .25s ease}
       /* nephele 星空背景开着时把卡片让成透光薄层，把整幅星图交还给背景；关掉则退回普通卡片。 */
@@ -716,6 +739,9 @@
         .dd-room{--dd-bed:26px}
         .dd-room-sizes{margin-left:0}
         .dd-room-hint{display:none}
+        /* 窄屏：旋转条与「停止」按钮各让一点，别把滑杆挤成一小截 */
+        .dd-room-turnbar{gap:8px}
+        .dd-room-turnval{min-width:38px}
         /* 窄屏上星星只有 22px 左右，名字必须跟着收 —— 不收的话相邻两颗星的名字会互相压
            （实测 360px 宽、8 人间时必现）。数字一直挂在星上，认人靠数字也认得出来。 */
         .dd-bed-name{font-size:calc(10px * var(--ui-text-scale));max-width:3.2em;padding:0 4px}
@@ -936,6 +962,42 @@
 
   /* ── 相机：球形轨道 + 透视 ── */
   const clampPh = (ph) => Math.max(0.14, Math.min(Math.PI - 0.14, ph));
+
+  /* ── 星图缩放（滚轮 / 触控板捏合，v0.179.0）──
+     触控板捏合在 Chromium 里走的是**带 ctrlKey 的 wheel**（与鼠标 Ctrl+滚轮同一条路，
+     顺带白送键盘用户），但事件又密又碎：一次捏合几十上百个事件、每个 deltaY 只有个位数像素。
+     所以不能「每个事件跳一档 9%」—— 那样捏合的第一帧就顶到上下限，
+     手感是「一捏就飞到底」，用户看到的就是「捏合不可用」（两指滚动同样被这一条坑）。
+     改成**按位移比例**缩放：指数映射，天然等比且可逆 ——
+     手势滑了多少距离就缩放多少倍，快慢不影响总量，中途反向也能原路退回。
+     两条路只差增益：捏合事件碎、单帧位移小，所以增益给大一点；
+     鼠标滚轮一格 ≈ 100px，按下面的增益正好还是原来的「一格约 9%」。 */
+  const ROOM_ZOOM_MIN = 0.55, ROOM_ZOOM_MAX = 1.9;   // 与 roomView() 的夹取同源，别只改一处
+  const ROOM_ZOOM_PINCH_GAIN = 0.0024;   // 触控板捏合（ctrl+wheel）
+  const ROOM_ZOOM_WHEEL_GAIN = 0.0018;   // 鼠标滚轮 / 触控板两指滚动
+  const ROOM_ZOOM_MAX_PX = 50;           // 单次事件的位移上限：一次超大 delta 不许跳过整段行程
+  const ROOM_WHEEL_LINE_PX = 16;         // deltaMode 1（行）按一行 16px 折算
+  const ROOM_WHEEL_PAGE_PX = 400;        // deltaMode 2（页）拿不到视口高度时的兜底
+  const ROOM_ZOOM_SAVE_MS = 400;         // 停手后才落盘：一次捏合能产生上百个 wheel
+
+  /** wheel 的位移折算成像素（deltaMode 0 = 像素、1 = 行、2 = 页）。
+      不折算的话 Firefox / 部分鼠标驱动的「3 行」会被当成 3px，缩放几乎不动。 */
+  function roomWheelPx(e, pagePx) {
+    const dy = Number(e && e.deltaY);
+    if (!Number.isFinite(dy) || !dy) return 0;
+    const mode = Number(e && e.deltaMode) || 0;
+    const page = Number(pagePx) > 0 ? Number(pagePx) : ROOM_WHEEL_PAGE_PX;
+    return dy * (mode === 1 ? ROOM_WHEEL_LINE_PX : mode === 2 ? page : 1);
+  }
+  /** 一次 wheel 事件之后的相机距离（纯函数，便于单测）。
+      dist 越小 = 离得越近 = 画面越大；deltaY > 0（向下滚 / 双指内收）＝ 画面变小。 */
+  function roomZoomDist(dist, e, pagePx) {
+    const cur = Number.isFinite(Number(dist)) ? Number(dist) : 1;
+    const px = Math.max(-ROOM_ZOOM_MAX_PX, Math.min(ROOM_ZOOM_MAX_PX, roomWheelPx(e, pagePx)));
+    if (!px) return Math.max(ROOM_ZOOM_MIN, Math.min(ROOM_ZOOM_MAX, cur));
+    const gain = e && e.ctrlKey ? ROOM_ZOOM_PINCH_GAIN : ROOM_ZOOM_WHEEL_GAIN;
+    return Math.max(ROOM_ZOOM_MIN, Math.min(ROOM_ZOOM_MAX, cur * Math.exp(px * gain)));
+  }
   /** 当前视角（档位 + 用户拖出来的角度 + 缩放）。脏值一律退回该档位的默认机位。 */
   /** 当前该用哪个取景框。窗口宽度取不到（Node 单测 / SSR）时按宽版算，逐位可复现。 */
   function roomBox() {
@@ -957,7 +1019,7 @@
       beds: raw.beds !== false,
       th: Number.isFinite(th) ? th : base.th,
       ph: Number.isFinite(ph) ? clampPh(ph) : base.ph,
-      dist: Number.isFinite(dist) ? Math.max(0.55, Math.min(1.9, dist)) : 1,
+      dist: Number.isFinite(dist) ? Math.max(ROOM_ZOOM_MIN, Math.min(ROOM_ZOOM_MAX, dist)) : 1,
     };
   }
   /** 相机三轴（右 / 上 / 前）与镜头到目标的距离。目标点取房间中心偏上一点。 */
@@ -1050,31 +1112,46 @@
       // up / down 决定名字挂星星上方还是下方：侧视下同一张铺的两颗星几乎竖直相叠，
       // 名字都挂下方会互相压住。
       const cls = ["dd-bed", i % 2 ? "up" : "down", now ? "now" : "", m ? "" : "empty"].filter(Boolean).join(" ");
-      return `<button class="${cls}" type="button" data-room-bed="${i}"${m ? ` data-room-id="${esc(m.id)}"` : " disabled"}`
-        + ` style="left:${(p.x / box.w * 100).toFixed(3)}%;top:${(p.y / box.h * 100).toFixed(3)}%;--k:${L.kAt(p).toFixed(3)};--phase:${(-(i * 0.6) % 4).toFixed(2)}s"`
+      // 名字是**另一颗按钮**：点名字就地改名，点星星本身仍然是「跳到成员列表那一行」。
+      // 空床没有可改的名字，退回纯文本（也就不会被键盘 Tab 到）。
+      const nameHtml = m
+        ? `<button class="dd-bed-name" type="button" data-room-rename="${esc(m.id)}" title="点击名字以改名" aria-label="给 ${esc(m.name)} 改名">${esc(m.name)}</button>`
+        : `<span class="dd-bed-name">空床</span>`;
+      return `<div class="${cls}"`
+        + ` style="left:${(p.x / box.w * 100).toFixed(3)}%;top:${(p.y / box.h * 100).toFixed(3)}%;--k:${L.kAt(p).toFixed(3)};--phase:${(-(i * 0.6) % 4).toFixed(2)}s">`
+        + `<button class="dd-bed-star" type="button" data-room-bed="${i}"${m ? ` data-room-id="${esc(m.id)}"` : " disabled"}`
         + ` aria-label="${esc(roomBedLabel(i, m, now))}"${now ? ' aria-current="true"' : ""}>`
-        + `<span class="dd-bed-star" aria-hidden="true"><svg class="dd-bed-glyph" viewBox="-50 -50 100 100"><polygon points="${ROOM_STAR_PTS}"/></svg><b class="dd-bed-no">${i + 1}</b></span>`
-        + `<span class="dd-bed-name">${m ? esc(m.name) : "空床"}</span></button>`;
+        + `<svg class="dd-bed-glyph" viewBox="-50 -50 100 100"><polygon points="${ROOM_STAR_PTS}"/></svg><b class="dd-bed-no">${i + 1}</b></button>`
+        + `${nameHtml}</div>`;
     }).join("");
 
     const views = ROOM_VIEWS.map((x) => `<button class="dd-chip dd-chip-sm${x.id === v.view ? " on" : ""}" data-room-view="${x.id}" type="button" aria-pressed="${x.id === v.view ? "true" : "false"}">${x.label}</button>`).join("");
     const bar = `<div class="dd-room-bar">
       <span class="dd-room-views" role="group" aria-label="视角">${views}</span>
-      <label class="dd-room-spin"><input type="checkbox" data-room-spin${v.spin ? " checked" : ""}>自动旋转</label>
       <label class="dd-room-spin"><input type="checkbox" data-room-beds${v.beds ? " checked" : ""}>显示床铺</label>
-      <span class="dd-room-hint">左右拖动转视角 · 滚轮缩放</span>
+      <button class="dd-room-stop${v.spin ? " spinning" : ""}" data-room-spin type="button" title="${v.spin ? "固定当前角度，不再自动旋转" : "恢复自动旋转"}">${v.spin ? "停止" : "继续旋转"}</button>
+      <span class="dd-room-hint">左右拖动转视角 · 滚轮 / 捏合缩放 · 点名字改名</span>
+    </div>`;
+    /* 旋转条（星图**下面**那一行）：拖动即转到对应角度，松手后若没按「停止」就接着自动旋转。
+       它替代了原来的「自动旋转」勾选框 —— 同一件事只留一个控件，而且「按一下就停在这儿」
+       比「先去勾一个框」更贴手。 */
+    const turnDeg = roomTurnDeg(v.th);
+    const turn = `<div class="dd-room-turnbar">
+      <span class="dd-room-turnlabel">旋转条</span>
+      <input class="dd-room-turn" data-room-turn type="range" min="0" max="360" step="1" value="${turnDeg}" style="--range-progress:${(turnDeg / 360 * 100).toFixed(2)}%" aria-label="旋转到对应角度（0 到 360 度）" title="拖动旋转到对应角度；不按「停止」的话松手后继续自动旋转">
+      <span class="dd-room-turnval" data-room-turn-val>${turnDeg}°</span>
     </div>`;
 
     const extra = g.members.length > size
       ? `<div class="dd-note">名单里还有 ${g.members.length - size} 位成员没排进这间宿舍 —— 调大宿舍人数，或把多余的成员移到别的轮换里。</div>` : "";
     const empty = g.members.length ? "" : `<div class="dd-note">还没有成员。先在上一张卡里添加：第 1 个人住 1 号床（下铺）。</div>`;
-    const legend = `<div class="dd-note">实心星是上铺、空心星是下铺（同一张铺的两颗星沿铺宽略微错开，只为俯视时也分得开 —— 是示意，不是真实床位坐标）；星上的数字是他在名单里的位次，实线按 1→${size} 走、流动方向就是值日顺序，尾端虚线绕回第 1 位；今天当班的星亮成绿色。床架觉得碍事可以把上面的「显示床铺」关掉，只剩星星与连线。点一颗星可以跳到它在成员列表里的那一行。</div>`;
+    const legend = `<div class="dd-note">实心星是上铺、空心星是下铺（同一张铺的两颗星沿铺宽略微错开，只为俯视时也分得开 —— 是示意，不是真实床位坐标）；星上的数字是他在名单里的位次，实线按 1→${size} 走、流动方向就是值日顺序，尾端虚线绕回第 1 位；今天当班的星亮成绿色。<b>点星上的名字就能就地改名</b>；点星星本身则是跳到它在成员列表里的那一行。下面的「旋转条」可以直接把视角拖到某个角度，松手后若不按「停止」就接着自动旋转，按「停止」就把角度钉住不动。床架觉得碍事可以把上面的「显示床铺」关掉，只剩星星与连线。<b>触控板在图上直接捏合就能缩放</b>（鼠标滚轮同理，向上滚放大）。</div>`;
 
     return `${head}${bar}
       <div class="dd-room" data-room data-room-beds="${v.beds ? "on" : "off"}" style="aspect-ratio:${box.w}/${box.h}">
         <svg class="dd-room-svg" viewBox="0 0 ${box.w} ${box.h}" preserveAspectRatio="none" aria-hidden="true">${roomSceneSvg(L)}</svg>
         ${starsHtml}
-      </div>${extra}${empty}${legend}`;
+      </div>${turn}${extra}${empty}${legend}`;
   }
 
   /* 已经挂到 DOM 上的那幅星图。拖动 / 自动旋转 / 换视角时按它原地重画。 */
@@ -1083,6 +1160,52 @@
   let roomResize = null;   // 窗口跨过断点要重画：取景框换了，旧的那份百分比就对不上了
   let roomHover = false;   // 鼠标压在星图上 → 暂停自动旋转（不然星星一直在动，点不准也看不清）
   let roomDragMoved = 0;   // 刚结束的那次拖动挪了多少像素：>4 就不当成「点击星星」
+
+  /* ── 旋转条（星图下面那条滑杆）与「停止」按钮的状态 ──
+     拖滑杆的语义和拖星图一致：手上还按着就别让每帧的自动旋转把角度拽走（roomStopSpin），
+     松手后由 roomSpinSync() 决定「接着转」还是「保持钉住」—— 它只看 state.roomView.spin，
+     也就是「停止」按钮按没按下去。 */
+  let roomTurnDragging = false;
+  let roomTurnTimer = 0;
+  const ROOM_TURN_SETTLE_MS = 240;   // 键盘方向键也是一次一个 input，等手停下来再落位
+  /** 方位角 → 滑杆的 0..359 整数度数（一圈的表示法，360 归一成 0）。 */
+  const roomTurnDeg = (th) => { const d = Math.round(((Number(th) || 0) * 180) / Math.PI) % 360; return d < 0 ? d + 360 : d; };
+  /** 把滑杆与度数标签对齐到当前方位角。自动旋转每帧都会调到这儿 —— 但拖动中不覆盖用户的手。 */
+  function roomSyncTurn() {
+    if (!root || roomTurnDragging) return;
+    const deg = roomTurnDeg(roomView().th);
+    const el = root.querySelector("[data-room-turn]");
+    if (el) {
+      if (el.value !== String(deg)) el.value = String(deg);
+      el.style.setProperty("--range-progress", `${(deg / 360 * 100).toFixed(2)}%`);
+    }
+    const val = root.querySelector("[data-room-turn-val]");
+    if (val) val.textContent = `${deg}°`;
+  }
+  /** 松手落位：没按「停止」就从新角度接着自动旋转；按了停止就保持钉住。 */
+  function roomTurnSettleSoon() {
+    try { clearTimeout(roomTurnTimer); } catch { /* 没有计时器就直接落位 */ }
+    const run = () => {
+      roomTurnTimer = 0;
+      roomTurnDragging = false;
+      roomSyncTurn();
+      roomSpinSync();
+      try { save()?.catch?.(() => {}); } catch { /* 落盘失败不该把旋转卡住 */ }
+    };
+    try { roomTurnTimer = setTimeout(run, ROOM_TURN_SETTLE_MS); } catch { run(); }
+  }
+
+  /* 缩放落盘（停手 400ms 一次）。**不能每个 wheel 都写盘**：一次触控板捏合能产生上百个事件，
+     逐个 save() 就是几百次 tide.storage.set（三个键 × 每次），落盘链被堵住之后画面跟着卡。 */
+  let roomZoomTimer = 0;
+  function roomZoomSettleSoon() {
+    try { clearTimeout(roomZoomTimer); } catch { /* 没有计时器就直接落盘 */ }
+    const run = () => {
+      roomZoomTimer = 0;
+      try { save()?.catch?.(() => {}); } catch { /* 落盘失败不该把画面卡住 */ }
+    };
+    try { roomZoomTimer = setTimeout(run, ROOM_ZOOM_SAVE_MS); } catch { run(); }
+  }
 
   const roomRafLater = (fn) => {
     try { return typeof requestAnimationFrame === "function" ? requestAnimationFrame(fn) : 0; } catch { return 0; }
@@ -1119,24 +1242,30 @@
       loop.setAttribute("x1", roomFmt(a.x)); loop.setAttribute("y1", roomFmt(a.y));
       loop.setAttribute("x2", roomFmt(b.x)); loop.setAttribute("y2", roomFmt(b.y));
     }
-    // 星星也顺手对齐一次：换过人数档之后成员可能变，类名与可点性要跟着走
+    // 星星也顺手对齐一次：换过人数档之后成员可能变，类名与可点性要跟着走。
+    // ⚠️ [data-room-bed] 是**星点按钮**（里层），位置与 up/down/now/empty 这些类名在
+    // **外层容器 .dd-bed** 上（样式写的是 .dd-bed.now .dd-bed-glyph）—— 两处分家之后
+    // 类名必须落到 closest(".dd-bed")，不然旋转一帧就把「今天当班」的绿色洗掉了。
     const nowIds = new Set(assigneesFor(g, s.today).map((m) => m.id));
     host.querySelectorAll("[data-room-bed]").forEach((el) => {
       const i = Number(el.dataset.roomBed);
       const p = L.stars[i];
       if (!p) return;
-      el.style.left = `${(p.x / roomLive.box.w * 100).toFixed(3)}%`;
-      el.style.top = `${(p.y / roomLive.box.h * 100).toFixed(3)}%`;
-      el.style.setProperty("--k", L.kAt(p).toFixed(3));
+      const wrap = el.closest?.(".dd-bed") || el.parentElement || el;
+      wrap.style.left = `${(p.x / roomLive.box.w * 100).toFixed(3)}%`;
+      wrap.style.top = `${(p.y / roomLive.box.h * 100).toFixed(3)}%`;
+      wrap.style.setProperty("--k", L.kAt(p).toFixed(3));
       const m = g.members[i] || null;
       const now = !!m && nowIds.has(m.id);
-      el.classList.toggle("now", now);
-      el.classList.toggle("empty", !m);
+      wrap.classList.toggle("now", now);
+      wrap.classList.toggle("empty", !m);
       el.disabled = !m;
       if (m) el.dataset.roomId = m.id; else delete el.dataset.roomId;
       el.setAttribute("aria-label", roomBedLabel(i, m, now));
       if (now) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
     });
+    // 滑杆跟着转：自动旋转每帧都走到这儿，拖动中 roomSyncTurn() 自己会让开用户的手。
+    roomSyncTurn();
   }
   function roomReduceMotion() {
     try { return !!window?.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches; } catch { return false; }
@@ -1159,7 +1288,7 @@
     if (roomLive && roomView().spin) roomRaf = roomRafLater(roomSpin);
   }
 
-  /** 绑定星图：拖动转视角、滚轮缩放、自动旋转、换视角、点星定位。
+  /** 绑定星图：拖动转视角、滚轮 / 触控板捏合缩放、自动旋转、换视角、点星定位。
       人数档的绑定在 bind() 里（它要 await 落盘）。 */
   function bindRoom(g, s) {
     const host = root?.querySelector?.("[data-room]") || null;
@@ -1229,12 +1358,21 @@
       roomHover = false;
       roomSpinSync();   // 之前可能是「因为悬停而空转」，离开后重新起一轮
     });
-    host.addEventListener("wheel", (e) => {
+    /* 缩放：**触控板捏合 = 带 ctrlKey 的 wheel**，鼠标滚轮 / 两指滚动 = 普通 wheel，
+       两条路都进这里（这张卡片本来就是「滚轮缩放」，没有可滚动的内容要放行）。
+       绑在整张卡片上而不是只有中间的 `[data-room]`：卡片四周的空档也能捏合，
+       而且 preventDefault 顺带把 WebView2 自己的「整页缩放」压掉 —— 不压的话
+       在星图上捏一下整个界面跟着变大，看起来就像界面坏了。
+       系数本体在 roomZoomDist()（纯函数，按位移比例而不是按事件个数）。 */
+    const zoomHost = host.closest?.(".dd-room-card") || host;
+    zoomHost.addEventListener("wheel", (e) => {
       e.preventDefault();
-      const v = roomView();
-      state.roomView.dist = Math.max(0.55, Math.min(1.9, v.dist * (1 + Math.sign(e.deltaY) * 0.09)));
+      const cur = roomView().dist;
+      const next = roomZoomDist(cur, e, zoomHost.clientHeight || host.clientHeight);
+      if (next === cur) return;   // 已顶到上下限：不重画、也不白排一次落盘
+      state.roomView.dist = next;
       roomDraw();
-      save();
+      roomZoomSettleSoon();
     }, { passive: false });
   }
 
@@ -2001,11 +2139,33 @@
       await save();
       await paint();
     }));
-    q("[data-room-spin]")?.addEventListener("change", async (e) => {
-      state.roomView.spin = !!e.currentTarget.checked;
+    // 「停止 / 继续旋转」：停止 = 把当前角度钉住（不再自动旋转），再按一下恢复。
+    // 要整页重画才能把按钮文案（停止 ↔ 继续旋转）与滑杆的停摆状态一起换过来；
+    // 重画不动 th，所以「钉住的位置」就是按下的那一刻看到的位置。
+    q("[data-room-spin]")?.addEventListener("click", async () => {
+      state.roomView.spin = !roomView().spin;
       await save();
-      roomSpinSync();
+      await paint();
     });
+    // 旋转条：拖动即转到对应角度；松手后若不按「停止」就接着自动旋转（roomTurnSettleSoon）。
+    const turnEl = q("[data-room-turn]");
+    if (turnEl) {
+      const applyTurn = () => {
+        roomTurnDragging = true;
+        roomStopSpin();                       // 手上还按着，别让每帧的自动旋转把角度拽走
+        state.roomView.th = ((Number(turnEl.value) || 0) % 360) * Math.PI / 180;
+        roomDraw();
+        const deg = roomTurnDeg(state.roomView.th);
+        turnEl.style.setProperty("--range-progress", `${(deg / 360 * 100).toFixed(2)}%`);
+        const val = root.querySelector("[data-room-turn-val]");
+        if (val) val.textContent = `${deg}°`;
+        roomTurnSettleSoon();
+      };
+      turnEl.addEventListener("input", applyTurn);
+      turnEl.addEventListener("pointerdown", () => { roomTurnDragging = true; roomStopSpin(); });
+      turnEl.addEventListener("change", () => roomTurnSettleSoon());
+      turnEl.addEventListener("blur", () => { if (roomTurnDragging) roomTurnSettleSoon(); });
+    }
     // 「显示床铺」只是显隐，不必整页重画（重画会把名字闪一下、也会丢焦点）：
     // 直接改容器属性 + 落盘，样式那条规则自己会生效。
     q("[data-room-beds]")?.addEventListener("change", async (e) => {
@@ -2022,6 +2182,19 @@
       row.scrollIntoView({ block: "center" });
       row.classList.add("dd-flash");
       setTimeout(() => row.classList.remove("dd-flash"), 1600);
+    }));
+    // 点星上的名字 → 就地改名。与成员列表里那个输入框同一套规则：空名 / 没变都不动，
+    // 取消（promptFn 返回 null）也什么都不做。
+    root.querySelectorAll("[data-room-rename]").forEach((el) => el.addEventListener("click", async () => {
+      if (roomDragMoved > 4) return;
+      const idx = g.members.findIndex((m) => m.id === el.dataset.roomRename);
+      if (idx < 0) return;
+      const cur = g.members[idx];
+      const typed = promptFn(`给「${cur.name}」改个名字`, cur.name);
+      if (typed == null) return;
+      const name = String(typed).trim().slice(0, MEMBER_MAX) || cur.name;
+      if (name === cur.name) return;
+      await commit(() => { g.members[idx].name = name; });
     }));
     bindRoom(g, snapshot(g));
 

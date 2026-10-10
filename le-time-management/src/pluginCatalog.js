@@ -328,7 +328,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "dorm-duty",
     "name": "轮换值日",
-    "version": "1.10.0",
+    "version": "1.11.0",
     "author": "U-Time内置",
     "icon": "broom",
     "faIcon": "broom",
@@ -427,7 +427,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "plugin-guide",
     "name": "插件使用说明",
-    "version": "1.4.1",
+    "version": "1.4.2",
     "author": "U-Time内置",
     "icon": "circle-question",
     "faIcon": "circle-question",

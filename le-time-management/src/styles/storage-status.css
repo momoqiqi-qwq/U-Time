@@ -14,10 +14,31 @@
   background: var(--panel);
   color: var(--ink-2);
   font-size: 12px;
+  /* 显隐由 storageStatus.js 的 data-visible 驱动：收起时等淡出走完再撤 visibility，
+     避免过渡途中就能被点到；展开时把延迟清零，立刻可见。 */
+  transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
 }
-.storage-status[data-phase="saved"] { opacity: .7; pointer-events: none; }
+.storage-status[data-visible="true"] {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition-delay: 0s, 0s, 0s;
+}
+.storage-status[data-visible="false"] {
+  opacity: 0;
+  transform: translateY(6px);
+  visibility: hidden;
+  pointer-events: none;
+}
+/* 成功后这一小会儿是纯回执，不给点（重试/导出只在失败态出现，另有 [hidden] 管着）。 */
+.storage-status[data-phase="saved"] { pointer-events: none; }
 .storage-status [hidden] { display: none; }
 .storage-status[data-phase="error"] { color: var(--danger, var(--coral)); }
+/* 减少动效：保留停留时长这层信息，只掐掉位移与淡出。 */
+:root[data-ui-motion="reduced"] .storage-status { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .storage-status { transition: none; }
+}
 .startup-recovery {
   margin: 0 auto;
   max-width: 640px;
