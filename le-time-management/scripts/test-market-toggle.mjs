@@ -45,10 +45,15 @@ let pending=toggle.attrs.onclick(event);await toggle.attrs.onclick(event);assert
 assert.equal(toggle.attrs['aria-disabled'],'true');release();await pending;
 assert.equal(grid.children[0],card);assert.equal(grid.children[1],sibling,'unrelated cards keep identity');assert.equal(root.querySelector('.market-search'),search);
 assert.equal(grid.scrollTop,120);assert.equal(active,toggle);assert.equal(toggle.attrs['aria-checked'],'false');
-assert.equal(card.querySelector('.market-switch-text').textContent,'已关闭');assert.equal(card.querySelector('.btn').disabled,true);
+assert.equal(card.querySelector('.market-switch-text').textContent,'已关闭');
+/* v0.180.0：卡片上的「打开」按钮已删 —— 卡片自己就是打开入口（点卡片 / 回车都进对应视图），
+   那枚按钮与卡片点击完全重复，用户反馈没用。这里改测卡片自身的两条路径。 */
+const cardEvent={stopPropagation(){},target:{closest:()=>null}};
+assert.equal(card.querySelector('.market-card-actions').querySelector('.btn'),null,'卡片操作区不再有「打开」按钮');
+card.attrs.onclick(cardEvent);assert.equal(routes.length,0,'插件停用时点卡片不跳转');assert.ok(messages.at(-1).includes('请先开启这个插件'));
 pending=toggle.attrs.onclick(event);release();await pending;
 assert.equal(grid.children[0],card);assert.equal(toggle.attrs['aria-checked'],'true');assert.equal(toggle.attrs['aria-label'],'关闭a');
-const open=card.querySelector('.market-card-actions').querySelector('.btn');assert.equal(open.disabled,false);open.attrs.onclick();assert.equal(routes.at(-1),'plug:a-fresh','open uses newly registered view');
+card.attrs.onclick(cardEvent);assert.equal(routes.at(-1),'plug:a-fresh','card click uses newly registered view');
 assert.equal(card.querySelector('.market-view-links').children.length,2,'Android secondary entries restored');
 fail=true;pending=toggle.attrs.onclick(event);release();await pending;assert.equal(toggle.attrs['aria-checked'],'true');assert.equal(toggle.attrs['aria-disabled'],'false');assert.ok(messages.at(-1).includes('失败'));
 fail=false;reduced=true;const before=animations;pending=toggle.attrs.onclick(event);release();await pending;assert.equal(animations,before,'reduced motion skips label animation');
@@ -57,6 +62,9 @@ const remaining=root.querySelector('.market-plugin-switch');remaining.focus();pe
 assert.equal(root.querySelector('.market-empty').textContent,'当前筛选下没有插件');assert.equal(active,search,'removing focused filtered card restores focus');
 assert.ok(!code.includes('setTimeout(() => renderMarket'));
 assert.match(shell,/else if \(activeView === "market"\) refreshMarketState\?\.\(\)/);
+// v0.180.0：卡片上那枚「打开 / 无视图」按钮不许再回来。
+assert.ok(!code.includes('无视图'), '🔴 插件卡片上不该再有「打开」按钮（卡片本身就是入口）');
+assert.ok(!/market-card-actions" \}, open,/.test(code), '🔴 卡片操作区只放启停滑块与「⋯」');
 
 /* ── 插件中心布局（v0.176.0）：计数行删除、搜索框紧跟标签行、搜索框与筛选胶囊同款风格 ──
    三条都是「静态断言看不出、用户一眼能看出」的：计数行留着只会把搜索框顶到标签下方第二行，
@@ -84,4 +92,4 @@ assert.match(styles, /\.market-search\{[^}]*border:1px solid var\(--line\)/, '�
 assert.match(styles, /\.market-search::placeholder\{color:var\(--ink-2\)\}/, '框内提示文字要用胶囊的文字色（否则比标签更抢眼）');
 assert.match(styles, /\.market-search-row\{[^}]*margin:4px 0 12px/, '搜索行与标签行之间要收紧，不能空出一整行的距');
 
-console.log('PASS: plugin toggle keeps DOM/scroll/focus, guards concurrency, updates view links/counts, handles failure/filtering and reduced motion; market layout: count row removed, search right after the filter pills, pill-shaped search box');
+console.log('PASS: plugin toggle keeps DOM/scroll/focus, guards concurrency, updates view links/counts, handles failure/filtering and reduced motion; card itself is the open entry (the redundant「打开」button is gone); market layout: count row removed, search right after the filter pills, pill-shaped search box');

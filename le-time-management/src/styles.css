@@ -3989,7 +3989,7 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   .market-manage-card .market-card-desc,
   .market-manage-card .market-card-meta { display: none; }
   .market-manage-card .market-card-actions { grid-column: 2; grid-row: 1; margin: 0; }
-  .market-manage-card .market-card-actions > .btn { display: none; }
+  /* v0.180.0：卡片上的「打开」按钮已删（卡片本身就是入口），操作区只剩启停滑块与「⋯」。 */
   .market-manage-card .market-switch-text { display: none; }
   .market-manage-card .market-switch-control { margin: 0; }
   /* 触屏没有右键语义，改名 / 换图标 / 分组色收进卡片上的「⋯」 */

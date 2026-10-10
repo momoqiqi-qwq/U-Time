@@ -2100,11 +2100,8 @@ export function renderShell(root) {
               onclick: (e) => { e.stopPropagation(); switchTo(`plug:${item.id}`); },
             }, faIcon(item.icon || "puzzle-piece"), el("span", {}, item.title))))
           : null;
-        const open = el("button", { class: "btn pri sm", disabled: !enabled || !pv ? true : null, onclick: () => {
-          if (!enabled) return toast("请先开启这个插件");
-          if (pv) switchTo(`plug:${pv.id}`);
-          else toast("这个插件没有注册可打开的视图");
-        } }, pv ? "打开" : "无视图");
+        // v0.180.0：卡片自己就是打开入口（点卡片、回车都能进对应视图），
+        // 原来那枚「打开」按钮和它完全重复，用户反馈没用 —— 已删除。
         const toggle = el("button", {
           class: `switch market-plugin-switch${enabled ? " on" : ""}`,
           "data-motion": "off", // 使用滑块自身过渡，不叠加通用按钮波纹/回弹。
@@ -2162,7 +2159,7 @@ export function renderShell(root) {
           el("div", { class: "market-card-meta" }, `${man.author ? `作者 ${man.author}` : rec.source === "builtin" ? "内置扩展" : "用户插件"}${rec.error ? " · 加载失败" : ""}`),
           rec.error ? el("div", { class: "perr" }, rec.error) : null,
           viewLinks,
-          el("div", { class: "market-card-actions" }, open, switchControl, el("button", {
+          el("div", { class: "market-card-actions" }, switchControl, el("button", {
             class: "market-card-more",
             type: "button",
             title: "重命名、改图标与分组颜色",
@@ -2193,11 +2190,10 @@ export function renderShell(root) {
           card.classList.toggle("disabled", !enabled);
           card.classList.toggle("plugin-toggle-pending", busy);
           card.setAttribute("aria-busy", String(busy));
-          // 停用的是“打开”入口，不对包含可用开关的整张卡片标 aria-disabled。
+          // 卡片自己就是打开入口；停用态靠点击拦截与 .disabled 表达，
+          // 不对包含可用开关的整张卡片标 aria-disabled。
           if (pv) { card.setAttribute("role", "button"); card.setAttribute("tabindex", "0"); }
           else { card.removeAttribute("role"); card.removeAttribute("tabindex"); }
-          open.disabled = busy || !enabled || !pv || Boolean(rec.error);
-          open.textContent = pv ? "打开" : "无视图";
           // 不用 disabled 摘走键盘焦点；处理函数的 pending 守卫阻止重复请求。
           toggle.setAttribute("aria-disabled", String(busy));
           toggle.classList.toggle("on", enabled);

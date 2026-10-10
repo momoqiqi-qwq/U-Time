@@ -2039,6 +2039,11 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{Menu, MenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
+    // 启动看门狗的「窗口已经建出来」信号（见 start_startup_watchdog 上方那段注释）。
+    // 必须放在**托盘开关判断之前**：关掉托盘的机器一样要能被看门狗认出来。
+    #[cfg(windows)]
+    let _ = WATCHDOG_APP.set(app.handle().clone());
+
     // 托盘图标开关是**启动时**生效项：图标一旦建立，运行期增删容易留下残留。
     // 这里只读一次；用户在设置里改完会看到「重启后生效」的提示。
     if !tray_enabled(app.handle()) {
@@ -2093,8 +2098,79 @@ fn setup_tray(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/* ── 启动看门狗（Windows 桌面端，v0.179.1）──────────────────────────────
+   把「进程活着、却永远没有窗口」这种**静默卡死**变成一句人话。
+
+   用户报障（v0.179.0 发布后）：「每次都无法双击打开，打开后界面没有显示」。
+   实测复现出来的链条是：
+   ① WebView2 环境创建被卡住（父进程上下文受限、安全软件拦子进程、运行时损坏）时，
+      `Builder::build()` 里的**配置窗口创建会一直不返回** —— 进程活着、没有任何窗口，
+      连 msedgewebview2 子进程都不出现（实测该进程只剩：单实例插件的隐藏窗口 + tao 的消息窗口）；
+   ② 这个「没有窗口的进程」把**单实例锁**一直占着，于是之后每次双击都被单实例插件
+      直接吞掉（退出码 0，什么也不显示）—— 用户看到的就是「双击没反应、界面永远不出来」。
+
+   这里给启动 20 秒上限：到点还没有主窗口就弹一句中文提示并 `exit(1)`，
+   **把单实例锁让出来**，下一次双击就能正常起来。窗口建出来之后再盯 30 秒：
+   前端始终没把窗口显示出来（页面 JS 没跑起来）也强行 `show()`，
+   免得用户对着一个「什么都没有」的进程干等。 */
+#[cfg(all(desktop, windows))]
+static WATCHDOG_APP: OnceLock<AppHandle> = OnceLock::new();
+
+#[cfg(all(desktop, windows))]
+#[link(name = "user32")]
+unsafe extern "system" {
+    fn MessageBoxW(hwnd: *mut core::ffi::c_void, text: *const u16, caption: *const u16, u_type: u32) -> i32;
+}
+
+/// 启动失败时的原生提示 + 退出。用 user32 的 `MessageBoxW` 而不是 Tauri 的对话框：
+/// 走到这一步时窗口根本没建出来，对话框插件也用不上，而且这里不该再引依赖。
+#[cfg(all(desktop, windows))]
+fn fatal_startup_dialog() -> ! {
+    let text: Vec<u16> = "U-Time 启动失败：窗口没能建出来。\n\n最常见的原因是 WebView2 运行时被安全软件拦住或已损坏 —— 可以先修复 / 重装 Microsoft Edge WebView2 运行时再试。\n\n本次已自动退出，下次双击仍可正常打开。"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    let caption: Vec<u16> = "U-Time 启动失败".encode_utf16().chain(std::iter::once(0)).collect();
+    // MB_TOPMOST(0x40000) | MB_ICONERROR(0x10)
+    unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), caption.as_ptr(), 0x0004_0010) };
+    std::process::exit(1);
+}
+
+/// 见上面那段注释。`WATCHDOG_APP` 由 `setup_tray` 在**配置窗口建出来之后**填上
+/// （Tauri 的 setup 钩子晚于配置窗口创建），所以它为空 = `build()` 还没走完。
+#[cfg(all(desktop, windows))]
+fn start_startup_watchdog() {
+    const STEP: u64 = 200;
+    std::thread::spawn(|| {
+        // 阶段一：等主窗口（正常 < 1 秒）
+        let mut waited = 0u64;
+        while waited < 20_000 {
+            std::thread::sleep(std::time::Duration::from_millis(STEP));
+            waited += STEP;
+            if WATCHDOG_APP.get().is_some() {
+                break;
+            }
+        }
+        let Some(app) = WATCHDOG_APP.get().cloned() else { fatal_startup_dialog() };
+        let Some(win) = app.get_webview_window("main") else { fatal_startup_dialog() };
+        // 阶段二：等前端把窗口显示出来（正常 < 2 秒）
+        let mut waited2 = 0u64;
+        while waited2 < 30_000 {
+            if win.is_visible().unwrap_or(true) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(STEP));
+            waited2 += STEP;
+        }
+        let _ = win.show();
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 看门狗必须在 `build()` **之前**起来：它要抓的正是「build() 卡住、窗口永远建不出来」。
+    #[cfg(all(desktop, windows))]
+    start_startup_watchdog();
     let mut builder = tauri::Builder::default();
     // 桌面端单实例：二次启动时聚焦已有窗口，避免多实例互相覆盖 data.json
     #[cfg(desktop)]

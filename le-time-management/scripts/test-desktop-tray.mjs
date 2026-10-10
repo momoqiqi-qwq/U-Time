@@ -157,4 +157,31 @@ assert.match(apiJs, /async quitAck\(\) \{\s*if \(isTauri\) return invoke\("quit_
 // 反面：回执不能挂在「存盘成功」的独木桥上
 assert.doesNotMatch(mainJs, /\.then\(ack\)\s*;/, "别写成只挂成功槽的 .then(ack)");
 
+/* ── 十一、Rust：启动看门狗 —— 「进程活着但永远没有窗口」不能再静默发生（v0.179.1） ── */
+// 用户报障：「每次都无法双击打开，打开后界面没有显示」。实测复现出来的链条是：
+// WebView2 环境创建被卡住（父进程上下文受限 / 安全软件拦子进程 / 运行时损坏）
+// ⇒ Builder::build() 里的配置窗口创建**一直不返回**，进程活着却没有窗口
+// ⇒ 这个没有窗口的进程把**单实例锁**一直占着，之后每次双击都被单实例插件直接吞掉（退出码 0）。
+const runAt = libRs.indexOf("pub fn run() {");
+const watchdogCallAt = libRs.indexOf("start_startup_watchdog();", runAt);
+assert.match(libRs, /#\[cfg\(all\(desktop, windows\)\)\]\s*\nfn start_startup_watchdog\(\) \{/,
+  "看门狗只挂在桌面 Windows 上（Android / Linux 没有这条启动路径）");
+assert.ok(watchdogCallAt > runAt, "run() 里必须调用 start_startup_watchdog()");
+assert.ok(watchdogCallAt < libRs.indexOf("let mut builder = tauri::Builder::default();", runAt),
+  "🔴 看门狗必须在 builder 之前起来：它要抓的正是「build() 卡住、窗口永远建不出来」");
+// 信号必须在 setup_tray 的最前面：关掉托盘的机器一样要能被看门狗认出来
+const wdSignalAt = setupTray.indexOf("WATCHDOG_APP.set(");
+assert.ok(wdSignalAt > -1 && wdSignalAt < setupTray.indexOf("tray_enabled("),
+  "🔴 WATCHDOG_APP 必须在 tray_enabled 判断**之前**填上，否则「关闭系统托盘」的机器上看门狗永远等不到信号");
+// 超时要真的动手：弹一句人话 + exit(1) 把单实例锁让出来，而不是继续挂着
+assert.match(libRs, /fn fatal_startup_dialog\(\) -> ! \{/, "启动失败必须收口到 fatal_startup_dialog()");
+assert.match(libRs, /unsafe \{ MessageBoxW\(std::ptr::null_mut\(\), text\.as_ptr\(\), caption\.as_ptr\(\), 0x0004_0010\) \};/,
+  "提示要用 user32 的 MessageBoxW：走到这一步窗口根本没建出来，Tauri 的对话框插件用不上");
+assert.match(libRs, /fn fatal_startup_dialog\(\) -> ! \{[\s\S]{0,700}?std::process::exit\(1\)/,
+  "🔴 必须 exit(1)：不退的话单实例锁还占着，用户下次双击照样没反应");
+assert.match(libRs, /while waited < 20_000/, "阶段一（等主窗口建出来）必须有 20 秒上限");
+assert.match(libRs, /while waited2 < 30_000/, "阶段二（等前端把窗口显示出来）也要有上限");
+assert.match(libRs, /let _ = win\.show\(\);\s*\n    \}\);/,
+  "阶段二到点要强行 show 窗口：前端 JS 没跑起来时，不能让用户对着一个「什么都没有」的进程干等");
+
 console.log("PASS: desktop tray toggle + close-button behavior (settings wired end to end, no \"app hidden forever\" combination)");
