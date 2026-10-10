@@ -345,6 +345,13 @@ function makeApi(man, source) {
         requirePermission(man, pid, "ui");
         return api.saveDownloadBase64(String(filename || ""), String(base64 ?? ""));
       },
+      // 在系统文件管理器里定位刚保存的文件：给「已保存到下载目录」这类横幅做点击跳转
+      // （用法见 public/plugins/cppu-notify/main.js 的 downloadAttachment）。
+      // 只能传 saveText / saveBase64 返回过的那个路径 —— 宿主侧会校验它确实落在下载目录内。
+      async revealSaved(path) {
+        requirePermission(man, pid, "ui");
+        return api.revealSavedFile(String(path || ""));
+      },
     },
 
     notify: (msg, opts) => { requirePermission(man, pid, "notify"); return toast(`${man.name}：${msg}`, opts); },

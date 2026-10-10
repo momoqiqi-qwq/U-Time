@@ -59,15 +59,21 @@ function fixture() {
   const nav = createSettingsNavigator(entries, {}, { onPickOption: (section, title) => picked.push([section, title]) });
   nav.apply();
   const card = nav.node.children[0];
-  const search = card.children[1];
+  // v0.184.0：搜索框外面多了一层 .search-field（放大镜钉在框内左端），输入框是它的第 2 个子节点。
+  const field = card.children[1];
+  const search = field.children[1];
   const results = card.children[2];
   const catalog = card.children[3];
   const rows = () => results.children.slice(1);
-  return { nav, picked, search, results, catalog, rows };
+  return { nav, picked, field, search, results, catalog, rows };
 }
 
-// 卡片子节点顺序：0 头部、1 搜索框、2 具体设置项结果、3 分类目录、4 空态。
+// 卡片子节点顺序：0 头部、1 搜索框容器（.search-field：放大镜 + 输入框）、2 具体设置项结果、
+// 3 分类目录、4 空态。
 const f = fixture();
+assert.equal(f.field.className, "search-field", "搜索框容器要挂在原来那个位置（窄屏/宽屏都靠它定位）");
+assert.equal(f.field.children[0].className, "search-ico", "框内第一件必须是那颗放大镜");
+assert.equal(f.field.children[1], f.search, "放大镜后面才是输入框");
 assert.equal(f.catalog.className, "settings-catalog", "分类目录不能被顶到别的位置");
 assert.equal(f.results.hidden, true, "没输入时结果区必须收起");
 

@@ -731,6 +731,11 @@
 .rss-unread{font-size:calc(11px * var(--ui-text-scale));font-weight:700;border-radius:999px;padding:3px 9px;background:var(--deep,#0F4C5C);color:var(--on-deep,#fff);flex:none}
 .rss-toolbar{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:10px}
 .rss-lab{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A9B2BA);letter-spacing:.14em;flex:none;width:32px}
+/* 搜索框只留一颗放大镜（用户要求「删除所有搜索框内的中文，仅保留搜索图标」） */
+.rss-kwbox{position:relative;display:flex;align-items:center;flex:1;min-width:150px}
+.rss-kwbox>.rss-input{flex:1;min-width:0;padding-left:32px}
+.rss-kw-ico{position:absolute;left:11px;width:14px;height:14px;display:inline-flex;color:var(--ink-3,#7E8B94);pointer-events:none}
+.rss-kw-ico svg{width:100%;height:100%;display:block}
 .rss-input{flex:1;min-width:150px;height:34px;border:1px solid var(--line,#E4DFD6);border-radius:9px;padding:0 11px;background:var(--paper,#F7F6F2);color:var(--ink,#22303A);font-size:calc(12.5px * var(--ui-text-scale))}
 .rss-btn{height:34px;padding:0 14px;border-radius:9px;border:1px solid var(--line,#E4DFD6);background:var(--panel,#fff);color:var(--ink,#22303A);font-size:calc(12.5px * var(--ui-text-scale));cursor:pointer;flex:none}
 .rss-btn:hover{border-color:var(--deep,#0F4C5C);color:var(--deep,#0F4C5C)}
@@ -1310,7 +1315,7 @@
           <button class="rss-btn pri" data-refresh>刷新</button>
         </div>
         <div class="rss-toolbar">
-          <input class="rss-input" data-kw type="text" placeholder="关键词过滤：标题与摘要…">
+          <span class="rss-kwbox"><span class="rss-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="rss-input" data-kw type="text" aria-label="关键词过滤：标题与摘要" title="关键词过滤：标题与摘要" placeholder=""></span>
           <select class="rss-select" data-auto title="自动刷新间隔"></select>
           <span class="rss-seg" data-seg role="group" aria-label="条目显示样式"></span>
           <span class="rss-toggle" data-cover-toggle title="卡片档是否显示封面图"><i></i>封面图</span>

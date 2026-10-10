@@ -142,6 +142,53 @@ page {
 .input { min-height: 82rpx; }
 .textarea { min-height: 160rpx; }
 
+/* ── 搜索框 ──
+   用户要求「删除所有搜索框内的中文，仅保留搜索图标」：框里不再写中文占位词，
+   左端只留一颗放大镜。图标用纯 CSS 画（圆环 + 斜柄），不依赖任何图片资源，
+   深浅模式跟着 --ink-3 走；提示语改挂 aria-label，读屏仍然知道这个框能搜什么。 */
+.search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.search-wrap > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-left: 62rpx;
+}
+.search-ico {
+  position: absolute;
+  left: 20rpx;
+  top: 50%;
+  width: 30rpx;
+  height: 30rpx;
+  margin-top: -15rpx;
+  pointer-events: none;
+}
+.search-ico::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 21rpx;
+  height: 21rpx;
+  box-sizing: border-box;
+  border: 3rpx solid var(--ink-3);
+  border-radius: 50%;
+}
+.search-ico::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 13rpx;
+  height: 3rpx;
+  border-radius: 3rpx;
+  background: var(--ink-3);
+  transform: rotate(45deg);
+}
+
 @media (max-width: 340px) {
   .page-body { padding-left: 18rpx; padding-right: 18rpx; }
   .card { padding: 22rpx; border-radius: 20rpx; }

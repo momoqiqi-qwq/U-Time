@@ -3,6 +3,7 @@ import { reducedMotion } from "../../motion.js";
 import { attachSelectionGlow } from "../../selectionGlow.js";
 import { SETTINGS_SEARCH_ENTRIES } from "../../settingsSearchIndex.js";
 import { matchesSearchEntry, scoreSearchEntry } from "../../searchMatch.js";
+import { withSearchGlyph } from "../../searchField.js";
 
 // 分类图标：复用打包内 Font Awesome solid（与快捷 dock 同款根路径）。
 // 本地小助手而不是从 shell.js 引入，避免设置视图反向依赖外壳造成循环 import。
@@ -38,13 +39,17 @@ function entryMatches(entry, q) {
 }
 
 export function createSettingsNavigator(entries, state = {}, { pages = false, tabs = false, onPageChange = () => {}, onPickOption = null } = {}) {
+  // v0.184.0：框内不再写中文占位词（那一长串「搜索设置：背景、快捷键、WebDAV…也认拼音
+  // 缩写」占了整条框），只留一颗放大镜；提示改挂 title，无障碍仍走 aria-label。
   const search = el("input", {
     class: "settings-search",
     type: "search",
     value: state.query || "",
-    placeholder: "搜索设置：背景、快捷键、WebDAV…也认拼音缩写（zt → 字体）",
+    placeholder: "",
+    title: "搜索设置：背景、快捷键、WebDAV…也认拼音缩写（zt → 字体）",
     "aria-label": "搜索设置",
   });
+  const searchBox = withSearchGlyph(search);
   const result = el("span", { class: "settings-result" });
   const list = el("div", { class: "settings-catalog", role: "tablist", "aria-label": "设置分类" });
   const empty = el("div", { class: "settings-empty", hidden: true }, "没有找到匹配的设置项或分类");
@@ -386,7 +391,7 @@ export function createSettingsNavigator(entries, state = {}, { pages = false, ta
         el("b", {}, "设置分类"),
         result,
       ),
-      search,
+      searchBox,
       results,
       list,
       empty,

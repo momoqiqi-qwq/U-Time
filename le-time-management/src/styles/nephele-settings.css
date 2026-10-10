@@ -92,8 +92,11 @@
     backdrop-filter: blur(22px) saturate(1.12);
     -webkit-backdrop-filter: blur(22px) saturate(1.12);
   }
+  /* v0.182.0：主区原来和侧栏不是同一条底色 —— 右边是 --bg 混透明（偏灰的板），
+     压在紫调侧栏旁边显脏、显暗。用户要求「右边弄成和左边侧边栏一样的背景颜色」，
+     这里就把两条大板改成同一条声明：右侧与侧栏同色、同透明度，两块板只靠描边与圆角分工。 */
   :root[data-nephele-settings="on"] .main {
-    background: color-mix(in srgb, var(--bg) 58%, transparent);
+    background: color-mix(in srgb, var(--nephele-rail) 90%, transparent);
     border-color: var(--nephele-edge);
     backdrop-filter: blur(26px) saturate(1.08);
     -webkit-backdrop-filter: blur(26px) saturate(1.08);
@@ -105,8 +108,9 @@
   :root[data-nephele-settings="on"][data-nav-glass="solid"] .rail {
     background: color-mix(in srgb, var(--nephele-rail) 96%, var(--paper));
   }
+  /* 关掉实时模糊的实色档同样跟侧栏对齐（v0.182.0）。 */
   :root[data-nephele-settings="on"][data-nav-glass="solid"] .main {
-    background: color-mix(in srgb, var(--bg) 76%, var(--panel));
+    background: color-mix(in srgb, var(--nephele-rail) 96%, var(--paper));
   }
 }
 /* ── 插件中心（插件页）不套容器框 ────────────────────────────────────────────

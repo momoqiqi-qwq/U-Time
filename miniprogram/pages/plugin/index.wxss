@@ -63,6 +63,9 @@
 
 .exam-tools { display: flex; gap: 14rpx; align-items: center; margin-top: 18rpx; }
 .exam-search { flex: 1; min-width: 0; height: 72rpx; border: 1rpx solid var(--line); border-radius: 14rpx; padding: 0 18rpx; background: var(--paper); font-size: 23rpx; box-sizing: border-box; }
+.exam-tools .search-wrap,
+.gx-toolbar .search-wrap,
+.cx-toolbar .search-wrap { flex: 1 1 auto; min-width: 0; }
 .exam-chip { flex: none; font-size: 22rpx; height: 72rpx; line-height: 70rpx; padding: 0 22rpx; border-radius: 999rpx; border: 1rpx solid var(--line); color: var(--ink-2); box-sizing: border-box; }
 .exam-chip.on { background: var(--deep); border-color: var(--deep); color: var(--on-deep); }
 

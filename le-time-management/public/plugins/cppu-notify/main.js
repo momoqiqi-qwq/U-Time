@@ -278,6 +278,11 @@
       .pp-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
       .pp-lab{font-size:calc(11px * var(--ui-text-scale));color:#A9B2BA;letter-spacing:.14em;flex:none;width:34px}
       .pp-chips{display:flex;gap:8px;flex-wrap:wrap;flex:1}
+      /* 搜索框只留一颗放大镜（用户要求「删除所有搜索框内的中文，仅保留搜索图标」） */
+      .pp-kwbox{position:relative;display:flex;align-items:center;flex:1;min-width:170px}
+      .pp-kwbox>.pp-kw{flex:1 1 auto;min-width:0;padding-left:32px}
+      .pp-kw-ico{position:absolute;left:11px;width:14px;height:14px;display:inline-flex;color:#7E8B94;pointer-events:none}
+      .pp-kw-ico svg{width:100%;height:100%;display:block}
       .pp-kw{flex:1;min-width:170px;height:34px;border:1px solid #E4DFD6;border-radius:9px;padding:0 11px;background:#fff}
       .pp-chip{font-size:calc(12px * var(--ui-text-scale));border:1px solid #E4DFD6;background:#fff;border-radius:16px;padding:6px 13px;cursor:pointer;color:#7E8B94}
       .pp-chip.on{background:#0F4C5C;color:#fff;border-color:#0F4C5C}
@@ -300,7 +305,7 @@
       .pp-expand::after{content:"⌄";display:inline-block;font-size:calc(14px * var(--ui-text-scale));line-height:1;transform:translateY(-1px) rotate(0deg);transition:transform .36s cubic-bezier(.22,.8,.22,1)}
       .pp-card.open .pp-expand::after{transform:translateY(1px) rotate(180deg)}
       .pp-heading:focus-visible,.pp-btn:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
-      @media(max-width:600px){.pp-wrap{width:100%;min-width:0}.pp-login{margin:12px auto;padding:20px 16px;max-width:100%;box-sizing:border-box}.pp-title{font-size:calc(17px * var(--ui-text-scale))!important}.pp-meta{font-size:calc(13px * var(--ui-text-scale))!important}.pp-detail .c{font-size:calc(16px * var(--ui-text-scale))!important;max-height:none!important;overflow-wrap:anywhere}.pp-btn,.pp-chip{min-height:44px;font-size:calc(14px * var(--ui-text-scale))!important}.pp-kw{width:100%;flex-basis:100%;box-sizing:border-box;min-height:44px}.pp-card{padding:14px;cursor:default}.pp-caprow input{min-width:0}.pp-detail .pp-act{flex-wrap:wrap}}
+      @media(max-width:600px){.pp-wrap{width:100%;min-width:0}.pp-login{margin:12px auto;padding:20px 16px;max-width:100%;box-sizing:border-box}.pp-title{font-size:calc(17px * var(--ui-text-scale))!important}.pp-meta{font-size:calc(13px * var(--ui-text-scale))!important}.pp-detail .c{font-size:calc(16px * var(--ui-text-scale))!important;max-height:none!important;overflow-wrap:anywhere}.pp-btn,.pp-chip{min-height:44px;font-size:calc(14px * var(--ui-text-scale))!important}.pp-kwbox{width:100%;flex-basis:100%;box-sizing:border-box}.pp-kwbox>.pp-kw{min-height:44px}.pp-card{padding:14px;cursor:default}.pp-caprow input{min-width:0}.pp-detail .pp-act{flex-wrap:wrap}}
       .pp-card:hover{background:#FBFAF5;border-color:#D8D2C4}
       .pp-card.seen{opacity:.6}
       .pp-title{font-size:calc(13.5px * var(--ui-text-scale));font-weight:600;line-height:1.5}
@@ -555,7 +560,7 @@
         /* 手机上工具栏不能靠自动换行碰运气（原来「刷新」会独占一整行）：
            关键词搜索独占一行，其余按钮/开关挤一行，并统一给到 44px 的点击高度 */
         .pp-toolbar{gap:8px}
-        .pp-kw{flex:1 1 100%;order:2;min-width:0;height:44px}
+        .pp-kwbox{flex:1 1 100%;order:2;min-width:0}.pp-kwbox>.pp-kw{height:44px}
         .pp-toolbar>span:not(.pp-lab){order:1}
         .pp-toolbar>.pp-btn,.pp-toggle{order:1;min-height:44px}
         .pp-toolbar>.pp-btn{padding:0 14px;font-size:calc(13px * var(--ui-text-scale))}
@@ -1319,6 +1324,26 @@
     updateDetail(rid);
   }
 
+  /**
+   * 落盘横幅：整卡可点，点一下就在系统文件管理器里定位到刚存下的那个文件
+   * （Windows 会直接选中它）。
+   *
+   * 为什么不加一颗按钮：这种横幅只有一个去处，按钮会把一条长路径的正文挤窄。
+   * Android 没有「在文件夹里选中文件」这回事，宿主如实报错 —— 那就退化成把路径
+   * 再摊开一次，横幅上本来就写着完整路径，用户照样能自己找过去。
+   */
+  function notifySaved(msg, path) {
+    tide.notify(msg, {
+      ms: 8000,
+      onClickHint: "点击定位文件",
+      onClick: () => {
+        tide.assets.revealSaved(path).catch((e) => {
+          tide.notify(`请手动到下载目录查看：${path}（${String(e?.message || e)}）`, { ms: 10000 });
+        });
+      },
+    });
+  }
+
   async function downloadAttachment(att) {
     const name = safeFileName(att.name);
     try {
@@ -1330,7 +1355,7 @@
       // 门户票据过期时下载链接会 200 返回一张登录页，不拦就会存下一个打不开的"附件"
       if (/text\/html/i.test(res.contentType || "")) throw new Error("门户会话已过期，请重新打开插件登录后再下载");
       const path = await tide.assets.saveBase64(name, res.body);
-      tide.notify(`已保存到下载目录：${path}`, { ms: 8000 });
+      notifySaved(`已保存到下载目录：${path}`, path);
     } catch (e) {
       tide.notify(`「${name}」下载失败：${explainHttpError(e)}`);
     }
@@ -2639,7 +2664,7 @@
     // Android / Tauri WebView 的 <a download> 不可靠，落盘走宿主已有的下载桥。
     try {
       const path = await tide.assets.saveBase64(name, canvas.toDataURL("image/png").split(",")[1]);
-      tide.notify(`成绩单图片已保存：${path}`);
+      notifySaved(`成绩单图片已保存：${path}`, path);
     } catch (e) { tide.notify(`保存成绩单失败：${String(e?.message || e)}`); }
   }
 
@@ -3514,7 +3539,7 @@
       <div style="font-size:calc(11px * var(--ui-text-scale));letter-spacing:.3em;color:#7E8B94;margin:16px 0 4px">警 大 门 户 通 知 · 内 置 插 件</div>
       <div class="pp-toolbar">
         <button class="pp-btn pri" data-refresh>刷新</button>
-        <input class="pp-kw" data-kw type="text" placeholder="关键词过滤：标题 / 发布人 / 单位 / 分类…">
+        <span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="pp-kw" data-kw type="text" aria-label="关键词过滤：标题 / 发布人 / 单位 / 分类" title="关键词过滤：标题 / 发布人 / 单位 / 分类" placeholder=""></span>
         <label class="pp-toggle" data-ar title="打开插件期间每 10 分钟自动同步一次"><i></i>自动刷新</label>
         <span style="flex:1"></span>
         <button class="pp-btn" data-relogin>重新登录</button>

@@ -6,7 +6,7 @@
   </view>
 
   <view class="plugin-tools card">
-    <input class="plugin-search" value="{{query}}" bindinput="onSearch" placeholder="搜索插件名称 / ID / 功能…" confirm-type="search" />
+    <view class="search-wrap plugin-search-wrap"><view class="search-ico"></view><input class="plugin-search" value="{{query}}" bindinput="onSearch" aria-label="搜索插件名称 / ID / 功能" confirm-type="search" /></view>
     <view class="filter-row">
       <view class="filter-chip {{filter === 'all' ? 'on' : ''}}" data-filter="all" bindtap="onFilter">全部</view>
       <view class="filter-chip {{filter === 'enabled' ? 'on' : ''}}" data-filter="enabled" bindtap="onFilter">已启用</view>

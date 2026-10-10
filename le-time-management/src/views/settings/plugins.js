@@ -7,6 +7,7 @@ import { pluginAccent, pluginDisplayIcon, pluginDisplayName } from "../../plugin
 import { reducedMotion } from "../../motion.js";
 import { getUiPreferences, setUiPreferences } from "../../uiPreferences.js";
 import { toggleSwitch } from "../../switchControl.js";
+import { withSearchGlyph } from "../../searchField.js";
 
 const selectedPlugins = new Set();
 let pluginManageQuery = "";
@@ -63,7 +64,8 @@ export function createPluginSettingsCard({ rerender = () => {} } = {}) {
   const regs = getRegistry();
   const userRegs = regs.filter((r) => r.source !== "builtin");
   const pluginList = el("div", { class: "plugin-manage-list" });
-  const pluginSearch = el("input", { class: "plugin-search-input", type: "search", value: pluginManageQuery, placeholder: "搜索插件名称 / ID / 描述 / 作者…", "aria-label": "搜索插件管理列表" });
+  // v0.184.0：框内不再写中文占位词，只留一颗放大镜（见 src/searchField.js）。
+  const pluginSearch = el("input", { class: "plugin-search-input", type: "search", value: pluginManageQuery, placeholder: "", "aria-label": "搜索插件管理列表" });
   const pluginFilter = el("select", { class: "plugin-filter-select", "aria-label": "筛选插件" },
     el("option", { value: "all" }, "全部插件"),
     el("option", { value: "enabled" }, "已启用"),
@@ -99,7 +101,7 @@ export function createPluginSettingsCard({ rerender = () => {} } = {}) {
   };
   pluginSearch.addEventListener("input", applyPluginManageFilter);
   pluginFilter.addEventListener("change", applyPluginManageFilter);
-  plugCard.append(el("div", { class: "plugin-search-row" }, pluginSearch, pluginFilter, pluginDescControl, pluginVisibleCount));
+  plugCard.append(el("div", { class: "plugin-search-row" }, withSearchGlyph(pluginSearch), pluginFilter, pluginDescControl, pluginVisibleCount));
   // 清掉已经不存在的选择，避免重扫后误操作。
   for (const id of [...selectedPlugins]) if (!regs.some((r) => r.id === id)) selectedPlugins.delete(id);
 

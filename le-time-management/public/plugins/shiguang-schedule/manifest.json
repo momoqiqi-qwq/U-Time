@@ -1,7 +1,7 @@
 {
   "id": "shiguang-schedule",
   "name": "课程表",
-  "version": "3.14.0",
+  "version": "3.15.0",
   "author": "基于 XingHeYuZhuan/shiguangschedule · U-Time适配",
   "icon": "calendar-days",
   "description": "将时光课程表嵌入 Le 时间管理；周视图一屏显示周一到周日全部节次（默认 10 节），手机端无边距铺满整屏，视图切换与常用操作收在右上角「⋯」菜单；支持选择学校并登录教务一键导入、教务 XLSX/XLS/CSV/TSV/HTML 导入、多课表、课程管理、彩色课程块（默认开）与个性化配置、JSON/ICS 备份及时间块联动。",

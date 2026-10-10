@@ -412,6 +412,12 @@ const CX_PY_DATA = {
       .cx2-new{background:var(--coral);color:#fff}
       .cx2-pill.cx2-late{background:var(--coral);color:#fff}
       .cx2-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+      /* 搜索框只留一颗放大镜（用户要求「删除所有搜索框内的中文，仅保留搜索图标」）：
+         容器接管占宽与定位，图标钉在框内左端，输入框让出内边距。 */
+      .cx2-searchbox{position:relative;display:flex;align-items:center;flex:1;min-width:220px}
+      .cx2-searchbox>.cx2-search{flex:1;min-width:0;padding-left:36px}
+      .cx2-search-ico{position:absolute;left:12px;width:15px;height:15px;display:inline-flex;color:var(--ink-3);pointer-events:none}
+      .cx2-search-ico svg{width:100%;height:100%;display:block}
       .cx2-search{flex:1;min-width:220px;border:1px solid var(--line);border-radius:9px;min-height:40px;padding:8px 11px;background:var(--panel);color:var(--ink)}
       .cx2-search::placeholder{color:var(--ink-2);opacity:1}
       .cx2-select{border:1px solid var(--line);border-radius:9px;min-height:40px;padding:6px 9px;background:var(--panel);color:var(--ink)}
@@ -866,7 +872,7 @@ const CX_PY_DATA = {
   }
   function inboxHtml() {
     const rows = filteredInbox();
-    return `<div class="cx2-toolbar cx2-inbox-tools"><input class="cx2-search" data-search value="${esc(state.filter.kw)}" aria-label="搜索学习通通知" placeholder="搜索课程 / 教师 / 作业 / 考试 / 正文…"><details class="plugin-filter-menu"><summary>筛选通知${state.filter.category !== "全部" || state.filter.onlyUnread ? " · 已设置" : ""}</summary><div class="plugin-filter-menu-panel"><select class="cx2-select" data-category aria-label="通知类型">${["全部","通知","作业","考试","签到"].map(x=>`<option ${state.filter.category===x?'selected':''}>${x}</option>`).join('')}</select><label class="cx2-check"><input class="switch" role="switch" type="checkbox" data-unread ${state.filter.onlyUnread?'checked':''}> 只看平台未读</label></div></details></div>
+    return `<div class="cx2-toolbar cx2-inbox-tools"><span class="cx2-searchbox"><span class="cx2-search-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="cx2-search" data-search value="${esc(state.filter.kw)}" aria-label="搜索学习通通知" title="搜索课程 / 教师 / 作业 / 考试 / 正文" placeholder=""></span><details class="plugin-filter-menu"><summary>筛选通知${state.filter.category !== "全部" || state.filter.onlyUnread ? " · 已设置" : ""}</summary><div class="plugin-filter-menu-panel"><select class="cx2-select" data-category aria-label="通知类型">${["全部","通知","作业","考试","签到"].map(x=>`<option ${state.filter.category===x?'selected':''}>${x}</option>`).join('')}</select><label class="cx2-check"><input class="switch" role="switch" type="checkbox" data-unread ${state.filter.onlyUnread?'checked':''}> 只看平台未读</label></div></details></div>
       <div class="cx2-summary"><span>显示 ${rows.length} / 共 ${visibleInbox().length} 条</span><span title="含本机标记未读">未读 ${visibleInbox().filter(x=>effUnread(x)).length}</span>${state.newIds.size?`<span>本次新增 ${state.newIds.size}</span>`:''}</div>
       ${rows.length?`<div class="cx2-grid">${rows.map(inboxCardHtml).join('')}</div>`:'<div class="cx2-empty">没有匹配的通知。</div>'}`;
   }
@@ -1109,7 +1115,7 @@ const CX_PY_DATA = {
     const yearLabel = (y) => (y === 0 ? "未知学年" : `${y}-${y + 1} 学年`);
     const tabs = `<details class="plugin-filter-menu"><summary>筛选学年 · ${esc(yearLabel(state.course.year))}</summary><div class="plugin-filter-menu-panel"><div class="cx2-tabs" role="tablist" aria-label="按学年筛选课程">${years.map((y) => `<button class="${y === state.course.year ? "on" : ""}" data-year="${y}" role="tab" aria-selected="${y === state.course.year}">${esc(yearLabel(y))}（${yearMap.get(y).length}）</button>`).join("")}</div></div></details>`;
     const search = state.course.searchOpen
-      ? `<input class="cx2-search" data-search value="${esc(state.filter.kw)}" placeholder="搜索课程 / 教师 / 班级…">`
+      ? `<span class="cx2-searchbox"><span class="cx2-search-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="cx2-search" data-search value="${esc(state.filter.kw)}" aria-label="搜索课程 / 教师 / 班级" title="搜索课程 / 教师 / 班级" placeholder=""></span>`
       : `<button class="cx2-search-toggle" data-search-toggle title="搜索课程 / 教师 / 班级" aria-label="展开搜索"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></button>`;
     const viewSwitch = `<span class="cx2-mode" role="group" aria-label="课程列表视图">${[["year", "学年分组", "按学年分标签页，学年内再按完成状态分组"], ["timeline", "开课时间", "不分学年，把全部课程的开课日期按先后排成一条时间轴"]].map(([v, label, why]) => `<button class="${(state.course.view || "year") === v ? "on" : ""}" data-course-view="${v}" title="${esc(why)}" aria-pressed="${(state.course.view || "year") === v}">${label}</button>`).join("")}</span>`;
     const timeline = state.course.view === "timeline";

@@ -99,15 +99,30 @@ const path = await tide.assets.saveText("导出说明.md", text);
 // 二进制同理：base64 直接喂进来，不要拼 data: URI 用 <a download>（WebView 里会静默失败）
 const blob = await tide.http.fetch(sid, "GET", fileUrl, { binary: true });
 const saved = await tide.assets.saveBase64("附件.docx", blob.body);
+// 在系统文件管理器里定位刚存下的文件（Windows 会打开目录并选中它）
+await tide.assets.revealSaved(saved);
 ```
 
 资源路径必须是插件目录内的相对路径，不能使用绝对路径或 `..`。
-`saveText` / `saveBase64` 需要 `ui` 权限；平台没有下载目录时保存到应用数据目录。
+`saveText` / `saveBase64` / `revealSaved` 需要 `ui` 权限；平台没有下载目录时保存到应用数据目录。
+`revealSaved` 只接受 `saveText` / `saveBase64` 返回过的那个路径（宿主会校验它确实在下载目录内），
+Android 上没有「在文件夹里选中文件」这回事，会**抛错**，请照下面的写法兜底。
 
 ### 通知与事件
 
 ```js
 tide.notify("操作完成");
+
+// 落盘类横幅做成「整卡可点」：toast 只有一个去处时不要再加按钮，
+// 按钮会把一条长路径的正文挤窄。onClickHint 是卡尾那句提示的文案。
+const path = await tide.assets.saveText("导出说明.md", text);
+tide.notify(`已保存到下载目录：${path}`, {
+  ms: 8000,
+  onClickHint: "点击定位文件",
+  onClick: () => {
+    tide.assets.revealSaved(path).catch((e) => tide.notify(`请手动到下载目录查看：${path}（${e?.message || e}）`));
+  },
+});
 
 tide.events.on("pomodoro:finished", (payload) => {
   console.log(payload);
@@ -115,6 +130,9 @@ tide.events.on("pomodoro:finished", (payload) => {
 
 tide.events.emit("my-plugin:changed", { ok: true });
 ```
+
+`onClick` 生效时整卡会拿到 `role="button"` 与键盘焦点（Enter / Space 触发），点完自动收卡；
+卡里另有 `action` 按钮时只有按钮响应，整卡不抢焦点。
 
 消息类插件统一用 `notice:new` 广播新消息，载荷契约固定成这样（宿主会按这份契约抄收，字段名别自创）：
 

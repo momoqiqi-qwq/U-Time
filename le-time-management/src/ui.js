@@ -35,6 +35,9 @@ export function newBadge(visible = true) {
  * 应用内横幅。
  * @param {object} opts
  *   action / actionLabel 带一个动作按钮（默认文案「撤销」）
+ *   onClick / onClickHint 整卡可点：点一下（或键盘 Enter / Space）就跑 onClick 并收掉。
+ *     用在「这件事只有一个去处」的横幅上（如插件下载完附件 → 定位到下载目录），
+ *     比再加一颗按钮好：按钮会把一条长路径的正文挤窄。
  *   ms 停留时长；**0 = 常驻不自动消失**（长鸣那种必须用户明确处置的横幅），默认 4200
  *   class 额外类名（如 "alarm"）
  *   pin 钉住这条：不缩进堆叠里被别的横幅盖住。`ms: 0` 隐含 pin（常驻卡都带按钮，
@@ -44,7 +47,8 @@ export function newBadge(visible = true) {
  */
 export function toast(msg, opts = {}) {
   const box = document.getElementById("toasts");
-  const t = el("div", { class: `toast${opts.class ? ` ${opts.class}` : ""}` }, el("span", {}, msg));
+  const clickable = typeof opts.onClick === "function";
+  const t = el("div", { class: `toast${opts.class ? ` ${opts.class}` : ""}${clickable ? " toast-clickable" : ""}` }, el("span", {}, msg));
   if (opts.pin !== undefined ? opts.pin : opts.ms === 0) t.setAttribute("data-pin", "");
   let removed = false;
   const close = () => {
@@ -54,6 +58,27 @@ export function toast(msg, opts = {}) {
   };
   if (opts.action) {
     t.append(el("button", { onclick: () => { opts.action(); close(); } }, opts.actionLabel || "撤销"));
+  }
+  if (clickable) {
+    t.append(el("span", { class: "toast-hint" }, opts.onClickHint || "点击查看"));
+    // 卡里已经有一颗真按钮时不再把整卡也标成按钮：嵌套的交互元素会让读屏器念两次，
+    // 键盘也会多出一站。那种横幅点按钮就够，卡本身不是入口。
+    if (!opts.action) {
+      t.setAttribute("role", "button");
+      t.setAttribute("tabindex", "0");
+    }
+    // 先跑回调再收卡：回调抛错也得把卡收掉（否则用户以为没点上，会一直点）。
+    const fire = () => { try { opts.onClick(); } finally { close(); } };
+    t.addEventListener("click", (e) => {
+      // 点内部按钮（如「撤销」）走它自己的动作，不能顺带把 onClick 也跑一遍。
+      if (opts.action && e.target?.closest?.("button")) return;
+      fire();
+    });
+    t.addEventListener("keydown", (e) => {
+      if (!isSelfActivationKey(e)) return;
+      e.preventDefault();
+      fire();
+    });
   }
   box.classList.add("notify-stack");
   box.append(t);

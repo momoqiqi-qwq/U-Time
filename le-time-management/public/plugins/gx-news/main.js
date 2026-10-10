@@ -654,6 +654,11 @@
       .gx-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
       .gx-lab{font-size:calc(11px * var(--ui-text-scale));color:#A9B2BA;letter-spacing:.14em;flex:none;width:34px}
       .gx-chips{display:flex;gap:8px;flex-wrap:wrap;flex:1}
+      /* 搜索框只留一颗放大镜（用户要求「删除所有搜索框内的中文，仅保留搜索图标」） */
+      .gx-kwbox{position:relative;display:flex;align-items:center;flex:1;min-width:170px}
+      .gx-kwbox>.gx-kw{flex:1 1 auto;min-width:0;padding-left:32px}
+      .gx-kw-ico{position:absolute;left:11px;width:14px;height:14px;display:inline-flex;color:#7E8B94;pointer-events:none}
+      .gx-kw-ico svg{width:100%;height:100%;display:block}
       .gx-kw{flex:1;min-width:170px;height:34px;border:1px solid #E4DFD6;border-radius:9px;padding:0 11px;background:#fff}
       .gx-chip{font-size:calc(12px * var(--ui-text-scale));border:1px solid #E4DFD6;background:#fff;border-radius:16px;padding:6px 13px;cursor:pointer;color:#7E8B94}
       .gx-chip.on{background:#0F4C5C;color:#fff;border-color:#0F4C5C}
@@ -1057,7 +1062,7 @@
       <div class="gx-toolbar"><button class="gx-link" data-home>打开源站 ↗</button></div>
       <div class="gx-toolbar">
         <button class="gx-refresh">刷新</button>
-        <input class="gx-kw" type="text" placeholder="关键词过滤：如 答辩 / 数学 / 报名 / 截止…">
+        <span class="gx-kwbox"><span class="gx-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="gx-kw" type="text" aria-label="关键词过滤：如 答辩 / 数学 / 报名 / 截止" title="关键词过滤：如 答辩 / 数学 / 报名 / 截止" placeholder=""></span>
         <label class="gx-toggle show-cover"><i></i>封面图</label>
         <label class="gx-toggle auto"><i></i>每 10 分钟自动刷新</label>
       </div>

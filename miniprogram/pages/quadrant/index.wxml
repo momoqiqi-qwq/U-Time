@@ -2,13 +2,16 @@
   <view class="mini-shortcuts"><button class="btn ghost small" bindtap="onInbox">收件箱 {{inboxCount}}</button><button class="btn ghost small" bindtap="onSchedulePlugin">课程表</button><button class="btn ghost small" bindtap="onPlugins">插件中心</button></view>
   <!-- 搜索 -->
   <view class="searchbar">
-    <input
-      class="input"
-      placeholder="搜索任务 / 备注 / 项目 / 标签"
-      value="{{q}}"
-      confirm-type="search"
-      bindinput="onSearch"
-    />
+    <view class="search-wrap">
+      <view class="search-ico"></view>
+      <input
+        class="input"
+        aria-label="搜索任务 / 备注 / 项目 / 标签"
+        value="{{q}}"
+        confirm-type="search"
+        bindinput="onSearch"
+      />
+    </view>
     <text wx:if="{{q}}" class="search-clear" bindtap="onClearSearch">清除</text>
   </view>
 

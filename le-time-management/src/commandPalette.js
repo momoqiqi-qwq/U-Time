@@ -175,7 +175,9 @@ function closeCommandPalette() {
 function openCommandPalette(initialQuery = "") {
   if (modal) { input.value = initialQuery; renderResults(); input.focus(); return; }
   const mask = el("div", { class: "cmd-mask", onclick: closeCommandPalette });
-  input = el("input", { class: "cmd-input", type: "search", placeholder: "搜索任务、时间块、插件、设置，或输入命令…", value: initialQuery, "aria-label": "全局搜索" });
+  // v0.184.0：框内不再写中文占位词，只留左边那颗放大镜（用户：「删除所有搜索框内的
+  // 中文，仅保留搜索图标」）；无障碍与键盘提示仍走 aria-label / title。
+  input = el("input", { class: "cmd-input", type: "search", placeholder: "", value: initialQuery, "aria-label": "全局搜索", title: "搜索任务、时间块、插件、设置，或输入命令" });
   // 手机端没有 Esc 键：始终渲染一个 ✕ 关闭按钮（kbd Esc 仅桌面显示，见 CSS）。
   const closeBtn = el("button", { class: "cmd-close", type: "button", "aria-label": "关闭搜索", onclick: closeCommandPalette });
   closeBtn.innerHTML = CLOSE_ICON;

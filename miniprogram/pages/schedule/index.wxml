@@ -46,7 +46,7 @@
   </block>
 
   <view wx:if="{{mode === 'manage'}}">
-    <view class="card"><input class="input" value="{{query}}" placeholder="搜索课程、教师、地点、备注" bindinput="onSearch"/><view class="schedule-actions"><text class="desc">共 {{courseTotal}} 门 · 第 {{pageNumber}} 页</text><button class="btn pri small" bindtap="onAddCourse">添加课程</button></view></view>
+    <view class="card"><view class="search-wrap"><view class="search-ico"></view><input class="input" value="{{query}}" aria-label="搜索课程、教师、地点、备注" bindinput="onSearch"/></view><view class="schedule-actions"><text class="desc">共 {{courseTotal}} 门 · 第 {{pageNumber}} 页</text><button class="btn pri small" bindtap="onAddCourse">添加课程</button></view></view>
     <view wx:for="{{courses}}" wx:key="id" class="card"><view class="course-title">{{item.name}}</view><view class="course-time">{{item.dayLabel}} {{item.timeLabel}}</view><view class="desc">{{item.teacher}} {{item.position}}</view><view class="desc">第 {{item.weeksLabel}} 周</view><view class="schedule-actions"><button class="btn ghost small" data-id="{{item.id}}" bindtap="onEditCourse">编辑</button><button class="btn danger small" data-id="{{item.id}}" bindtap="onDeleteCourse">删除</button></view></view>
     <view wx:if="{{!courses.length}}" class="empty">暂无课程，添加课程或导入教务文件。</view>
     <view class="schedule-actions"><button wx:if="{{hasPrev}}" class="btn ghost" bindtap="onPrevPage">上一页</button><button wx:if="{{hasNext}}" class="btn pri" bindtap="onMore">下一页</button></view>

@@ -33,6 +33,7 @@ import { RAIL_WIDTH_LIMITS, RAIL_WIDTH_STEP, applyRailWidth, clampRailWidth, nor
 import { getUiScaleFactor } from "./uiScale.js";
 import { attachToolbarDrag } from "./toolbarDrag.js";
 import { attachMarketCardResize, resetMarketCardSize } from "./marketCardResize.js";
+import { searchGlyph, withSearchGlyph } from "./searchField.js";
 import { openUpdateHistory } from "./updateHistory.js";
 
 // 注意：模块导入阶段 state 还未初始化，activeView 必须延迟到 renderShell 时读取
@@ -321,6 +322,52 @@ export function renderShell(root) {
     "aria-label": "快捷操作",
     "data-rail-dock": "",
   });
+  /* v0.183.0：字标下方那条哥特装饰线（用户需求「在下面添加一根像上面代码那样画出来的线」）。
+     形状照参考图：左右两条带波纹节点的细主线 + 两端尖饰 + 中间上下对称的菱形与四片卷草花饰，
+     末端再挂一对横向小枝；最上面那层极淡的同色柔光只在深色模式开（浅色下压白底会发灰）。
+     viewBox 是 160×14 —— 与桌面侧栏里字标的实际宽度（≈159px @ 20px 字号，实测）几乎 1:1，
+     所以默认 preserveAspectRatio（xMidYMid meet）下既不会被横拉变形，也不会被裁。
+     **颜色一律由 styles.css 的 CSS 变量给**（`--brand-rule-*`）：浅色/深色两套四档跟字标同一
+     色相，对比度由 scripts/test-brand-wordmark.mjs 一起实算，别在这里写死十六进制色。 */
+  function brandRule() {
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", "brand-rule");
+    svg.setAttribute("viewBox", "0 0 160 14");
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    svg.innerHTML = `
+      <defs>
+        <linearGradient id="brandRuleGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="160" y2="0">
+          <stop class="bg-1" offset="0%"></stop>
+          <stop class="bg-2" offset="34%"></stop>
+          <stop class="bg-3" offset="67%"></stop>
+          <stop class="bg-4" offset="100%"></stop>
+        </linearGradient>
+      </defs>
+      <path class="br-line" d="M1 7 C3.6 6.2 6.4 5.7 9.4 6.1 L13 6.7 L15.6 5.9 L18.2 6.8 L21.5 6.15 L24 7 H72"></path>
+      <path class="br-line" d="M88 7 H136 L138.5 6.15 L141.8 6.8 L144.4 5.9 L147 6.7 C150 5.7 153.4 6.2 159 7"></path>
+      <path class="br-tip" d="M1 7 C4.5 5.5 8 5.2 12 7 C8 8.3 4.5 8.2 1 7 Z"></path>
+      <path class="br-tip" d="M159 7 C155.5 5.5 152 5.2 148 7 C152 8.3 155.5 8.2 159 7 Z"></path>
+      <g class="br-scroll">
+        <path d="M80 1.2 C79.4 2.3 79.4 3.2 80 4.2"></path>
+        <path d="M80 9.8 C79.4 10.8 79.4 11.8 80 12.8"></path>
+        <path d="M80 4.1 L82.2 7 L80 9.9 L77.8 7 Z"></path>
+        <path d="M77.7 6 C76.7 5.6 75.8 5 75.9 4 C76 3.2 76.8 2.7 77.5 3.1 C78.1 3.5 77.8 4.3 77.2 4.5"></path>
+        <path d="M82.3 6 C83.3 5.6 84.2 5 84.1 4 C84 3.2 83.2 2.7 82.5 3.1 C81.9 3.5 82.2 4.3 82.8 4.5"></path>
+        <path d="M77.7 8 C76.7 8.4 75.8 9 75.9 10 C76 10.8 76.8 11.3 77.5 10.9 C78.1 10.5 77.8 9.7 77.2 9.5"></path>
+        <path d="M82.3 8 C83.3 8.4 84.2 9 84.1 10 C84 10.8 83.2 11.3 82.5 10.9 C81.9 10.5 82.2 9.7 82.8 9.5"></path>
+        <path d="M75.8 7 H72.8 L74 5.8"></path>
+        <path d="M84.2 7 H87.2 L86 5.8"></path>
+      </g>
+      <g class="br-glow">
+        <path d="M1 7 H72 M88 7 H159"></path>
+        <circle cx="80" cy="7" r="4"></circle>
+      </g>`;
+    return svg;
+  }
+
   /* v0.178.0：左上角品牌区只留名称（用户需求「名称和图标修改为仅保留名称」）。
      被删掉的两样东西：① `<span class="mark">` 那枚四色圆环图标；② 重复一行的副标题
      `<small>U-TIME</small>` —— 名称已经写在字标里，再叠一行同义大写只是噪音。
@@ -330,10 +377,19 @@ export function renderShell(root) {
      v0.181.0：字标文案从 `U-Time` 改成 `U-Time Work`（用户需求「把 U-Time 改成 U-Time Work」）。
      哥特体下它比原名宽约 1.8 倍，`.brand b` 的 28px 字号是**按新名字**核过的 ——
      默认 224px 侧栏（内容 202px − .brand 左右 padding）里仍留得住，且 white-space:nowrap
-     不会折行；`scripts/test-brand-wordmark.mjs` 里钉了「不溢出」这条。 */
+     不会折行；`scripts/test-brand-wordmark.mjs` 里钉了「不溢出」这条。
+
+     v0.183.0：字标文案从 `U-Time Work` 改成 `U Time WorkSpace`（用户需求），并在字标**下方**
+     补一条哥特装饰线（`brandRule()`，形状与配色见上）。名字又长了 42%（实测 28px 下
+     158.06px → 222.64px），而默认 compact 侧栏（--rail-w: 204px）里 `.brand` 的可用宽度只有
+     166px —— 所以基础字号从 28px 降到 20px（实测 159.03px，留 7px 余量），过渡带那条从 22px
+     降到 18px（实测 143.13px ≤ 可用 146px；19px 会溢出 5.06px）。`.brand` 因为多了下面这条线，
+     主轴从 row 改成 column。
+     别再照抄 28px：这个字号是拿无头 Chrome 量出来的，不是估的。 */
   const rail = el("aside", { class: "rail" },
       el("div", { class: "brand" },
-      el("b", {}, "U-Time Work"),
+      el("b", {}, "U Time WorkSpace"),
+      brandRule(),
     ),
     nav,
     railDock,
@@ -353,11 +409,13 @@ export function renderShell(root) {
     makeWindowControl("close", "关闭", () => withCurrentWindow((win) => win.close())),
   ) : null;
 
-  // v0.57.0：搜索钮收成纯放大镜图标（用户需求「搜索/命令也弄成一个放大镜图标，不用文字」），
-  // 与快捷入口瓷砖（.quick-menu-trigger）同观感 —— 文字与 Ctrl K 角标从 DOM 移除，
-  // 快捷键说明挪进 title；命令面板入口（tide:command-palette）与拖动排序不变。
+  // v0.57.0：搜索钮收成纯放大镜图标（用户需求「搜索/命令也弄成一个放大镜图标，不用文字」）。
+  // v0.184.0：中文标签「搜索」彻底从 DOM 移除（用户需求「删除所有搜索框内的中文，仅保留
+  // 搜索图标」）—— 连带 topbar-reference / 更新历史页那两条把它显示出来的 CSS 一并删掉，
+  // 三处（默认布局、桌面参考布局、更新历史页）统一成同一颗 34×34 放大镜瓷砖。
+  // 快捷键说明仍在 title；命令面板入口（tide:command-palette）与拖动排序不变。
   const topSearch = el("button", { class: "top-search", title: "全局搜索 / 命令面板（Ctrl+K）· 拖动可调整位置", "aria-label": "全局搜索 / 命令", type: "button", onclick: () => window.dispatchEvent(new CustomEvent("tide:command-palette")) },
-    el("span", { class: "top-search-glyph", "aria-hidden": "true" }, faIcon("magnifying-glass")), el("span", { class: "top-search-label" }, "搜索"));
+    el("span", { class: "top-search-glyph", "aria-hidden": "true" }, faIcon("magnifying-glass")));
   const topHistory = el("button", { class: "top-mini-btn top-history-trigger", type: "button", title: "更新历史", "aria-label": "更新历史",
     onclick: async () => { const info = await api.appInfo().catch(() => null); openUpdateHistory(info?.version); } }, faIcon("clock-rotate-left"));
   const topSync = el("button", { class: "top-mini-btn top-sync-trigger", type: "button", title: "云同步", "aria-label": "云同步",
@@ -1945,7 +2003,9 @@ export function renderShell(root) {
     let query = marketQuery;
     let filter = marketFilter;
 
-    const search = el("input", { class: "market-search", type: "search", value: query, placeholder: "搜索插件名称 / ID / 功能 / 作者…", "aria-label": "搜索插件" });
+    // v0.184.0：框内不再写中文占位词，只留一颗放大镜（见 src/searchField.js）。
+    const search = el("input", { class: "market-search", type: "search", value: query, placeholder: "", "aria-label": "搜索插件" });
+    const searchBox = withSearchGlyph(search);
     const filterBox = el("div", { class: "market-filters" });
     const grid = el("div", { class: "market-grid" });
     // 卡片尺寸（v0.181.0）：在任意一张卡片上按住拖动即可调整**全部**卡片的大小
@@ -2251,7 +2311,7 @@ export function renderShell(root) {
         if (marketSearchOpen) search.focus();
         else if (!query) paintCards();
       },
-    }, el("span", { class: "market-search-glyph", "aria-hidden": "true" }, "⌕"));
+    }, searchGlyph("market-search-glyph"));
     if (marketSearchOpen) wrap.classList.add("open-search");
     // 搜索开关放在筛选按钮下面（用户反馈：顶部只留筛选档，别多占一行）。
     // 这里原来还带着一个「显示 N / N」计数，已移除：筛选档每枚自带数量，
@@ -2261,7 +2321,7 @@ export function renderShell(root) {
       el("div", { class: "market-head" },
         el("div", { class: "market-head-tools" }, searchToggle),
       ),
-      el("div", { class: "market-search-row", id: "market-search-row" }, search),
+      el("div", { class: "market-search-row", id: "market-search-row" }, searchBox),
       grid,
     );
     container.replaceChildren(wrap);

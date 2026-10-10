@@ -303,7 +303,7 @@
         <view class="pickerbox">{{examFilters[examFilterIndex].label}}</view>
       </picker>
       <view class="exam-tools">
-        <input class="exam-search" value="{{examQuery}}" placeholder="搜索考试名称" bindinput="onExamSearch" confirm-type="search" />
+        <view class="search-wrap"><view class="search-ico"></view><input class="exam-search" value="{{examQuery}}" aria-label="搜索考试名称" bindinput="onExamSearch" confirm-type="search" /></view>
         <view class="exam-chip {{examConfirmedOnly ? 'on' : ''}}" bindtap="onToggleExamConfirmed">只看官方</view>
       </view>
       <view class="desc hint">选择某一项后，只显示该考试从报名、准考证到口试/笔试等已收录全流程。未来共 {{examTotal}} 场，当前显示 {{examVisible}} 场。</view>
@@ -442,7 +442,7 @@
     <view class="card">
       <view class="gx-toolbar">
         <button class="btn pri gx-refresh" bindtap="onGxRefresh" disabled="{{gx.fetching}}">刷新</button>
-        <input class="gx-kw" value="{{gx.kw}}" placeholder="关键词：答辩 / 数学 / 报名 / 截止…" bindinput="onGxKw" confirm-type="search" />
+        <view class="search-wrap"><view class="search-ico"></view><input class="gx-kw" value="{{gx.kw}}" aria-label="关键词过滤：答辩 / 数学 / 报名 / 截止" bindinput="onGxKw" confirm-type="search" /></view>
       </view>
       <view class="gx-chips">
         <view class="gx-chip {{item.on ? 'on' : ''}}" wx:for="{{gx.typeChips}}" wx:key="id" data-id="{{item.id}}" bindtap="onGxType">{{item.label}}</view>
@@ -522,7 +522,7 @@
       <block wx:if="{{cx.tab === 'inbox'}}">
         <view class="card">
           <view class="cx-toolbar">
-            <input class="cx-search" value="{{cx.filterKw}}" placeholder="搜索标题 / 正文 / 发送者…" bindinput="onCxSearch" confirm-type="search" />
+            <view class="search-wrap"><view class="search-ico"></view><input class="cx-search" value="{{cx.filterKw}}" aria-label="搜索标题 / 正文 / 发送者" bindinput="onCxSearch" confirm-type="search" /></view>
             <picker mode="selector" range="{{cx.catOptions}}" value="{{cx.filterCatIndex}}" bindchange="onCxCat">
               <view class="pickerbox cx-cat">{{cx.catOptions[cx.filterCatIndex]}}</view>
             </picker>
@@ -570,7 +570,7 @@
       <block wx:if="{{cx.tab === 'courses'}}">
         <view class="card">
           <view class="cx-toolbar">
-            <input class="cx-search" value="{{cx.filterKw}}" placeholder="搜索课程 / 教师 / 班级…" bindinput="onCxSearch" confirm-type="search" />
+            <view class="search-wrap"><view class="search-ico"></view><input class="cx-search" value="{{cx.filterKw}}" aria-label="搜索课程 / 教师 / 班级" bindinput="onCxSearch" confirm-type="search" /></view>
           </view>
           <picker mode="selector" range="{{cx.courseYears}}" range-key="label" value="{{cx.courseYearIndex}}" bindchange="onCxYear" wx:if="{{cx.courseYears.length}}">
             <view class="pickerbox">{{cx.courseYears[cx.courseYearIndex].label}}（{{cx.courseYears[cx.courseYearIndex].count}} 门）</view>

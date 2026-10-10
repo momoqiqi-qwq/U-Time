@@ -122,6 +122,14 @@ export const api = {
     return invoke("save_download_base64", { name, base64 });
   },
 
+  // 在系统文件管理器里定位刚落盘的文件（插件「已保存到下载目录」横幅点击用）。
+  // 只认 saveDownload / saveDownloadBase64 返回过的那个路径：Rust 侧会校验它在
+  // 应用下载目录之内，不满足就报错，不会去翻系统里的任意位置。
+  async revealSavedFile(path) {
+    if (!isTauri) throw new Error("定位文件仅在 Tauri 环境可用");
+    return invoke("reveal_saved_file", { path });
+  },
+
   async appInfo() {
     if (!isTauri) return { version: "web-dev", os: "browser", arch: navigator.platform || "web", dataDir: "localStorage（浏览器调试模式）" };
     return invoke("app_info");

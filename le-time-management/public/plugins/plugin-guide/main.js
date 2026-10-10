@@ -47,7 +47,8 @@
       // 优先走宿主真正落盘（<a download> 在 Tauri WebView 里对 blob: 下载不可靠）
       try{
         const path=await tide.assets.saveText(filename,text);
-        tide.notify("开发文档已保存："+path);
+        // 整卡可点：点一下在系统文件管理器里定位到刚存下的那份文档（Windows 会选中它）
+        tide.notify("开发文档已保存："+path,{ms:8000,onClickHint:"点击定位文件",onClick:()=>{tide.assets.revealSaved(path).catch(e=>tide.notify("请手动到下载目录查看："+path+"（"+(e&&e.message||e)+"）",{ms:10000}));}});
         return;
       }catch(e){
         // 浏览器调试环境或平台不支持 → 退回 blob 下载

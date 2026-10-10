@@ -308,12 +308,15 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
       实算得出。侧栏底色有**两种**：Nephele 风格界面开着时是那层淡紫毛玻璃（实测 #E0D0F0 上下，
       由 nephele-background.css 的云层叠出来），关掉时才是接近纯白的 --panel 混色 ——
       两者都算过，取更严的那条。两条色值都被测试钉着。 */
-.brand { display: flex; align-items: center; padding: 2px 10px 20px; }
+.brand { display: flex; flex-direction: column; align-items: flex-start; padding: 2px 10px 20px; }
 .brand b {
   display: inline-block;
   font-family: "UnifrakturCook", "Old English Text MT", "UnifrakturMaguntia", "Lucida Blackletter", "Blackadder ITC", Georgia, serif;
   font-weight: 700;
-  font-size: calc(28px * var(--ui-text-scale));
+  /* v0.183.0：28px → 20px。名字换成 U Time WorkSpace 后实测宽 222.64px（28px 下），
+     而默认 compact 侧栏（--rail-w: 204px）里 .brand 可用宽度只有 166px；20px 下实测
+     159.03px，留 7px 余量。别照抄 28px —— 那是 U-Time Work 时代的尺寸。 */
+  font-size: calc(20px * var(--ui-text-scale));
   line-height: 1.34;
   letter-spacing: .015em;
   padding: 0 .1em .06em;
@@ -330,6 +333,63 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
   background-image: linear-gradient(90deg, #E781CF 0%, #F17EA9 32%, #F48A78 67%, #EDA15E 100%);
   filter: drop-shadow(0 0 5px rgba(241, 126, 169, .42));
 }
+
+/* ── 字标下方那条哥特装饰线（v0.183.0）──
+   用户需求：「在下面添加一根像上面代码那样画出来的线」。DOM 由 shell.js 的 brandRule() 建，
+   这里只管尺寸与颜色。四个要点：
+   ① 宽度 `min(100%, 160px)`，与 viewBox 的 160 等宽 ⇒ preserveAspectRatio 的 meet 缩放比恒为 1，
+      线既不会被横向拉扁（尖头与卷草会走形），也不会被裁；窄侧栏时才整体等比缩小。
+   ② 渐变色走 CSS 变量四档，浅色/深色两套 —— 与字标同一色相、同一套对比度预算
+      （非文字图形 ≥3:1），由 scripts/test-brand-wordmark.mjs 连带实算，别在这里写死色值。
+   ③ SVG 里那条 `url(#brandRuleGrad)` 用的是 userSpaceOnUse：默认的 objectBoundingBox 会让
+      左右两条主线**各拿一份完整渐变**，画面从中间断开。
+   ④ 柔光（.br-glow）只在深色下开（浅色侧栏是浅底，叠上去只会发灰）。 */
+.brand-rule {
+  display: block;
+  width: min(100%, 160px);
+  height: 14px;
+  margin-top: 2px;
+  --brand-rule-1: #B62394;
+  --brand-rule-2: #C61557;
+  --brand-rule-3: #C32A10;
+  --brand-rule-4: #9C5211;
+  --brand-rule-ink: #C32A10;
+  --brand-rule-tip: #B62394;
+  --brand-rule-glow: #E781CF;
+  --brand-rule-glow-opacity: 0;
+}
+:root[data-theme-mode="dark"] .brand-rule {
+  --brand-rule-1: #E781CF;
+  --brand-rule-2: #F17EA9;
+  --brand-rule-3: #F48A78;
+  --brand-rule-4: #EDA15E;
+  --brand-rule-ink: #F48A78;
+  --brand-rule-tip: #F17EA9;
+  --brand-rule-glow: #F48A78;
+  --brand-rule-glow-opacity: .26;
+}
+.brand-rule .bg-1 { stop-color: var(--brand-rule-1); }
+.brand-rule .bg-2 { stop-color: var(--brand-rule-2); }
+.brand-rule .bg-3 { stop-color: var(--brand-rule-3); }
+.brand-rule .bg-4 { stop-color: var(--brand-rule-4); }
+.brand-rule .br-line {
+  fill: none;
+  stroke: url(#brandRuleGrad);
+  stroke-width: 1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.brand-rule .br-tip { fill: var(--brand-rule-tip); fill-opacity: .9; }
+.brand-rule .br-scroll {
+  fill: none;
+  stroke: var(--brand-rule-ink);
+  stroke-width: .85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.brand-rule .br-glow { opacity: var(--brand-rule-glow-opacity); }
+.brand-rule .br-glow path { fill: none; stroke: var(--brand-rule-glow); stroke-width: 1.6; stroke-linecap: round; }
+.brand-rule .br-glow circle { fill: var(--brand-rule-glow); }
 
 /* position: relative 是 v0.152.0 给光块（.nav-glow）加的包含块：桌面 .nav 是滚动容器
    （overflow-y: auto），光块作为它的绝对定位后代**随列表一起滚动**，天然贴合所在行。
@@ -852,6 +912,14 @@ body.rail-resizing iframe { pointer-events: none !important; }
   box-shadow: var(--shadow-lg); display: flex; align-items: center; gap: 14px; animation: slidein .18s ease-out; max-width: 380px; }
 .toast button { color: #7FE8B2; font-weight: 700; font-size: calc(12.5px * var(--ui-text-scale)); flex: none; }
 @keyframes slidein { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* 整卡可点的横幅（下载完成 → 点一下定位到文件）：只有这一个去处，不再加按钮。
+   光标与 hover 是「这张卡能按」的唯一凭据 —— 没有它用户只会以为那是一句提示。 */
+.toast-clickable { cursor: pointer; }
+.toast-clickable:hover { background: #26353D; }
+.toast-clickable:focus-visible { outline: 2px solid #7FE8B2; outline-offset: 2px; }
+.toast-clickable > span:first-child { overflow-wrap: anywhere; }
+.toast-hint { color: #7FE8B2; font-weight: 700; font-size: calc(12.5px * var(--ui-text-scale)); flex: none; white-space: nowrap; }
 
 /* ── 通知堆叠：桌面把多条横幅叠成一张，鼠标移上去背后那张向上散开 ──
    折叠量 = 露出的边 - 自身高 - 原有间距，`--item-h` 由 src/notifyStack.js 实测写入。
@@ -1953,6 +2021,26 @@ button.about-list-row:hover { background:color-mix(in srgb,var(--deep) 5%,transp
 .cmd-search kbd{font-size:calc(10px * var(--ui-text-scale));color:var(--ink-3);border:1px solid var(--line);border-radius:5px;padding:3px 6px;background:var(--paper)}
 .cmd-search-ico{flex:none;width:20px;height:20px;color:var(--ink-3);display:inline-flex}
 .cmd-search-ico svg{width:100%;height:100%}
+
+/* ── v0.184.0 · 搜索框只留放大镜（所有搜索框） ────────────────────────────────
+   需求（用户）：「删除所有搜索框内的中文，仅保留搜索图标。」
+   统一做法（见 src/searchField.js）：输入框外面套一层 .search-field，放大镜钉在框内左端，
+   框里不再写中文占位词；无障碍与键盘提示留在 input 自己的 aria-label / title 上。
+   覆盖：顶栏搜索钮 / 命令面板 / 插件中心 / 四象限 / 设置左栏 / 插件管理 / 模型列表。 */
+.search-field{position:relative;display:flex;align-items:center;flex:0 1 auto;min-width:0}
+.search-ico{position:absolute;left:13px;width:16px;height:16px;display:inline-flex;pointer-events:none;color:var(--ink-3)}
+.search-ico svg{width:100%;height:100%;display:block}
+/* 左内边距给图标让位：(0,1,1) 压得过 .market-search / .settings-search / .task-search 的 (0,1,0) */
+.search-field > input{padding-left:38px;padding-right:16px}
+/* 横排容器（插件中心搜索行 / 插件管理搜索行）里，搜索框吃掉剩余宽度 */
+.market-search-row > .search-field, .plugin-search-row > .search-field{flex:1 1 auto}
+/* 四象限的 .quad-wrap 是**列向** flex：搜索框必须按内容高度走（flex:1 会纵向吸走剩余高度，
+   把象限网格压扁），留白也挪到容器上（输入框自己的 margin 归零，否则图标与框错位）。 */
+.quad-wrap > .search-field{flex:none;margin:0 0 14px}
+.search-field > .task-search{margin:0;width:100%}
+/* 插件中心的搜索开关（窄屏折成的图标）：字形由「⌕」换成同一颗放大镜 SVG。 */
+.market-search-glyph{display:inline-flex;width:16px;height:16px}
+.market-search-glyph svg{width:100%;height:100%;display:block}
 .cmd-close{flex:none;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink-3);cursor:pointer;padding:0;font:inherit}
 .cmd-close svg{width:14px;height:14px}
 .cmd-close:hover{color:var(--ink);border-color:color-mix(in srgb,var(--deep) 42%,var(--line))}
@@ -3726,8 +3814,10 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   }
   .rail-resizer { margin: 0 -11px; }
   .brand { padding: 2px 7px 10px; }
-  /* 过渡带里侧栏只有 176px，字标降到 22px 仍留得下；黑体比无衬线宽，别照旧值 13px 缩。 */
-  .brand b { font-size: calc(22px * var(--ui-text-scale)); }
+  /* 过渡带里侧栏只有 176px（.rail 内容 174px → .brand 可用 146px），
+     字标必须降到 18px 才留得住（U Time WorkSpace 实测 143.13px）；黑体比无衬线宽。
+     这里别用 19px：实测 151.06px，会溢出 5.06px（无头 Chrome 在真应用里量过）。 */
+  .brand b { font-size: calc(18px * var(--ui-text-scale)); }
   .nav { gap: 2px; }
   /* 过渡带（176px 侧栏）：分隔线跟着两侧内缩收一点，但左右仍是同一个值 —— 两条线要对齐。 */
   .plug-list > .rail-divider { margin-top: 8px; margin-bottom: 4px; }
@@ -5052,7 +5142,6 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .update-history-notes p { display: flex; gap: 12px; margin: 7px 0; color: var(--ink-2);
   font-size: calc(13px * var(--ui-text-scale)); line-height: 1.7; overflow-wrap: anywhere; }
 .update-history-notes p > span:first-child { color: var(--sea); flex: none; }
-.top-search-label { display: none; }
 .top-history-trigger .fa-ic, .top-sync-trigger .fa-ic { width: 16px; height: 16px; fill: currentColor; }
 .top-history-trigger, .top-sync-trigger { width: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .top-logs-trigger { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -5065,9 +5154,9 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
     border: 0; border-radius: 0; background: transparent; box-shadow: none; }
   .topbar-reference .topbar-action-card > [data-topbar-part="quick"],
   .topbar-reference .topbar-action-card > [data-topbar-part="stats"] { display: none; }
-  .topbar-reference .topbar-action-card > .top-search { margin-left: auto; margin-right: auto;
-    width: auto; gap: 14px; padding: 0 16px; }
-  .topbar-reference .top-search-label { display: inline; font-size: calc(12px * var(--ui-text-scale)); }
+  /* v0.184.0：中文标签「搜索」已从 DOM 移除，这里不再给它留宽度 —— 桌面参考布局与
+     默认布局、更新历史页统一成同一颗 34×34 放大镜瓷砖（只水平居中）。 */
+  .topbar-reference .topbar-action-card > .top-search { margin-left: auto; margin-right: auto; }
   .topbar-reference .topbar-action-card > .top-history-trigger,
   .topbar-reference .topbar-action-card > .top-sync-trigger,
   .topbar-reference .topbar-action-card > .top-logs-trigger,
@@ -5101,8 +5190,6 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .update-history-page .topbar-action-card > .top-search { margin-left: auto; margin-right: auto; }
 .update-history-page .topbar-action-card > [data-topbar-part="quick"],
 .update-history-page .topbar-action-card > [data-topbar-part="stats"] { display: none; }
-.update-history-page .topbar-action-card > .top-search { width: auto; padding: 0 16px; gap: 14px; }
-.update-history-page .top-search-label { display: inline; font-size: calc(12px * var(--ui-text-scale)); }
 .update-history-page .topbar-action-card button { color: #707070; }
 .update-history-page .topbar-action-card .app-icon { filter: grayscale(1); }
 .update-history-page > .update-history-content {

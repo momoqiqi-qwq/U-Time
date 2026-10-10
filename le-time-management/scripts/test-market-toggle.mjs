@@ -36,6 +36,10 @@ const env={document:doc,el:(...a)=>new N(...a),S:{pluginState:id=>states[id]},ge
   flipByKey:(_,opts)=>opts.mutate(),fadeAway:()=>Promise.resolve(),openPluginContextMenu:()=>{},
   // v0.181.0：卡片尺寸拖动（src/marketCardResize.js）在 renderMarket 里接入，这里给替身。
   attachMarketCardResize:()=>()=>{},resetMarketCardSize:()=>{},
+  // v0.184.0：搜索框只留放大镜（src/searchField.js），renderMarket 里用这两个入口，
+  // 这里给替身（本 harness 走 new Function + 注入标识符，不解析 import）。
+  withSearchGlyph:(input)=>new N('div',{class:'search-field'},input),
+  searchGlyph:(cls)=>new N('span',{class:cls||'search-ico'}),
   setEnabled:async(id,on)=>{requests++;await new Promise(resolve=>release=resolve);if(fail)throw Error('test failure');states[id].enabled=on;for(let i=views.length-1;i>=0;i--)if(views[i].pluginId===id)views.splice(i,1);if(on) views.push({id:id+'-fresh',pluginId:id,title:'Fresh'}, {id:id+'-second',pluginId:id,title:'Second'});refresh();},
 };
 const module = new Function(...Object.keys(env), `let marketQuery='',marketFilter='all',marketSearchOpen=false,repaintMarket,refreshMarketState; const marketTogglePending=new Set(); ${code}; return {renderMarket,refresh:()=>refreshMarketState()};`)(...Object.values(env));

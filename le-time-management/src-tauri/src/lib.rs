@@ -739,6 +739,72 @@ fn save_to_download_dir(app: &AppHandle, raw_name: &str, bytes: &[u8]) -> Result
     Ok(final_path.to_string_lossy().into_owned())
 }
 
+/// 在系统文件管理器里定位一个刚落盘的文件（插件「下载附件」横幅点击用）。
+///
+/// Windows 走 `SHOpenFolderAndSelectItems`：文件管理器打开到所在目录，并把这个文件
+/// 选中 —— 比只显示一条路径有用得多（同 Windows 系统的「在文件夹中显示」）。
+///
+/// 只接受「应用下载目录 / 应用数据目录」之内的**现存**文件：调用方是插件，它拿到的
+/// 就是 `save_download*` 刚返回的那个字符串，没有理由让它去翻系统里的任意位置。
+#[tauri::command]
+fn reveal_saved_file(app: AppHandle, path: String) -> Result<(), String> {
+    let raw = path.trim();
+    if raw.is_empty() {
+        return Err("缺少文件路径".into());
+    }
+    // 必须真实存在：定位一个已被删掉/移走的路径，文件管理器只会报「找不到」。
+    let target = fs::canonicalize(raw).map_err(|_| "文件不存在或已被移动".to_string())?;
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(dir) = app.path().download_dir() {
+        roots.push(dir);
+    }
+    if let Ok(dir) = app.path().app_data_dir() {
+        roots.push(dir);
+    }
+    let inside = roots
+        .iter()
+        .filter_map(|root| fs::canonicalize(root).ok())
+        .any(|root| path_within(&target, &root));
+    if !inside {
+        return Err("只能定位应用下载目录里的文件".into());
+    }
+
+    #[cfg(desktop)]
+    let opened = tauri_plugin_opener::reveal_item_in_dir(&target)
+        .map_err(|e| format!("打不开文件管理器: {e}"));
+    // Android / iOS 没有「在文件夹里选中某个文件」这回事（opener 插件在那里直接返回
+    // UnsupportedPlatform）。这里是明确的不支持而不是静默失败 —— 横幅上本来就写着
+    // 完整路径，用户能自己找过去。
+    #[cfg(mobile)]
+    let opened = Err::<(), String>("当前平台不支持在文件管理器中定位文件".into());
+
+    opened
+}
+
+/// `target` 是否落在 `root` 之内（等于 `root` 也算）。
+///
+/// 单独拆出来是因为 Windows 的路径比较不区分大小写，而 `Path::starts_with` 逐段严格
+/// 比：照抄会把 `E:\Downloads` 与 `E:\downloads` 判成两处，于是「刚存下的文件」反而
+/// 定位不了。这里统一分隔符、统一小写后再按「目录前缀 + 分隔符」比，避免前缀撞名
+/// （`Download` 与 `Downloads`）。
+fn path_within(target: &std::path::Path, root: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    {
+        fn norm(path: &std::path::Path) -> String {
+            path.to_string_lossy()
+                .replace('/', "\\")
+                .trim_end_matches('\\')
+                .to_lowercase()
+        }
+        let (t, r) = (norm(target), norm(root));
+        t == r || t.starts_with(&format!("{r}\\"))
+    }
+    #[cfg(not(windows))]
+    {
+        target.starts_with(root)
+    }
+}
+
 #[derive(serde::Serialize)]
 struct AppInfo {
     version: String,
@@ -2243,6 +2309,7 @@ pub fn run() {
             export_plugins_zip,
             save_download,
             save_download_base64,
+            reveal_saved_file,
             app_info,
             http_get,
             http_get_icon,
@@ -2313,6 +2380,22 @@ mod tests {
         let last = tampered.len() - 1;
         tampered[last] ^= 0x01;
         assert!(aead_decrypt(&key, &tampered).is_err());
+    }
+
+    #[test]
+    fn path_within_covers_case_and_prefix_lookalikes() {
+        use std::path::Path;
+        // 下载目录在、文件在里面 —— 必须放行（Windows 盘符大小写由用户决定）
+        assert!(path_within(Path::new(r"E:\Downloads\a.docx"), Path::new(r"E:\Downloads")));
+        assert!(path_within(Path::new(r"E:\downLoads\a.docx"), Path::new(r"E:\Downloads")));
+        // 前缀撞名不能放过：Downloads-old 不是 Downloads 的子目录
+        assert!(!path_within(Path::new(r"E:\Downloads-old\a.docx"), Path::new(r"E:\Downloads")));
+        // 反斜杠 / 正斜杠写法都得上算（前端可能给正斜杠）
+        assert!(path_within(Path::new(r"E:/Downloads/a.docx"), Path::new(r"E:/Downloads")));
+        assert!(path_within(Path::new("/tmp/dl/a.txt"), Path::new("/tmp/dl")));
+        assert!(!path_within(Path::new("/tmp/dl2/a.txt"), Path::new("/tmp/dl")));
+        // 目录自身也算在范围内
+        assert!(path_within(Path::new(r"E:\Downloads"), Path::new(r"E:\Downloads")));
     }
 
     /// 造一条带 cause 链的假错误，形状对齐 reqwest 的

@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 const source = readProductSource(new URL('../public/plugins/cppu-notify/main.js',import.meta.url),'utf8');
-let response, calls=[], vaultData={}, storageData={}, opened=[], notices=[], views=[], saved=[];
+let response, calls=[], vaultData={}, storageData={}, opened=[], notices=[], noticeOpts=[], revealed=[], views=[], saved=[];
 const context = vm.createContext({URL,Set,Map,Date,console,setTimeout,clearTimeout,setInterval,clearInterval,
   document:{createElement:()=>({set innerHTML(x){this.value=x;}}),querySelectorAll:()=>[]},
   // 解码不了的验证码图 = OCR 认不出来，用来把「换图重试」循环逼到次数上限
   Image:class{constructor(){this.naturalWidth=0;this.naturalHeight=0;}set src(v){this._src=v;}decode(){return Promise.reject(new Error('cannot decode'));}},
-  tide:{ui:{registerView:(def)=>{views.push(def);}},http:{session:async()=>'s1',restoreCookies:async(dump)=>{calls.push(['restore',dump]);return 'restored-sid';},fetch:async(...args)=>{calls.push(args);return typeof response==='function'?response(...args):response;}},storage:{set:async(k,v)=>{storageData[k]=v;},get:async(k,d)=>(k in storageData?storageData[k]:(d===undefined?null:d))},vault:{get:async(key)=>vaultData[key]||null,set:async(key,value)=>{vaultData[key]=value;},del:async(key)=>{delete vaultData[key];}},util:{openUrl:(url)=>opened.push(url),web:{formEncode:(fields)=>Object.entries(fields).map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&'),detectLoginForm:(html,base)=>html.includes('name="uid"')?{action:new URL('/coremail/index.jsp?cus=1',base).href,method:'POST',usernameField:'uid',passwordField:'password',captchaField:'',fields:[{name:'action',value:'login'}]}:null}},notify:(message)=>notices.push(message),assets:{saveBase64:async(name,b64)=>{saved.push([name,b64]);return 'D:/Downloads/'+name;}}}
+  tide:{ui:{registerView:(def)=>{views.push(def);}},http:{session:async()=>'s1',restoreCookies:async(dump)=>{calls.push(['restore',dump]);return 'restored-sid';},fetch:async(...args)=>{calls.push(args);return typeof response==='function'?response(...args):response;}},storage:{set:async(k,v)=>{storageData[k]=v;},get:async(k,d)=>(k in storageData?storageData[k]:(d===undefined?null:d))},vault:{get:async(key)=>vaultData[key]||null,set:async(key,value)=>{vaultData[key]=value;},del:async(key)=>{delete vaultData[key];}},util:{openUrl:(url)=>opened.push(url),web:{formEncode:(fields)=>Object.entries(fields).map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&'),detectLoginForm:(html,base)=>html.includes('name="uid"')?{action:new URL('/coremail/index.jsp?cus=1',base).href,method:'POST',usernameField:'uid',passwordField:'password',captchaField:'',fields:[{name:'action',value:'login'}]}:null}},notify:(message,opts)=>{notices.push(message);noticeOpts.push(opts||{});},assets:{saveBase64:async(name,b64)=>{saved.push([name,b64]);return 'D:/Downloads/'+name;},revealSaved:async(p)=>{revealed.push(p);return {ok:true};}}}
 });
 vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense};\n  tide.ui.registerView({'),context);
 const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense}=context.testApi;
@@ -119,6 +119,24 @@ response={status:200,body:'U1ZL',contentType:'application/vnd.openxmlformats-off
 await downloadAttachment(foundAttachments[0]);
 assert.deepEqual(saved,[['实施方案.pdf','U1ZL']]);
 assert.match(notices.at(-1),/已保存到下载目录.*实施方案\.pdf/);
+/* 「点通知卡片跳到下载目录」：落盘横幅必须整卡可点，且点下去定位的就是刚落盘那条路径。
+   少了这条断言，横幅退化成纯文字提示也没人会红。 */
+const savedNotice = noticeOpts.at(-1);
+assert.equal(typeof savedNotice.onClick,'function','下载完成的通知卡片必须整卡可点（onClick）');
+assert.equal(savedNotice.onClickHint,'点击定位文件','整卡可点必须明说点下去会发生什么');
+savedNotice.onClick();
+await Promise.resolve();
+assert.deepEqual(revealed,['D:/Downloads/实施方案.pdf'],'点击卡片必须定位到刚落盘的那个文件');
+/* 定位失败（Android 没有「在文件夹里选中文件」）不能静默：要退回把路径摊开给用户。 */
+revealed=[];
+const failing = {revealSaved:async()=>{throw new Error('当前平台不支持在文件管理器中定位文件');}};
+const originalReveal = context.tide.assets.revealSaved;
+context.tide.assets.revealSaved = failing.revealSaved;
+notices=[];
+savedNotice.onClick();
+await new Promise((resolve)=>setImmediate(resolve));
+assert.match(notices.at(-1),/请手动到下载目录查看.*实施方案\.pdf/,'定位失败时必须把路径再摊开一次，不能点了没反应');
+context.tide.assets.revealSaved = originalReveal;
 /* 门户票据过期时下载链接会 200 返回登录页，必须拦下，否则会存下一个打不开的"附件"。 */
 response={status:200,body:'PGh0bWw+',contentType:'text/html;charset=UTF-8'};
 saved=[];notices=[];

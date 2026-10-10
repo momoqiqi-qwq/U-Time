@@ -1,15 +1,17 @@
 import { el } from "../../ui.js";
 import { attachSelectionGlow } from "../../selectionGlow.js";
+import { withSearchGlyph } from "../../searchField.js";
 
 let nextId = 0;
 
 // 可编辑模型 ID + 独立搜索列表，折叠容器保留 DOM 完成双向高度过渡。
 export function createAiModelPicker(input) {
   const id = `ai-model-list-${++nextId}`;
-  const search = el("input", { type: "search", placeholder: "搜索模型名称或 ID", "aria-label": "搜索可用模型", autocomplete: "off" });
+  // v0.184.0：框内不再写中文占位词，只留一颗放大镜（见 src/searchField.js）。
+  const search = el("input", { type: "search", placeholder: "", "aria-label": "搜索可用模型", autocomplete: "off" });
   const options = el("div", { class: "ai-model-options", id, role: "listbox", "aria-label": "可用模型" });
   const empty = el("p", { class: "ai-model-empty" }, "填写 API Key 后刷新，或直接输入模型 ID。");
-  const content = el("div", { class: "ai-model-content" }, search, options, empty);
+  const content = el("div", { class: "ai-model-content" }, withSearchGlyph(search), options, empty);
   const panel = el("div", { class: "ai-model-disclosure", "aria-hidden": "true" },
     el("div", { class: "ai-model-disclosure-inner" }, content));
   panel.inert = true;

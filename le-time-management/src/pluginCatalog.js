@@ -3,7 +3,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "shiguang-schedule",
     "name": "课程表",
-    "version": "3.14.0",
+    "version": "3.15.0",
     "author": "基于 XingHeYuZhuan/shiguangschedule · U-Time适配",
     "icon": "calendar-days",
     "faIcon": "calendar-days",
@@ -28,7 +28,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "web-collector",
     "name": "网页收集",
-    "version": "1.5.0",
+    "version": "1.6.0",
     "author": "U-Time内置",
     "icon": "bookmark",
     "faIcon": "bookmark",
@@ -51,7 +51,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "school-notice",
     "name": "学校通知网站",
-    "version": "1.7.1",
+    "version": "1.8.0",
     "author": "U-Time内置",
     "icon": "school",
     "faIcon": "school",
@@ -123,7 +123,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "rss-reader",
     "name": "RSS 信息流",
-    "version": "1.6.1",
+    "version": "1.7.0",
     "author": "U-Time内置",
     "icon": "rss",
     "faIcon": "rss",
@@ -150,7 +150,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "gx-news",
     "name": "竞赛消息雷达",
-    "version": "0.5.1",
+    "version": "0.6.0",
     "author": "U-Time内置",
     "icon": "trophy",
     "faIcon": "trophy",
@@ -177,7 +177,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "chaoxing-notify",
     "name": "学习通",
-    "version": "2.17.0",
+    "version": "2.18.0",
     "author": "基于 dsh-user/chaoxing-notify-skill v2.0.0 · U-Time适配",
     "icon": "graduation-cap",
     "faIcon": "graduation-cap",
@@ -204,8 +204,8 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "cppu-notify",
     "name": "警大门户通知",
-    "version": "1.35.1",
-    "author": "基于 dsh-user/cppu-notify-skill v1.2.1 · U-Time适配（1.35.0 筛选新增年份与恢复默认、点外部收起下拉、空态可继续加载更早通知；1.26.1 教务查询遇网络抖动自动重发，报错摊平真实成因）",
+    "version": "1.37.0",
+    "author": "基于 dsh-user/cppu-notify-skill v1.2.1 · U-Time适配（1.36.0 下载附件与导出成绩单的横幅整卡可点，点一下在文件管理器里定位到刚落盘的文件；1.35.0 筛选新增年份与恢复默认、点外部收起下拉、空态可继续加载更早通知；1.26.1 教务查询遇网络抖动自动重发，报错摊平真实成因）",
     "icon": "building-columns",
     "faIcon": "building-columns",
     "description": "智慧警大门户通知：登录一次后自动恢复门户与教务会话。左侧「校园服务」提供教育邮箱、教务、学工、我的请假、一网通办、一卡通等入口；「教务」子菜单可进入学生选课、学生请假、警大成绩、创新学分和独立警大校历插件。警大成绩参考 cppu-helper 成绩页，展示总览、平均分与 GPA、分学期走势、学分进度、成绩分布、课程构成和课程列表，支持刷新、离线缓存及生成分享成绩单图片。创新学分按学期显示申报项目、级别、奖项、认定学分与审核状态。教务写操作仍由学校系统确认。教育邮箱和一卡通支持独立自动登录；一卡通可查看充值、消费与余额。通知支持自动刷新、分类、正文与附件阅读、转为提醒和微信推送联动。",
@@ -302,7 +302,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "exam-calendar",
     "name": "考试日历",
-    "version": "0.3.3",
+    "version": "0.4.0",
     "author": "your-name",
     "icon": "calendar-check",
     "faIcon": "calendar-check",
@@ -427,7 +427,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "plugin-guide",
     "name": "插件使用说明",
-    "version": "1.4.2",
+    "version": "1.4.3",
     "author": "U-Time内置",
     "icon": "circle-question",
     "faIcon": "circle-question",

@@ -93,13 +93,15 @@ assert.ok(
 
 // v0.57.0 回归：顶栏工具行改「图标一行 + 统计居中」。
 // ① 搜索钮必须是纯放大镜图标（用户原话「搜索/命令也弄成一个放大镜图标，不用文字」）：
-//    DOM 里不许再出现文字 label 与 Ctrl K 角标 —— 结构回退（重新塞回
-//    top-search-label / <kbd>）而 CSS 没跟着回退时，按钮会被 34px 瓷砖裁成残废。
+//    v0.184.0 起连桌面参考布局 / 更新历史页那份中文标签也删掉（用户原话「删除所有搜索框内的
+//    中文，仅保留搜索图标」）—— DOM 里不许再出现文字 label 与 Ctrl K 角标，三处布局统一
+//    成同一颗 34×34 放大镜瓷砖。结构回退（重新塞回 top-search-label）会被这几条拦住。
 assert.ok(shell.includes("faIcon(\"magnifying-glass\")"), "搜索钮必须用 Font Awesome 放大镜图标");
 assert.ok(shell.includes("top-search-glyph"), "放大镜字形必须有专用容器（.top-search-glyph）");
-assert.match(shell, /top-search-label/, "桌面默认布局包含搜索文字");
-assert.match(css, /\.top-search-label\s*\{\s*display:\s*none/, "窄屏和原自定义布局仍使用纯图标");
-assert.match(css, /@media \(min-width: 901px\)[\s\S]*\.topbar-reference \.top-search-label\s*\{\s*display:\s*inline/, "搜索文字仅在桌面新默认布局显示");
+assert.doesNotMatch(shell, /top-search-label/, "顶栏搜索钮只留图标，不许再带中文「搜索」标签");
+assert.doesNotMatch(css, /\.top-search-label/, "标签样式必须随 DOM 一并删除，别留死代码");
+assert.match(css, /@media \(min-width: 901px\)[\s\S]*\.topbar-reference \.topbar-action-card > \.top-search\s*\{\s*margin-left: auto; margin-right: auto; \}/,
+  "桌面参考布局只把搜索瓷砖水平居中，不再为文字留宽度");
 assert.doesNotMatch(shell, /class: "top-search"[\s\S]{0,200}<kbd/, "搜索钮里不许再挂 Ctrl K 角标");
 // ② 瓷砖规格：34×34 方形、零内边距、居中放字形 —— 与快捷入口 / 窗口钮同高同排。
 const topSearchRule = css.match(/\.top-search\{[^}]*\}/)?.[0] ?? "";

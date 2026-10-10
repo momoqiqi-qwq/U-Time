@@ -8,6 +8,7 @@ import { reducedMotion } from "../motion.js";
 import { getKeywordHighlights, highlightedText } from "../keywordHighlights.js";
 import { getTaskPreferences } from "../taskPreferences.js";
 import { createKeyedNodes } from "../keyedNodes.js";
+import { withSearchGlyph } from "../searchField.js";
 
 // 展开状态跨重渲染保持
 const expandedCards = new Set();
@@ -569,7 +570,9 @@ export function renderQuadrant(container) {
   const matches = (t) => (filter === "all" || (filter === "done" ? t.done : !t.done)) &&
     [t.title, t.note, t.project, ...(t.tags || [])].join(" ").toLowerCase().includes(query);
   const cells = QUADS.map((q) => quadrantCell(q, matches));
-  const search = el("input", { class: "task-search", placeholder: "搜索任务 / 备注 / 项目", "aria-label": "搜索任务", oninput: (e) => { query = e.target.value.trim().toLowerCase(); cells.forEach(c => c._refresh()); } });
+  // v0.184.0：框内不再写中文占位词，只留一颗放大镜（见 src/searchField.js）。
+  const search = el("input", { class: "task-search", placeholder: "", "aria-label": "搜索任务", oninput: (e) => { query = e.target.value.trim().toLowerCase(); cells.forEach(c => c._refresh()); } });
+  const searchBox = withSearchGlyph(search);
   const grid = el("div", { class: "quad-grid" }, cells);
 
   let chipSignature = "";
@@ -610,7 +613,7 @@ export function renderQuadrant(container) {
       chips,
       clearDoneBtn,
     ),
-    search, grid,
+    searchBox, grid,
   );
   container.append(wrap);
 

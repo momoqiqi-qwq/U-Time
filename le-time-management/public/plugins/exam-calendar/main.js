@@ -1351,6 +1351,11 @@
       ".ecal-chip{font:inherit;font-size:calc(12px * var(--ui-text-scale));padding:3px 10px;border-radius:999px;border:1px solid var(--border,#E4DFD6);background:transparent;color:var(--muted,#7E8B94);cursor:pointer}" +
       ".ecal-chip:hover{border-color:var(--ink-3,#A9B2BA);color:var(--ink,#22303A)}" +
       ".ecal-chip[aria-pressed=true]{background:var(--accent,#0F4C5C);border-color:var(--accent,#0F4C5C);color:#fff}" +
+      /* 搜索框只留一颗放大镜（用户要求「删除所有搜索框内的中文，仅保留搜索图标」） */
+      ".ecal-searchbox{position:relative;display:inline-flex;align-items:center}" +
+      ".ecal-searchbox>.ecal-search{padding-left:28px}" +
+      ".ecal-search-ico{position:absolute;left:9px;width:14px;height:14px;display:inline-flex;color:inherit;opacity:.55;pointer-events:none}" +
+      ".ecal-search-ico svg{width:100%;height:100%;display:block}" +
       ".ecal-search{font:inherit;font-size:calc(12px * var(--ui-text-scale));padding:4px 10px;border-radius:8px;border:1px solid var(--border,#E4DFD6);background:transparent;color:inherit;min-width:150px;max-width:220px}" +
       ".ecal-count{margin-left:auto;color:var(--muted,#7E8B94);font-variant-numeric:tabular-nums}" +
       ".ecal-btn{font:inherit;font-size:calc(12px * var(--ui-text-scale));padding:3px 10px;border-radius:8px;border:1px solid var(--border,#E4DFD6);background:transparent;color:inherit;cursor:pointer;white-space:nowrap}" +
@@ -1610,9 +1615,15 @@
     const search = document.createElement("input");
     search.className = "ecal-search";
     search.type = "search";
-    search.placeholder = "搜索考试名称";
+    // 搜索框里不再写中文提示，只留一颗前置放大镜（提示改挂 title）
+    search.title = "搜索考试名称";
+    search.setAttribute("aria-label", "搜索考试名称");
     search.value = query;
-    tools.append(search);
+    const searchBox = document.createElement("span");
+    searchBox.className = "ecal-searchbox";
+    searchBox.innerHTML = '<span class="ecal-search-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>';
+    searchBox.append(search);
+    tools.append(searchBox);
 
     if (all.length) {
       const jump = document.createElement("button");

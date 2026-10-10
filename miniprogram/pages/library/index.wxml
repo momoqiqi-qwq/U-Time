@@ -8,7 +8,7 @@
       <button class="btn ghost small" bindtap="onImportToggle">导入</button>
       <button class="btn ghost small" bindtap="onExport">导出 JSON</button>
     </view>
-    <input class="input" value="{{query}}" placeholder="搜索标题、摘要或备注" bindinput="onSearch" />
+    <view class="search-wrap"><view class="search-ico"></view><input class="input" value="{{query}}" aria-label="搜索标题、摘要或备注" bindinput="onSearch" /></view>
     <view wx:if="{{id === 'rss-reader'}}" class="library-actions">
       <picker mode="selector" range="{{feedLabels}}" value="{{feedIndex}}" bindchange="onFeedChange"><view class="picker-label">{{feedLabels[feedIndex]}} ▾</view></picker>
       <button class="btn small {{unread ? 'pri' : 'ghost'}}" data-field="unread" bindtap="onFilter">未读</button>

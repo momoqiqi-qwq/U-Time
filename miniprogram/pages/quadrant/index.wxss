@@ -196,5 +196,6 @@
 
 .searchbar { display:flex; align-items:center; }
 .searchbar .input { flex:1; min-width:0; }
+.searchbar .search-wrap { flex:1; min-width:0; }
 .search-clear { flex-shrink:0; padding:16rpx; color:var(--deep); }
 .mini-bulk { position:sticky; top:0; z-index:20; border:1rpx solid var(--line); border-radius:18rpx; background:var(--panel); padding:20rpx; margin-bottom:20rpx; }

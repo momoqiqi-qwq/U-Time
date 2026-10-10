@@ -131,7 +131,7 @@ const manifest = JSON.parse(fs.readFileSync(new URL('../public/plugins/web-colle
 // 1.3.0 → 小程序端原生收藏适配；
 // 1.4.0 → 拖入浏览器标签 / 页面链接即自动收藏（见下面第十一、十二节）。
 // 这条断言的作用是「改了行为就必须动版本号」，所以每加一批行为就往上抬一格，别删。
-assert.equal(manifest.version, '1.5.0', '改了网页收集的行为必须升 manifest 版本号');
+assert.equal(manifest.version, '1.6.0', '改了网页收集的行为必须升 manifest 版本号');
 assert.equal(manifest.platforms.miniprogram, 'native', '原生收藏管理已实现，任意网站内嵌不在适配范围');
 
 /* ── 七之二、明文 http 站点在「应用内显示」里不许挂空 iframe（v1.2.4）──

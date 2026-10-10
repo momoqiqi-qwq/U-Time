@@ -31,6 +31,7 @@
 /* v0.10 插件搜索与管理 */
 .plugin-tools { padding: 20rpx 22rpx; }
 .plugin-search { height: 72rpx; box-sizing: border-box; border: 2rpx solid var(--line); border-radius: 16rpx; background: var(--paper); padding: 0 20rpx; font-size: 25rpx; }
+.plugin-search-wrap { flex: 1 1 auto; min-width: 0; }
 .filter-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10rpx; margin-top: 16rpx; }
 .filter-chip { padding: 9rpx 16rpx; border: 2rpx solid var(--line); border-radius: 999rpx; color: var(--ink-2); background: var(--paper); font-size: 20rpx; }
 .filter-chip.on { color: #fff; background: var(--deep); border-color: var(--deep); }
