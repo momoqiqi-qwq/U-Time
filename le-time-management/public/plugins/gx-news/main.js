@@ -28,6 +28,9 @@
   const MOKEROAD_DETAIL = "https://www.gxxsjs.com/home/newsDetails?newsId=";
   const SAIKR_API = "https://apiv4buffer.saikr.com/api/pc/contest/lists";
   const JINGSAI_HOME = "https://www.52jingsai.com/bisai/";
+  const MOJING_HOME = "https://www.mojinghub.com/competitions";
+  const MOJING_API = "https://admin.mojinghub.com";
+  const MOJING_POST = { headers: { "Content-Type": "application/json" } };
 
   /* ═══════════ 分类体系：三条正交的轴，每轴一张有序封闭表 ═══════════
      旧版把三种互不相干的语义塞进同一个 `type` 字段 —— 摩课云的「消息性质」、赛氪的
@@ -81,6 +84,7 @@
   const LEVEL_NATIVE = {
     国际: "intl", 国际级: "intl", 全国性: "nation", 国家级: "nation", 全国: "nation",
     省级: "prov", 省: "prov", 市级: "city", 市: "city", 校级: "school", 校: "school",
+    市级赛: "city", 省赛: "prov", 国赛: "nation", 校赛: "school", 区域赛: "prov", 地区赛: "prov",
   };
   // 摩课云的 newsType 是点分复合标签（如 202.204.208）：202 = 平台通知，203 = 赛事动态。
   const hasType = (t, code) => String(t || "").split(".").includes(code);
@@ -281,6 +285,106 @@
       };
     });
     return { items, hasMore: list.length >= PAGE_SIZE && page < MAX_PAGES };
+  }
+
+  /* ═══════════ 模竞 mojinghub.com（三条通道共用一套 POST 解析） ═══════════
+
+     站点是 React SPA，页面本身没有数据，列表全在 admin.mojinghub.com 的 POST 接口里，
+     请求体一律 JSON、`Authorization` 头放裸 token（只有「我的通知」那条通道才需要）。
+     两处与其它三家不一样，必须单独记着：
+
+     ① 接口永远回 HTTP 200，真状态在响应体的 `status` 字段里：200 正常，102 token 解析错误，
+        103 token 不能为空。所以判失败不能只看 res.status，得看 body.status。
+     ② 列表在 `data.data` 里（Laravel 分页器形状），不是 `data.list`；翻页字段是
+        `current_page` / `last_page` / `total`。
+
+     ⚠️ 站点自己的 CORS 只放行它自己的域（预检 ACAO 固定回 https://admin.mojinghub.com），
+     浏览器里 fetch 必被拦。这里走 tide.http.fetch（Rust 侧 reqwest），不受影响。 */
+
+  /** 解一条模竞接口响应：判 HTTP、判 body.status、取 Laravel 分页器里的数组。 */
+  function mojingPayload(res, what) {
+    if (!res || res.status !== 200) throw new Error(`模竞${what}接口 HTTP ${res ? res.status : "无响应"}`);
+    let d;
+    try { d = JSON.parse(String(res.body || "")); } catch { throw new Error(`模竞${what}接口返回的不是 JSON`); }
+    if (Number(d.status) !== 200) {
+      const msg = clip(String(d.msg || ""), 40);
+      throw new Error(msg ? `模竞${what}接口：${msg}` : `模竞${what}接口返回 status=${d.status}`);
+    }
+    const page = d.data && typeof d.data === "object" ? d.data : {};
+    return { rows: Array.isArray(page.data) ? page.data : [], page: Number(page.current_page) || 1, last: Number(page.last_page) || 1 };
+  }
+
+  /** 接口给的报名 / 举办时间统一成 Unix 秒。字段实测就是秒级，但毫秒级的也接住。 */
+  const secOf = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n > 1e11 ? Math.floor(n / 1000) : Math.floor(n);
+  };
+
+  /** 竞赛通道：`/api/Competition.Competition/index`。接口只给 Unix 秒，没有现成的可读时间。 */
+  async function fetchMojingCompetition(page) {
+    const res = await tide.http.fetch(await tide.http.session(), "POST", `${MOJING_API}/api/Competition.Competition/index`,
+      { ...MOJING_POST, body: JSON.stringify({ page, limit: PAGE_SIZE }) });
+    const { rows, last } = mojingPayload(res, "竞赛");
+    const items = rows.map((r) => {
+      const signupEnd = secOf(r.signup_end);
+      return {
+        rawId: String(r.competition_id),
+        title: clip(String(r.title || "(无标题)"), 120),
+        // 级别轴的原生值就是 wcompetitionlevel.level_name（国家级 / 国际级 / 全国性…），
+        // 经 LEVEL_NATIVE 归一到 intl / nation / prov / city / school；认不出的交给关键词兜底。
+        native: {
+          level: LEVEL_NATIVE[clip(String((r.wcompetitionlevel || {}).level_name || ""), 12)] || "",
+          label: clip(String((r.wcompetitionlevel || {}).level_name || ""), 12),
+        },
+        // 列表时间取创建时间：竞赛是「挂上来」才算进雷达，报名开始日往往还没到。
+        time: fmtTs(secOf(r.created_time) || secOf(r.update_time)),
+        deadline: fmtTs(signupEnd),
+        snippet: stripTags(r.description),
+        cover: String(r.cover_image || r.header_img || ""),
+        url: `${MOJING_HOME}/${r.competition_id}`,
+      };
+    });
+    return { items, hasMore: rows.length > 0 && page < last && page < MAX_PAGES };
+  }
+
+  /** 活动通道：`/api/Events.Events/index`。字段形状与竞赛基本一致，主键是 events_id。 */
+  async function fetchMojingEvents(page) {
+    const res = await tide.http.fetch(await tide.http.session(), "POST", `${MOJING_API}/api/Events.Events/index`,
+      { ...MOJING_POST, body: JSON.stringify({ page, limit: PAGE_SIZE }) });
+    const { rows, last } = mojingPayload(res, "活动");
+    const items = rows.map((r) => {
+      const level = clip(String((r.wEventslevel || {}).level_name || ""), 12);
+      return {
+        rawId: String(r.events_id),
+        title: clip(String(r.title || "(无标题)"), 120),
+        native: { level: LEVEL_NATIVE[level] || "", label: level },
+        time: fmtTs(secOf(r.created_time) || secOf(r.update_time)),
+        deadline: fmtTs(secOf(r.signup_end)),
+        snippet: stripTags(r.description) || clip(String(r.organizational_unit || ""), 60),
+        cover: String(r.cover_image || r.header_img || ""),
+        url: `https://www.mojinghub.com/events/${r.events_id}`,
+      };
+    });
+    return { items, hasMore: rows.length > 0 && page < last && page < MAX_PAGES };
+  }
+
+  /** 资讯通道：`/api/Article.Article/index`。`news_channel` 是站点自己的通道标签，
+      有 competition 值的都属于某场竞赛（带 competition_id），正好当学科轴的第一手证据。 */
+  async function fetchMojingArticle(page) {
+    const res = await tide.http.fetch(await tide.http.session(), "POST", `${MOJING_API}/api/Article.Article/index`,
+      { ...MOJING_POST, body: JSON.stringify({ page, limit: PAGE_SIZE }) });
+    const { rows, last } = mojingPayload(res, "资讯");
+    const items = rows.map((r) => ({
+      rawId: String(r.article_id),
+      title: clip(String(r.title || "(无标题)"), 120),
+      native: { kind: pick(KIND_TABLE, String(r.title || "")), label: clip(String(r.news_channel || ""), 12) },
+      time: fmtTs(secOf(r.published_at) || secOf(r.create_time)),
+      snippet: stripTags(r.description || r.content),
+      cover: String(r.cover || ""),
+      url: `https://www.mojinghub.com/news/${r.article_id}`,
+    }));
+    return { items, hasMore: rows.length > 0 && page < last && page < MAX_PAGES };
   }
 
   /** 我要参赛网的列表块（Discuz 门户 block）。解析不出来时回落到通用 HTML 列表提取。 */
@@ -562,6 +666,11 @@
       { id: LEGACY_SRC, name: "摩课云竞赛", home: "https://www.gxxsjs.com/", fetch: fetchMokeroad, pages: true },
       { id: "saikr", name: "赛氪竞赛广场", home: "https://www.saikr.com/contests", fetch: fetchSaikr, pages: true },
       { id: "jingsai", name: "我要参赛网", home: JINGSAI_HOME, fetch: fetchJingsai, pages: true },
+      // 模竞三条通道各占一个「源」：它们的差分快照、已读、筛选互不干扰（id 前缀天然隔离），
+      // 界面上也就和另外三家排在同一排里，切换成本与切站点一样。
+      { id: "mojing-comp", name: "模竞竞赛", home: MOJING_HOME, fetch: fetchMojingCompetition, pages: true },
+      { id: "mojing-events", name: "模竞活动", home: "https://www.mojinghub.com/events", fetch: fetchMojingEvents, pages: true },
+      { id: "mojing-news", name: "模竞资讯", home: "https://www.mojinghub.com/news", fetch: fetchMojingArticle, pages: true },
     ];
   }
   function sources() {

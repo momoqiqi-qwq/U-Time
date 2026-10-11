@@ -56,6 +56,7 @@ ICONS = {
     "cppu-notify":       ("color",      "university",       "警大门户通知 / 大学建筑"),
     "cppu-calendar":     ("color",      "calendar",         "警大校历 / 月历"),
     "gx-news":           ("color",      "trophy",           "竞赛消息雷达 / 奖杯"),
+    "mojinghub":         ("color",      "medal",            "模竞竞赛平台 / 奖牌"),
     "rss-reader":        ("color",      "rss",              "RSS 信息流 / RSS 信号波"),
     "exam-calendar":     ("color",      "test-passed",      "考试日历 / 考核清单"),
     "shiguang-schedule": ("color",      "timetable",        "课程表 / 日历+时钟"),

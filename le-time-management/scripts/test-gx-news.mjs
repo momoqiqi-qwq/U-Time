@@ -359,7 +359,8 @@ async function node_addSource(node) {
   assert.match(got.list.innerHTML, /消息 1/, '默认源仍是摩课云（本校在用）');
   assert.ok(!got.requests.some((u) => u.startsWith(SAIKR_API)), '没切源之前不许偷偷去抓别家');
   assert.deepEqual(got.chipLabels('[data-sources]'),
-    ['摩课云竞赛', '赛氪竞赛广场', '我要参赛网', '＋ 添加源'], '三内置源 + 添加入口都要在');
+    ['摩课云竞赛', '赛氪竞赛广场', '我要参赛网', '模竞竞赛', '模竞活动', '模竞资讯', '＋ 添加源'],
+    '三内置源 + 模竞三条通道 + 添加入口都要在');
 
   await got.clickChip('[data-sources]', '赛氪竞赛广场');
   assert.ok(got.requests.some((u) => u.startsWith(SAIKR_API)), '切源要立刻抓新源第 1 页');
@@ -591,4 +592,4 @@ async function node_addSource(node) {
   assert.match(got.list.innerHTML, /class="gx-card seen"/, '点了提醒要顺手标已读');
 }
 
-console.log('PASS: gx-news 残留筛选自愈 + 多源（三内置源解析 / 三条分类轴归一与跨源保留 / id 按源隔离 / 自定义源三路识别 / 添加浮层与广播快照）');
+console.log('PASS: gx-news 残留筛选自愈 + 多源（六内置源解析 / 三条分类轴归一与跨源保留 / id 按源隔离 / 自定义源三路识别 / 添加浮层与广播快照）');
