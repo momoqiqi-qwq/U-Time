@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<!-- ============================================================
+  ◆ 分镜演示页模板底盘（复制本文件后只改"画面层"与 cue）◆
+  内置：虚拟时钟黑场播放器 / WebAudio 音效引擎 / 1920×1080 舞台
+        镜头层 camTo·camFocus / 时间轴引擎(cue+补间+暂停) / HUD
+        角色特写位 / 电影黑边（不做底部字幕条，口播以 cue 注释对齐）
+  机制说明见 Skill 的 references/ 目录，此处只标"改这里"。
+============================================================= -->
+<script>
+/* ===== [不动] 播放器引导：劫持 performance.now/rAF 成虚拟时钟 =====
+   一切动画(JS cue 与 CSS animation)都走同一虚拟时钟，
+   点击「启动播放」前时间恒为 0 —— 黑场干净起手，录屏无闪跳。 */
+(function(){
+  (function(){
+    var realRAF=window.requestAnimationFrame.bind(window);
+    var realPerf=performance.now.bind(performance);
+    var started=false,startReal=0;
+    function clock(){return started?(realPerf()-startReal):0;}
+    window.__startPlayback=function(){if(started)return;started=true;startReal=realPerf();};
+    performance.now=clock;
+    window.requestAnimationFrame=function(cb){return realRAF(function(){cb(clock());});};
+  })();
+  var css=document.createElement('style');
+  css.textContent='#introZ{position:fixed;inset:0;z-index:99999;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column;transition:opacity 1.4s ease}#introZ .btn{pointer-events:auto;cursor:pointer;font-family:"Cascadia Mono","Microsoft YaHei","PingFang SC",sans-serif;font-size:28px;letter-spacing:8px;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.45);border-radius:999px;padding:16px 52px;transition:background .3s,transform .2s,opacity .4s}#introZ .btn:hover{background:rgba(255,255,255,.18)}#introZ .btn:active{transform:scale(.96)}#introZ .hint{margin-top:20px;font-family:"Cascadia Mono",Consolas,monospace;font-size:13px;color:#8a8a8a;letter-spacing:2px;opacity:.7}#hud{transition:opacity .35s ease}body.hud-off #hud{opacity:0!important;pointer-events:none}';
+  document.head.appendChild(css);
+  function boot(){
+    var z=document.createElement('div');z.id='introZ';
+    var b=document.createElement('button');b.type='button';b.className='btn';b.textContent='启 动 播 放';
+    var h=document.createElement('div');h.className='hint';h.textContent='点击开始 · 黑场渐变后播放';
+    z.appendChild(b);z.appendChild(h);document.body.appendChild(z);
+    var playing=false;
+    function showHud(){document.body.classList.remove('hud-off');}
+    function hideHud(){document.body.classList.add('hud-off');}
+    hideHud();
+    addEventListener('mousemove',function(e){if(!playing)return;if(innerHeight-e.clientY<=60)showHud();else hideHud();});
+    addEventListener('mouseleave',function(){if(playing)hideHud();});
+    b.addEventListener('click',function(){
+      if(playing)return;playing=true;   /* 本次点击同时解锁下方 AudioContext */
+      b.style.pointerEvents='none';b.style.opacity='0';h.style.opacity='0';
+      setTimeout(function(){z.style.opacity='0';z.style.pointerEvents='none';},600);
+      setTimeout(function(){window.__startPlayback();},2000);
+    });
+  }
+  if(document.body)boot();else addEventListener('DOMContentLoaded',boot);
+})();
+</script>
+
+<script>
+/* ===== [不动] SFX 引擎：WebAudio 合成音效，零音频文件 =====
+   pop(波·弹出) whoosh(呼·镜头/大幅移动,dur,vol) swipe(唰·快切)
+   type(键盘轻击) ding(叮·落定) thud(咚·撞击/盖章) */
+window.__sfx=(function(){
+  var ctx=null,master=null,noiseBuf=null;
+  function ensure(){
+    if(ctx)return ctx;
+    try{
+      var AC=window.AudioContext||window.webkitAudioContext;
+      if(!AC)return null;
+      ctx=new AC();
+      master=ctx.createGain();master.gain.value=0.24;
+      var lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=6500;
+      master.connect(lp);lp.connect(ctx.destination);
+      var len=Math.floor(ctx.sampleRate*1.2);noiseBuf=ctx.createBuffer(1,len,ctx.sampleRate);
+      var d=noiseBuf.getChannelData(0);for(var i=0;i<len;i++)d[i]=Math.random()*2-1;
+    }catch(e){ctx=null}
+    return ctx;
+  }
+  addEventListener('pointerdown',function(){var c=ensure();if(c&&c.state==='suspended')c.resume();});
+  function ok(){return !!(ctx&&ctx.state==='running'&&master);}
+  function env(g,t0,a,peak,dur){g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(peak,t0+a);g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);}
+  function pop(vol){
+    if(!ok())return;vol=vol||1;
+    var t=ctx.currentTime,o=ctx.createOscillator(),g=ctx.createGain();
+    o.type='sine';var f=330+Math.random()*90;
+    o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(f*2.05,t+0.09);
+    env(g,t,0.012,0.5*vol,0.16);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.2);
+  }
+  function whoosh(durS,vol){
+    if(!ok())return;var d=Math.max(0.25,Math.min(durS||1,1.8));vol=vol||0.9;
+    var t=ctx.currentTime,src=ctx.createBufferSource();src.buffer=noiseBuf;src.loop=true;
+    var bp=ctx.createBiquadFilter();bp.type='bandpass';bp.Q.value=0.9;
+    bp.frequency.setValueAtTime(330,t);bp.frequency.exponentialRampToValueAtTime(1300,t+d*0.55);bp.frequency.exponentialRampToValueAtTime(430,t+d);
+    var g=ctx.createGain();g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.3*vol,t+d*0.4);g.gain.exponentialRampToValueAtTime(0.0001,t+d);
+    src.connect(bp);bp.connect(g);g.connect(master);src.start(t);src.stop(t+d+0.05);
+  }
+  function swipe(vol){
+    if(!ok())return;vol=vol||1;
+    var t=ctx.currentTime,src=ctx.createBufferSource();src.buffer=noiseBuf;src.loop=true;
+    var bp=ctx.createBiquadFilter();bp.type='bandpass';bp.Q.value=1.3;
+    bp.frequency.setValueAtTime(2500,t);bp.frequency.exponentialRampToValueAtTime(720,t+0.22);
+    var g=ctx.createGain();env(g,t,0.02,0.26*vol,0.26);
+    src.connect(bp);bp.connect(g);g.connect(master);src.start(t);src.stop(t+0.32);
+  }
+  function type(vol){
+    if(!ok())return;vol=vol||1;
+    var t=ctx.currentTime,o=ctx.createOscillator(),g=ctx.createGain();
+    o.type='square';o.frequency.value=1400+Math.random()*900;
+    var lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=2700;
+    env(g,t,0.004,0.1*vol,0.05);
+    o.connect(lp);lp.connect(g);g.connect(master);o.start(t);o.stop(t+0.07);
+  }
+  function ding(vol){
+    if(!ok())return;vol=vol||1;
+    var t=ctx.currentTime;
+    [[660,0.2],[990,0.09]].forEach(function(p){
+      var o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=p[0];
+      env(g,t,0.01,p[1]*vol,0.6);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.7);
+    });
+  }
+  function thud(vol){
+    if(!ok())return;vol=vol||1;
+    var t=ctx.currentTime,o=ctx.createOscillator(),g=ctx.createGain();
+    o.type='sine';o.frequency.setValueAtTime(155,t);o.frequency.exponentialRampToValueAtTime(60,t+0.16);
+    env(g,t,0.008,0.5*vol,0.22);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.28);
+  }
+  return {pop:pop,whoosh:whoosh,swipe:swipe,type:type,ding:ding,thud:thud};
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>镜头 01 · 一卡通 · 食堂刷卡</title>
+
+<!-- [改这里] 字体：按本页风格换 2-4 个家族（展示英文 + 中文 + 等宽数据） -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+SC:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#111;overflow:hidden;font-family:'Noto Sans SC',sans-serif}
+body.paused *{animation-play-state:paused!important}
+/* [改这里] 舞台底色/纹理 —— 换成你这套风格的材质（纸纹/网点/扫描线/蓝图网格…） */
+#stage{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform:translate(-50%,-50%);overflow:hidden;
+  background:linear-gradient(#f6f1e6 0 620px,#9aa3aa 620px 100%);box-shadow:inset 0 0 200px rgba(60,50,30,.22)}
+
+/* ===== [不动] 镜头层：全部画面内容放进 #cam，靠 transform 推拉摇移 ===== */
+#cam{position:absolute;inset:0;transform-origin:0 0;transform:scale(1.2);transition:transform var(--cd,1.4s) cubic-bezier(.16,1,.3,1);z-index:10}
+
+/* ────────────────────────────────────────────────
+   [改这里] 画面层：以下到「底盘区」为止全部重写
+   ──────────────────────────────────────────────── */
+/* 食堂窗口：上半米瓷砖墙 + 下半不锈钢台面 */
+#tiles{position:absolute;left:0;right:0;top:0;height:620px;
+  background-image:linear-gradient(rgba(150,140,120,.30) 1px,transparent 1px),linear-gradient(90deg,rgba(150,140,120,.30) 1px,transparent 1px);
+  background-size:124px 124px;background-position:-2px -2px}
+#counterEdge{position:absolute;left:0;right:0;top:614px;height:11px;
+  background:linear-gradient(#efe9db,#c6c0b2);box-shadow:0 5px 12px rgba(0,0,0,.18)}
+#steam{position:absolute;left:250px;top:90px;width:460px;height:540px;pointer-events:none;opacity:.5}
+#steam i{position:absolute;bottom:0;display:block;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(255,255,255,.95),rgba(255,255,255,0));animation:rise 6.5s linear infinite}
+#steam i:nth-child(1){left:20px;width:150px;height:150px;animation-delay:0s}
+#steam i:nth-child(2){left:150px;width:190px;height:190px;animation-delay:2.1s}
+#steam i:nth-child(3){left:280px;width:130px;height:130px;animation-delay:4.2s}
+@keyframes rise{0%{transform:translateY(150px) scale(.6);opacity:0}25%{opacity:.85}100%{transform:translateY(-380px) scale(1.5);opacity:0}}
+
+#title{position:absolute;left:64px;top:52px;opacity:0;transform:translateY(-16px);transition:all .6s cubic-bezier(.16,1,.3,1)}
+#title.show{opacity:1;transform:translateY(0)}
+#title .no{display:inline-block;font-family:'Bebas Neue';font-size:17px;letter-spacing:2px;color:#fffdf4;background:#C86A2E;border-radius:9px;padding:6px 16px}
+#title h1{margin-top:12px;font-size:48px;font-weight:900;letter-spacing:3px;color:#2c2a26}
+#title .en{font-family:'Share Tech Mono';font-size:15px;color:#8a8272;margin-top:6px;letter-spacing:4px}
+
+/* 校园卡（跨页锁色：卡面深蓝 #1D4E89） */
+#card{position:absolute;left:520px;top:452px;width:430px;height:268px;border-radius:24px;color:#fff;opacity:0;
+  background:linear-gradient(140deg,#1D4E89 0%,#16406f 55%,#0e2a4a 100%);border:1px solid rgba(255,255,255,.22);
+  box-shadow:0 30px 60px rgba(8,20,40,.45),inset 0 1px 0 rgba(255,255,255,.35);
+  transform:translate(-520px,-300px) rotate(-18deg)}
+#card.land{opacity:1;transform:rotate(-6deg);transition:all 1.05s cubic-bezier(.2,1.1,.3,1)}
+#card .chip{position:absolute;left:34px;top:34px;width:66px;height:48px;border-radius:9px;
+  background:linear-gradient(135deg,#f6d98a,#c9a144);box-shadow:inset 0 0 0 1px rgba(120,90,20,.5)}
+#card .brand{position:absolute;left:34px;top:100px;font-size:28px;font-weight:900;letter-spacing:4px}
+#card .sub{position:absolute;left:36px;top:144px;font-family:'Share Tech Mono';font-size:14px;letter-spacing:2px;color:rgba(200,225,255,.9)}
+#card .emblem{position:absolute;right:32px;top:32px;width:74px;height:74px;border-radius:50%;display:grid;place-items:center;
+  background:radial-gradient(circle at 34% 30%,#e8443f,#a11c1c);font-size:38px;font-weight:900;color:#ffe9a8;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+#card .num{position:absolute;left:34px;bottom:26px;font-family:'Share Tech Mono';font-size:23px;letter-spacing:4px;color:#dbe9ff}
+
+/* 刷卡机 */
+#pos{position:absolute;left:1210px;top:392px;width:300px;height:374px;border-radius:28px;opacity:0;
+  background:linear-gradient(160deg,#333940,#191d23);box-shadow:0 34px 60px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.18);
+  transform:translateY(46px) scale(.94)}
+#pos.in{opacity:1;transform:translateY(0) scale(1);transition:all .85s cubic-bezier(.16,1,.3,1)}
+#pos .zone{position:absolute;left:50%;top:32px;transform:translateX(-50%);width:196px;height:196px;border-radius:22px;
+  background:radial-gradient(circle at 50% 50%,rgba(120,200,255,.20),rgba(255,255,255,.04));
+  border:1px dashed rgba(150,200,255,.45);display:grid;place-items:center}
+#pos .zone svg{width:76px;height:76px;opacity:.75}
+#pos .pulse{position:absolute;left:130px;top:130px;width:196px;height:196px;margin:-98px 0 0 -98px;border-radius:50%;border:2px solid rgba(110,240,138,0);pointer-events:none}
+#pos.hit .pulse{animation:pulseRing 1.1s ease-out}
+@keyframes pulseRing{0%{transform:scale(.5);border-color:rgba(110,240,138,.85)}100%{transform:scale(1.5);border-color:rgba(110,240,138,0)}}
+#pos .led{position:absolute;left:0;right:0;bottom:96px;text-align:center;font-family:'Share Tech Mono';
+  font-size:44px;letter-spacing:2px;color:#3ce86f;text-shadow:0 0 16px rgba(60,232,111,.75);opacity:.26;transition:opacity .3s}
+#pos.lit .led{opacity:1}
+#pos .beep{position:absolute;left:0;right:0;bottom:56px;text-align:center;font-size:19px;font-weight:900;letter-spacing:6px;color:#ffe08a;opacity:0}
+#pos.lit .beep{opacity:1;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:.35}}
+#pos .mini{position:absolute;left:0;right:0;bottom:22px;text-align:center;font-family:'Share Tech Mono';font-size:12px;letter-spacing:4px;color:#6d7783}
+
+/* 余额浮标（画面内标签，非字幕条） */
+#balanceTag{position:absolute;left:1210px;top:296px;width:300px;text-align:center;opacity:0;transform:translateY(14px)}
+#balanceTag.show{opacity:1;transform:translateY(0);transition:all .5s cubic-bezier(.2,1.2,.4,1)}
+#balanceTag .cap{display:inline-block;background:#eef7f0;border:2px solid #2E8B57;color:#1c5c39;border-radius:999px;
+  padding:7px 20px;font-size:19px;font-weight:900;letter-spacing:2px;box-shadow:4px 4px 0 rgba(46,139,87,.18)}
+
+/* [改这里] 角色特写位：表情包图片路径按项目素材改；无素材则删掉改用纯 CSS 吉祥物 */
+#mascot{position:absolute;left:-10px;bottom:-8px;width:380px;z-index:28;opacity:0;transition:opacity .9s ease;filter:drop-shadow(0 14px 30px rgba(0,0,0,.35))}
+#mascot.show{opacity:1}
+#mascot img{width:100%;display:block;animation:bob 3.1s ease-in-out infinite alternate}
+@keyframes bob{from{transform:translateY(0)}to{transform:translateY(-12px)}}
+#mascot .say{position:absolute;right:-176px;top:112px;width:248px;background:#fff;border-radius:16px;padding:13px 17px;
+  font-size:24px;font-weight:900;color:#1a2233;line-height:1.45;opacity:0;transform:scale(.6);transition:all .45s cubic-bezier(.34,1.6,.64,1);box-shadow:0 10px 30px rgba(0,0,0,.25)}
+#mascot .say::after{content:'';position:absolute;left:24px;bottom:-18px;border:9px solid transparent;border-top:11px solid #fff}
+#mascot .say b{color:#C86A2E}
+#mascot.show .say{opacity:1;transform:scale(1);transition-delay:.45s}
+
+/* ────────────────────────────────────────────────
+   [不动] 底盘区：黑边 / 暗角 / 角注 / HUD（无字幕条）
+   ──────────────────────────────────────────────── */
+#lbT,#lbB{position:absolute;left:0;right:0;height:0;background:#02040a;z-index:40;transition:height .9s cubic-bezier(.7,0,.3,1)}
+#lbT{top:0}#lbB{bottom:0}
+#stage.letter #lbT,#stage.letter #lbB{height:74px}   /* 电影黑边：慢放/高潮段落加 .letter */
+#dim{position:absolute;inset:0;background:radial-gradient(closest-side at 50% 46%,transparent 52%,rgba(0,0,0,.8) 100%);opacity:0;transition:opacity 1s;z-index:30;pointer-events:none}
+#dim.on{opacity:1}
+
+.corner{position:absolute;font-family:'Share Tech Mono';font-size:15px;color:rgba(44,42,38,.55);letter-spacing:2px;z-index:9}
+#chap{left:52px;bottom:34px}
+#src{right:52px;bottom:34px}
+
+#hud{position:fixed;left:0;right:0;bottom:0;z-index:60;font-family:'Share Tech Mono';pointer-events:none}
+#track{height:5px;background:rgba(0,0,0,.15)}
+#bar{height:100%;width:0;background:#b53929;box-shadow:0 0 10px rgba(181,57,41,.6)}
+#hudrow{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;font-size:12px;background:rgba(10,8,6,.92);backdrop-filter:blur(4px)}
+#hud button{pointer-events:auto;background:transparent;border:1px solid #999;color:#ccc;font-family:inherit;font-size:12px;padding:3px 14px;margin-left:8px;border-radius:3px;cursor:pointer}
+#hud button:hover{background:rgba(255,255,255,.12)}
+#replay.done{animation:pulse 1.2s infinite;border-color:#ffd23f;color:#ffd23f}
+@keyframes pulse{50%{box-shadow:0 0 14px rgba(255,210,63,.8)}}
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- [改这里] 全部画面内容包进 #cam -->
+  <div id="cam">
+    <div id="tiles"></div>
+    <div id="counterEdge"></div>
+    <div id="steam"><i></i><i></i><i></i></div>
+
+    <div id="title">
+      <span class="no">SHOT 01 / 一卡通</span>
+      <h1>从「刷一下」开始的一天</h1>
+      <div class="en">CAMPUS CARD · TAP TO PAY</div>
+    </div>
+
+    <div id="card">
+      <div class="chip"></div>
+      <div class="emblem">警</div>
+      <div class="brand">校园一卡通</div>
+      <div class="sub">CPPU · CAMPUS CARD</div>
+      <div class="num">**** **** **** 2137</div>
+    </div>
+
+    <div id="pos">
+      <div class="zone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#9fd0ff" stroke-width="1.8" stroke-linecap="round">
+          <rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/><path d="M6 15h4"/>
+        </svg>
+      </div>
+      <div class="pulse"></div>
+      <div class="led" id="led">¥0.00</div>
+      <div class="beep">嘀 —— 支付成功</div>
+      <div class="mini">CAMPUS POS · 感应区</div>
+    </div>
+
+    <div id="balanceTag"><span class="cap">当前余额 ¥217.50</span></div>
+
+    <div id="mascot">
+      <div class="say">刷一下就知道<b>还剩多少钱</b>，比记小本子快。</div>
+      <img src="anan - emotion rename/15_平举素纸_认真以待.png" alt="安安">
+    </div>
+  </div>
+
+  <div id="dim"></div>
+  <div id="lbT"></div><div id="lbB"></div>
+
+  <div class="corner" id="chap">01 / 一卡通 · 食堂刷卡</div>
+  <div class="corner" id="src">U-Time 警大一卡通视图 · 校园卡平台实测</div>
+</div>
+
+<div id="hud">
+  <div id="track"><div id="bar"></div></div>
+  <div id="hudrow"><span>镜头 01 · 一卡通 · 食堂刷卡 · 10s</span><span><span id="tc" style="margin-right:10px">00:00</span><button id="pauseBtn">暂停</button><button id="replay" onclick="location.reload()">重播</button></span></div>
+</div>
+
+<script>
+/* ===== [不动] 时间轴引擎 ===== */
+const DUR=10000;                       /* [改这里] = 本镜头规定时长(ms) */
+const $=s=>document.querySelector(s);
+let t0=performance.now(),paused=false,pStart=0;
+const cues=[],on=(t,f)=>cues.push({t,f,done:false});
+const tws=[],eo=p=>1-Math.pow(1-p,3),ei=p=>p*p,eio=p=>p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+const after=(ms,f)=>on(performance.now()-t0+ms,f);
+/* 补间：fly 抛物线飞行；cnt 数字滚动 */
+function fly(el,x1,y1,x2,y2,dur,arc,ease,done){tws.push({t:performance.now()-t0,d:dur,e:ease||eio,done,f:p=>{el.style.left=(x1+(x2-x1)*p)+'px';el.style.top=(y1+(y2-y1)*p-Math.sin(p*Math.PI)*(arc||0))+'px'}})}
+function cnt(el,from,to,dur){tws.push({t:performance.now()-t0,d:dur,e:eo,f:p=>{el.textContent=Math.round(from+(to-from)*p).toLocaleString('en-US')}})}
+function tick(now){if(paused)return;const el=now-t0;
+  for(const c of cues)if(!c.done&&el>=c.t){c.done=true;c.f()}
+  for(let i=tws.length-1;i>=0;i--){const tw=tws[i],p=(el-tw.t)/tw.d;if(p<0)continue;const q=Math.min(1,p);tw.f(tw.e?tw.e(q):q);if(q>=1){tws.splice(i,1);if(tw.done)tw.done()}}
+  $('#bar').style.width=Math.min(100,el/DUR*100)+'%';
+  const t=el/1000;$('#tc').textContent=String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0');
+  if(el<DUR+2500)requestAnimationFrame(tick);else $('#replay').classList.add('done');
+}
+requestAnimationFrame(tick);
+$('#pauseBtn').onclick=()=>{paused=!paused;document.body.classList.toggle('paused',paused);$('#pauseBtn').textContent=paused?'继续':'暂停';if(paused){pStart=performance.now()}else{t0+=performance.now()-pStart;requestAnimationFrame(tick)}};
+function fit(){const s=Math.min(innerWidth/1920,innerHeight/1080);$('#stage').style.transform=`translate(-50%,-50%) scale(${s})`}
+addEventListener('resize',fit);fit();
+
+/* ===== [不动] 镜头调度 ===== */
+const cam=$('#cam');
+function camTo(tx,ty,s,dur){cam.style.setProperty('--cd',dur+'s');cam.style.transform=`translate(${tx}px,${ty}px) scale(${s})`;if(window.__sfx)__sfx.whoosh(dur,0.65)}
+function camFocus(fx,fy,s,dur){let tx=960-fx*s,ty=540-fy*s;   /* 对准 (fx,fy) 推近到 s 倍，自动收边 */
+  tx=Math.min(0,Math.max(1920-1920*s,tx));ty=Math.min(0,Math.max(1080-1080*s,ty));camTo(tx,ty,s,dur)}
+
+/* ────────────────────────────────────────────────
+   [改这里] 本镜头的叙事 cue（示例 12s，注释引用口播节拍）
+   ──────────────────────────────────────────────── */
+const cnt2=(el,from,to,dur)=>tws.push({t:performance.now()-t0,d:dur,e:eo,f:p=>{el.textContent='¥'+(from+(to-from)*p).toFixed(2)}});
+on(250,()=>camTo(0,0,1,2.4));                                     // 开场拉镜：卡片特写 → 食堂全景
+on(400,()=>{$('#title').classList.add('show')});                  // 标题：从「刷一下」开始的一天
+on(900,()=>{$('#card').classList.add('land')});                   // 校园卡落桌
+on(2100,()=>{$('#pos').classList.add('in')});                     // 刷卡机升起
+on(2600,()=>{$('#pos').classList.add('hit')});                    // 嘀 —— 感应成功（口播落点）
+on(2700,()=>{$('#pos').classList.add('lit')});
+on(2750,()=>cnt2($('#led'),0,217.5,1200));                        // 余额：刷卡即显
+on(2750,()=>camFocus(1360,560,1.24,1.0));                         // 推近刷卡机 LED
+on(4300,()=>{$('#balanceTag').classList.add('show')});            // 「当前余额 ¥217.50」
+on(5200,()=>camTo(0,0,1,1.3));                                    // 拉回全景
+on(5900,()=>{const m=$('#mascot');if(m)m.classList.add('show')});// 安安定场吐槽
+on(9300,()=>camFocus(1000,540,1.10,1.6));                         // 收尾缓推定格
+/* 音效 cue：与视觉同帧 */
+on(250,()=>__sfx.whoosh(2.4,0.6));
+on(900,()=>__sfx.thud(0.9));
+on(2100,()=>__sfx.pop(0.55));
+for(let i=0;i<10;i++)on(2750+i*110,()=>__sfx.type(0.34));         // 余额滚动连击
+on(4300,()=>__sfx.pop(0.6));
+on(5900,()=>__sfx.pop(0.7));
+on(9300,()=>__sfx.swipe(0.5));
+</script>
+</body>
+</html>

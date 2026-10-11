@@ -365,6 +365,26 @@ const y = Math.max(8 + sat, Math.min(rawY, window.innerHeight - sab - MENU_H));
 
 选择条件后同步更新列表、计数和按钮的“已设置”提示；列表重渲染时保留当前筛选状态。搜索输入框、刷新按钮及“添加源”等操作仍放在菜单外。使用 `<summary>` 的键盘与触屏开合能力，不用自建全屏遮罩；下拉内容在窄屏允许换行，避免把通知列表挤到多屏之后。内置实现可参考 `cppu-notify/main.js`、`gx-news/main.js` 和 `rss-reader/main.js`。
 
+### 4.5 单选切换的滑动选中光（硬性要求）
+
+同一组选项只能选中一项时（标签栏、分段按钮、模式切换、分类筛选、主题选择……），**选中高亮必须随选择滑动到新选项**，不能只给新选项瞬间加一块静态背景。宿主已经把主程序用的那套实现开给插件：
+
+```js
+const row = el("div", { class: "my-tabs" });          // 容器自己负责 position:relative
+const glow = tide.ui.selectionGlow(row, { selector: "button.on" });  // 权限：ui
+// 用户换了选项（把 .on 从旧按钮挪到新按钮）之后：
+glow.sync();                                          // 光块从旧位置滑过去（500ms，带过冲）
+// 视图重建 / 插件卸载前：
+glow.dispose();
+```
+
+要点：
+
+- 容器要自己 `position: relative; isolation: isolate;`，并给 `.selection-glow` 上色（样式表里已有的基础规则只管定位，长相由容器定）。可直接抄 `src/styles/ai-model-picker.css` 的 `.ai-model-options .selection-glow` 或 `src/styles/settings-selection-glow.css` 里那四套。
+- **行内容不变时只切 `.on`，不要重建 DOM**。`innerHTML` 一换，光块和它的观察者就成了孤儿、位移动画也会被截断。选项集合真的变了（比如整组换掉）才重建，重建后重新 `tide.ui.selectionGlow(...)` 挂一次即可。
+- 位移 500ms / `cubic-bezier(.34,1.56,.64,1)`（过冲 1.3）、尺寸 400ms，与侧栏、设置分类、番茄模式同一套参数；应用或系统开了「减少动效」时宿主会直接落到终态，插件不必自己判断。
+- 多选、独立开关和普通操作按钮**不用**这个效果。
+
 ## 5. 安全说明
 
 外部插件属于“受信任扩展”模型：插件代码在应用前端上下文中执行（`new Function` 注入 `tide`，不是安全隔离，代码可访问 `document` / `window`）。宿主侧的防线是**运行时权限闸门**——插件调用未在 `permissions` 声明的能力时直接抛错，但这是约束“插件作者声明要真实”，不是安全边界。只安装你自己编写、审核过或可信来源提供的插件 ZIP。不要把未知来源插件当作完全隔离的沙箱应用。

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { bannerPalettes, channelDelta, colorMix, contrastRatio, mixHex, resolveToken, ruleDecls } from './lib/banner-contrast.mjs';
 const read = p => fs.readFileSync(new URL('../'+p, import.meta.url),'utf8');
 const portal = read('public/plugins/cppu-notify/main.js');
 const calendar = read('public/plugins/cppu-calendar/main.js');
@@ -131,4 +132,105 @@ assert.doesNotMatch(read('src/pluginCatalog.js'), /cppu-webvpn/);
 assert.doesNotMatch(read('../miniprogram/core/pluginCatalog.js'), /cppu-webvpn/);
 assert.doesNotMatch(portal, /cppu-webvpn|cppu-login-settings/);
 assert.match(portal, /tide\.util\.openSettings\("cppu-login"\)/);
-console.log('PASS: campus calendar, timetable statistics, bounded login retries, application settings and removed VPN plugin');
+// 校历的失败横幅整条可点（v0.190.0）：失败状态行就是 <button data-action="retry">，点一下重跑失败的那一步。
+{
+ const events2={},timers2=[],intervals2=[],cleared2=[],emits2=[],nodes=new Map(),store2={};let storageFail=false;
+ const node=sel=>{if(!nodes.has(sel))nodes.set(sel,{onclick:null,onsubmit:null,outerHTML:'',dataset:{}});return nodes.get(sel);};
+ const root2={innerHTML:'',querySelector:sel=>node(sel),querySelectorAll:()=>[]};
+ const box2={Date:FixedDate,setTimeout:(fn,ms)=>{timers2.push({fn,ms});return timers2.length;},setInterval:(fn,ms)=>{intervals2.push({fn,ms});return intervals2.length;},clearInterval:id=>cleared2.push(id),
+  document:{getElementById:()=>null,createElement:()=>({id:'',textContent:''}),head:{append:()=>{}}},
+  tide:{events:{on:(k,fn)=>{events2[k]=fn;},emit:(k,p)=>emits2.push([k,p])},
+   storage:{get:async(k,d)=>{if(storageFail)throw new Error('磁盘读取失败');return k in store2?store2[k]:d;},set:async(k,v)=>{store2[k]=v;return true;}},
+   ui:{registerView:()=>{}}}};
+ vm.runInNewContext(calendar.replace(/\}\)\(\);\s*$/, 'globalThis.test={state,cleanTerm,statusHtml,retryFail,reload,syncTerm,paint,requestStats,render};})();'),box2);
+ const K=box2.test,flush=()=>new Promise(r=>setImmediate(r));K.state.root=root2;
+ // 1) 没有失败时仍是普通状态行，只有失败那条才变成按钮
+ K.state.retry=null;K.state.status='已同步警大教务当前学期';
+ assert.equal(K.statusHtml(),'<p class="cc-status" role="status">已同步警大教务当前学期</p>');
+ K.state.retry='load';K.state.status='读取校历失败：<img src=x onerror=1>';
+ const bannerHtml=K.statusHtml();
+ assert.ok(bannerHtml.startsWith('<button type="button" class="cc-banner" data-action="retry"><span class="cc-banner-txt">'),'失败横幅必须是真 button 且整条可点');
+ assert.ok(bannerHtml.endsWith('<span class="cc-banner-hint">点击重试</span></button>'),'右侧要有「点击重试」提示');
+ assert.doesNotMatch(bannerHtml,/<img/);assert.match(bannerHtml,/&lt;img src=x/);
+ // 2) 读取失败：状态行变可点横幅，并真的接上 reload
+ storageFail=true;
+ await K.reload();await flush();
+ assert.match(K.state.status,/^读取校历失败：磁盘读取失败/);assert.equal(K.state.retry,'load');
+ assert.match(root2.innerHTML,/data-action="retry"/);assert.match(root2.innerHTML,/点击重试/);
+ assert.equal(node('[data-action="retry"]').onclick,K.retryFail,'横幅必须接到 retryFail');
+ // 3) 读取成功：横幅消失、坏数据被过滤、课次重新请求
+ storageFail=false;
+ store2.calendar={term:{name:'测试学期',jxStart:'2026-08-31',weeks:20,source:'手动',updatedAt:'2026-09-01T00:00:00.000Z'},events:[{id:'e1',date:'2026-09-03',title:'开学典礼'},{id:'bad',date:'不是日期',title:'坏数据'},{id:'e2',title:'缺日期'}]};
+ emits2.length=0;
+ await K.reload();await flush();
+ assert.equal(K.state.term.jxStart,'2026-08-31');assert.deepEqual(K.state.events.map(e=>e.title),['开学典礼']);
+ assert.equal(K.state.status,'');assert.equal(K.state.retry,null);
+ assert.doesNotMatch(root2.innerHTML,/data-action="retry"/);
+ // 读取成功后必须真的重画：否则界面会永远停在 reload 开头画的那一帧「正在读取校历…」，
+ // 连点横幅重试成功了也看不出来（旧版 0.3.0 就漏了这一笔，v0.190.0 补上）。
+ assert.match(root2.innerHTML,/测试学期/,'读取成功后要重画整个视图，把学期名称显示出来');
+ assert.doesNotMatch(root2.innerHTML,/正在读取校历/);
+ assert.equal(emits2.at(-1)[0],'schedule:week-request','恢复后要重新请求本周课次');
+ // 4) 点横幅：load 态重跑读取链路，term 态重跑教务同步
+ emits2.length=0;K.state.retry='load';K.retryFail();
+ assert.equal(K.state.retry,null,'点下就清掉失败标记，避免横幅留在加载中');
+ await flush();assert.equal(emits2.at(-1)[0],'schedule:week-request');
+ emits2.length=0;timers2.length=0;K.state.retry='term';K.retryFail();
+ assert.equal(K.state.loading,true);assert.match(K.state.status,/正在通过警大门户同步教务学期/);assert.equal(K.state.retry,null);
+ assert.equal(emits2.at(-1)[0],'cppu:term-request');
+ assert.equal(timers2.filter(t=>t.ms===30000).length,1,'同步要有 30 秒兜底');
+ timers2.filter(t=>t.ms===30000).at(-1).fn();
+ assert.equal(K.state.loading,false);assert.equal(K.state.retry,'term');assert.match(K.state.status,/同步超时/);
+ // 5) 教务回包：失败的重新变横幅，成功的清掉并落盘，过期的 id 不能改状态
+ K.syncTerm();
+ await events2['cppu:term-response']({id:K.state.requestId,error:'教务暂无有效学期'});
+ assert.equal(K.state.retry,'term');assert.equal(K.state.status,'教务暂无有效学期');assert.match(root2.innerHTML,/data-action="retry"/);
+ K.syncTerm();const stale=K.state.requestId;K.state.requestId='other';
+ await events2['cppu:term-response']({id:stale,term:{jxStart:'2026-01-01',weeks:1,name:'过期'}});
+ assert.equal(K.state.term.jxStart,'2026-08-31','过期回包不能改学期');
+ K.state.requestId=stale;
+ await events2['cppu:term-response']({id:stale,term:{jxStart:'2026-09-07',weeks:18,name:'2026 秋'}});
+ assert.equal(K.state.retry,null);assert.equal(K.state.loading,false);assert.equal(K.state.term.jxStart,'2026-09-07');
+ assert.equal(store2.calendar.term.jxStart,'2026-09-07','同步结果要落盘');
+ assert.doesNotMatch(root2.innerHTML,/data-action="retry"/);
+ // 6) 挂载即读取：读失败时首屏就直接给出可点横幅，返回的清理函数要停掉 60 秒自动刷新
+ storageFail=true;
+ const stop=K.render(root2);await flush();
+ assert.equal(K.state.retry,'load');assert.match(root2.innerHTML,/data-action="retry"/);
+ assert.equal(intervals2.at(-1).ms,60000);
+ stop();assert.equal(cleared2.length,1);assert.equal(K.state.root,null);
+ // 7) 源码守卫：手动保存学期也要清掉失败标记
+ assert.match(calendar,/state\.term = term; state\.status = "学期设置已保存"; state\.retry = null;/);
+ // 8) 配色：三档底与文字都走主题令牌，34 张色板实算 AA
+ const bannerDecl=ruleDecls(calendar,'.cc-wrap .cc-banner');
+ assert.match(bannerDecl.color,/^var\(--ink,/);
+ const restBg=colorMix(bannerDecl.background);
+ assert.equal(restBg.top,'--accent');assert.equal(restBg.bottom,'--bg','底色要混视图底色 --bg：混 --card 时 Nephele 的 --bg 正好落在同一档，底色会跟背景差 1 个通道');
+ assert.equal(restBg.pct,0.14);
+ assert.match(bannerDecl['min-height'],/44px/);assert.match(bannerDecl.cursor,/pointer/);
+ const hoverDecl=ruleDecls(calendar,'.cc-wrap .cc-banner:hover');
+ const hoverBg=colorMix(hoverDecl.background),activeBg=colorMix(ruleDecls(calendar,'.cc-wrap .cc-banner:active').background);
+ assert.equal(hoverBg.pct,0.22);assert.equal(colorMix(hoverDecl['border-color']).pct,0.52);assert.equal(activeBg.pct,0.32);
+ assert.match(ruleDecls(calendar,'.cc-wrap .cc-banner:focus-visible').outline,/^3px solid var\(--accent/);
+ const hintMix=colorMix(ruleDecls(calendar,'.cc-banner-hint').color);
+ assert.ok(hintMix,'「点击重试」提示色必须是 color-mix 出来的');
+ assert.equal(hintMix.top,'--accent');assert.equal(hintMix.bottom,'--ink','提示色必须混 --ink，否则深色按下态过不了 AA');
+ assert.ok(calendar.includes('@media(prefers-reduced-motion:reduce){.cc-banner,.cc-banner-hint::before{transition-duration:.01ms!important}}'));
+ const palettes=bannerPalettes(p=>fs.readFileSync(new URL(p,import.meta.url),'utf8'));
+ let worstBody={ratio:99,where:''},worstHint={ratio:99,where:''},worstSep={delta:999,where:''};
+ for(const {label,tokens} of palettes){
+  const accent=resolveToken(tokens,'--accent'),surface=resolveToken(tokens,'--bg'),ink=resolveToken(tokens,'--ink');
+  for(const weight of [restBg.pct,hoverBg.pct,activeBg.pct]){
+   const bg=mixHex(accent,surface,weight),hint=mixHex(accent,ink,hintMix.pct);
+   const body=contrastRatio(ink,bg),hintRatio=contrastRatio(hint,bg);
+   const sep=channelDelta(bg,surface);
+   assert.ok(sep>=16,`${label} ${Math.round(weight*100)}%：横幅底色 ${bg} 与视图底色 ${surface} 只差 ${sep} 个通道`);
+   if(body<worstBody.ratio)worstBody={ratio:body,where:`${label} ${Math.round(weight*100)}%`};
+   if(hintRatio<worstHint.ratio)worstHint={ratio:hintRatio,where:`${label} ${Math.round(weight*100)}%`};
+   if(sep<worstSep.delta)worstSep={delta:sep,where:`${label} ${Math.round(weight*100)}%`};
+  }
+ }
+ assert.ok(worstBody.ratio>=4.5&&worstHint.ratio>=4.5,`校历横幅也要过 AA：正文最低 ${worstBody.ratio.toFixed(2)}:1（${worstBody.where}）、提示最低 ${worstHint.ratio.toFixed(2)}:1（${worstHint.where}）`);
+ console.log(`校历横幅配色：${palettes.length} 张色板 × 3 态，最低对比度 正文 ${worstBody.ratio.toFixed(2)}:1（${worstBody.where}）、提示 ${worstHint.ratio.toFixed(2)}:1（${worstHint.where}）；底色与视图底色最小通道差 ${worstSep.delta}（${worstSep.where}）`);
+}
+console.log('PASS: campus calendar, timetable statistics, bounded login retries, application settings, clickable calendar retry banner and removed VPN plugin');

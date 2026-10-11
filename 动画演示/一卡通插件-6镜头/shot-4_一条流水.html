@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<!-- ============================================================
+  ◆ 分镜演示页模板底盘（复制本文件后只改"画面层"与 cue）◆
+  内置：虚拟时钟黑场播放器 / WebAudio 音效引擎 / 1920×1080 舞台
+        镜头层 camTo·camFocus / 时间轴引擎(cue+补间+暂停) / HUD
+        角色特写位 / 电影黑边（不做底部字幕条，口播以 cue 注释对齐）
+  机制说明见 Skill 的 references/ 目录，此处只标"改这里"。
+============================================================= -->
+<script>
+/* ===== [不动] 播放器引导：劫持 performance.now/rAF 成虚拟时钟 =====
+   一切动画(JS cue 与 CSS animation)都走同一虚拟时钟，
+   点击「启动播放」前时间恒为 0 —— 黑场干净起手，录屏无闪跳。 */
+(function(){
+  (function(){
+    var realRAF=window.requestAnimationFrame.bind(window);
+    var realPerf=performance.now.bind(performance);
+    var started=false,startReal=0;
+    function clock(){return started?(realPerf()-startReal):0;}
+    window.__startPlayback=function(){if(started)return;started=true;startReal=realPerf();};
+    performance.now=clock;
+    window.requestAnimationFrame=function(cb){return realRAF(function(){cb(clock());});};
+  })();
+  var css=document.createElement('style');
+  css.textContent='#introZ{position:fixed;inset:0;z-index:99999;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column;transition:opacity 1.4s ease}#introZ .btn{pointer-events:auto;cursor:pointer;font-family:"Cascadia Mono","Microsoft YaHei","PingFang SC",sans-serif;font-size:28px;letter-spacing:8px;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.45);border-radius:999px;padding:16px 52px;transition:background .3s,transform .2s,opacity .4s}#introZ .btn:hover{background:rgba(255,255,255,.18)}#introZ .btn:active{transform:scale(.96)}#introZ .hint{margin-top:20px;font-family:"Cascadia Mono",Consolas,monospace;font-size:13px;color:#8a8a8a;letter-spacing:2px;opacity:.7}#hud{transition:opacity .35s ease}body.hud-off #hud{opacity:0!important;pointer-events:none}';
+  document.head.appendChild(css);
+  function boot(){
+    var z=document.createElement('div');z.id='introZ';
+    var b=document.createElement('button');b.type='button';b.className='btn';b.textContent='启 动 播 放';
+    var h=document.createElement('div');h.className='hint';h.textContent='点击开始 · 黑场渐变后播放';
+    z.appendChild(b);z.appendChild(h);document.body.appendChild(z);
+    var playing=false;
+    function showHud(){document.body.classList.remove('hud-off');}
+    function hideHud(){document.body.classList.add('hud-off');}
+    hideHud();
+    addEventListener('mousemove',function(e){if(!playing)return;if(innerHeight-e.clientY<=60)showHud();else hideHud();});
+    addEventListener('mouseleave',function(){if(playing)hideHud();});
+    b.addEventListener('click',function(){
+      if(playing)return;playing=true;   /* 本次点击同时解锁下方 AudioContext */
+      b.style.pointerEvents='none';b.style.opacity='0';h.style.opacity='0';
+      setTimeout(function(){z.style.opacity='0';z.style.pointerEvents='none';},600);
+      setTimeout(function(){window.__startPlayback();},2000);
+    });
+  }
+  if(document.body)boot();else addEventListener('DOMContentLoaded',boot);
+})();
+</script>
+
+<script>
+/* ===== [不动] SFX 引擎：WebAudio 合成音效，零音频文件 =====
+   pop(波·弹出) whoosh(呼·镜头/大幅移动,dur,vol) swipe(唰·快切)
+   type(键盘轻击) ding(叮·落定) thud(咚·撞击/盖章) */
+window.__sfx=(function(){
+  var ctx=null,master=null,noiseBuf=null;
+  function ensure(){
+    if(ctx)return ctx;
+    try{
+      var AC=window.AudioContext||window.webkitAudioContext;
+      if(!AC)return null;
+      ctx=new AC();
+      master=ctx.createGain();master.gain.value=0.24;
+      var lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=6500;
+      master.connect(lp);lp.connect(ctx.destination);
+      var len=Math.floor(ctx.sampleRate*1.2);noiseBuf=ctx.createBuffer(1,len,ctx.sampleRate);
+      var d=noiseBuf.getChannelData(0);for(var i=0;i<len;i++)d[i]=Math.random()*2-1;
+    }catch(e){ctx=null}
+    return ctx;
+  }
+  addEventListener('pointerdown',function(){var c=ensure();if(c&&c.state==='suspended')c.resume();});
+  function ok(){return !!(ctx&&ctx.state==='running'&&master);}
+  function env(g,t0,a,peak,dur){g.gain.setValueAtTime(0.0001,t0);g.gain.exponentialRampToValueAtTime(peak,t0+a);g.gain.exponentialRampToValueAtTime(0.0001,t0+dur);}
+  function pop(vol){
+    if(!ok())return;vol=vol||1;
+    var t=ctx.currentTime,o=ctx.createOscillator(),g=ctx.createGain();
+    o.type='sine';var f=330+Math.random()*90;
+    o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(f*2.05,t+0.09);
+    env(g,t,0.012,0.5*vol,0.16);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.2);
+  }
+  function whoosh(durS,vol){
+    if(!ok())return;var d=Math.max(0.25,Math.min(durS||1,1.8));vol=vol||0.9;
+    var t=ctx.currentTime,src=ctx.createBufferSource();src.buffer=noiseBuf;src.loop=true;
+    var bp=ctx.createBiquadFilter();bp.type='bandpass';bp.Q.value=0.9;
+    bp.frequency.setValueAtTime(330,t);bp.frequency.exponentialRampToValueAtTime(1300,t+d*0.55);bp.frequency.exponentialRampToValueAtTime(430,t+d);
+    var g=ctx.createGain();g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.3*vol,t+d*0.4);g.gain.exponentialRampToValueAtTime(0.0001,t+d);
+    src.connect(bp);bp.connect(g);g.connect(master);src.start(t);src.stop(t+d+0.05);
+  }
+  function swipe(vol){
+    if(!ok())return;vol=vol||1;
+    var t=ctx.currentTime,src=ctx.createBufferSource();src.buffer=noiseBuf;src.loop=true;
+    var bp=ctx.createBiquadFilter();bp.type='bandpass';bp.Q.value=1.3;
+    bp.frequency.setValueAtTime(2500,t);bp.frequency.exponentialRampToValueAtTime(720,t+0.22);
+    var g=ctx.createGain();env(g,t,0.02,0.26*vol,0.26);
+    src.connect(bp);bp.connect(g);g.connect(master);src.start(t);src.stop(t+0.32);
+  }
+  function type(vol){
+    if(!ok())return;vol=vol||1;
+    var t=ctx.currentTime,o=ctx.createOscillator(),g=ctx.createGain();
+    o.type='square';o.frequency.value=1400+Math.random()*900;
+    var lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=2700;
+    env(g,t,0.004,0.1*vol,0.05);
+    o.connect(lp);lp.connect(g);g.connect(master);o.start(t);o.stop(t+0.07);
+  }
+  function ding(vol){
+    if(!ok())return;vol=vol||1;
+    var t=ctx.currentTime;
+    [[660,0.2],[990,0.09]].forEach(function(p){
+      var o=ctx.createOscillator(),g=ctx.createGain();o.type='sine';o.frequency.value=p[0];
+      env(g,t,0.01,p[1]*vol,0.6);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.7);
+    });
+  }
+  function thud(vol){
+    if(!ok())return;vol=vol||1;
+    var t=ctx.currentTime,o=ctx.createOscillator(),g=ctx.createGain();
+    o.type='sine';o.frequency.setValueAtTime(155,t);o.frequency.exponentialRampToValueAtTime(60,t+0.16);
+    env(g,t,0.008,0.5*vol,0.22);o.connect(g);g.connect(master);o.start(t);o.stop(t+0.28);
+  }
+  return {pop:pop,whoosh:whoosh,swipe:swipe,type:type,ding:ding,thud:thud};
+})();
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>镜头 05 · 一卡通 · 一条真实流水</title>
+
+<!-- [改这里] 字体：按本页风格换 2-4 个家族（展示英文 + 中文 + 等宽数据） -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+SC:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;background:#111;overflow:hidden;font-family:'Noto Sans SC',sans-serif}
+body.paused *{animation-play-state:paused!important}
+/* [改这里] 舞台底色/纹理 —— 换成你这套风格的材质（纸纹/网点/扫描线/蓝图网格…） */
+#stage{position:absolute;left:50%;top:50%;width:1920px;height:1080px;transform:translate(-50%,-50%);overflow:hidden;
+  background:linear-gradient(#1b1f25,#2b3038 62%,#151a1f);box-shadow:inset 0 0 220px rgba(0,0,0,.7)}
+
+/* ===== [不动] 镜头层：全部画面内容放进 #cam，靠 transform 推拉摇移 ===== */
+#cam{position:absolute;inset:0;transform-origin:0 0;transform:scale(1.2);transition:transform var(--cd,1.4s) cubic-bezier(.16,1,.3,1);z-index:10}
+
+/* ────────────────────────────────────────────────
+   [改这里] 画面层：以下到「底盘区」为止全部重写
+   ──────────────────────────────────────────────── */
+/* 收银台 */
+#deskbg{position:absolute;inset:0}
+#deskbg::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);background-size:56px 56px}
+
+#title{position:absolute;left:80px;top:56px;opacity:0;transform:translateY(-16px);transition:all .6s cubic-bezier(.16,1,.3,1)}
+#title.show{opacity:1;transform:translateY(0)}
+#title .no{display:inline-block;font-family:'Bebas Neue';font-size:16px;letter-spacing:3px;color:#1b1f25;background:#e8e3d6;border-radius:8px;padding:6px 15px}
+#title h1{margin-top:12px;font-size:46px;font-weight:900;letter-spacing:4px;color:#f2eee3}
+#title .en{font-family:'Share Tech Mono';font-size:14px;color:#8b98ab;margin-top:8px;letter-spacing:4px}
+
+/* 左侧要点（画面内标签） */
+#points{position:absolute;left:80px;top:330px;width:820px;display:grid;gap:16px;opacity:0;transform:translateY(16px)}
+#points.show{opacity:1;transform:none;transition:all .6s cubic-bezier(.16,1,.3,1)}
+.pt{display:flex;gap:16px;align-items:flex-start;padding:16px 20px;border-radius:14px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.09)}
+.pt .n{font-family:'Bebas Neue';font-size:30px;color:#ffd23f;line-height:1}
+.pt b{display:block;font-size:19px;color:#f2eee3;letter-spacing:1px;margin-bottom:5px}
+.pt span{font-size:13.5px;color:#9aa6b4;line-height:1.75}
+.pt code{font-family:'Share Tech Mono';color:#ffd98a}
+
+/* 出票机 */
+#printer{position:absolute;left:1140px;top:64px;width:640px;height:186px;border-radius:18px;
+  background:linear-gradient(#3c454f,#20262d);box-shadow:0 26px 50px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.14)}
+#printer .slot{position:absolute;left:60px;right:60px;bottom:15px;height:14px;border-radius:7px;background:#0b0e11;box-shadow:inset 0 3px 8px rgba(0,0,0,.9)}
+#printer .plabel{position:absolute;left:0;right:0;top:56px;text-align:center;font-family:'Bebas Neue';font-size:34px;letter-spacing:9px;color:#8b98ab}
+#printer .dot{position:absolute;right:26px;top:22px;width:12px;height:12px;border-radius:50%;background:#3ce86f;box-shadow:0 0 12px rgba(60,232,111,.9)}
+#printer.busy .dot{animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:.3}}
+
+/* 热敏小票（从出票口往下长） */
+#receipt{position:absolute;left:1215px;top:236px;width:490px;height:0;overflow:hidden;
+  background:linear-gradient(#fffdf6,#f2eee1);border-radius:0 0 8px 8px;box-shadow:0 28px 56px rgba(0,0,0,.55)}
+#receipt.grow{height:772px;transition:height 2.7s cubic-bezier(.28,.9,.3,1)}
+#receipt .inner{padding:26px 30px 20px;font-family:'Share Tech Mono';color:#1e232b}
+#receipt h2{font-family:'Bebas Neue';font-size:30px;letter-spacing:7px;text-align:center}
+#receipt .sub{text-align:center;font-size:11.5px;color:#6b7480;letter-spacing:3px;margin:6px 0 14px}
+.hr{border-top:2px dashed #b9b3a4;margin:12px 0}
+.rline{display:grid;grid-template-columns:112px 1fr;gap:10px;font-size:15px;line-height:2.05;opacity:0;transform:translateX(-12px)}
+.rline.on{opacity:1;transform:none;transition:all .32s ease}
+.rline .k{color:#6b7480}
+.rline .v{color:#1e232b}
+.rline.hi .v{color:#b53929;font-weight:700}
+#receipt .amt{text-align:center;font-size:48px;letter-spacing:3px;margin:6px 0 2px}
+#barcode{display:flex;gap:3px;justify-content:center;align-items:flex-end;height:58px;margin:12px 0 8px}
+#barcode i{width:3px;background:#1e232b;display:block}
+#receipt .foot{text-align:center;font-size:11px;color:#6b7480;letter-spacing:2px}
+
+/* 印章 */
+#stamp{position:absolute;right:266px;bottom:186px;width:186px;height:186px;border:6px solid #b53929;border-radius:50%;
+  display:grid;place-items:center;color:#b53929;font-size:27px;font-weight:900;letter-spacing:3px;
+  transform:rotate(-16deg) scale(2.2);opacity:0}
+#stamp.hit{opacity:.86;transform:rotate(-16deg) scale(1);transition:all .3s cubic-bezier(.2,1.6,.4,1)}
+
+/* [改这里] 角色特写位 */
+#mascot{position:absolute;left:-8px;bottom:-10px;width:392px;z-index:28;opacity:0;transition:opacity .9s ease;filter:drop-shadow(0 14px 34px rgba(0,0,0,.6))}
+#mascot.show{opacity:1}
+#mascot img{width:100%;display:block;animation:bob 3.1s ease-in-out infinite alternate}
+@keyframes bob{from{transform:translateY(0)}to{transform:translateY(-12px)}}
+#mascot .say{position:absolute;right:-186px;top:104px;width:262px;background:#fff;border-radius:16px;padding:13px 17px;
+  font-size:23px;font-weight:900;color:#1a2233;line-height:1.45;opacity:0;transform:scale(.6);transition:all .45s cubic-bezier(.34,1.6,.64,1);box-shadow:0 10px 30px rgba(0,0,0,.45)}
+#mascot .say::after{content:'';position:absolute;left:24px;bottom:-18px;border:9px solid transparent;border-top:11px solid #fff}
+#mascot .say b{color:#b53929}
+#mascot.show .say{opacity:1;transform:scale(1);transition-delay:.45s}
+
+/* ────────────────────────────────────────────────
+   [不动] 底盘区：黑边 / 暗角 / 角注 / HUD（无字幕条）
+   ──────────────────────────────────────────────── */
+#lbT,#lbB{position:absolute;left:0;right:0;height:0;background:#02040a;z-index:40;transition:height .9s cubic-bezier(.7,0,.3,1)}
+#lbT{top:0}#lbB{bottom:0}
+#stage.letter #lbT,#stage.letter #lbB{height:74px}   /* 电影黑边：慢放/高潮段落加 .letter */
+#dim{position:absolute;inset:0;background:radial-gradient(closest-side at 50% 46%,transparent 52%,rgba(0,0,0,.8) 100%);opacity:0;transition:opacity 1s;z-index:30;pointer-events:none}
+#dim.on{opacity:1}
+
+.corner{position:absolute;font-family:'Share Tech Mono';font-size:15px;color:rgba(44,42,38,.55);letter-spacing:2px;z-index:9}
+#chap{left:52px;bottom:34px}
+#src{right:52px;bottom:34px}
+
+#hud{position:fixed;left:0;right:0;bottom:0;z-index:60;font-family:'Share Tech Mono';pointer-events:none}
+#track{height:5px;background:rgba(0,0,0,.15)}
+#bar{height:100%;width:0;background:#b53929;box-shadow:0 0 10px rgba(181,57,41,.6)}
+#hudrow{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;font-size:12px;background:rgba(10,8,6,.92);backdrop-filter:blur(4px)}
+#hud button{pointer-events:auto;background:transparent;border:1px solid #999;color:#ccc;font-family:inherit;font-size:12px;padding:3px 14px;margin-left:8px;border-radius:3px;cursor:pointer}
+#hud button:hover{background:rgba(255,255,255,.12)}
+#replay.done{animation:pulse 1.2s infinite;border-color:#ffd23f;color:#ffd23f}
+@keyframes pulse{50%{box-shadow:0 0 14px rgba(255,210,63,.8)}}
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- [改这里] 全部画面内容包进 #cam -->
+  <div id="cam">
+    <div id="deskbg"></div>
+
+    <div id="title">
+      <span class="no">SHOT 05 / 一卡通</span>
+      <h1>每一笔都留得下账</h1>
+      <div class="en">ONE TRANSACTION · FULL RECEIPT</div>
+    </div>
+
+    <div id="points">
+      <div class="pt"><span class="n">1</span><div><b>商户与金额</b><span>食堂、商超、洗浴的刷卡支出，按平台流水原样落到本地。</span></div></div>
+      <div class="pt"><span class="n">2</span><div><b>支付方式</b><span>刷脸付 <code>Face Pay</code> 与刷卡一样，都在同一份账单里。</span></div></div>
+      <div class="pt"><span class="n">3</span><div><b>订单号与参考号</b><span>拿 <code>order_no</code> 与 12 位参考号去平台两端对账，一分不差。</span></div></div>
+    </div>
+
+    <div id="printer">
+      <div class="dot"></div>
+      <div class="plabel">RECEIPT</div>
+      <div class="slot"></div>
+    </div>
+
+    <div id="receipt">
+      <div class="inner">
+        <h2>校园一卡通</h2>
+        <div class="sub">CONSUMPTION RECEIPT · 消费凭证</div>
+        <div class="hr"></div>
+        <div class="rline" data-r><span class="k">商户</span><span class="v">第三食堂 · 2 号窗口</span></div>
+        <div class="rline" data-r><span class="k">时间</span><span class="v">2026-10-10 17:35:07</span></div>
+        <div class="amt">¥12.50</div>
+        <div class="hr"></div>
+        <div class="rline" data-r><span class="k">支付方式</span><span class="v">刷脸付 Face Pay</span></div>
+        <div class="rline hi" data-r><span class="k">订单号</span><span class="v">261010173507000050000000</span></div>
+        <div class="rline" data-r><span class="k">参考号</span><span class="v">433736445406</span></div>
+        <div class="hr"></div>
+        <div class="rline" data-r><span class="k">当前余额</span><span class="v">¥217.50</span></div>
+        <div id="barcode">
+          <i style="height:46px"></i><i style="height:30px"></i><i style="height:52px"></i><i style="height:24px"></i><i style="height:48px"></i>
+          <i style="height:36px"></i><i style="height:54px"></i><i style="height:26px"></i><i style="height:44px"></i><i style="height:34px"></i>
+          <i style="height:50px"></i><i style="height:22px"></i><i style="height:46px"></i><i style="height:38px"></i><i style="height:52px"></i>
+          <i style="height:28px"></i><i style="height:42px"></i><i style="height:50px"></i><i style="height:30px"></i><i style="height:46px"></i>
+        </div>
+        <div class="foot">2610 1017 3507 0000 5000 0000</div>
+        <div class="foot" style="margin-top:6px">账单来源 · 一卡通平台（慧新易校 / 新中新）</div>
+      </div>
+    </div>
+
+    <div id="stamp">已 同 步</div>
+
+    <div id="mascot">
+      <div class="say">订单号都在，<b>对账不用吵</b>。</div>
+      <img src="anan - emotion rename/07_睁眸微张_愕然疑惑.png" alt="安安">
+    </div>
+  </div>
+
+  <div id="dim"></div>
+  <div id="lbT"></div><div id="lbB"></div>
+
+  <div class="corner" id="chap">05 / 一卡通 · 一条真实流水</div>
+  <div class="corner" id="src">样例字段为一卡通平台真实报文形态</div>
+</div>
+
+<div id="hud">
+  <div id="track"><div id="bar"></div></div>
+  <div id="hudrow"><span>镜头 05 · 一卡通 · 一条真实流水 · 12s</span><span><span id="tc" style="margin-right:10px">00:00</span><button id="pauseBtn">暂停</button><button id="replay" onclick="location.reload()">重播</button></span></div>
+</div>
+
+<script>
+/* ===== [不动] 时间轴引擎 ===== */
+const DUR=12000;                       /* [改这里] = 本镜头规定时长(ms) */
+const $=s=>document.querySelector(s);
+let t0=performance.now(),paused=false,pStart=0;
+const cues=[],on=(t,f)=>cues.push({t,f,done:false});
+const tws=[],eo=p=>1-Math.pow(1-p,3),ei=p=>p*p,eio=p=>p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2;
+const after=(ms,f)=>on(performance.now()-t0+ms,f);
+/* 补间：fly 抛物线飞行；cnt 数字滚动 */
+function fly(el,x1,y1,x2,y2,dur,arc,ease,done){tws.push({t:performance.now()-t0,d:dur,e:ease||eio,done,f:p=>{el.style.left=(x1+(x2-x1)*p)+'px';el.style.top=(y1+(y2-y1)*p-Math.sin(p*Math.PI)*(arc||0))+'px'}})}
+function cnt(el,from,to,dur){tws.push({t:performance.now()-t0,d:dur,e:eo,f:p=>{el.textContent=Math.round(from+(to-from)*p).toLocaleString('en-US')}})}
+function tick(now){if(paused)return;const el=now-t0;
+  for(const c of cues)if(!c.done&&el>=c.t){c.done=true;c.f()}
+  for(let i=tws.length-1;i>=0;i--){const tw=tws[i],p=(el-tw.t)/tw.d;if(p<0)continue;const q=Math.min(1,p);tw.f(tw.e?tw.e(q):q);if(q>=1){tws.splice(i,1);if(tw.done)tw.done()}}
+  $('#bar').style.width=Math.min(100,el/DUR*100)+'%';
+  const t=el/1000;$('#tc').textContent=String(Math.floor(t/60)).padStart(2,'0')+':'+String(Math.floor(t%60)).padStart(2,'0');
+  if(el<DUR+2500)requestAnimationFrame(tick);else $('#replay').classList.add('done');
+}
+requestAnimationFrame(tick);
+$('#pauseBtn').onclick=()=>{paused=!paused;document.body.classList.toggle('paused',paused);$('#pauseBtn').textContent=paused?'继续':'暂停';if(paused){pStart=performance.now()}else{t0+=performance.now()-pStart;requestAnimationFrame(tick)}};
+function fit(){const s=Math.min(innerWidth/1920,innerHeight/1080);$('#stage').style.transform=`translate(-50%,-50%) scale(${s})`}
+addEventListener('resize',fit);fit();
+
+/* ===== [不动] 镜头调度 ===== */
+const cam=$('#cam');
+function camTo(tx,ty,s,dur){cam.style.setProperty('--cd',dur+'s');cam.style.transform=`translate(${tx}px,${ty}px) scale(${s})`;if(window.__sfx)__sfx.whoosh(dur,0.65)}
+function camFocus(fx,fy,s,dur){let tx=960-fx*s,ty=540-fy*s;   /* 对准 (fx,fy) 推近到 s 倍，自动收边 */
+  tx=Math.min(0,Math.max(1920-1920*s,tx));ty=Math.min(0,Math.max(1080-1080*s,ty));camTo(tx,ty,s,dur)}
+
+/* ────────────────────────────────────────────────
+   [改这里] 本镜头的叙事 cue（示例 12s，注释引用口播节拍）
+   ──────────────────────────────────────────────── */
+on(250,()=>camTo(0,0,1,2.2));                                     // 开场：出票口特写 → 收银台全景
+on(420,()=>{$('#title').classList.add('show')});
+on(900,()=>{$('#printer').classList.add('busy');$('#receipt').classList.add('grow')});  // 小票开始吐出
+on(1100,()=>{$('#points').classList.add('show')});
+for(let i=0;i<7;i++)on(1600+i*330,()=>{const r=document.querySelectorAll('.rline')[i];if(r)r.classList.add('on')});  // 逐行落字
+on(4400,()=>camFocus(1450,560,1.22,1.1));                         // 推近小票中段
+on(6200,()=>camTo(0,0,1,1.2));
+on(7000,()=>{$('#stamp').classList.add('hit')});                  // 已同步印章落下
+on(8600,()=>camFocus(1450,470,1.26,1.0));                         // 怼近「订单号」那一行
+on(10200,()=>camTo(0,0,1,1.2));
+on(10600,()=>{const m=$('#mascot');if(m)m.classList.add('show')});
+on(11500,()=>camFocus(960,560,1.05,1.4));                         // 收尾缓推定格
+/* 音效 cue：与视觉同帧 */
+on(250,()=>__sfx.whoosh(2.2,0.6));
+on(420,()=>__sfx.pop(0.6));
+on(900,()=>__sfx.pop(0.55));
+for(let i=0;i<7;i++)on(1600+i*330,()=>__sfx.type(0.42));          // 打印逐行键音
+on(7000,()=>__sfx.thud(1.15));                                    // 盖章
+on(8600,()=>__sfx.ding(0.95));
+on(10600,()=>__sfx.pop(0.7));
+on(11500,()=>__sfx.swipe(0.5));
+</script>
+</body>
+</html>

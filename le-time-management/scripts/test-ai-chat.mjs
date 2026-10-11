@@ -106,7 +106,7 @@ const addDays = (ds, n) => {
 
 const storage = new Map();
 const toasts = [];
-const calls = { created: [], updated: [], removedTasks: [], removedBlocks: [], smart: [], chat: [] };
+const calls = { created: [], updated: [], removedTasks: [], removedBlocks: [], smart: [], chat: [], chipGlow: { attach: [], sync: [], dispose: [], onDispose: [] } };
 let tasks = [
   { id: "t_1", title: "交报告", done: false, due: "2026-09-20", dueTime: "18:00", quad: 1, estMin: 30, note: "" },
   { id: "t_2", title: "取快递", done: false, due: TODAY, dueTime: "23:59", quad: 4, estMin: 10, note: "" },
@@ -144,7 +144,18 @@ const sandbox = {
       async set(key, value) { storage.set(key, JSON.parse(JSON.stringify(value))); },
     },
     notify: (msg, opts) => toasts.push({ msg, opts }),
-    ui: { registerView() {} },
+    ui: {
+      registerView() {},
+      // 宿主的滑动选中光（铁律六）：插件侧只拿到 { sync, dispose }，这里记账。
+      selectionGlow(container, options = {}) {
+        calls.chipGlow.attach.push({ container, options });
+        return {
+          sync: () => calls.chipGlow.sync.push(options.selector),
+          dispose: () => calls.chipGlow.dispose.push(container),
+        };
+      },
+      onDispose(fn) { calls.chipGlow.onDispose.push(fn); },
+    },
     util: { today: () => TODAY, addDays, guessQuad: () => 2, guessCategory: () => "work" },
     tasks: {
       list: () => JSON.parse(JSON.stringify(tasks)),
@@ -188,6 +199,10 @@ vm.runInContext(
     + "    get withContext() { return withContext; }, set withContext(v) { withContext = v; },\n"
     + "    THINK_LEVELS, cycleThink, paintThink,\n"
     + "    get thinkEffort() { return thinkEffort; }, set thinkEffort(v) { thinkEffort = v; },\n"
+    + "    paintChips, paintChipSelection, attachChipGlow, CHIP_ON,\n"
+    + "    get ui() { return ui; }, set ui(v) { ui = v; },\n"
+    + "    get activeChip() { return activeChip; }, set activeChip(v) { activeChip = v; },\n"
+    + "    get chipGlow() { return chipGlow; },\n"
     + "  };\n"
     + "  tide.ui.registerView({",
   ),
@@ -655,4 +670,122 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
   assert.equal(fx.thinkEffort, "", "认不出来的档位要退回自动，别把一个非法值递给 Rust（它会直接报错）");
 }
 
-console.log("PASS: AI 对话插件 —— 权限 / 快照 / 建议写入撤销 / 一轮问答 / 历史迁移 / 会话与草稿隔离 / 思考强度 / 请求保护");
+/* ───────── 快捷提问行的滑动选中光（v0.187.0）───────── */
+
+/* 宿主这一口：铁律六要求单选控件的选中高亮随选择滑动，插件拿不到 src/selectionGlow.js，
+   所以由宿主直传。少了权限闸门或少了 dispose，插件就会各自写一套「闪一下」的高亮。 */
+{
+  assert.match(host, /selectionGlow\(container, options = \{\}\) \{[\s\S]{0,320}requirePermission\(man, pid, "ui"\)/,
+    "tide.ui.selectionGlow 必须过 ui 权限闸门");
+  assert.match(host, /const glow = attachSelectionGlow\(container, \{ selector, persistKey: String\(options\.persistKey \|\| ""\) \}\)/,
+    "必须是 src/selectionGlow.js 的直传（同一套滑动光，别另写一份）");
+  assert.match(host, /return \{ sync: \(\) => glow\.sync\(\), dispose \};/, "要同时给出 sync 与 dispose");
+  assert.match(host, /attachSelectionGlow\(container, options\)|attachSelectionGlow\(modes, \{ selector: 'button\[aria-pressed="true"\]' \}\)/,
+    "番茄模式用的也是同一套光，别把这层关系弄丢");
+  assert.match(doc, /tide\.ui\.selectionGlow\(/, "插件开发文档必须写这一口");
+  assert.match(doc, /\.selection-glow/, "文档要说明容器自己上色（基础规则只管定位）");
+
+  assert.match(mainSrc, /tide\.ui\.selectionGlow\?\.\(ui\.shortcuts, \{ selector: CHIP_ON \}\)/,
+    "快捷提问行必须走宿主的滑动选中光");
+  assert.match(mainSrc, /const CHIP_ON = "button\.on"/, "选中项的定位口径是 .on");
+  assert.match(mainSrc, /\.aichat-shortcuts \.selection-glow\{/, "光块长相要在插件样式里定");
+  assert.match(mainSrc, /\.aichat-shortcuts\.has-selection-glow button\.on\{background:transparent/,
+    "光块在场时选中按钮不能再画第二层底，否则两层叠成实心块");
+  assert.match(mainSrc, /\.aichat-shortcuts\{position:relative;isolation:isolate;/,
+    "光块按 offsetLeft 定位，容器必须是定位祖先");
+
+  // 行下空位：58px 是浮层口径（NepheleDialog 要露按钮阴影），本视图不是浮层
+  assert.match(mainSrc, /padding:26px clamp\(22px,9%,100px\) 18px;/, "底部内边距必须收到 18px");
+  assert.doesNotMatch(mainSrc, /padding:26px clamp\(22px,9%,100px\) 58px;/, "别退回 58px：行下会多出 82px 空位");
+  {
+    const tmpl = mainSrc.slice(mainSrc.indexOf('<div class="aichat-log"></div>'), mainSrc.indexOf('<div class="aichat-shortcuts"'));
+    const feedAt = tmpl.indexOf('class="aichat-feed"');
+    const barAt = tmpl.indexOf('class="aichat-bar"');
+    assert.ok(feedAt > 0 && barAt > 0 && feedAt < barAt,
+      "「已收集 N 条」要排在输入框上面 —— 留在最后一行就等于在行下再垫一条");
+  }
+
+  // 入场与发光照 NepheleDialog（opacity 300ms OutCubic + scale .9→1 400ms OutBack + 软阴影）
+  assert.match(mainSrc, /@keyframes aichat-dialog-in\{from\{transform:translate3d\(0,20px,0\) scale\(\.9\)\}to\{transform:none\}\}/,
+    "入场位移/缩放要照 NepheleDialog 的 enter");
+  assert.match(mainSrc, /animation:aichat-dialog-in 400ms cubic-bezier\(\.34,1\.4,\.64,1\) both,aichat-dialog-fade 300ms cubic-bezier\(\.16,1,\.3,1\) both/,
+    "两条动画要分开给时长：透明度快、弹性变换慢");
+  assert.match(mainSrc, /@keyframes aichat-bar-glow\{/, "输入框聚焦要有呼吸光（Nephele SettingChipGroup 的 pulse）");
+  assert.match(mainSrc, /\.aichat-bar:focus-within\{border-color:#b99cc7;animation:aichat-bar-glow/, "呼吸光只在聚焦时跑");
+
+  // 减少动效：新加的动画 / 过渡都要进白名单，否则省电模式照旧播
+  assert.match(mainSrc, /\.aichat-shortcuts button,\.aichat-shortcuts \.selection-glow\{transition:none\}/,
+    "prefers-reduced-motion 白名单要包含快捷提问行与光块");
+  assert.match(mainSrc, /\.aichat,\.aichat-bar,\.aichat-think i\{animation:none\}/,
+    "入场与呼吸光都要能停");
+  assert.match(mainSrc, /:root\[data-ui-motion="reduced"\] \.aichat,:root\[data-ui-motion="reduced"\] \.aichat-bar\{animation:none\}/,
+    "应用内的「减少动效」开关与系统开关同级，也要停");
+}
+
+/* 行为：同一组提问**不许重建行**（重建会连光块和它的 ResizeObserver 一起扔掉、
+   并截断 500ms 的位移动画），换组才重建且要清掉选中态。 */
+{
+  const makeRow = () => {
+    const row = { dataset: {}, _html: "", buttons: [], rebuilds: [] };
+    Object.defineProperty(row, "innerHTML", {
+      get() { return row._html; },
+      set(v) {
+        row._html = v;
+        row.rebuilds.push(v);
+        row.buttons = [...v.matchAll(/data-chip="(\d+)"[^>]*>([^<]*)</g)].map((m) => {
+          const cls = new Set();
+          return {
+            dataset: { chip: m[1] },
+            textContent: m[2],
+            classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); }, contains: (c) => cls.has(c) },
+            setAttribute() {},
+            onclick: null,
+          };
+        });
+      },
+    });
+    row.querySelectorAll = (sel) => (sel === "[data-chip]" ? row.buttons : []);
+    return row;
+  };
+
+  const row = makeRow();
+  const input = { value: "", oninput() {}, focus() {} };
+  fx.ui = { shortcuts: row, input, log: { querySelector: () => null } };
+  fx.activeChip = -1;
+  calls.chipGlow.attach.length = 0;
+  calls.chipGlow.sync.length = 0;
+  calls.chipGlow.dispose.length = 0;
+
+  fx.paintChips();
+  assert.equal(row.buttons.length, fx.CHIPS.length, "首屏要长出一整组提问");
+  assert.equal(row.buttons[0].textContent, fx.CHIPS[0].label, "按钮文案就是提问标签");
+  assert.equal(row.rebuilds.length, 1, "首屏建一次");
+  assert.equal(calls.chipGlow.attach.length, 1, "首屏要挂一次选中光");
+  assert.equal(calls.chipGlow.attach[0].options.selector, "button.on", "定位口径要传下去");
+
+  fx.paintChips();
+  assert.equal(row.rebuilds.length, 1, "提问组没变时不许重建行 —— innerHTML 一换，光块就成孤儿");
+  assert.equal(calls.chipGlow.attach.length, 1, "没重建就不该重挂光块");
+  assert.equal(calls.chipGlow.sync.length, 1, "只切 .on 之后要 sync，让光块滑到新选项");
+
+  row.buttons[3].onclick();
+  assert.equal(fx.activeChip, 3, "点哪一项就要记住哪一项");
+  assert.ok(row.buttons[3].classList.contains("on"), "被点的那一项要亮起来");
+  assert.ok(row.buttons.filter((b) => b.classList.contains("on")).length === 1, "选中态只能有一个");
+  assert.equal(input.value, fx.CHIPS[3].ask, "点快捷提问要把它的问题填进输入框");
+  assert.equal(calls.chipGlow.sync.length, 2, "换选项要再 sync 一次");
+
+  fx.withContext = false;            // 关掉「带本机数据」→ 整组提问换掉
+  fx.paintChips();
+  assert.equal(row.rebuilds.length, 2, "提问组变了就要重建");
+  assert.equal(row.buttons[0].textContent, fx.CHIPS_BLANK[0].label, "换掉的是一整组通用提问");
+  assert.equal(fx.activeChip, -1, "换了组，旧下标指向的不是同一句话了，选中态必须清掉");
+  assert.equal(row.buttons.filter((b) => b.classList.contains("on")).length, 0, "重建后不许有残留选中态");
+  assert.equal(calls.chipGlow.dispose.length, 1, "重挂前必须先撤掉旧光块");
+  assert.equal(calls.chipGlow.attach.length, 2, "重建后要重挂一次");
+
+  fx.withContext = true;
+  fx.ui = null;
+}
+
+console.log("PASS: AI 对话插件 —— 权限 / 快照 / 建议写入撤销 / 一轮问答 / 历史迁移 / 会话与草稿隔离 / 思考强度 / 请求保护 / 滑动选中光");

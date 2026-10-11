@@ -308,7 +308,12 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
       实算得出。侧栏底色有**两种**：Nephele 风格界面开着时是那层淡紫毛玻璃（实测 #E0D0F0 上下，
       由 nephele-background.css 的云层叠出来），关掉时才是接近纯白的 --panel 混色 ——
       两者都算过，取更严的那条。两条色值都被测试钉着。 */
-.brand { display: flex; flex-direction: column; align-items: flex-start; padding: 2px 10px 20px; }
+/* v0.187.0：左右居中（用户：「弄居中」）。改前是 `flex-start` —— 桌面侧栏 224px、字标 159px，
+   实测左空 19px / 右空 46px，看着是「顶在最左边、右边空一大片」。`align-items: center` 后
+   32.5/32.5；装饰线（min(100%,160px)）跟着一起居中，实测与字标左右差 ≤0.5px（两者本来就等宽）。
+   各媒体查询里的 `.brand` 只改 padding，且左右 padding 恒等 ⇒ 居中 = 相对侧栏居中。
+   `scripts/test-brand-wordmark.mjs` 钉了这条对齐。 */
+.brand { display: flex; flex-direction: column; align-items: center; padding: 2px 10px 20px; }
 .brand b {
   display: inline-block;
   font-family: "UnifrakturCook", "Old English Text MT", "UnifrakturMaguntia", "Lucida Blackletter", "Blackadder ITC", Georgia, serif;
@@ -3218,10 +3223,13 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .mobile-preview-tools select { padding: 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--panel); }
 .mobile-preview-area { width: 100%; overflow: auto; margin-top: 12px; background: var(--paper); border-radius: 12px; }
 .mobile-preview-frame { display: block; flex: none; max-width: none; margin: 12px auto; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-sizing: content-box; }
-/* 设置值平时融入面板，点击或键盘聚焦才显出编辑框。
-   保留控件原有尺寸；!important 用来覆盖全局控件底色和深色描边。
-   开关、滑杆、颜色和文件选择器继续保留各自的外观。 */
-.set-wrap .settings-section :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), textarea) {
+/* 只有「输入数值」的框平时融入面板（数字、时间 —— Nephele 也把这两个当右对齐的值看，
+   见 settings/CHANGELOG-v0.163.8「短设置值、数字与时间右对齐」）；
+   文本 / URL / 密码 / 搜索 / 多行输入一律保留常驻框体。
+   ⚠️ 这里曾经写成 `input:not([type="checkbox"]):not([type="radio"])…`，把设置页**所有**输入框
+   都吃掉 —— 连自带框体的 `.plugin-search-input`（styles.css:2082）都变透明，v0.188.0 修窄。
+   !important 用来覆盖全局控件底色和深色描边；开关、滑杆、颜色和文件选择器不受影响。 */
+.set-wrap .settings-section :is(input[type="number"], input[type="time"]) {
   background: transparent !important;
   border-color: transparent !important;
   box-shadow: none;
@@ -3326,13 +3334,46 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   border-color: color-mix(in srgb, var(--deep) 25%, var(--line));
   background: color-mix(in srgb, var(--deep) 7%, var(--panel));
 }
+/* v0.188.0 · AI 配置的框体照 Nephele 的 NepheleTextField
+   （参考 E:\E-Apps\Work TOOL\Pictures\NepheleWorkshop\gui\qml\components\NepheleTextField.qml：
+   Layout.fillWidth 满宽 + Theme.radiusInput 12 + 1px 描边 + 左右 10px 内边距 + 常驻底色）。
+   改前两个毛病：① 长 URL 被排在 0.75fr 的窄列里 —— 1280 窗口下 Base URL 只有 373px、
+   1085 窗口下 180px（minmax 下限），而左边的「供应商」下拉却占 621px；
+   ② 这些 input 走「设置页裸值」形态（:3229 让 input 透明无描边）且只有 26px 高，
+   125% 字号时 16.25px 的文字几乎顶满行框 —— 又小又窄就在这两处。
+   现在：短控件（供应商 / 模型）成对占一行，长值字段（Base URL / API Key）各占整行满宽；
+   框体常驻并按 --ui-text-scale 放大（26px → 36px × 缩放）。 */
 .ai-settings-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(180px, .75fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px 12px;
   margin-top: 14px;
 }
+.ai-base-field,
 .ai-key-field { grid-column: 1 / -1; }
+/* 选择器要压过 :3229 那条「设置页裸值」的 !important（特异性 0,5,1），
+   所以把同一串 :not() 带上，拿到 0,9,1。 */
+.set-wrap .settings-section .ai-settings-card .ai-field input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]) {
+  min-height: calc(36px * var(--ui-text-scale, 1));
+  padding: calc(6px * var(--ui-text-scale, 1)) calc(12px * var(--ui-text-scale, 1));
+  border-radius: 12px !important;   /* 全局控件规则是 `border-radius:8px !important`（:1871） */
+  background: var(--control-bg) !important;
+  border-color: var(--line) !important;
+}
+/* 供应商下拉只跟输入框对齐尺寸与圆角，描边色继续由主题 / Nephele 风格决定
+   （nephele-settings.css 用的是 --nephele-edge，别在这里改掉它）。
+   它的选择器带 :root[data-nephele-settings] 前缀，特异性是 0,6,1 —— 这里要 0,7,1 才压得住。 */
+.set-wrap .settings-section .ai-settings-card .ai-field select:not([multiple]):not([size]):not([hidden]) {
+  min-height: calc(36px * var(--ui-text-scale, 1));
+  padding: calc(6px * var(--ui-text-scale, 1)) calc(12px * var(--ui-text-scale, 1));
+  border-radius: 12px !important;
+}
+/* 模型选择器的箭头按钮跟同排输入框等高（.btn.sm 是固定 30px，会一高一矮）。 */
+.ai-settings-card .ai-field .ai-model-toggle {
+  min-width: calc(36px * var(--ui-text-scale, 1));
+  min-height: calc(36px * var(--ui-text-scale, 1));
+}
+
 .ai-field {
   min-width: 0;
   display: flex;

@@ -290,6 +290,24 @@ function makeApi(man, source) {
         if (!pluginDisposers.has(pid)) pluginDisposers.set(pid, new Set());
         pluginDisposers.get(pid).add(fn);
       },
+      // 单选控件的滑动选中光（铁律六）。插件侧拿不到 src/selectionGlow.js（只有 tide.*），
+      // 所以宿主把 attachSelectionGlow 原样开出来 —— 位移 500ms / 尺寸 400ms / 过冲缓动
+      // 与侧栏插件列表、设置分类、番茄模式是同一套，插件不必自己写一套"闪一下"的高亮。
+      // 用法：容器自己 position:relative（或 isolation:isolate）+ 给 .selection-glow 上色
+      // （样例见 styles/settings-selection-glow.css、styles/ai-model-picker.css），
+      // 换选项后调 sync()；视图重建时先 dispose()（或交给 tide.ui.onDispose 收尾）。
+      selectionGlow(container, options = {}) {
+        requirePermission(man, pid, "ui");
+        if (!container || typeof container.querySelector !== "function") {
+          throw new Error("tide.ui.selectionGlow 需要一个容器元素");
+        }
+        const selector = String(options.selector || '.on, [aria-pressed="true"]');
+        const glow = attachSelectionGlow(container, { selector, persistKey: String(options.persistKey || "") });
+        if (!pluginDisposers.has(pid)) pluginDisposers.set(pid, new Set());
+        const dispose = () => { glow.dispose(); pluginDisposers.get(pid)?.delete(dispose); };
+        pluginDisposers.get(pid).add(dispose);
+        return { sync: () => glow.sync(), dispose };
+      },
       setTaskbarBadge(count) {
         requirePermission(man, pid, "ui");
         if (pid !== "chaoxing-notify") throw new Error("任务栏作业角标仅对学习通插件开放");

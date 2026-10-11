@@ -119,9 +119,11 @@ export async function createAiSettingsCard() {
     ),
     el("div", { class: "ai-settings-grid" },
       el("label", { class: "ai-field" }, el("span", {}, "供应商"), provider),
-      el("label", { class: "ai-field" }, el("span", {}, "Base URL"), base),
+      // 模型跟供应商同处第一行；两个「长值」字段（Base URL / API Key）各占整行满宽 ——
+      // 照 Nephele 的 NepheleTextField（Layout.fillWidth），别再把长 URL 塞进窄列（v0.188.0）。
       el("div", { class: "ai-field ai-model-field" }, el("span", {}, "模型"), picker.node,
         el("div", { class: "ai-model-tools" }, refresh, catalogState)),
+      el("label", { class: "ai-field ai-base-field" }, el("span", {}, "Base URL"), base),
       el("label", { class: "ai-field ai-key-field" }, el("span", {}, "API Key"), key),
     ),
     el("p", { class: "desc" },

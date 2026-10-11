@@ -204,8 +204,8 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "cppu-notify",
     "name": "警大门户通知",
-    "version": "1.37.0",
-    "author": "基于 dsh-user/cppu-notify-skill v1.2.1 · U-Time适配（1.36.0 下载附件与导出成绩单的横幅整卡可点，点一下在文件管理器里定位到刚落盘的文件；1.35.0 筛选新增年份与恢复默认、点外部收起下拉、空态可继续加载更早通知；1.26.1 教务查询遇网络抖动自动重发，报错摊平真实成因）",
+    "version": "1.39.0",
+    "author": "基于 dsh-user/cppu-notify-skill v1.2.1 · U-Time适配（1.39.0 通知视图与一卡通视图的失败状态条也整条变成刷新入口，配色改成主题令牌 color-mix，换主题 / 切深浅 / 开 Nephele 都自动跟随；1.38.0 教务视图里「登录失败 / 拉取失败」的横幅整条可点，点一下等同工具栏「刷新」，重拉整个视图的数据；1.36.0 下载附件与导出成绩单的横幅整卡可点，点一下在文件管理器里定位到刚落盘的文件；1.35.0 筛选新增年份与恢复默认、点外部收起下拉、空态可继续加载更早通知；1.26.1 教务查询遇网络抖动自动重发，报错摊平真实成因）",
     "icon": "building-columns",
     "faIcon": "building-columns",
     "description": "智慧警大门户通知：登录一次后自动恢复门户与教务会话。左侧「校园服务」提供教育邮箱、教务、学工、我的请假、一网通办、一卡通等入口；「教务」子菜单可进入学生选课、学生请假、警大成绩、创新学分和独立警大校历插件。警大成绩参考 cppu-helper 成绩页，展示总览、平均分与 GPA、分学期走势、学分进度、成绩分布、课程构成和课程列表，支持刷新、离线缓存及生成分享成绩单图片。创新学分按学期显示申报项目、级别、奖项、认定学分与审核状态。教务写操作仍由学校系统确认。教育邮箱和一卡通支持独立自动登录；一卡通可查看充值、消费与余额。通知支持自动刷新、分类、正文与附件阅读、转为提醒和微信推送联动。",
@@ -232,8 +232,8 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "cppu-calendar",
     "name": "警大校历",
-    "version": "0.3.0",
-    "author": "U-Time内置",
+    "version": "0.4.0",
+    "author": "U-Time内置（0.4.0 读取校历失败的提示整条变成可点的重试入口，点一下重跑失败的那一步；配色改成主题令牌 color-mix，换主题 / 切深浅 / 开 Nephele 都自动跟随）",
     "icon": "calendar-days",
     "faIcon": "calendar-days",
     "description": "显示学期推算结束日、红色当前教学周、本周总节数与剩余节数（依据课程表当前课表）；支持同步教务学期、个人事项和离线查看。推算结束日不是官方放假安排。",
@@ -376,7 +376,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "ai-chat",
     "name": "AI 对话",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "author": "U-Time内置",
     "icon": "robot",
     "faIcon": "robot",
@@ -427,7 +427,7 @@ export const BUILTIN_PLUGINS = [
   {
     "id": "plugin-guide",
     "name": "插件使用说明",
-    "version": "1.4.3",
+    "version": "1.4.4",
     "author": "U-Time内置",
     "icon": "circle-question",
     "faIcon": "circle-question",

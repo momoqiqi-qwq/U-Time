@@ -1,8 +1,8 @@
 {
   "id": "cppu-calendar",
   "name": "警大校历",
-  "version": "0.3.0",
-  "author": "U-Time内置",
+  "version": "0.4.0",
+  "author": "U-Time内置（0.4.0 读取校历失败的提示整条变成可点的重试入口，点一下重跑失败的那一步；配色改成主题令牌 color-mix，换主题 / 切深浅 / 开 Nephele 都自动跟随）",
   "icon": "calendar-days",
   "faIcon": "calendar-days",
   "description": "显示学期推算结束日、红色当前教学周、本周总节数与剩余节数（依据课程表当前课表）；支持同步教务学期、个人事项和离线查看。推算结束日不是官方放假安排。",

@@ -68,6 +68,9 @@
   let configured = false;
   let thinkEffort = "";    // 思考强度档位（"" / low / medium / high），跨重启保留
   let ui = null;          // 当前渲染出来的 DOM（切走再回来会重建）
+  let chipGlow = null;    // 快捷提问行的滑动选中光（宿主 tide.ui.selectionGlow 给的 {sync,dispose}）
+  let activeChip = -1;    // 最近一次点的快捷提问；-1 = 还没点过（光块不出现）
+  let disposeHooked = false;   // tide.ui.onDispose 只挂一次，避免每次重绘往宿主 Set 里塞新闭包
   let sessions = [];
   let sessionId = "";
   const newSessionId = () => `chat_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -645,6 +648,60 @@
   ];
   const activeChips = () => (withContext ? CHIPS : CHIPS_BLANK);
 
+  /* 快捷提问行的选中反馈 —— 铁律六要求「单选切换」用滑动选中光，Nephele 的
+     SettingChipGroup 也是「一条玻璃分组 + 一块滑行的 glider + 1.1× 外发光」，所以这里
+     不再用「点一下按钮底色瞬变」：
+       · 光块由宿主 src/selectionGlow.js 的 attachSelectionGlow 画（tide.ui.selectionGlow），
+         位移 500ms / cubic-bezier(.34,1.56,.64,1)（过冲 1.3）、尺寸 400ms，与侧栏、
+         设置分类、番茄模式同一套参数，减动效时直接落到终态；
+       · 行内容不变时**只切 .on**，让光块自己从旧位置滑过去；行内容变了（「带本机数据」
+         开关会把整组提问换掉）才重建 —— innerHTML 一换，光块和它的观察者就成了孤儿，
+         而且 500ms 的位移动画会被截断。 */
+  const CHIP_ON = "button.on";
+
+  function attachChipGlow() {
+    chipGlow?.dispose();
+    // 老宿主没有这一口时退回瞬变（不抛错：插件要能在旧运行时上照常长出来）。
+    chipGlow = tide.ui.selectionGlow?.(ui.shortcuts, { selector: CHIP_ON }) || null;
+  }
+
+  function paintChipSelection() {
+    const buttons = [...(ui?.shortcuts?.querySelectorAll("[data-chip]") || [])];
+    if (!buttons.length) return;
+    buttons.forEach((btn, i) => {
+      const on = i === activeChip;
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-pressed", String(on));
+    });
+    chipGlow?.sync();
+  }
+
+  function paintChips() {
+    if (!ui?.shortcuts) return;
+    const chips = activeChips();
+    const signature = chips.map((c) => c.label).join("\u0001");
+    if (ui.shortcuts.dataset.chips === signature) { paintChipSelection(); return; }
+    ui.shortcuts.dataset.chips = signature;
+    // 换了一组提问（「带本机数据」开关会整组换掉）：同一个下标指向的已经不是同一句话了，
+    // 于是连选中态一起清掉 —— 重建出来的行永远是「一个都没选」，光块由 attachChipGlow 收起。
+    activeChip = -1;
+    ui.shortcuts.innerHTML = chips
+      .map((c, i) => `<button type="button" data-chip="${i}">${esc(c.label)}</button>`)
+      .join("");
+    ui.shortcuts.querySelectorAll("[data-chip]").forEach((btn) => {
+      btn.onclick = () => {
+        if (busy) return;
+        const idx = Number(btn.dataset.chip);
+        activeChip = idx;
+        paintChipSelection();                 // 光块从上一个选项滑过来（宿主负责动画）
+        ui.input.value = activeChips()[idx].ask;
+        ui.input.oninput();
+        ui.input.focus();
+      };
+    });
+    attachChipGlow();                          // 重建后重挂：宿主自己会 rAF 落位，不播位移
+  }
+
   function ensureStyle() {
     if (document.getElementById("ai-chat-style")) return;
     const st = document.createElement("style");
@@ -720,8 +777,14 @@
 .aichat-id-tip{margin:0;font-size:calc(11px * var(--ui-text-scale));line-height:1.7;color:var(--ink-3,#A9B2BA)}
 button.aichat-avatar{padding:0;cursor:pointer}
 .aichat-avatar:disabled{opacity:.5;cursor:default}
-/* Nephele 参考布局；色板只作用于插件，不改变宿主主题。 */
-.aichat{--ink:#f6f0ff;--ink-2:#c7b6d9;--ink-3:#bba8cf;--panel:#2b243b;--paper:#352d46;--line:#665573;--deep:#bb91ce;--on-deep:#fff;position:relative;isolation:isolate;box-sizing:border-box;max-width:none;min-height:0;gap:10px;padding:26px clamp(22px,9%,100px) 58px;background:radial-gradient(ellipse at 12% 95%,#67516f66,transparent 62%),linear-gradient(120deg,#51435e,#48425c);border-radius:18px;overflow:hidden;font-family:"Microsoft YaHei UI","PingFang SC",sans-serif}
+/* Nephele 参考布局；色板只作用于插件，不改变宿主主题。
+   入场与发光照 NepheleDialog.qml：opacity 300ms OutCubic + scale 0.9→1 400ms OutBack +
+   软阴影（它那边是 MultiEffect shadowColor rgba(0,0,0,.15) / blur .75 / offset 8）。
+   底部 padding 从 58px 收到 18px —— 58px 是照「浮层底下要留出手影」抄的，但本视图不是浮层，
+   快捷提问行下面那一段就白占了 82px（用户：「对话框下面太多空位了」）。 */
+.aichat{--ink:#f6f0ff;--ink-2:#c7b6d9;--ink-3:#bba8cf;--panel:#2b243b;--paper:#352d46;--line:#665573;--deep:#bb91ce;--on-deep:#fff;position:relative;isolation:isolate;box-sizing:border-box;max-width:none;min-height:0;gap:10px;padding:26px clamp(22px,9%,100px) 18px;background:radial-gradient(ellipse at 12% 95%,#67516f66,transparent 62%),linear-gradient(120deg,#51435e,#48425c);border-radius:18px;overflow:hidden;font-family:"Microsoft YaHei UI","PingFang SC",sans-serif;box-shadow:0 8px 22px #00000026,0 0 34px #cfa8dd21;animation:aichat-dialog-in 400ms cubic-bezier(.34,1.4,.64,1) both,aichat-dialog-fade 300ms cubic-bezier(.16,1,.3,1) both}
+@keyframes aichat-dialog-in{from{transform:translate3d(0,20px,0) scale(.9)}to{transform:none}}
+@keyframes aichat-dialog-fade{from{opacity:0}to{opacity:1}}
 .aichat::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.55;background-image:radial-gradient(circle at 17% 15%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 74% 33%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 85% 56%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 32% 18%,#bb80d2 0 .7px,transparent 1.2px),radial-gradient(circle at 66% 26%,#dc9bea 0 .8px,transparent 1.3px),radial-gradient(circle at 73% 90%,#e9c9ff 0 1px,transparent 1.5px);background-size:100% 100%,100% 100%,100% 100%,193px 157px,271px 211px,100% 100%}
 .aichat [hidden]{display:none!important}
 .aichat-head{flex:none;gap:10px;min-height:34px}
@@ -760,8 +823,12 @@ button.aichat-avatar{padding:0;cursor:pointer}
 .aichat-empty b{font-size:calc(clamp(25px,4.7vw,38px) * var(--ui-text-scale,1));line-height:1.4;letter-spacing:.01em;margin-bottom:10px;font-weight:700;color:#fcf4ff}
 .aichat-empty p{font-size:calc(16px * var(--ui-text-scale,1));line-height:1.6;margin:0;color:#c0abd0}
 .aichat-empty .aichat-btn{margin-top:12px}
-.aichat-bar{display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:18px 20px 12px;border:2px solid #887092;border-radius:23px;background:#272236ed;box-shadow:0 7px 24px #27192c22;transition:border-color .15s}
-.aichat-bar:focus-within{border-color:#b99cc7}
+/* 输入框（本视图的「对话框」）：软阴影照 NepheleDialog（rgba(0,0,0,.15) / offset 8），
+   另加一层紫色外发光；聚焦时那层光呼吸（Nephele SettingChipGroup 的 pulse 0.62↔0.38、
+   1500ms InOutSine，这里按 box-shadow 的模糊半径映射）。 */
+.aichat-bar{display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:18px 20px 12px;border:2px solid #887092;border-radius:23px;background:#272236ed;box-shadow:0 7px 22px #00000026,0 0 18px #cfa8dd24;transition:border-color .15s,box-shadow .3s}
+.aichat-bar:focus-within{border-color:#b99cc7;animation:aichat-bar-glow 3s ease-in-out infinite alternate}
+@keyframes aichat-bar-glow{from{border-color:#b99cc7;box-shadow:0 7px 22px #00000026,0 0 18px #cfa8dd40}to{border-color:#cdb0d8;box-shadow:0 7px 22px #00000026,0 0 32px #d9b6ea70}}
 .aichat-input{width:100%;box-sizing:border-box;flex:none;border:0;border-radius:0;padding:3px 0;min-height:42px;background:transparent;font-size:calc(15px * var(--ui-text-scale,1));color:#f5eaff;line-height:1.6}
 .aichat-input::placeholder{color:#bca9cf;opacity:1}
 .aichat-input:focus{outline:none}
@@ -772,9 +839,16 @@ button.aichat-avatar{padding:0;cursor:pointer}
 .aichat-send{display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:50%;padding:0;background:#cfa8dd;color:#fff;flex:none;cursor:pointer}
 .aichat-send svg{width:21px;height:21px}
 .aichat-send:disabled{opacity:.45;cursor:default}
-.aichat-shortcuts{display:flex;flex:none;gap:3px;padding:3px;background:#c1a8ca15;border:1px solid #c6acd51f;border-radius:13px;overflow-x:auto;scrollbar-width:none}
-.aichat-shortcuts button{flex:1 0 auto;font:inherit;font-size:calc(11.5px * var(--ui-text-scale,1));padding:6px 12px;color:#ddd0ef;border:1px solid transparent;border-radius:10px;background:transparent;cursor:pointer}
-.aichat-shortcuts button:hover,.aichat-shortcuts button:focus-visible{background:#bf9ecd66;border-color:#c5a5d3;box-shadow:0 0 12px #cfaae438;color:#fff}
+.aichat-shortcuts{position:relative;isolation:isolate;display:flex;flex:none;gap:3px;padding:3px;background:#c1a8ca15;border:1px solid #c6acd51f;border-radius:13px;overflow-x:auto;scrollbar-width:none;box-shadow:inset 0 1px 4px #1c132833}
+.aichat-shortcuts button{position:relative;z-index:1;flex:1 0 auto;font:inherit;font-size:calc(11.5px * var(--ui-text-scale,1));padding:6px 12px;color:#ddd0ef;border:1px solid transparent;border-radius:10px;background:transparent;cursor:pointer;transition:color .3s,background .25s,border-color .25s,box-shadow .25s}
+.aichat-shortcuts button:hover{background:#bf9ecd4d;border-color:#c5a5d366;box-shadow:0 0 12px #cfaae42e;color:#fff}
+/* 选中光块 = Nephele SettingChipGroup 的 glider：α0.35 强调色底 + 1px 描边 + 一圈外发光
+   （它那边是 1.1× 的模糊矩形，CSS 里用低 α 的大模糊 box-shadow 等价）。
+   位移 500ms cubic-bezier(.34,1.56,.64,1)（过冲 1.3）与尺寸 400ms 由宿主
+   tide.ui.selectionGlow（src/selectionGlow.js）负责，这里只管长相。
+   光块在场时被选中的按钮不能再画第二层底，否则两层叠加会糊成实心块。 */
+.aichat-shortcuts .selection-glow{border-radius:10px;background:#c9a6d445;border:1px solid #d6b8e199;box-shadow:0 0 14px #cfaae459,0 0 3px #e6d0f22e}
+.aichat-shortcuts.has-selection-glow button.on{background:transparent;border-color:transparent;box-shadow:none;color:#fff}
 .aichat-feed{font-size:calc(10.5px * var(--ui-text-scale,1));opacity:.85}
 .aichat button:focus-visible{outline:2px solid #ead3f4;outline-offset:3px}
 .aichat-msg.ai{background:#2b243bd9}
@@ -784,7 +858,11 @@ button.aichat-avatar{padding:0;cursor:pointer}
 @media (max-height:480px){.aichat{padding-top:12px;padding-bottom:16px}.aichat-empty b{font-size:calc(23px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(12px * var(--ui-text-scale,1))}.aichat-feed{display:none}}
 @media (max-width:640px){.aichat-sidebar{left:18px;top:60px;width:min(320px,calc(100% - 36px));max-height:calc(100% - 84px)}}
 @media (max-height:480px){.aichat-sidebar{top:56px;max-height:calc(100% - 72px);gap:8px;padding:12px}}
-@media (prefers-reduced-motion:reduce){.aichat-bar,.aichat-menu,.aichat-menu span,.aichat-sidebar,.aichat-backdrop,.aichat-session{transition:none}.aichat-think i{animation:none}}
+@media (prefers-reduced-motion:reduce){.aichat-bar,.aichat-menu,.aichat-menu span,.aichat-sidebar,.aichat-backdrop,.aichat-session,.aichat-shortcuts button,.aichat-shortcuts .selection-glow{transition:none}.aichat,.aichat-bar,.aichat-think i{animation:none}}
+/* 应用内「减少动效」开关（data-ui-motion=reduced）与系统开关同级：入场、呼吸光都要停。
+   光块的位置换算本身不看动效开关 —— selectionGlow 在 reducedMotion() 下直接跳到终态。 */
+:root[data-ui-motion="reduced"] .aichat,:root[data-ui-motion="reduced"] .aichat-bar{animation:none}
+:root[data-ui-motion="reduced"] .aichat-shortcuts .selection-glow{transition:none}
 `;
     document.head.append(st);
   }
@@ -793,7 +871,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
     if (!ui) return;
     const log = ui.log;
     ui.root.classList.toggle("is-empty", !thread.length && !busy);
-    ui.shortcuts.innerHTML = activeChips().map((c, i) => `<button type="button" data-chip="${i}">${esc(c.label)}</button>`).join("");
+    paintChips();
     wireEmpty();
     taskIndex = null;                  // 任务标题缓存一轮一取，中途改了标题下一轮能跟上
     const prevTop = log.scrollTop;
@@ -864,14 +942,6 @@ button.aichat-avatar{padding:0;cursor:pointer}
   function wireEmpty() {
     const go = ui.log.querySelector("[data-go-ai]");
     if (go) go.onclick = () => window.dispatchEvent(new CustomEvent("tide:open-settings", { detail: { section: "ai" } }));
-    ui.shortcuts.querySelectorAll("[data-chip]").forEach((btn) => {
-      btn.onclick = () => {
-        if (busy) return;
-        ui.input.value = activeChips()[Number(btn.dataset.chip)].ask;
-        ui.input.oninput();
-        ui.input.focus();
-      };
-    });
   }
 
   function wireMessage(box, m) {
@@ -988,6 +1058,10 @@ button.aichat-avatar{padding:0;cursor:pointer}
   async function render(el2) {
     ensureStyle();
     await loadOnce();
+    // 切走再回来会整份重建：旧光块和它的 ResizeObserver 挂在旧 DOM 上，必须先撤。
+    // （不能只靠 render 的返回值：这个 render 是 async，宿主拿到的 Promise 不是函数。）
+    chipGlow?.dispose();
+    chipGlow = null;
     el2.innerHTML = "";
     ui = null;
 
@@ -1018,6 +1092,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
       </div>
       <div class="aichat-log"></div>
       <button type="button" class="aichat-jump" hidden>↓ 有新回复</button>
+      <div class="aichat-feed"></div>
       <div class="aichat-bar">
         <textarea class="aichat-input" rows="1" aria-label="对话内容" placeholder="帮我把这周的事理一遍"></textarea>
         <div class="aichat-compose-tools">
@@ -1027,7 +1102,6 @@ button.aichat-avatar{padding:0;cursor:pointer}
         </div>
       </div>
       <div class="aichat-shortcuts" aria-label="快捷提问"></div>
-      <div class="aichat-feed"></div>
     </div>`).firstChild;
     el2.append(root);
 
@@ -1047,6 +1121,12 @@ button.aichat-avatar{padding:0;cursor:pointer}
       idBtn: root.querySelector("[data-id]"),
       idPanel: root.querySelector(".aichat-id"),
     };
+    // 插件被停用 / 卸载时把光块的观察者一并撤掉。宿主 Set 里只留一个闭包 ——
+    // 每次重绘都挂一次的话，反复切页面会把同一个收尾动作塞进一堆新闭包里。
+    if (!disposeHooked) {
+      disposeHooked = true;
+      tide.ui.onDispose?.(() => { chipGlow?.dispose(); chipGlow = null; });
+    }
     ui.model.textContent = configured ? (modelLabel || "已配置模型") : "未配置模型";
     ui.ctx.classList.toggle("on", withContext);
     ui.ctx.setAttribute("aria-pressed", String(withContext));

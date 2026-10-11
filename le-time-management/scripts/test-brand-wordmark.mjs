@@ -147,6 +147,12 @@ for (const i of [1, 2, 3, 4]) {
 const brandBase = /^\.brand\s*\{([^}]*)\}/m.exec(stylesCss)?.[1];
 assert.ok(brandBase, "找不到 .brand 的基础规则");
 assert.match(brandBase, /flex-direction:\s*column/, "品牌区必须改成竖排：装饰线要落在字标**下方**");
+/* v0.187.0：字标左右居中（用户「弄居中」）。改前 flex-start 在桌面 224px 侧栏里是
+   左空 19px / 右空 46px —— 顶在最左边、右边空一大片。居中的实现就是这一条
+   `align-items: center`，别退回 flex-start，也别把 .brand 改成固定宽度。 */
+assert.match(brandBase, /align-items:\s*center/,
+  "字标要相对侧栏左右居中：.brand 必须 align-items: center（各媒体查询只改 padding，左右恒等）");
+assert.doesNotMatch(brandBase, /align-items:\s*flex-start/, "别退回 flex-start（右侧会空 46px）");
 
 const ruleCss = /^\.brand-rule\s*\{([^}]*)\}/m.exec(stylesCss)?.[1];
 assert.ok(ruleCss, "styles.css 缺少 .brand-rule 的基础规则");

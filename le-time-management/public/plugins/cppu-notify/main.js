@@ -342,7 +342,31 @@
       .pp-login .sec{font-size:calc(10.5px * var(--ui-text-scale));color:#A9B2BA;margin-top:12px;line-height:1.7}
       .pp-login .saved{background:#F6FBFA;border:1px solid #D6EBE8;color:#42656A;border-radius:10px;padding:9px 11px;font-size:calc(12px * var(--ui-text-scale));line-height:1.65;margin:10px 0 12px}
       .pp-empty{border:1.5px dashed #CFC8BA;border-radius:12px;padding:20px;text-align:center;color:#A9B2BA;font-size:calc(12.5px * var(--ui-text-scale));line-height:1.8}
-      .pp-banner{background:#FFF7E8;border:1px solid #F2D9A6;color:#8A6420;border-radius:12px;padding:12px 15px;font-size:calc(12px * var(--ui-text-scale));line-height:1.8;margin-bottom:10px}
+      .pp-banner{background:color-mix(in srgb,var(--deep,#0F4C5C) 14%,var(--bg,#F2EFEA));border:1px solid color-mix(in srgb,var(--deep,#0F4C5C) 38%,var(--bg,#F2EFEA));color:var(--ink,#22303A);border-radius:12px;padding:12px 15px;font-size:calc(12px * var(--ui-text-scale));line-height:1.8;margin-bottom:10px}
+      /* 横幅升级成刷新入口（v0.189.0）：.pp-banner 原样保留，这里只叠加「可点」的表现。
+         button 默认 text-align:center、且不继承 font-family / line-height，三者都得显式给回正文的左对齐长相。
+         宽度用 width:100% + border-box：button 改成 display:flex 后，width:auto 在部分 WebView 里仍按
+         shrink-to-fit 收成一小块，显式 100% 才稳。min-height:44px 是触摸目标下限；
+         touch-action:manipulation 去掉移动端双击缩放那 300ms 等待。 */
+      .pp-banner-act{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;text-align:left;font-family:inherit;appearance:none;-webkit-appearance:none;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .18s ease,border-color .18s ease}
+      .pp-banner-txt{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+      /* 右侧「点击刷新」提示：让「这条能点」自己说出来，不靠用户去猜或悬停试探。
+         用词跟通知里那条可点横幅的 onClickHint（「点击定位文件」）保持一致。 */
+      .pp-banner-act-hint{flex:none;display:inline-flex;align-items:center;gap:5px;font-size:calc(11px * var(--ui-text-scale));font-weight:600;color:color-mix(in srgb,var(--deep,#0F4C5C) 30%,var(--ink,#22303A));white-space:nowrap}
+      .pp-banner-act-hint::before{content:"↻";font-size:calc(13px * var(--ui-text-scale));line-height:1;transition:transform .18s ease}
+      /* 底色 / 强调色由 --deep 混进视图底色 --bg 派生（v0.190.0），不再用米黄硬编码：换主题、切深浅、开 Nephele 都自动跟随
+         （Nephele 把 --deep 换成 #81559b / 深色 #d3afe9，这条横幅就变成同色系薰衣草紫，跟外壳一致）。
+         三档底都是 --deep 与 --bg 的 color-mix：静止 14% / 悬停 22% / 按下 32%；
+         文字用 --ink，右侧提示用 --deep 30% + --ink 70%。34 张色板实测最低 5.03:1（正文最低 6.23:1），都在 AA 之上。
+         混的是 --bg（视图自己的底）而不是 --panel：横幅挂在视图顶部、不在卡片里，而 Nephele 的 --bg(#ece5f4)
+         恰好落在 --deep 与 --panel 的 12% 处，混 --panel 会让底色和背景只差 1 个通道（等于看不见）；
+         混 --bg 则无论哪套色板都保证「底色离所在底面至少 19 个通道」，这条有测试卡着。
+         提示那两个数字也是量出来的：55% 时按下态在 classic / citrus 深色上只剩 4.30:1，所以往 --ink 多混一点。
+         color-mix(in srgb) 对不透明色就是逐通道线性插值，跟 tools/lib/theme-tokens.js 里算出来的数字一致。 */
+      .pp-banner-act:hover{background:color-mix(in srgb,var(--deep,#0F4C5C) 22%,var(--bg,#F2EFEA));border-color:color-mix(in srgb,var(--deep,#0F4C5C) 52%,var(--bg,#F2EFEA))}
+      .pp-banner-act:hover .pp-banner-act-hint::before{transform:rotate(-90deg)}
+      .pp-banner-act:active{background:color-mix(in srgb,var(--deep,#0F4C5C) 32%,var(--bg,#F2EFEA))}
+      .pp-banner-act:focus-visible{outline:3px solid var(--deep,#0F4C5C);outline-offset:2px}
       .pp-more{display:flex;justify-content:center;padding:8px 0 4px}
       .pp-more .pp-btn{padding:8px 20px;font-size:calc(12px * var(--ui-text-scale))}
       /* ── 左侧校园服务栏：只用主题变量配色，夜里自动跟随深色 ── */
@@ -574,7 +598,7 @@
         .yk-ledger-row{grid-template-columns:86px 1fr auto}
         .yk-frame-shell{height:calc(100vh - 230px);min-height:520px}
       }
-      @media(prefers-reduced-motion:reduce){.pp-card,.pp-expand,.pp-expand::after,.pp-detail-shell,.pp-detail,.pp-side,.pp-side-inner,.pp-side-toggle,.pp-side-sub{transition-duration:.01ms!important}}
+      @media(prefers-reduced-motion:reduce){.pp-card,.pp-expand,.pp-expand::after,.pp-detail-shell,.pp-detail,.pp-side,.pp-side-inner,.pp-side-toggle,.pp-side-sub,.pp-banner-act,.pp-banner-act-hint::before{transition-duration:.01ms!important}}
     `;
     document.head.append(st);
   }
@@ -627,7 +651,7 @@
   }
   async function showNoticeCache(el, error) {
     if (!await restoreNoticeCache() || !el.isConnected) return false;
-    state.error = `登录或连接失败，正在显示缓存（${state.fetchedAt ? new Date(state.fetchedAt).toLocaleString("zh-CN") : "更新时间未知"}）。${error || "可点击重新登录重试。"}`;
+    state.error = `登录或连接失败，正在显示缓存（${state.fetchedAt ? new Date(state.fetchedAt).toLocaleString("zh-CN") : "更新时间未知"}）。${error || "点这条状态条或上方「刷新」可重试，需要重新登录时点「重新登录」。"}`;
     buildMain(el);
     return true;
   }
@@ -1378,10 +1402,18 @@
     return rows.sort((a, b) => Number(b.IS_TOP || 0) - Number(a.IS_TOP || 0) || Number(b.CREATE_TIME || 0) - Number(a.CREATE_TIME || 0));
   }
 
+  /* 「登录失败 / 拉取失败」的横幅统一走这里（v0.190.0）：整条就是一个刷新入口，
+     点一下等于工具栏「刷新」——重拉该视图的全部数据。文案右端自带「点击刷新」，不靠用户猜。
+     用真 <button> 而不是给 div 挂 click：Tab 能聚焦、Enter / Space 能触发、读屏会念成按钮名。
+     action 由调用方给：教务视图 data-jw-banner-refresh、通知视图 data-banner-refresh、一卡通 data-card-refresh。 */
+  function bannerRefreshHtml(text, action) {
+    return `<button type="button" class="pp-banner pp-banner-act" data-${action}><span class="pp-banner-txt">${esc(text)}</span><span class="pp-banner-act-hint">点击刷新</span></button>`;
+  }
   function paintStatus() {
     if (!ui) return;
     if (state.fetching && !state.notices.length) { ui.status.innerHTML = "正在拉取通知…"; return; }
-    if (state.error) { ui.status.innerHTML = `<span class="err">${esc(state.error)}</span>`; return; }
+    // 登录 / 拉取失败的整条状态行就是刷新入口，点一下重跑 loadPage(1)
+    if (state.error) { ui.status.innerHTML = bannerRefreshHtml(state.error, "banner-refresh"); return; }
     const at = state.fetchedAt ? new Date(state.fetchedAt).toTimeString().slice(0, 5) : "—";
     ui.status.innerHTML = `${esc(state.username ? "学号 " + state.username : "")} · 已更新 ${at} · 拉取 ${state.notices.length} 条 · 显示 <b>${filtered().length}</b> 条`;
   }
@@ -2174,9 +2206,13 @@
     const at = Number(jwState.at[key]) || 0;
     return at ? `更新于 ${new Date(at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}` : "尚未拉取";
   }
+  /* 横幅本身就是刷新入口（用户要求「点击这个横幅也可以刷新」）。用真 <button> 而不是 div+click：
+     Tab 能聚焦、Enter / Space 能触发、读屏会把整条文案念成按钮名。加载态仍是纯文字 .pp-empty
+     —— 那时候再点只会叠一轮请求，点不动才是对的。标记与外壳统一由 bannerRefreshHtml 产出
+     （v0.190.0 抽出来给通知视图、一卡通视图共用），所以登录失败、拉取失败、解析失败三种横幅一次全部可点。 */
   function jwStateBlock(key, loadingText) {
     if (jwState.loading[key]) return `<div class="pp-empty">${esc(loadingText || `正在拉取${jwKeyLabel(key)}…`)}</div>`;
-    if (jwState.error[key]) return `<div class="pp-banner">${esc(jwState.error[key])}</div>`;
+    if (jwState.error[key]) return bannerRefreshHtml(jwState.error[key], "jw-banner-refresh");
     return "";
   }
   function jwTermName(code) {
@@ -2754,6 +2790,10 @@
     el.addEventListener("click", async (e) => {
       if (e.target.closest("[data-jw-login]")) { await openLogin(); return; }
       if (e.target.closest("[data-jw-refresh]")) { await jwEnsureKeys(cfg.keys, true); return; }
+      // 横幅（登录失败 / 拉取失败 / 解析失败）也是刷新入口：与上方「刷新」走同一条通路。
+      // 点哪一条都刷整个视图的 keys —— 登录失败时每条横幅都挂了同一个错，
+      // 只刷被点的那条会让另一条留着旧提示，看着像「刷了没用」。
+      if (e.target.closest("[data-jw-banner-refresh]")) { await jwEnsureKeys(cfg.keys, true); return; }
       if (e.target.closest("[data-jw-back]")) { tide.util.navigate("plug:cppu-notify"); return; }
       if (e.target.closest("[data-jw-site]")) {
         const btn = e.target.closest("[data-jw-site]");
@@ -2845,7 +2885,7 @@
       await jwEnsureKeys(cfg.keys);
       // 登录失败保留已有缓存；没有缓存时显示共用登录卡。
       if (!jwLive() && el.isConnected && cfg.keys.some(key => Array.isArray(jwState.data[key]))) {
-        for (const key of cfg.keys) jwState.error[key] = `登录失败，正在显示缓存（${jwAt(key)}）；可点击「重新登录」重试。`;
+        for (const key of cfg.keys) jwState.error[key] = `登录失败，正在显示缓存（${jwAt(key)}）；点这条横幅或上方「刷新」可重试，需要重新登录时点「重新登录」。`;
         jwPaint();
       } else if (!jwLive() && el.isConnected) {
         await prepareLoginForm();
@@ -3008,8 +3048,10 @@
   function cardSetStatus(root, text, warn = false) {
     const status = root?.querySelector?.("[data-card-status]");
     if (!status) return;
-    status.textContent = text;
     status.classList.toggle("warn", warn);
+    // 警告态（登录失败 / 拉取失败）整条就是刷新入口（v0.190.0）：点一下 = 重新登录并重拉账单
+    if (warn) status.innerHTML = bannerRefreshHtml(text, "card-refresh");
+    else status.textContent = text;
   }
   function cardAuthedUrl(url) {
     const parsed = new URL(url, CARD_ORIGIN);
@@ -3271,7 +3313,7 @@
     const click = async event => {
       const target=event.target?.closest ? event.target : event.target?.parentElement;
       if (!alive || !target) return;
-      const names=['summary','billing','sync','home','recharge','center','reload','open','back','login','change','mode','kind'];
+      const names=['summary','billing','sync','home','recharge','center','reload','open','back','login','change','mode','kind','refresh'];
       const name=names.find(key=>target.closest(`[data-card-${key}]`));
       if (!name) return;
       const button=target.closest(`[data-card-${name}]`);
@@ -3302,6 +3344,13 @@
           if(cardState.loading){message('正在同步，请完成后再更换账号');return;}
           cardState.accessToken='';cardState.password='';cardState.error='请输入新的账号和密码';
           await tide.vault?.del?.(CARD_VAULT_KEY);cardPaintLogin(el);message('请输入新账号与密码，然后点击“登录并自动同步”');return;
+        }
+        if(name==='refresh'){
+          // 警告横幅整条可点（v0.190.0）：等同工具栏「同步账单」，重新登录并重拉该视图的全部数据
+          cardState.error=''; cardState.balanceError=''; selectPage('summary'); cardPaintStats(el);
+          captureCredentials();
+          if(!cardState.username||!cardState.password){cardPaintLogin(el);message('请先填写一卡通学/工号和密码，再点击“登录并自动同步”',true);el.querySelector('[data-card-user]')?.focus();return;}
+          await sync(false); return;
         }
         captureCredentials();
         if(name==='sync'||name==='login'||name==='reload'){
@@ -3588,6 +3637,8 @@
     });
     el.querySelector("[data-filter-reset]").addEventListener("click", () => resetFilter());
     el.querySelector("[data-refresh]").addEventListener("click", () => loadPage(1));
+    // 错误状态行整条也是刷新入口（v0.190.0）：状态行每次重绘都会换掉里面的按钮，所以挂在容器上做委托
+    ui.status.addEventListener("click", (e) => { if (e.target.closest("[data-banner-refresh]")) loadPage(1); });
     // 下拉是原生 <details>，点开面板后点旁边不会自己收 —— 在文档级捕获外面的按下，替它收起
     if (filterOutsideHandler) document.removeEventListener("pointerdown", filterOutsideHandler, true);
     filterOutsideHandler = (e) => {

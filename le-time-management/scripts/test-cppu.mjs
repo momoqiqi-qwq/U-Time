@@ -2,6 +2,7 @@ import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { bannerPalettes, channelDelta, colorMix, contrastRatio, mixHex, resolveToken, ruleDecls } from './lib/banner-contrast.mjs';
 const source = readProductSource(new URL('../public/plugins/cppu-notify/main.js',import.meta.url),'utf8');
 let response, calls=[], vaultData={}, storageData={}, opened=[], notices=[], noticeOpts=[], revealed=[], views=[], saved=[];
 const context = vm.createContext({URL,Set,Map,Date,console,setTimeout,clearTimeout,setInterval,clearInterval,
@@ -10,8 +11,8 @@ const context = vm.createContext({URL,Set,Map,Date,console,setTimeout,clearTimeo
   Image:class{constructor(){this.naturalWidth=0;this.naturalHeight=0;}set src(v){this._src=v;}decode(){return Promise.reject(new Error('cannot decode'));}},
   tide:{ui:{registerView:(def)=>{views.push(def);}},http:{session:async()=>'s1',restoreCookies:async(dump)=>{calls.push(['restore',dump]);return 'restored-sid';},fetch:async(...args)=>{calls.push(args);return typeof response==='function'?response(...args):response;}},storage:{set:async(k,v)=>{storageData[k]=v;},get:async(k,d)=>(k in storageData?storageData[k]:(d===undefined?null:d))},vault:{get:async(key)=>vaultData[key]||null,set:async(key,value)=>{vaultData[key]=value;},del:async(key)=>{delete vaultData[key];}},util:{openUrl:(url)=>opened.push(url),web:{formEncode:(fields)=>Object.entries(fields).map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&'),detectLoginForm:(html,base)=>html.includes('name="uid"')?{action:new URL('/coremail/index.jsp?cus=1',base).href,method:'POST',usernameField:'uid',passwordField:'password',captchaField:'',fields:[{name:'action',value:'login'}]}:null}},notify:(message,opts)=>{notices.push(message);noticeOpts.push(opts||{});},assets:{saveBase64:async(name,b64)=>{saved.push([name,b64]);return 'D:/Downloads/'+name;},revealSaved:async(p)=>{revealed.push(p);return {ok:true};}}}
 });
-vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense};\n  tide.ui.registerView({'),context);
-const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense}=context.testApi;
+vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,jwStateBlock,mountJwView,JW_VIEWS,cardIsExpense,bannerRefreshHtml,cardSetStatus};\n  tide.ui.registerView({'),context);
+const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense,jwStateBlock,mountJwView,JW_VIEWS,bannerRefreshHtml,cardSetStatus}=context.testApi;
 const item={RESOURCE_ID:'test',PIM_TITLE:'Test <notice>',CREATE_TIME:1};
 assert.match(cardHtml(item),/展开正文/);
 assert.match(cardHtml(item),/class="pp-detail-shell" aria-hidden="true"/);
@@ -914,4 +915,180 @@ assert.equal(calls.filter((c) => String(c[2]).includes('/tpass/captcha.jpg')).le
 assert.match(source, /function paintLogin\(el, errMsg, opts = \{\}\)/, '登录卡必须带 opts 才能被各视图复用');
 assert.ok(source.includes('opts.onDone'), '登录卡必须能回调到发起登录的那个视图');
 
-console.log('PASS: expand/collapse, loading, late response, cache, retry, paragraph preservation, API paths, bounded renewal and read-only 教务 views');
+/* ── 14. 横幅即刷新入口（用户要求「点击这个横幅也可以刷新」）─────────────────
+   教务只读视图里「登录失败，正在显示缓存」那条 .pp-banner 过去是死文字，只能去点上方工具栏。
+   现在整条是 <button data-jw-banner-refresh>，由 mountJwView 的 click 委托接到
+   和工具栏「刷新」同一个 jwEnsureKeys(keys, true)。下面先用真源码渲染函数验形态，
+   再把真视图挂到一个假 DOM 上、真点一次，验「点了确实会去打接口」。 */
+jwState.loading = {};
+jwState.error = { xkTask: '登录失败，正在显示缓存（更新于 09/22 13:21）；点这条横幅或上方「刷新」可重试，需要重新登录时点「重新登录」。' };
+const banner = jwStateBlock('xkTask');
+assert.ok(banner.startsWith('<button type="button" class="pp-banner pp-banner-act" data-jw-banner-refresh>') && banner.endsWith('</button>'),
+  '错误横幅必须整条渲染成可点的 button，而不是原来那个死 <div class="pp-banner">');
+assert.ok(banner.includes('<span class="pp-banner-txt">登录失败，正在显示缓存（更新于 09/22 13:21）') && banner.includes('<span class="pp-banner-act-hint">点击刷新</span>'),
+  '横幅文案与「点击刷新」提示要落在同一个按钮里，光有 hover 颜色没人知道能点');
+assert.ok(banner.includes('点这条横幅或上方「刷新」可重试'), '文案要正面告诉用户可以点横幅重试');
+jwState.loading = { xkTask: true };
+assert.equal(jwStateBlock('xkTask', '正在拉取选课任务…'), '<div class="pp-empty">正在拉取选课任务…</div>',
+  '加载态保持纯文字占位、不能变按钮 —— 那时候再点只会叠一轮请求');
+jwState.loading = {};
+jwState.error = {};
+assert.equal(jwStateBlock('xkTask'), '', '既没错误也不在加载时不留空盒子');
+jwState.error = { xkTask: '<img src=x onerror=alert(1)> 教务接口 500' };
+assert.ok(!/<img/.test(jwStateBlock('xkTask')) && jwStateBlock('xkTask').includes('&lt;img src=x'),
+  '横幅文案是错误信息自由文本，拼进按钮前必须转义');
+jwState.error = { xkTask: '登录失败，正在显示缓存（更新于 09/22 13:21）；点这条横幅或上方「刷新」可重试，需要重新登录时点「重新登录」。' };
+jwState.data.xkTask = [{ ID: 'active-task', XKRWMC: '慕课选课', KKXNXQ: '20262027-1', LC: '2', XKRWZT: '2' }];
+const taskWithBanner = jwTaskHtml();
+assert.ok(taskWithBanner.includes('data-jw-banner-refresh'), '选课任务页的错误横幅也要能点，不能只在某一个页面生效');
+assert.ok(taskWithBanner.indexOf('可参加的选课任务') < taskWithBanner.indexOf('data-jw-banner-refresh'),
+  '横幅要挂在本小节标题下面，不能被标题甩在后面');
+for (const k of Object.keys(jwState.data)) jwState.data[k] = null;
+assert.ok(source.includes('if (e.target.closest("[data-jw-banner-refresh]")) { await jwEnsureKeys(cfg.keys, true); return; }'),
+  '横幅点击必须接在 jwEnsureKeys(keys, true) 上 —— 和工具栏「刷新」同一条通路，不许另写一套取数');
+assert.ok(source.includes('.pp-banner-act:focus-visible{outline:3px solid var(--deep'),
+  '横幅变成按钮后必须有 focus-visible 焦点环，且要跟着 --deep 走（紫色风格下别留一圈青色）');
+assert.ok(/\.pp-banner-act,\.pp-banner-act-hint::before\{transition-duration:\.01ms!important\}/.test(source),
+  '横幅新增的 transition 要进 prefers-reduced-motion 白名单');
+
+/* 真挂一次视图 + 真点一次：假 DOM 只补 ensureStyle / jwPaint 用到的那几个接口 */
+context.document.getElementById = () => null;
+context.document.head = { append: () => {} };
+const clickHandlers = [];
+const fakeEl = {
+  isConnected: true, innerHTML: '', dataset: {},
+  addEventListener: (type, fn) => { if (type === 'click') clickHandlers.push(fn); },
+  querySelector: () => null,
+  querySelectorAll: () => [],
+};
+const bannerClick = { target: { closest: (sel) => (sel === '[data-jw-banner-refresh]' ? {} : null) } };
+const waitFor = async (cond, why) => {
+  for (let i = 0; i < 200; i++) { if (cond()) return; await new Promise((r) => setTimeout(r, 5)); }
+  assert.fail(`等待超时：${why}`);
+};
+
+// ① 登录态坏了但缓存还在（就是截图那一眼）：挂载后应挂出可点的横幅，点它必须再打一轮接口
+await clearSavedLogin();
+state.sid = null; state.token = '';
+storageData.username = '2025290058';
+vaultData.secret = JSON.stringify({ password: 'pw' });
+vaultData.cookies = JSON.stringify([{ url: 'https://portal-jw.cppu.edu.cn', cookie: 'tp_up=expired-ticket' }]);
+storageData.jwCache = {
+  at: { xkTask: Date.parse('2026-09-22T13:21:00'), xkResult: Date.parse('2026-09-22T13:21:00') },
+  keep: { xkTask: [{ ID: 'old-task', XKRWMC: '缓存里的旧任务', KKXNXQ: '20262027-1', XKRWZT: '3' }], xkResult: [] },
+  prefs: {},
+};
+jwState.at = {}; jwState.loading = {}; jwState.error = {};
+calls = []; response = jwDead;
+mountJwView(fakeEl, JW_VIEWS.find((v) => v.id === 'cppu-xk'));
+const refreshClick = clickHandlers.find((fn) => fn.constructor?.name === 'AsyncFunction');
+assert.ok(refreshClick, 'mountJwView 必须把点击委托挂在视图根节点上（否则横幅点了没反应）');
+await waitFor(() => String(jwState.error.xkTask || '').includes('登录失败'), '登录失败时视图要挂出「正在显示缓存」横幅');
+assert.ok(jwTaskHtml().includes('data-jw-banner-refresh'), '截图那种状态（登录失败 + 缓存）下，横幅必须是可点的按钮');
+const beforeRetry = calls.length;
+await refreshClick(bannerClick);
+assert.ok(calls.length > beforeRetry, '点横幅必须真的再发一轮请求，不能只是重画一遍页面');
+assert.ok(!jwState.loading.xkTask && !jwState.loading.xkResult, '点完横幅两个 key 的加载态都要收干净，不能卡在「正在拉取」');
+assert.ok(jwTaskHtml().includes('data-jw-banner-refresh'), '这次还是登不上就要留着横幅，让用户能一直点重试（而不是变成死文字）');
+
+// ② 网络/登录恢复后：点横幅要真的把新数据拉回来，并把旧错误清掉
+calls = []; response = jwFlow([{ KCMC: '横幅刷新回来的课' }]);
+delete vaultData.secret; delete storageData.username;
+const beforeRefresh = calls.length;
+await refreshClick(bannerClick);
+assert.ok(calls.length > beforeRefresh, '横幅刷新同样要走真实取数链路');
+assert.equal(jwState.error.xkTask, '', '刷新成功后旧横幅必须清掉');
+assert.equal(jwState.error.xkResult, '', '点一条横幅要刷整个视图的 keys，另一条的旧提示不能留着当「刷了没用」');
+assert.equal(jwState.data.xkTask[0].KCMC, '横幅刷新回来的课', '横幅刷新要把新数据真的拉回来');
+assert.ok(jwState.at.xkTask > 0, '刷新成功要盖新的时间戳，副标题的「更新于」才会跟着走');
+assert.ok(!jwTaskHtml().includes('data-jw-banner-refresh'), '数据到手后横幅要自己消失');
+
+/* ③ 配色必须由主题令牌派生（v0.190.0「颜色适配 nephele 风格」）：
+   过去横幅是浅米黄硬编码，换主题 / 切深色 / 开 Nephele 都不跟随。现在底色、描边、正文、
+   右侧提示全部走 color-mix(令牌)，所以守则也换了：先按 CSS 里真正写的令牌与百分比取数，
+   再把 34 张色板（16 套主题 × 浅深 + Nephele 浅深）逐张代进公式实算 WCAG AA。
+   改了百分比测试会跟着重算，而不是守住某个写死的色值。 */
+const bannerBase = ruleDecls(source, '.pp-banner');
+const bannerHint = ruleDecls(source, '.pp-banner-act-hint');
+const bannerStates = {
+  静止: bannerBase,
+  悬停: ruleDecls(source, '.pp-banner-act:hover'),
+  按下: ruleDecls(source, '.pp-banner-act:active'),
+};
+const bodyToken = /^var\((--[\w-]+)/.exec(bannerBase.color || '')?.[1];
+assert.equal(bodyToken, '--ink', '横幅正文必须用 --ink（深色模式靠它翻成亮字），不能再写死米黄系色值');
+for (const [state, decl] of Object.entries(bannerStates)) {
+  const mix = colorMix(decl.background);
+  assert.ok(mix, `${state}态的横幅底色必须是 color-mix 出来的`);
+  assert.equal(mix.top, '--deep', `${state}态底色要从 --deep 派生 —— Nephele 把 --deep 换成薰衣草紫，横幅才会跟着变紫`);
+  assert.equal(mix.bottom, '--bg', `${state}态底色要混在视图底色 --bg 上：横幅挂在视图顶部、不在卡片里，`
+    + `而 Nephele 的 --bg(#ece5f4) 正好落在 --deep 与 --panel 的 12% 处 —— 混 --panel 会让底色和背景只差 1 个通道，等于看不见`);
+}
+// 米黄的这一族色值必须彻底消失（var() 的兜底值不算，那些在令牌缺失时才生效）
+const bannerCss = Object.values(bannerStates).map((d) => `${d.background};${d['border-color'] || ''};${d.color}`).join(';') + ';' + bannerHint.color;
+for (const old of ['#FFF7E8', '#FFF1D0', '#FDEBC2', '#8A6420', '#8A5A00', '#B26A00', '#E8C87F']) {
+  assert.ok(!bannerCss.includes(old), `横幅配色不能再退回米黄硬编码 ${old}——换主题 / 切深色 / 开 Nephele 都跟不上`);
+}
+const hintMix = colorMix(bannerHint.color);
+assert.ok(hintMix, '「点击刷新」提示色必须是 color-mix 出来的');
+assert.equal(hintMix.top, '--deep', '提示色要从 --deep 派生');
+assert.equal(hintMix.bottom, '--ink', '提示色必须混 --ink：纯 --deep 在 celadon 深色底上只有 3.86:1，过不了 AA');
+const palettes = bannerPalettes((p) => readProductSource(new URL(p, import.meta.url), 'utf8'));
+assert.equal(palettes.length, 34, '色板矩阵要盖住 16 套主题 × 浅 / 深 + Nephele 浅 / 深');
+const statePct = Object.fromEntries(Object.entries(bannerStates).map(([s, d]) => [s, colorMix(d.background).pct]));
+assert.ok(statePct.静止 < statePct.悬停 && statePct.悬停 < statePct.按下, `三档底色必须一档比一档重：${JSON.stringify(statePct)}`);
+assert.ok(statePct.按下 <= 0.4, `按下态最多混到 40%，再重正文就压不住（当前 ${statePct.按下}）`);
+let worstBody = { ratio: 99 }, worstHint = { ratio: 99 }, worstSep = { delta: 999 };
+for (const { label, tokens } of palettes) {
+  const surface = resolveToken(tokens, '--bg');
+  for (const [state, decl] of Object.entries(bannerStates)) {
+    const mix = colorMix(decl.background);
+    const bg = mixHex(resolveToken(tokens, mix.top), resolveToken(tokens, mix.bottom), mix.pct);
+    const body = contrastRatio(resolveToken(tokens, bodyToken), bg);
+    const hint = contrastRatio(mixHex(resolveToken(tokens, hintMix.top), resolveToken(tokens, hintMix.bottom), hintMix.pct), bg);
+    assert.ok(body >= 4.5, `${label} ${state}态：横幅正文只有 ${body.toFixed(2)}:1（底 ${bg}）`);
+    assert.ok(hint >= 4.5, `${label} ${state}态：「点击刷新」提示只有 ${hint.toFixed(2)}:1（底 ${bg}）`);
+    const sep = channelDelta(bg, surface);
+    assert.ok(sep >= 16, `${label} ${state}态：横幅底色 ${bg} 与视图底色 ${surface} 只差 ${sep} 个通道，看起来会像没画出来`);
+    if (body < worstBody.ratio) worstBody = { ratio: body, where: `${label} ${state}态` };
+    if (hint < worstHint.ratio) worstHint = { ratio: hint, where: `${label} ${state}态` };
+    if (sep < worstSep.delta) worstSep = { delta: sep, where: `${label} ${state}态` };
+  }
+}
+assert.ok(worstBody.ratio >= 4.5 && worstHint.ratio >= 4.5,
+  `全部色板都要过 WCAG AA：最差正文 ${worstBody.ratio.toFixed(2)}:1（${worstBody.where}）、最差提示 ${worstHint.ratio.toFixed(2)}:1（${worstHint.where}）`);
+console.log(`横幅配色：${palettes.length} 张色板 × 3 态，最低对比度 正文 ${worstBody.ratio.toFixed(2)}:1（${worstBody.where}）、`
+  + `提示 ${worstHint.ratio.toFixed(2)}:1（${worstHint.where}）；底色与视图底色最小通道差 ${worstSep.delta}（${worstSep.where}）`);
+
+/* ── 15. 其他警大视图的失败横幅也整条可点（通知 / 一卡通）──────────────────
+   用户的第二句要求：其他视图若有「登录失败 / 拉取失败」横幅，也照教务视图改成整条刷新。
+   两处复用同一个 bannerRefreshHtml：形态与教务横幅一致，只是 data 标记不同。 */
+assert.equal(bannerRefreshHtml('拉取失败：连接超时', 'banner-refresh'),
+  '<button type="button" class="pp-banner pp-banner-act" data-banner-refresh><span class="pp-banner-txt">拉取失败：连接超时</span><span class="pp-banner-act-hint">点击刷新</span></button>',
+  '通知视图的失败状态行要复用同一个横幅外壳');
+assert.ok(bannerRefreshHtml('<img src=x onerror=alert(1)>', 'card-refresh').includes('&lt;img src=x'),
+  '横幅文案是错误信息自由文本，拼进去之前必须转义');
+assert.ok(bannerRefreshHtml('x', 'card-refresh').includes('data-card-refresh'), '一卡通横幅要带自己的 data 标记');
+assert.ok(source.includes('ui.status.innerHTML = bannerRefreshHtml(state.error, "banner-refresh")'),
+  '通知视图「登录失败 / 拉取失败」的状态行必须整条换成横幅');
+assert.ok(source.includes('if (e.target.closest("[data-banner-refresh]")) loadPage(1);'),
+  '点通知视图横幅要等于点工具栏「刷新」= loadPage(1)；状态行每次重绘都换按钮，所以挂容器委托');
+assert.ok(source.includes('if (warn) status.innerHTML = bannerRefreshHtml(text, "card-refresh");'),
+  '一卡通的状态行在 warn 时也要整条变成横幅');
+assert.ok(source.includes("'refresh'"), '一卡通的点击委托要认得 refresh 这个动作名');
+assert.ok(source.includes("if(name==='refresh'){"), '一卡通要真的处理 refresh：清旧错误、重新登录、再 sync');
+assert.ok(source.includes('await sync(false); return;'), 'refresh 分支必须走到真正的取数（sync），不能只是重画');
+// 真跑一次：把 warn / 正常两种状态抛进 cardSetStatus（根节点用假 DOM，只补 querySelector）
+const cardStatusEl = {
+  innerHTML: '', textContent: '',
+  classList: { toggled: [], toggle(cls, on) { cardStatusEl.classList.toggled.push([cls, on]); } },
+};
+const cardRoot = { querySelector: (sel) => (sel === '[data-card-status]' ? cardStatusEl : null) };
+cardSetStatus(cardRoot, '一卡通拉取失败：请检查网络后重试', true);
+assert.equal(cardStatusEl.innerHTML, bannerRefreshHtml('一卡通拉取失败：请检查网络后重试', 'card-refresh'),
+  '一卡通的失败提示要整条渲染成可点横幅');
+cardSetStatus(cardRoot, '已同步 12 条流水', false);
+assert.equal(cardStatusEl.textContent, '已同步 12 条流水', '非失败状态仍是普通文字，不能整页都是按钮');
+assert.deepEqual(cardStatusEl.classList.toggled, [['warn', true], ['warn', false]], 'warn 类要跟着状态开关');
+
+console.log('PASS: expand/collapse, loading, late response, cache, retry, paragraph preservation, API paths, bounded renewal, clickable 教务 banners and read-only 教务 views');

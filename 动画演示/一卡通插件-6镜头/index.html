@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>一卡通插件 · 分镜总览（6 镜 / 76s）</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+SC:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{min-height:100vh;background:radial-gradient(1200px 700px at 30% 0%,#16202a,#0a0f14 62%,#05080b);
+  font-family:'Noto Sans SC',sans-serif;color:#e6ecf2;padding:54px 6vw 80px}
+.head{display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;border-bottom:1px solid rgba(255,255,255,.10);padding-bottom:22px}
+.head .no{font-family:'Bebas Neue';font-size:16px;letter-spacing:3px;color:#0a0f14;background:#ffd23f;border-radius:8px;padding:6px 15px}
+.head h1{font-size:42px;font-weight:900;letter-spacing:4px}
+.head .meta{margin-left:auto;font-family:'Share Tech Mono';font-size:13px;color:#8b98ab;letter-spacing:2px;text-align:right;line-height:1.9}
+.head .meta b{color:#ffd23f}
+.note{margin:22px 0 30px;padding:15px 20px;border-radius:12px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.10);
+  color:#9aa6b4;font-size:13.5px;line-height:1.85;max-width:1180px}
+.note b{color:#e6ecf2}
+.note code{font-family:'Share Tech Mono';color:#ffd98a}
+.list{display:grid;gap:14px;max-width:1320px}
+.row{display:grid;grid-template-columns:64px 1fr 92px 320px 120px;align-items:center;gap:20px;
+  padding:18px 22px;border-radius:14px;background:linear-gradient(100deg,rgba(255,255,255,.05),rgba(255,255,255,.02));
+  border:1px solid rgba(255,255,255,.09);text-decoration:none;color:inherit;transition:transform .25s,border-color .25s,background .25s}
+.row:hover{transform:translateX(6px);border-color:rgba(255,210,63,.45);background:linear-gradient(100deg,rgba(255,210,63,.10),rgba(255,255,255,.02))}
+.row .idx{font-family:'Bebas Neue';font-size:34px;color:#ffd23f;line-height:1}
+.row h2{font-size:21px;font-weight:900;letter-spacing:2px}
+.row .desc{font-size:13px;color:#8b98ab;margin-top:5px;line-height:1.7}
+.row .dur{font-family:'Share Tech Mono';font-size:19px;color:#cfd8e3;text-align:right}
+.row .tag{display:flex;gap:8px;flex-wrap:wrap}
+.tag i{font-style:normal;font-size:12px;letter-spacing:1px;padding:5px 12px;border-radius:999px;
+  border:1px solid rgba(255,255,255,.16);color:#b9c6d4;font-family:'Share Tech Mono'}
+.row .open{font-family:'Share Tech Mono';font-size:13px;color:#ffd23f;text-align:right;letter-spacing:1px}
+.foot{margin-top:34px;font-family:'Share Tech Mono';font-size:12.5px;color:#6b7c93;letter-spacing:1.5px;line-height:2}
+@media(max-width:1100px){
+  .row{grid-template-columns:48px 1fr;gap:14px}
+  .row .dur,.row .tag,.row .open{display:none}
+}
+</style>
+</head>
+<body>
+  <div class="head">
+    <span class="no">UTIME / CAMPUS CARD</span>
+    <h1>警大一卡通 · 分镜总览</h1>
+    <div class="meta">6 镜 · 合计 <b>76s</b><br>1920×1080 · 录屏即成片</div>
+  </div>
+
+  <p class="note">
+    每镜是<b>独立 HTML</b>，双击打开 → 点「<b>启动播放</b>」→ 黑场渐变后开演；鼠标移到视口底部唤出 HUD（暂停 / 重播 / 进度）。
+    录制时按顺序逐页全屏录屏即可，口播节拍写在每页 cue 注释里（<code>on(毫秒, …)</code>），画面内不放字幕条。
+    数据口径取自应用内真实实现：总充值 <b>¥1,200.00</b> · 已花费 <b>¥982.50</b> · 当前余额 <b>¥217.50</b>（余额 + 花费 = 充值，三卡自洽）。
+  </p>
+
+  <div class="list">
+    <a class="row" href="shot-0_食堂刷卡.html">
+      <span class="idx">01</span>
+      <span><h2>从「刷一下」开始的一天</h2><span class="desc">校园卡落到刷卡机上，「嘀」一声，余额 0 → ¥217.50 当场滚出来</span></span>
+      <span class="dur">10s</span>
+      <span class="tag"><i>拟物食堂场景</i><i>Bebas Neue</i></span>
+      <span class="open">打开 →</span>
+    </a>
+
+    <a class="row" href="shot-1_自动登录.html">
+      <span class="idx">02</span>
+      <span><h2>第一次填一次，以后它自己登</h2><span class="desc">U-Time 应用内视图：学/工号 + 密码 → 自动登录 → 凭据加密存本机密钥库</span></span>
+      <span class="dur">12s</span>
+      <span class="tag"><i>拟真录屏</i><i>Manrope</i></span>
+      <span class="open">打开 →</span>
+    </a>
+
+    <a class="row" href="shot-2_账单三卡.html">
+      <span class="idx">03</span>
+      <span><h2>账单自己会说话</h2><span class="desc">收银机数显：总充值量 / 已花费 / 当前余额 三行 LED 逐行滚动，下方流水条形逐根起</span></span>
+      <span class="dur">16s</span>
+      <span class="tag"><i>收银机数显</i><i>Bungee</i></span>
+      <span class="open">打开 →</span>
+    </a>
+
+    <a class="row" href="shot-3_日均餐费.html">
+      <span class="idx">04</span>
+      <span><h2>日均餐费，算给你看</h2><span class="desc">黑板粉笔账：已识别餐饮支出 ¥186.50 / 消费日均 ¥26.64 / 日历日均 ¥18.65，附关键词口径</span></span>
+      <span class="dur">16s</span>
+      <span class="tag"><i>黑板粉笔账</i><i>ZCOOL KuaiLe</i></span>
+      <span class="open">打开 →</span>
+    </a>
+
+    <a class="row" href="shot-4_一条流水.html">
+      <span class="idx">05</span>
+      <span><h2>每一笔都留得下账</h2><span class="desc">热敏小票逐行打印：食堂 ¥12.50 · 刷脸付 Face Pay · 24 位订单号 + 12 位参考号 + 已同步印章</span></span>
+      <span class="dur">12s</span>
+      <span class="tag"><i>热敏小票</i><i>Bebas Neue</i></span>
+      <span class="open">打开 →</span>
+    </a>
+
+    <a class="row" href="shot-5_片尾.html">
+      <span class="idx">06</span>
+      <span><h2>卡里还剩多少，U-Time 替你看</h2><span class="desc">哑光呼吸光片尾：三端徽章落定 + 凭据本地加密角注</span></span>
+      <span class="dur">10s</span>
+      <span class="tag"><i>哑光片尾</i><i>Ma Shan Zheng</i></span>
+      <span class="open">打开 →</span>
+    </a>
+  </div>
+
+  <div class="foot">
+    质检截图：<code>node ~/.agents/skills/video-shot-demos/scripts/shot.js 页面.html 毫秒 _qc/x.png</code>（虚拟时钟快进，任意毫秒定格）<br>
+    页面改画面只动「画面层 CSS」与「#cam HTML」两段，底盘（引导 / 音效 / 时间轴 / 镜头调度 / HUD）请勿改。
+  </div>
+</body>
+</html>
