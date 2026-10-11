@@ -18,7 +18,7 @@
 //   事实源：le-time-management/android/gradle/      （版本化镜像，与 gen/android 路径 1:1）
 //   目标：  le-time-management/src-tauri/gen/android/
 //
-// ── 三类处理（刻意分开，别合并成「整目录覆盖」）──
+// ── 四类处理（刻意分开，别合并成「整目录覆盖」）──
 //   ① 我们拥有的文件（Kotlin 源码 + 通知小图标等资源）：整份覆盖。这部分百分之百是我们
 //      写的，没有上游模板会被盖坏的问题。清单见 SOURCES 与 RESOURCES。
 //   ② AndroidManifest.xml：**只加不删的补丁** —— 补 REQUEST_INSTALL_PACKAGES /
@@ -28,6 +28,9 @@
 //      FileProvider 的 provider 块是 Tauri 模板自带的，**只校验不合成**（合成容易写错一整个块）。
 //   ③ res/xml/file_paths.xml：确保 `<cache-path>` 存在。Rust 侧把更新包暂存在
 //      `app_cache_dir()`（＝Android 的 `getCacheDir`，内部缓存），FileProvider 靠这条声明才肯共享。
+//   ④ 事实源在 src-tauri 下的自有产物：`assets/tauri.conf.json`（Android 运行时读它）与
+//      启动器图标 `res/mipmap-*`。`tauri android init` 拷一次就再也不管，init 之后换品牌
+//      图标 / 改窗口配置，gen 里会永远停在旧快照 —— 也就是「apk 跟不上更新」。整份覆盖。
 //
 // ── 用法 ──
 //   node tools/sync-android-native.js            应用（同步我们拥有的文件 + 打补丁）
@@ -139,6 +142,7 @@ function captureKotlin() {
     if (!owned.has(`${KOTLIN_DIR}/${name}`)) console.log(`  ⚠ gen 里还有未纳入镜像的 Kotlin：${name}（加进 SOURCES 后重跑 --capture）`);
   }
   console.log(`✓ 已从 gen 采纳 ${captured} 个文件到版本化镜像`);
+  console.log("  （assets/tauri.conf.json 与启动器图标的事实源在 src-tauri 下，不参与 --capture）");
 }
 
 function syncOwned() {
@@ -425,6 +429,96 @@ function patchFilePaths() {
   console.log("  [已补] file_paths.xml（cache-path）");
 }
 
+/* ─────────────── ④ 事实源在 src-tauri 下的自有产物（assets 配置 + 启动器图标） ─────────────── */
+
+/**
+ * 这两样由 `tauri android init` 从 src-tauri 拷进 gen/android，**之后 CLI 再也不刷新**：
+ *
+ *   ① `tauri.conf.json` → `app/src/main/assets/tauri.conf.json`
+ *      Android 侧是真读它的：`app.tauri.plugin.PluginManager.loadConfig()` 的实现就是
+ *      `FsUtils.readAsset(context.assets, "tauri.conf.json")`，官方插件的 Kotlin 端靠它取
+ *      自己在 `plugins.<id>` 下的配置。init 时的快照落后，端上取到的就是旧配置。
+ *   ② `icons/android/` → `app/src/main/res/mipmap-*`（含 `mipmap-anydpi-v26/ic_launcher.xml`
+ *      与 `values/ic_launcher_background.xml`）
+ *      启动器图标，由 `tauri icon` 生成到 src-tauri/icons/android/。
+ *
+ * 实测踩坑：品牌从「潮衡 / TideBalance」改名时重新生成了 `icons/android/`，但没人重跑 init，
+ * 于是 APK 里一直装着改名前的旧图标（像素比对差异 52%），`assets/tauri.conf.json` 更是停在
+ * v0.11.2 —— 这就是「apk 跟不上更新」的形态。按「我们拥有的文件」处理：事实源整份覆盖，
+ * 二进制用 Buffer 比对（图标是 PNG，不能用 utf8 读）。
+ */
+const CONF_SOURCE = path.join(APP, "src-tauri", "tauri.conf.json");
+const CONF_TARGET = path.join(GEN, "app/src/main/assets/tauri.conf.json");
+const CONF_TARGET_REL = "app/src/main/assets/tauri.conf.json";
+const ICON_SOURCE = path.join(APP, "src-tauri", "icons", "android");
+const ICON_TARGET_REL = "app/src/main/res";
+
+/** 递归列出目录下所有文件，返回相对给定根的 posix 风格路径。 */
+function listFiles(dir, base = dir) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listFiles(full, base));
+    else out.push(path.relative(base, full).split(path.sep).join("/"));
+  }
+  return out;
+}
+
+/**
+ * 单文件整份同步（二进制安全）。
+ * 返回 "same"（已一致）/ "synced"（本次已写入）/ false（失败）。
+ */
+function syncFile(fromAbs, toAbs, label, why) {
+  if (!fs.existsSync(fromAbs)) {
+    failures.push(`事实源缺失：${label}（${why}）`);
+    return false;
+  }
+  const from = fs.readFileSync(fromAbs);
+  const to = fs.existsSync(toAbs) ? fs.readFileSync(toAbs) : null;
+  if (to !== null && to.equals(from)) return "same";
+  if (CHECK) {
+    failures.push(`${label}：与事实源不一致（${why}）`);
+    console.log(`  [不一致] ${label}`);
+    return false;
+  }
+  fs.mkdirSync(path.dirname(toAbs), { recursive: true });
+  fs.writeFileSync(toAbs, from);
+  changes.push(label);
+  console.log(`  [已同步] ${label}`);
+  return "synced";
+}
+
+function syncTauriOwned() {
+  // ① assets/tauri.conf.json —— 必须与 src-tauri 下的唯一事实源逐字节一致
+  const conf = syncFile(
+    CONF_SOURCE,
+    CONF_TARGET,
+    CONF_TARGET_REL,
+    "Android 运行时读它取窗口与 plugins 配置",
+  );
+  if (conf === "same") console.log(`  [已一致] ${CONF_TARGET_REL}`);
+
+  // ② 启动器图标 —— 5 个密度 × 3 张 PNG + adaptive icon 定义 + 背景色，共 17 个文件
+  if (!fs.existsSync(ICON_SOURCE)) {
+    failures.push("事实源缺失：src-tauri/icons/android/（跑 `npx tauri icon <源图>` 生成）");
+    return;
+  }
+  const icons = listFiles(ICON_SOURCE);
+  let same = 0;
+  for (const rel of icons) {
+    const result = syncFile(
+      path.join(ICON_SOURCE, rel),
+      path.join(GEN, ICON_TARGET_REL, rel),
+      `${ICON_TARGET_REL}/${rel}`,
+      "启动器图标落后于 src-tauri/icons/android",
+    );
+    if (result === "same") same++;
+  }
+  if (same === icons.length) {
+    console.log(`  [已一致] 启动器图标（${icons.length} 个文件：5 个密度 + adaptive icon + 背景色）`);
+  }
+}
+
 /* ─────────────── 主流程 ─────────────── */
 
 console.log(`── Android 原生代码${CAPTURE ? "采纳" : CHECK ? "校验" : "同步"}（gen/android）──`);
@@ -436,6 +530,7 @@ if (CAPTURE) {
 syncOwned();
 patchManifest();
 patchFilePaths();
+syncTauriOwned();
 
 if (failures.length) {
   console.error(CHECK ? "\nAndroid 原生一致性检查失败：" : "\nAndroid 原生同步出现问题：");
@@ -447,7 +542,7 @@ if (failures.length) {
 }
 console.log(
   CHECK
-    ? "✓ Android 原生代码与版本化镜像一致（Kotlin 与自有资源 / 清单权限与教务窗口与提醒接收器 / FileProvider 路径）"
+    ? "✓ Android 原生代码与版本化镜像一致（Kotlin 与自有资源 / 清单权限与教务窗口与提醒接收器 / FileProvider 路径 / assets 配置与启动器图标）"
     : changes.length
       ? `✓ 已同步 Android 原生代码：${changes.join("、")}`
       : "✓ Android 原生代码已是最新，无需改动",
