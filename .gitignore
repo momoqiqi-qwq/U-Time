@@ -70,6 +70,28 @@ cloudflare-pages/plugin-guide/.wrangler/
 /动画演示/**/shery - emotion rename/
 /动画演示/**/*.png
 /动画演示/**/*.jpg
+# 渲染中间产物与成片（分镜帧 + 每版几 MB~几十 MB 的 mp4，只入库页面与脚本）
+/动画演示/**/_renders/
+/动画演示/**/*.mp4
 
 # 教务接口勘察笔记（含真实学号 / 姓名 / 班级 / 选课记录，仓库是 PUBLIC，切勿入库）
 /docs/教务系统三模块接口勘察-*.md
+
+# 一次性调试脚手架与探针产物（本地验证用，不入库）
+# tools/aichat-harness：AI 对话框改造期的真浏览器探针（server.mjs / probe.ps1 / shots/ / 浏览器 profile）
+/tools/aichat-harness/
+/tools/__pycache__/
+/.tmp-*
+/_probe_out.txt
+/_run-tests-async.mjs
+/_demo_capture/
+/search-icon-out/
+/pelican-bicycle.html
+/pelican-cycling.html
+/.codex-video-work/
+/.dsh-vision-router/
+/le-time-management/probe.js
+/le-time-management/insert_anchor.js
+/le-time-management/.playwright-cli/
+# Windows 保留设备名，误建出来的幽灵条目，git 在 Windows 上无法正常 stat
+/le-time-management/nul
