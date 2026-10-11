@@ -3935,8 +3935,12 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   .market { padding-top: 10px; }
 }
 
-/* 侧栏插件实时拖动排序：原项留在普通流中成为空槽，克隆项浮起跟随指针，
-   其余项的逐项追赶由 shell.js 的 WAAPI FLIP 完成。
+/* ── v0.197.0 侧栏插件实时拖动排序：原件自己浮起跟手 ──
+   拖动项就是导航按钮**本身**（加 .nav-dragging），直接给它写 translate3d；
+   其余项各写一条 translate3d(0, ±一格, 0) 让出落点，松手才落地 DOM 顺序。
+   不再有克隆副本、也不再往 body 上挂浮层 —— 旧写法（原位留空槽 + 克隆项跟手）
+   两份配色一样，看上去就是「两个一模一样的插件条目」（v0.134.0 把空槽从
+   半透明虚线改成实心高亮后尤其明显）。落点推演与让位逻辑在 src/pluginListDrag.js。
    v0.102 颜色分组后，拖拽单位从 .plug-list 变成每一段 .plug-seg。 */
 .plug-seg > button[data-plugin-id] { cursor: grab; touch-action: pan-y; }
 
@@ -3984,19 +3988,37 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .nav .plug-seg-pinned { margin: 3px 0 6px; padding: 2px 4px 4px; border-radius: 11px;
   background: color-mix(in srgb, var(--sun) 9%, transparent);
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--sun) 60%, transparent); }
-.plug-seg.plugin-drag-live { cursor: grabbing; user-select: none; -webkit-user-select: none; }
-.plug-seg.plugin-drag-live > button[data-plugin-id] { cursor: grabbing; }
+/* 拖动期间：其余项让位 / 归位都吃这条过渡，落点才像被推开而不是瞬移。
+   注意别把它写成 .plug-seg.plugin-drag-live > button[data-plugin-id] 一条就完事 ——
+   被拖项也在里面，会带着过渡追指针（下面那条更具体的规则专门把它摘出去）。 */
+.plug-seg.plugin-drag-live > button[data-plugin-id] {
+  cursor: grabbing;
+  transition: transform 140ms cubic-bezier(.22, .8, .22, 1);
+}
+.plug-seg.plugin-drag-live { user-select: none; -webkit-user-select: none; }
+/* 被拖项 1:1 跟手：特异性 (0,4,1) > 上面那条的 (0,3,1)，也压过 .nav button 的
+   `transform .08s ease`（styles.css:418）。带过渡的话指针已经停了它还在飘。 */
+.plug-seg.plugin-drag-live > button.nav-dragging { transition: none; }
 .nav .plug-seg > button.nav-dragging {
+  position: relative;
+  z-index: 5;
   opacity: 1;
   color: var(--ink);
   font-weight: 600;
   background: color-mix(in srgb, var(--deep) 18%, var(--panel));
   outline: 2px solid var(--deep);
   outline-offset: -2px;
-  box-shadow: inset 3px 0 0 var(--deep);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, .24);
+  will-change: transform;
+  cursor: grabbing;
+}
+/* 操作条（⋯ 更多 / 📌 置顶）长在导航按钮**内部**，会跟着浮起项一起走、还把条目撑宽，
+   拖动期间收掉它。压的是 styles.css 里 `.nav button:hover > .nav-actions` 那条 (0,3,1)。 */
+.nav .plug-seg > button.nav-dragging > .nav-actions {
+  opacity: 0;
+  pointer-events: none;
   transition: none;
 }
-.plug-seg.plugin-drag-live > button[data-plugin-id] { transition: none; }
 
 /* ── v0.102 插件颜色分组 ──
    --gc 由 shell.js 从 pluginGroups.GROUP_COLORS 写在 .plug-group 上。
@@ -4152,23 +4174,9 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   box-shadow: var(--shadow-lg);
 }
 
-.plugin-nav-ghost {
-  position: fixed; left: 0; top: 0; z-index: 1200; box-sizing: border-box;
-  display: flex; align-items: center; gap: 9px; padding: 7px 9px;
-  border: 2px solid var(--deep); border-radius: 9px;
-  background: color-mix(in srgb, var(--deep) 18%, var(--panel)); color: var(--ink);
-  box-shadow: 0 10px 26px rgba(15, 23, 42, .24); pointer-events: none;
-  font: inherit; font-weight: 600; font-size: calc(13px * var(--ui-text-scale));
-  opacity: 1; will-change: transform; transition: none; animation: none; transform-origin: top left;
-}
-.plugin-nav-ghost .ic { width: 30px; height: 30px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
-.plugin-nav-ghost .ic .app-icon { width: 22px; height: 22px; }
-.plugin-nav-ghost .lb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.plugin-nav-ghost .pv-count { margin-left: auto; flex: none; font-size: calc(10px * var(--ui-text-scale)); padding: 1px 7px;
-  border-radius: 8px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
-.plugin-nav-ghost .nav-kbd { display: none; }
-/* 浮起副本不在 .nav 里，操作条会退回无样式的 inline span 把两个图标露出来 */
-.plugin-nav-ghost .nav-actions { display: none; }
+/* v0.197.0 删掉了 `.plugin-nav-ghost`（原来挂在 body 上跟手的克隆副本，六条子规则
+   一起删除）：侧栏拖拽改成原件自己浮起跟手，不再有第二份条目。
+   当前规则见 styles.css 的「v0.197.0 侧栏插件实时拖动排序」那一段。 */
 
 /* Android / 窄屏插件中心：采用播放器设置式的紧凑条目。
    每个插件只保留一个总滑块；点条目本身进入插件。 */

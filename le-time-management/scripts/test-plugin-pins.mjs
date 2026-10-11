@@ -138,8 +138,8 @@ assert.match(css, /\.nav button:hover:has\(> \.nav-actions\) > \.nav-kbd \{ opac
   "操作条占住行尾时快捷键徽标必须让位，否则两行字叠在一起");
 assert.match(css, /\.nav \.nav-act\.on \{ color: var\(--sun\); \}/, "已置顶的 📌 要有激活态");
 assert.match(css, /\.nav \.plug-seg-pinned \{/, "置顶段要有视觉区块（脱离颜色分组后靠它提示「这是置顶区」）");
-assert.match(css, /\.plugin-nav-ghost \.nav-actions \{ display: none; \}/,
-  "拖拽浮起副本要藏掉操作条：ghost 不在 .nav 里，会退回无样式的 inline span 露出图标");
+assert.match(css, /\.nav \.plug-seg > button\.nav-dragging > \.nav-actions \{\s*opacity: 0;/,
+  "拖拽中的条目要藏掉操作条：操作条长在按钮内部，会跟着浮起项一起走、还把条目撑宽");
 assert.match(css, /\.nav \.nav-actions \{ background: var\(--control-bg\); box-shadow: 0 0 0 1px var\(--line\); \}/,
   "≥901px 侧栏操作条必须使用不透明控件底色：遮住徽标，并避免深色纸面底过黑");
 

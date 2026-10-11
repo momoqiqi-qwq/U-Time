@@ -191,9 +191,9 @@ assert.match(shell, /"data-card-id": rec\.id/, "FLIP 需要卡片的稳定 key")
 // 侧栏拖拽：按缩放系数换算（与 toolbarDrag.js 同一口径）
 const drag = between("function attachPluginListDrag", "function attachRailDockDrag");
 assert.match(drag, /st\.scale = getUiScaleFactor\(\) \|\| 1;/);
-assert.match(drag, /translate3d\(\$\{\(st\.x - st\.gx\) \/ st\.scale\}px, \$\{\(st\.y - st\.gy\) \/ st\.scale\}px, 0\)/, "浮起项要按缩放系数跟手");
-assert.match(drag, /st\.ghost\.style\.width = `\$\{rect\.width \/ st\.scale\}px`/, "浮起项尺寸要换回 CSS 像素");
-assert.match(drag, /const dy = \(before\.get\(node\) - node\.getBoundingClientRect\(\)\.top\) \/ st\.scale;/);
+assert.match(drag, /translate3d\(\$\{\(st\.x - st\.startX\) \/ st\.scale\}px, \$\{\(st\.y - st\.startY - st\.drift\) \/ st\.scale\}px, 0\)/, "原件跟手要按缩放系数换算");
+assert.match(drag, /st\.heights = new Map\(st\.order\.map\(\(node\) => \[node, node\.getBoundingClientRect\(\)\.height\]\)\)/, "让位一格的高度要按视口像素缓存");
+assert.match(drag, /const landY = \(st\.tops\.get\(st\.card\) \+ \(st\.y - st\.startY\) - landingTop\(st, slot\)\) \/ st\.scale;/, "落位动画的起点也要按缩放系数换算");
 
 // 折叠钮退出全局按钮反馈（整行宽的钮不能跟着按下缩放、松手旋转）
 assert.match(shell, /class: `\$\{prefix\}-fold`,\s*type: "button",\s*"data-motion": "off",/, "折叠钮必须 data-motion=off");
