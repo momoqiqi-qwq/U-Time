@@ -29,12 +29,74 @@
   const SAIKR_API = "https://apiv4buffer.saikr.com/api/pc/contest/lists";
   const JINGSAI_HOME = "https://www.52jingsai.com/bisai/";
 
-  // 摩课云的 newsType 是点分复合标签（如 202.204.208），按包含关系收敛成两类。
-  // 类型 id 与旧版本一致（n202 / n203 / other），老的持久化筛选值才继续命中。
+  /* ═══════════ 分类体系：三条正交的轴，每轴一张有序封闭表 ═══════════
+     旧版把三种互不相干的语义塞进同一个 `type` 字段 —— 摩课云的「消息性质」、赛氪的
+     「赛事级别」、我要参赛网的「站点分类」。后果就是「类型」那一排 chip 混着三种轴：
+     换个源整排换脸、顺序跟着抓取结果的先后漂移，认不出的统统掉进「其他」，越用越乱。
+
+     现在拆成三条互不干涉的轴，每轴一张**有序**表：表顺序 = chip 顺序 = 关键词命中优先级。
+       kind  性质：这条消息是「什么」  报名 / 榜单 / 公告 / 培训 / 赛事
+       level 级别：办到哪一层          国际 / 全国 / 省级 / 市级 / 校级
+       field 学科：比的是什么          数学建模 / 程序设计 / 电子机械 / 数理化生 /
+                                       经济管理 / 文学外语 / 设计艺术 / 体育公益
+     站点原生标签（newsType / level_name / 「分类」）只当第一手证据，经表归一后落到轴上，
+     不再直接当 chip 用 —— 词表因此封闭且跨源通用，换源不用重学一套分类。
+     认不出的轴一律留空，**不设「其他」占格子**：空标签不渲染、不成 chip。 */
+  const KIND_TABLE = [
+    { id: "signup", label: "报名", kw: /报名|开赛|征集|征稿|招募|参赛|投递|投稿|提交|通道|入口|截止/ },
+    { id: "result", label: "榜单", kw: /榜单|获奖|奖项|名单|结果|公示|成绩|晋级|入围|评审|揭晓|评比/ },
+    { id: "notice", label: "公告", kw: /公告|通知|须知|安排|说明|调整|变更|延期|预告|政策|日程|时间表/ },
+    { id: "train", label: "培训", kw: /培训|讲座|公开课|研讨会|分享会|工作坊|训练营|辅导|答疑|宣讲/ },
+    { id: "race", label: "赛事", kw: /竞赛|大赛|比赛|挑战赛|擂台|赛项|初赛|复赛|决赛|半决赛|选拔/ },
+  ];
+  const LEVEL_TABLE = [
+    { id: "intl", label: "国际", kw: /国际|全球|世界|亚洲|亚太|海外/ },
+    { id: "nation", label: "全国", kw: /全国|国家级|国家|中华|中国|教育部|国赛/ },
+    { id: "prov", label: "省级", kw: /省级|全省|省赛|省大学生|分赛区|赛区|自治区/ },
+    { id: "city", label: "市级", kw: /市级|全市|市赛|地市/ },
+    { id: "school", label: "校级", kw: /校级|校赛|校内|本校|校园|学校|学院|我校/ },
+  ];
+  const FIELD_TABLE = [
+    { id: "math", label: "数学建模", kw: /数学|数模|建模|统计|概率|运筹|精算/ },
+    { id: "code", label: "程序设计", kw: /程序|编程|算法|软件|计算机|信息|人工智能|网络安全|区块链|开源|物联网|大数据|数据|芯片/ },
+    { id: "eng", label: "电子机械", kw: /电子(?!商)|电气|机械|工程|自动化|机器人|航空|航天|能源|材料|建筑|土木|测绘|结构|水利|环境|交通|制造|车辆/ },
+    { id: "sci", label: "数理化生", kw: /物理|化学|生物|医药|医学|药学|护理|生命|健康|农业|食品|地理|地质|天文|心理/ },
+    { id: "biz", label: "经济管理", kw: /经济|金融|财务|管理|商务|电商|营销|会计|审计|创业|创新|职业|就业|物流|贸易|市场|投资|规划/ },
+    { id: "lang", label: "文学外语", kw: /英语|外语|翻译|语文|汉语|文学|写作|演讲|辩论|阅读|诗歌|诗词|哲学|历史|法律|新闻|思政|征文/ },
+    { id: "art", label: "设计艺术", kw: /设计|美术|艺术|绘画|书法|摄影|音乐|舞蹈|动漫|影视|传媒|广告|服装|播音|主持|创意|IP形象/ },
+    { id: "sport", label: "体育公益", kw: /体育|运动|健身|球|田径|游泳|武术|棋|电竞|志愿|公益|支教|环保|慈善|劳动/ },
+  ];
+  const AXES = { kind: KIND_TABLE, level: LEVEL_TABLE, field: FIELD_TABLE };
+  const AXIS_NAME = { kind: "性质", level: "级别", field: "学科" };
+  /** 表内首个命中的 id（表顺序即优先级：越靠前越具体）。命中不了返回空串。 */
+  function pick(table, text) {
+    const s = String(text == null ? "" : text);
+    if (!s) return "";
+    for (const row of table) if (row.kw.test(s)) return row.id;
+    return "";
+  }
+  const axisLabel = (axis, id) => ((AXES[axis] || []).find((r) => r.id === id) || {}).label || "";
+
+  // 赛氪的 level_name 直接就是「级别」轴，站点自造的叫法在这里对齐到同一套 id。
+  const LEVEL_NATIVE = {
+    国际: "intl", 国际级: "intl", 全国性: "nation", 国家级: "nation", 全国: "nation",
+    省级: "prov", 省: "prov", 市级: "city", 市: "city", 校级: "school", 校: "school",
+  };
+  // 摩课云的 newsType 是点分复合标签（如 202.204.208）：202 = 平台通知，203 = 赛事动态。
   const hasType = (t, code) => String(t || "").split(".").includes(code);
-  const TYPE_LABEL = { n202: "平台通知", n203: "赛事动态", other: "其他" };
-  // 动态类型带来源前缀：lv:全国性（赛氪级别）、cat:科技创新（我要参赛网分类）。
-  const typeLabel = (id) => TYPE_LABEL[id] || String(id || "").replace(/^(?:lv|cat):/, "") || "其他";
+
+  /** 一条消息 → 三条轴。站点原生标签（结构化字段 / 站点自己的分类）算硬证据，
+      关键词只在标题与摘要里找 —— 认不出就留空，不硬塞「其他」。
+      学科优先信标题：站点分类常是「公益大赛」这类伞词，标题里的「文学 / 数模」才具体。 */
+  function classify(m) {
+    const nat = (m && m.native) || {};
+    const text = `${(m && m.title) || ""} ${(m && m.snippet) || ""}`;
+    return {
+      kind: nat.kind || pick(KIND_TABLE, text) || "",
+      level: nat.level || pick(LEVEL_TABLE, text) || "",
+      field: pick(FIELD_TABLE, text) || pick(FIELD_TABLE, nat.field) || "",
+    };
+  }
 
   const state = {
     custom: [],           // 用户添加的源 [{ id, name, url }]
@@ -42,7 +104,8 @@
     list: [], page: 1, hasMore: true, fetching: false, fetchedAt: 0, error: null,
     seen: new Set(),
     known: {},            // 源 id -> 上次第 1 页的 id 快照（判「新消息」用）
-    filter: { kw: "", type: "all", month: "all", hideSeen: false, auto: false, showCover: false },
+    // kind / level / field 三条轴各自独立，「all」= 该轴不设限。
+    filter: { kw: "", kind: "all", level: "all", field: "all", month: "all", hideSeen: false, auto: false, showCover: false },
     timer: null, renderedCount: CHUNK,
   };
   let ui = null, paintToken = 0, fetchSeq = 0, dialog = null;
@@ -181,7 +244,8 @@
       return {
         rawId: String(r.newsId),
         title: String(r.newsTitle || "(无标题)"),
-        type: hasType(t, "203") ? "n203" : hasType(t, "202") ? "n202" : "other",
+        // 站点自己标的性质：202 = 平台通知，203 = 赛事动态，其余交给关键词兜底。
+        native: { kind: hasType(t, "203") ? "race" : hasType(t, "202") ? "notice" : "", label: t && t !== "0" ? t : "" },
         time: String(r.publishTime || "").slice(0, 16),
         cover: String(r.newsCover || ""),
         snippet: stripTags(r.newsInfo),
@@ -204,7 +268,8 @@
       return {
         rawId: String(r.contest_id),
         title: clip(String(r.contest_name || "(无标题)"), 120),
-        type: level ? `lv:${level}` : "other",
+        // level_name 就是级别轴的原生值；time_name（正在报名 / 即将截止）是性质轴的第一手证据。
+        native: { level: LEVEL_NATIVE[level] || pick(LEVEL_TABLE, level), kind: pick(KIND_TABLE, String(r.time_name || "")), label: level },
         // 列表时间取报名开始：竞赛是「开了报名」才出现在雷达上的。
         time: fmtTs(r.regist_start_time) || fmtTs(r.contest_start_time),
         deadline,
@@ -242,7 +307,8 @@
       out.push({
         rawId: (url.match(/article-(\d+)-/i) || [])[1] || hashId(url),
         title,
-        type: cat ? `cat:${cat}` : "other",
+        // 站点的「分类」只作学科轴的兜底证据（「公益大赛」这种伞词认不出学科就留空）
+        native: { field: cat, label: cat },
         time: firstDate(infoText),
         snippet: desc,
         cover: img ? absolutize(attrOf(img[0], "src"), base) : "",
@@ -301,7 +367,6 @@
       items.push({
         rawId: clip(toText(tagText(block, ["guid", "id"])), 120) || url || hashId(rawTitle),
         title: rawTitle || "(无标题)",
-        type: "other",
         time: parseDateField(tagText(block, ["pubDate", "published", "updated", "dc:date", "date"])),
         snippet: clip(toText(desc), 160),
         cover: enc ? absolutize(attrOf(enc[0], "url"), baseUrl) : "",
@@ -368,7 +433,6 @@
       items.push({
         rawId: pickField(raw, JSON_FIELD.id) || hashId(`${url}|${title}`),
         title,
-        type: "other",
         time: parseDateField(timeRaw),
         snippet: clip(toText(pickField(raw, JSON_FIELD.snippet)), 160),
         cover: absolutize(pickField(raw, JSON_FIELD.cover), baseUrl),
@@ -427,7 +491,6 @@
       const row = {
         rawId: hashId(key + "|" + tkey),
         title,
-        type: "other",
         time: firstDate(ctxText),
         snippet: clip(ctxText.replace(title, ""), 160),
         cover: img ? absolutize(attrOf(img[0], "src"), base) : "",
@@ -512,14 +575,24 @@
   /* ═══════════ 持久化 ═══════════ */
 
   /* 持久化的筛选值是上次界面点出来的，可能是旧版本写的、也可能是早就命不中的绝对月份，
-     读回来必须先归一遍类型，否则界面上一个 chip 都没高亮却仍在过滤（用户只看到「显示 0 条」）。 */
+     读回来必须先归一遍，否则界面上一个 chip 都没高亮却仍在过滤（用户只看到「显示 0 条」）。 */
   function sanitizeFilter(raw) {
     const f = { ...state.filter, ...(raw && typeof raw === "object" ? raw : {}) };
     f.kw = String(f.kw || "");
-    if (f.type === "202") f.type = "n202";
-    if (f.type === "203") f.type = "n203";
-    // 类型 id 现在有两种来源：内置的 n202/n203/other，以及数据里长出来的 lv:/cat: 前缀值。
-    if (f.type !== "all" && !/^n\d{3}$|^other$|^(?:lv|cat):/.test(String(f.type))) f.type = "all";
+    // 旧版只有一个 `type` 字段、三种语义混着：n202/n203 是性质、lv:xx 是级别、cat:xx 是学科。
+    // 这里按语义拆到三条轴上，老设备升级后原来选的那一项还亮着。
+    const old = String(f.type == null ? "" : f.type);
+    if (old && old !== "all") {
+      if (old === "202" || old === "n202") f.kind = "notice";
+      else if (old === "203" || old === "n203") f.kind = "race";
+      else if (/^lv:/.test(old)) f.level = LEVEL_NATIVE[old.slice(3)] || pick(LEVEL_TABLE, old.slice(3)) || "all";
+      else if (/^cat:/.test(old)) f.field = pick(FIELD_TABLE, old.slice(4)) || "all";
+    }
+    delete f.type;
+    // 三条轴各只认自己表里的 id：连旧版一起，任何写坏的值都不会变成「静默过滤」。
+    for (const axis of ["kind", "level", "field"]) {
+      if (f[axis] !== "all" && !AXES[axis].some((r) => r.id === f[axis])) f[axis] = "all";
+    }
     if (f.month !== "all" && f.month !== "unknown" && !/^\d{4}-\d{2}$/.test(String(f.month))) f.month = "all";
     f.hideSeen = !!f.hideSeen;
     f.showCover = !!f.showCover;
@@ -562,7 +635,10 @@
   function activeFilters() {
     const out = [];
     if (state.filter.kw.trim()) out.push(`关键词「${state.filter.kw.trim()}」`);
-    if (state.filter.type !== "all") out.push(`类型「${typeLabel(state.filter.type)}」`);
+    for (const axis of ["kind", "level", "field"]) {
+      const v = state.filter[axis];
+      if (v !== "all") out.push(`${AXIS_NAME[axis]}「${axisLabel(axis, v)}」`);
+    }
     if (state.filter.month !== "all") out.push(`月份「${monthLabel(state.filter.month)}」`);
     if (state.filter.hideSeen) out.push("只看未读");
     return out;
@@ -597,7 +673,8 @@
     try {
       const { items, hasMore } = await src.fetch(page);
       if (seq !== fetchSeq) return;   // 抓取期间切了源：结果丢掉，别把上一家的条目混进这一家
-      const fresh = items.map((m) => ({ ...m, id: `${src.id}:${m.rawId}`, srcId: src.id }));
+      // 分类统一在入口归一：适配器只管交「原生标签」，三条轴由同一套跨源词表算出来。
+      const fresh = items.map((m) => ({ ...m, ...classify(m), id: `${src.id}:${m.rawId}`, srcId: src.id }));
       if (page === 1) state.list = fresh;
       else {
         const ids = new Set(state.list.map((m) => m.id));
@@ -633,7 +710,11 @@
   function filtered() {
     const kw = state.filter.kw.trim().toLowerCase();
     const rows = state.list.filter((m) => {
-      if (state.filter.type !== "all" && m.type !== state.filter.type) return false;
+      // 三条轴是「与」关系：性质+级别+学科可以叠加，比如「报名 × 全国 × 数学建模」。
+      for (const axis of ["kind", "level", "field"]) {
+        const want = state.filter[axis];
+        if (want !== "all" && (m[axis] || "") !== want) return false;
+      }
       if (state.filter.month !== "all" && monthOf(m) !== state.filter.month) return false;
       if (state.filter.hideSeen && state.seen.has(m.id)) return false;
       if (kw && !(m.title.toLowerCase().includes(kw) || m.snippet.toLowerCase().includes(kw))) return false;
@@ -680,8 +761,14 @@
       .gx-main{flex:1;min-width:0}
       .gx-title{font-size:calc(13.5px * var(--ui-text-scale));font-weight:600;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .gx-meta{display:flex;gap:8px;align-items:center;font-size:calc(11px * var(--ui-text-scale));color:#7E8B94;margin-top:4px;flex-wrap:wrap}
+      /* 三枚 tag 就是三条轴上的值：学科（默认蓝）、性质（.k-*）、级别（.lv 灰）。
+         性质是这张列表里唯一「要动起来」的信号（报名 / 截止），所以按性质分色。 */
       .gx-tag{border-radius:6px;padding:2px 8px;background:#E1EEF3;color:#0F4C5C;font-size:calc(10px * var(--ui-text-scale))}
-      .gx-tag.n{background:#EFE7FB;color:#6C3FB8}
+      .gx-tag.k{background:#EFE7FB;color:#6C3FB8}
+      .gx-tag.k-signup{background:#E4F5EC;color:#1F7A4C}
+      .gx-tag.k-result{background:#FDF0E2;color:#9A5B12}
+      .gx-tag.k-train{background:#EAF1FB;color:#2B5FA8}
+      .gx-tag.lv{background:#F1EFE9;color:#5C6670}
       .gx-dl{color:#B03535;font-weight:600}
       .gx-st{color:#2F8F5B}
       .gx-new{background:#FF6B6B;color:#fff;border-radius:8px;padding:1px 7px;font-size:calc(10px * var(--ui-text-scale))}
@@ -741,15 +828,12 @@
     }));
   }
 
-  /** 当前列表里真实出现过的类型 → chip。正在生效但已命不中的那个也要留在台面上，
-      否则就是「一个都没高亮却仍在过滤」的老坑。 */
-  function typeChips() {
-    const map = new Map();
-    for (const m of state.list) if (m.type) map.set(m.type, typeLabel(m.type));
-    if (state.filter.type !== "all" && !map.has(state.filter.type)) {
-      map.set(state.filter.type, typeLabel(state.filter.type));
-    }
-    return [...map.entries()].map(([id, label]) => ({ id, label }));
+  /** 某条轴的 chip：只列「当前列表里真出现过」的值，顺序永远按表走（不跟抓取结果的先后漂移）；
+      正在生效、但这一批里已命不中的那个也留在台面上，否则就是「一个都没高亮却仍在过滤」的老坑。 */
+  function axisChips(axis) {
+    const seen = new Set(state.list.map((m) => m[axis] || "").filter(Boolean));
+    return AXES[axis].filter((r) => seen.has(r.id) || state.filter[axis] === r.id)
+      .map((r) => ({ id: r.id, label: r.label }));
   }
 
   function paintChips() {
@@ -762,33 +846,49 @@
       setSource(id);
     });
 
-    const types = typeChips();
-    // 只有一个类型（自定义源大多如此）时这一排没有信息量，整行收掉。
-    ui.typeBar.style.display = types.length <= 1 && state.filter.type === "all" ? "none" : "flex";
-    chipRow(ui.chips, [{ id: "all", label: "全部" }, ...types], state.filter.type,
-      (id) => { state.filter.type = id; savePrefs(); paintChips(); paintList(true); });
+    // 一条轴只有一个可选值（或一个都没有）、又没在过滤时，这一行没有信息量，整行收掉
+    // —— 旧版的「其他」桶就是靠「永远至少有一项」把这个收行机会吃掉的。
+    for (const axis of ["kind", "level", "field"]) {
+      const opts = axisChips(axis);
+      const box = ui.axes[axis];
+      box.row.style.display = opts.length < 2 && state.filter[axis] === "all" ? "none" : "flex";
+      chipRow(box.chips, [{ id: "all", label: "全部" }, ...opts], state.filter[axis],
+        (id) => { state.filter[axis] = id; savePrefs(); paintChips(); paintList(true); });
+    }
 
     const months = [...new Set(state.list.map(monthOf))].filter((mo) => mo !== "unknown").sort().reverse();
     if (state.list.some((m) => monthOf(m) === "unknown")) months.push("unknown");
     chipRow(ui.months, [{ id: "all", label: "全部" }, ...months.map((mo) => ({ id: mo, label: monthLabel(mo) }))],
       state.filter.month, (id) => { state.filter.month = id; savePrefs(); paintChips(); paintList(true); });
 
-    ui.filterSummary.textContent = `筛选${state.filter.type !== "all" || state.filter.month !== "all" || state.filter.hideSeen ? " · 已设置" : ""}`;
+    const axesOn = ["kind", "level", "field"].some((a) => state.filter[a] !== "all");
+    ui.filterSummary.textContent = `筛选${axesOn || state.filter.month !== "all" || state.filter.hideSeen ? " · 已设置" : ""}`;
 
     ui.hideSeen.classList.toggle("on", !!state.filter.hideSeen);
     ui.showCover.classList.toggle("on", !!state.filter.showCover);
     ui.auto.classList.toggle("on", !!state.filter.auto);
   }
 
+  /** 卡片上最多三枚标签 = 三条轴各自的取值（性质 / 级别 / 学科），缺的轴不占位。
+      站点自己标的那行原生分类（如「公益大赛」）挂到 meta 的 title 上：不占视觉，但不丢信息。 */
+  function axisTags(m) {
+    const out = [];
+    if (m.kind) out.push(`<span class="gx-tag k k-${esc(m.kind)}">${esc(axisLabel("kind", m.kind))}</span>`);
+    if (m.level) out.push(`<span class="gx-tag lv">${esc(axisLabel("level", m.level))}</span>`);
+    if (m.field) out.push(`<span class="gx-tag">${esc(axisLabel("field", m.field))}</span>`);
+    return out.join("");
+  }
+
   function cardHtml(m) {
     const isNew = !state.seen.has(m.id);
-    const tn = typeLabel(m.type);
+    const natLabel = (m.native && m.native.label) || "";
+    const natTip = natLabel ? ` title="${esc(`站点分类：${natLabel}`)}"` : "";
     return `<div class="gx-card${isNew ? "" : " seen"}" data-id="${esc(m.id)}">
       ${state.filter.showCover && m.cover ? `<img class="gx-cover" loading="lazy" decoding="async" fetchpriority="low" src="${esc(coverSmall(m.cover))}" data-orig="${esc(m.cover)}" onerror="if(this.dataset.retried){this.style.display='none'}else{this.dataset.retried=1;this.src=this.dataset.orig}">` : ""}
       <div class="gx-main">
         <div class="gx-title">${esc(m.title)}</div>
-        <div class="gx-meta">
-          <span class="gx-tag ${tn === "赛事动态" ? "n" : ""}">${esc(tn)}</span>
+        <div class="gx-meta"${natTip}>
+          ${axisTags(m)}
           <span>${esc(m.time)}</span>
           ${m.deadline ? `<span class="gx-dl">截止 ${esc(m.deadline.slice(0, 16))}</span>` : ""}
           ${m.status ? `<span class="gx-st">${esc(m.status)}</span>` : ""}
@@ -931,12 +1031,14 @@
     if (on) state.timer = setInterval(() => fetchList(1), 10 * 60 * 1000);
   }
 
-  /** 换源：清掉上一家的结果与「只在这一家成立」的类型 / 月份筛选，再抓第一页。
-      关键词与「只看未读」是跟人不跟源的，保留。 */
+  /** 换源：清掉上一家的结果，再抓第一页。
+      分类三条轴与关键词、只看未读一律保留 —— 归一之后它们是同一套跨源通用词表，
+      「报名 × 全国」这种组合换了源照样成立；月份是绝对值、只在这一家的数据里成立，清掉。
+      保留的轴若在新源里命不中，chip 会把它留在台面上并高亮、空态也会列出来加一键清除，
+      所以不会出现「一个都没高亮却仍在过滤」。 */
   function setSource(id) {
     if (state.sourceId === id) return;
     state.sourceId = id;
-    state.filter.type = "all";
     state.filter.month = "all";
     state.list = []; state.page = 1; state.hasMore = true; state.error = null; state.fetchedAt = 0;
     state.fetching = false;
@@ -1010,8 +1112,9 @@
       tide.notify(`已删除竞赛源「${(gone && gone.name) || id}」`);
       if (state.sourceId !== id) return;
       // 删的正是当前源：回落到默认的摩课云并重抓，否则界面停在一张空列表上。
+      // 分类轴同理保留（跨源词表），只有绝对月份要清。
       state.sourceId = LEGACY_SRC;
-      state.filter.type = "all"; state.filter.month = "all";
+      state.filter.month = "all";
       state.list = []; state.error = null; state.fetching = false;
       fetchSeq += 1;
       saveSource(); savePrefs();
@@ -1025,7 +1128,7 @@
       if (!/^https?:\/\//i.test(url)) { say("地址要以 http:// 或 https:// 开头", "bad"); return; }
       if (state.custom.some((c) => c.url === url)) { say("这个地址已经添加过了", "bad"); return; }
       // 内置三家已经覆盖的站别再当自定义源加：自定义那一套是通用启发式解析，
-      // 认得出的条目比内置适配器少、也不带类型 / 截止时间，用户以为「加了两次更好」其实更差。
+      // 认得出的条目比内置适配器少、也拿不到站点的原生分类，用户以为「加了两次更好」其实更差。
       const builtinSame = builtinSources().find((s) => hostOf(s.home) === hostOf(url));
       if (builtinSame) { say(`「${builtinSame.name}」已经是内置源，直接在上方「源」那一排点它就行`, "bad"); return; }
       say("正在抓取并识别…");
@@ -1068,7 +1171,9 @@
       </div>
       <details class="plugin-filter-menu"><summary data-filter-summary>筛选</summary><div class="plugin-filter-menu-panel">
         <div class="gx-toolbar"><span class="gx-lab">源</span><div class="gx-chips" data-sources></div></div>
-        <div class="gx-toolbar" data-type-bar><span class="gx-lab">类型</span><div class="gx-chips" data-chips></div></div>
+        <div class="gx-toolbar" data-axis-bar="kind"><span class="gx-lab">性质</span><div class="gx-chips" data-axis-chips="kind"></div></div>
+        <div class="gx-toolbar" data-axis-bar="level"><span class="gx-lab">级别</span><div class="gx-chips" data-axis-chips="level"></div></div>
+        <div class="gx-toolbar" data-axis-bar="field"><span class="gx-lab">学科</span><div class="gx-chips" data-axis-chips="field"></div></div>
         <div class="gx-toolbar"><span class="gx-lab">月份</span><div class="gx-chips" data-months></div></div>
         <label class="gx-toggle hide-seen"><i></i>只看未读</label>
       </div></details>
@@ -1082,8 +1187,11 @@
       wrap,
       status: wrap.querySelector(".gx-status"),
       sources: wrap.querySelector("[data-sources]"),
-      typeBar: wrap.querySelector("[data-type-bar]"),
-      chips: wrap.querySelector("[data-chips]"),
+      axes: {
+        kind: { row: wrap.querySelector('[data-axis-bar="kind"]'), chips: wrap.querySelector('[data-axis-chips="kind"]') },
+        level: { row: wrap.querySelector('[data-axis-bar="level"]'), chips: wrap.querySelector('[data-axis-chips="level"]') },
+        field: { row: wrap.querySelector('[data-axis-bar="field"]'), chips: wrap.querySelector('[data-axis-chips="field"]') },
+      },
       months: wrap.querySelector("[data-months]"),
       filterSummary: wrap.querySelector("[data-filter-summary]"),
       list: wrap.querySelector("[data-list]"),
@@ -1129,7 +1237,7 @@
 
     ui.list.addEventListener("click", (e) => {
       if (e.target.closest("[data-clear-filters]")) {
-        state.filter = { ...state.filter, kw: "", type: "all", month: "all", hideSeen: false };
+        state.filter = { ...state.filter, kw: "", kind: "all", level: "all", field: "all", month: "all", hideSeen: false };
         ui.kw.value = "";
         savePrefs();
         paintAll(true);

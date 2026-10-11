@@ -1999,13 +1999,25 @@
   let jwSid = null;                 // 已经落上教务 authorization 的那个会话 id
   const jwLive = () => !!jwSid && jwSid === state.sid;
   let jwBootPromise = null;         // 同时挂两个教务视图时合流，别各跑一遍验证码登录
+  /* 一轮「刷新」= 一次 jwEnsureKeys。一个教务视图往往有多个 key（选课 = 选课任务 + 选课结果，
+     请假 = 请假记录 + 可请假课次），而 jwEnsureKeys 是串行 for 循环、每个 key 的 jeLoad 都要
+     先过一次 ensureJwLogin —— jwBootPromise 只合流「并发」，串行的后一个 key 拿不到合流，
+     于是登录态失效时会连着跑 N 轮完整登录（每轮内部还按 loginRetries 重试），
+     白刷 N×3 次验证码识别，还把学校侧的登录频次推上去。所以同一轮里登录只判定一次：
+     本轮已经判失败，后续 key 直接复用结论，等下一次「刷新」/「重新登录」再重新判定。 */
+  let jwRound = 0;                  // 每轮刷新自增，用来作废上一轮的判定
+  let jwRoundLoginFailed = -1;      // 本轮登录已经判定失败（-1 = 还没有判定过）
 
   /* 教务取数前的统一引导：恢复密钥库 Cookie → 换票建教务会话 → 不行就用保存的密码
      走验证码自动识别 → 再换一次票。登录代码全插件只有这一份，从侧栏点进哪个警大
      视图都一样，不需要先绕去「警大通知」手工登录。 */
   function ensureJwLogin(force = false) {
     if (!force && jwLive()) return Promise.resolve(true);
+    // 只记忆「失败」不记忆「成功」：记住成功会把 jeLoad 里 ensureJwSession(true) 之后的
+    // 兜底登录短路掉，登录态中途失效时错误会退化成「教务数据解析失败」而不是让人去重新登录
+    if (jwRoundLoginFailed === jwRound) return Promise.resolve(false);
     if (!force && jwBootPromise) return jwBootPromise;
+    const round = jwRound;
     const p = (async () => {
       await loadPrefs();
       if (!state.sid) await restoreCookies();
@@ -2015,7 +2027,8 @@
     jwBootPromise = p;
     // 只合流并发、不缓存结果：点「刷新」时该再试一次，别拿着上次的 false 一直不回本
     const clear = () => { if (jwBootPromise === p) jwBootPromise = null; };
-    p.then(clear, clear);
+    const settle = (ok) => { if (!ok) jwRoundLoginFailed = round; clear(); };
+    p.then(() => settle(true), () => settle(false));
     return p;
   }
   const jwState = {
@@ -2177,6 +2190,16 @@
   }
 
   async function jwEnsureKeys(keys, force = false) {
+    jwRound++;                      // 新一轮刷新：作废上一轮的登录失败结论，允许重新判定
+    // 登录在一轮刷新开始时只判定一次，放在 loadJwTerm 之前（这样 loadJwTerm 里那次
+    // ensureJwLogin() 会被 jwLive() 直接短路，不会再多跑一轮）。判定失败就当场收工：
+    // 这一轮所有 key 都是同一个原因，没必要逐个再撞一次登录。
+    if (!await ensureJwLogin(force)) {
+      const reason = loginHint?.msg || "警大统一身份认证未建立：请在下方完成登录后重试";
+      for (const key of keys) if (!jwState.loading[key]) jwState.error[key] = reason;
+      jwPaint();
+      return;
+    }
     await loadJwTerm(force);
     for (const key of keys) {
       if (jwState.loading[key]) continue;
@@ -3007,7 +3030,7 @@
       `<button type="button" class="pp-chip${cardState.mode === mode ? " on" : ""}" data-card-mode="${mode}">${label}</button>`).join("");
     const bars = items.length ? items.slice(0, 18).map((it) =>
       `<div class="yk-bar"><span>${esc(cardPeriodLabel(it.key, cardState.mode))}</span><i style="width:${Math.max(4, Math.round(it.amount / max * 100))}%"></i><span>${esc(cardMoney(it.amount))}</span></div>`).join("")
-      : `<div class="yk-empty">暂未从一卡通账单识别到${kindLabels[cardState.kind] || "充值"}记录。连接校园网后点“同步账单”再试。</div>`;
+      : `<div class="yk-empty">暂未从一卡通账单识别到${kindLabels[cardState.kind] || "充值"}记录。连接校园网后重新进入本视图会自动再同步一次。</div>`;
     const rows = cardState.rows.slice(0, 16).map((r) => `<div class="yk-ledger-row${r.kind === "out" ? " out" : ""}" data-card-row="${esc(r.id)}">
       <span>${esc(r.date)}</span><b>${r.kind === "out" ? "-" : "+"}${esc(cardMoney(r.amount))}</b><span>${esc(r.note || kindLabels[r.kind === "out" ? "out" : "in"])}</span>
     </div>`).join("") || `<div class="yk-empty">暂无平台流水记录。本页不再需要手工“记一笔”。</div>`;
@@ -3028,7 +3051,7 @@
     if (box) {
       box.innerHTML = cardStatsHtml();
       try { cardAveragePanel?.render(box.querySelector("[data-card-averages]"), cardState.rows, { syncedAt: cardState.syncedAt, partial: cardState.billsPartial }); }
-      catch { const panel=box.querySelector("[data-card-averages]"); if(panel)panel.textContent="日均统计暂不可用，不影响账单和工具栏操作"; }
+      catch { const panel=box.querySelector("[data-card-averages]"); if(panel)panel.textContent="日均统计暂不可用，不影响账单与流水统计"; }
     }
   }
   function cardPaintLogin(root) {
@@ -3235,24 +3258,9 @@
     return `<div class="${sideShellClass()}">
       <aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}
       <div class="pp-main"><div class="pp-wrap">
-      <div class="jw-kicker">校 园 服 务 · 一 卡 通</div>
-      <div class="jw-head"><h3>一卡通</h3><span>慧新易校 / 新中新 H5</span></div>
-      <div class="pp-toolbar">
-        <button type="button" class="pp-btn pri" data-card-summary>统计</button>
-        <button type="button" class="pp-btn" data-card-billing>账单</button>
-        <button type="button" class="pp-btn" data-card-sync>同步账单</button>
-        <button type="button" class="pp-btn" data-card-home>首页</button>
-        <button type="button" class="pp-btn" data-card-recharge>充值</button>
-        <button type="button" class="pp-btn" data-card-center>账户中心</button>
-        <button type="button" class="pp-btn" data-card-reload>刷新</button>
-        <button type="button" class="pp-btn" data-card-open>应用内新窗打开</button>
-        <button type="button" class="pp-btn" data-card-back>回通知</button>
-        <span style="flex:1"></span>
-      </div>
-      <div class="jw-tip">U-Time 会自动登录一卡通并读取平台账单，总充值、已花费及年/月/日统计均来自平台流水；当前余额读平台实时值，校园卡账户与电子账户合并计算。首次登录成功后凭据加密保存在本机，下次无需再次输入。</div>
       <div class="yk-status" data-card-status role="status" aria-live="polite">正在恢复一卡通登录信息…</div>
       <div data-card-login-box></div>
-      <div data-card-web hidden><p class="jw-tip">当前为官方网页。若空白或未授权，请用“应用内新窗打开”完成官方登录；点击“统计”返回本地流水与日均统计。</p><div class="yk-frame-shell"><iframe class="yk-frame" data-card-frame src="about:blank" title="一卡通官方网页"></iframe></div></div>
+      <div data-card-web hidden><p class="jw-tip">当前为官方网页。若空白或未授权，请在浏览器中完成官方登录。</p><div class="yk-frame-shell"><iframe class="yk-frame" data-card-frame src="about:blank" title="一卡通官方网页"></iframe></div></div>
       <div data-card-stats>${cardStatsHtml()}</div>
       <div style="height:30px"></div>
       </div></div>
@@ -3280,19 +3288,19 @@
     };
     const showWeb = (name, url) => {
       if (!alive) return;
-      if (!frame || !shell) { message('内嵌网页容器不可用，请使用“应用内新窗打开”', true); return; }
+      if (!frame || !shell) { message('内嵌网页容器不可用，请在浏览器中打开官方页面', true); return; }
       currentUrl = url; selectPage(name); clearFrameTimer();
-      message('正在载入官方页面；若出现空白或未授权，请使用“应用内新窗打开”在官方页面登录。');
+      message('正在载入官方页面；若出现空白或未授权，请在浏览器中完成官方登录。');
       frame.src = cardAuthedUrl(url);
-      frameTimer = setTimeout(() => { if (alive && page !== 'summary') message('网页仍未确认载入，可能受网络或内嵌限制影响；请使用“应用内新窗打开”', true); }, 15000);
+      frameTimer = setTimeout(() => { if (alive && page !== 'summary') message('网页仍未确认载入，可能受网络或内嵌限制影响；请在浏览器中打开官方页面', true); }, 15000);
     };
     const onFrameLoad = () => {
       if (!alive || page === 'summary') return;
       clearFrameTimer();
       // 跨域 iframe 的 load 不能证明网站可用或认证成功（拦截页也可能触发）。
-      message('官方网页已触发载入；登录状态以网页为准。若空白、未授权或无法操作，请改用应用内新窗。');
+      message('官方网页已触发载入；登录状态以网页为准。若空白、未授权或无法操作，请改用浏览器打开。');
     };
-    const onFrameError = () => { clearFrameTimer(); if (page !== 'summary') message('官方页面未能载入，请检查网络或使用“应用内新窗打开”', true); };
+    const onFrameError = () => { clearFrameTimer(); if (page !== 'summary') message('官方页面未能载入，请检查网络或改用浏览器打开', true); };
     const setSyncBusy = busy => {
       for (const key of ['sync','login']) { const button=el.querySelector(`[data-card-${key}]`); if(button){button.disabled=busy;button.setAttribute('aria-busy',String(busy));} }
       const button=el.querySelector('[data-card-sync]');if(button)button.textContent=busy?'正在同步…':'同步账单';
@@ -3322,7 +3330,7 @@
       try {
         // 返回和页面切换不依赖网络、缓存或可选的日均模块。
         if (name==='back') { navSequence++; tide.util.navigate('plug:cppu-notify'); return; }
-        if (name==='summary') { navSequence++; selectPage('summary'); cardPaintStats(el); message('已切回本地账单与统计；需要最新数据请点“同步账单”'); return; }
+        if (name==='summary') { navSequence++; selectPage('summary'); cardPaintStats(el); message('已切回本地账单与统计。'); return; }
         if (name==='home') { navSequence++; showWeb('home',CARD_HOME); return; }
         if (name==='open') {
           // 必须在点击栈内调用，Web 调试环境才不会因异步等待被拦截弹窗。
@@ -3346,7 +3354,7 @@
           await tide.vault?.del?.(CARD_VAULT_KEY);cardPaintLogin(el);message('请输入新账号与密码，然后点击“登录并自动同步”');return;
         }
         if(name==='refresh'){
-          // 警告横幅整条可点（v0.190.0）：等同工具栏「同步账单」，重新登录并重拉该视图的全部数据
+          // 警告横幅整条可点（v0.190.0）：重新登录并重拉本视图的全部数据
           cardState.error=''; cardState.balanceError=''; selectPage('summary'); cardPaintStats(el);
           captureCredentials();
           if(!cardState.username||!cardState.password){cardPaintLogin(el);message('请先填写一卡通学/工号和密码，再点击“登录并自动同步”',true);el.querySelector('[data-card-user]')?.focus();return;}
@@ -3362,11 +3370,11 @@
           if(syncFlight)await syncFlight;
           if(!alive||sequence!==navSequence)return;
           if(!cardState.accessToken||cardState.expiresAt<=Date.now()){
-            if(!cardState.username||!cardState.password){message('请先登录一卡通，再进入账单、充值或账户中心；也可在应用内新窗完成官方登录。',true);el.querySelector('[data-card-user]')?.focus();return;}
+            if(!cardState.username||!cardState.password){message('请先登录一卡通，再进入账单、充值或账户中心。',true);el.querySelector('[data-card-user]')?.focus();return;}
             await sync(true);
           }
           if(!alive||sequence!==navSequence)return;
-          if(!cardState.accessToken||cardState.expiresAt<=Date.now()){message('登录尚未成功，未打开受保护页面；请检查账号或使用应用内新窗',true);return;}
+          if(!cardState.accessToken||cardState.expiresAt<=Date.now()){message('登录尚未成功，未打开受保护页面；请检查账号与密码',true);return;}
           showWeb(name,name==='billing'?CARD_BILLING:name==='recharge'?CARD_RECHARGE:CARD_CENTER);
         }
       } catch { message('操作未完成，请检查网络、客户端与登录状态后重试；网页版请允许打开弹窗。',true); }
@@ -3383,7 +3391,7 @@
         cardState.billsPartial=!!cache?.billsPartial||(cache?.rows?.length||0)>=5000;
         cardState.balance=Number.isFinite(Number(cache?.balance))&&cache?.balance!=null?Number(cache.balance):null;
         cardState.balanceAt=Number(cache?.balanceAt||0);
-      } catch { message('本地账单缓存读取失败，可填写账号后手动同步；工具栏仍可使用。',true); }
+      } catch { message('本地账单缓存读取失败，可填写账号后重新登录同步。',true); }
       try { if(alive)await cardRestoreSecret(); } catch { message('登录信息恢复失败，请手动填写一卡通账号和密码',true); }
       if(!alive)return;
       cardPaintLogin(el);cardPaintStats(el);
@@ -3391,10 +3399,10 @@
     ready.then(()=>{
       if(!alive)return;
       if(cardState.username&&cardState.password)return sync();
-      message('首次使用请填写一卡通学/工号和密码；首页、应用内新窗和回通知无需等待登录。');
-    }).catch(()=>message('一卡通初始化未完成，请手动同步或重新打开本页',true));
+      message('首次使用请填写一卡通学/工号和密码，登录后会自动同步平台账单。');
+    }).catch(()=>message('一卡通初始化未完成，请手动登录或重新打开本页',true));
     Promise.resolve().then(()=>{if(alive){bindSide(el);return loadLinkMeta(el);}}).catch(()=>{});
-    Promise.resolve().then(()=>{if(alive)return loadCardAveragePanel(el);}).catch(()=>message('日均模块未能载入，工具栏和账单操作仍可使用',true));
+    Promise.resolve().then(()=>{if(alive)return loadCardAveragePanel(el);}).catch(()=>message('日均模块未能载入，账单与流水统计不受影响',true));
     const dispose=()=>{alive=false;navSequence++;clearFrameTimer();el.removeEventListener('click',click);frame?.removeEventListener('load',onFrameLoad);frame?.removeEventListener('error',onFrameError);if(el._cardViewDispose===dispose)delete el._cardViewDispose;};
     el._cardViewDispose=dispose;return dispose;
   }

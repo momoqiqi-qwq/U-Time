@@ -716,11 +716,14 @@
 /* 思考强度按钮（v0.175.0）自己的钩子。别让它复挂 .aichat-think —— 那个类是「正在思考…」
    三个跳动圆点（见下方 .aichat-think i 的 animation），复用后按钮里将来塞个 <i> 就会冒点。 */
 .aichat-effort{display:inline-flex;gap:5px;align-items:center}
-.aichat-log{flex:1;min-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:2px 0}
+.aichat-log{flex:1;min-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:2px 2px 0}
+/* 消息流那一块（可伸缩）+ 它和输入区之间的分区。类名刻意不叫 .aichat-body —— 那个名字早被
+   「单条消息的气泡容器」（.aichat-row > .aichat-body）占了，同名会把 gap/column 一并套到气泡上。 */
+.aichat-flow{display:flex;flex-direction:column;gap:8px;min-height:0;flex:1}
 .aichat-jump{align-self:center;flex:none;height:26px;padding:0 12px;border-radius:999px;border:1px solid var(--line,#E4DFD6);background:var(--panel,#fff);color:var(--ink-2,#7E8B94);font-family:inherit;font-size:calc(11px * var(--ui-text-scale));cursor:pointer}
 .aichat-jump:hover{border-color:var(--deep,#0F4C5C);color:var(--deep,#0F4C5C)}
-.aichat-feed{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A9B2BA);flex:none}
-.aichat-empty{border:1px dashed var(--line,#E4DFD6);border-radius:14px;padding:18px;background:var(--panel,#fff)}
+.aichat-feed{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A9B2BA);flex:1;min-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aichat-empty{border:1px solid var(--line,#E4DFD6);border-radius:14px;padding:18px;background:var(--panel,#fff)}
 .aichat-empty b{display:block;font-size:calc(13.5px * var(--ui-text-scale));margin-bottom:6px}
 .aichat-empty p{margin:0 0 10px;font-size:calc(12px * var(--ui-text-scale));line-height:1.7;color:var(--ink-2,#7E8B94)}
 .aichat-row{display:flex;align-items:flex-start;gap:8px}
@@ -766,9 +769,11 @@
 .aichat-btn:hover{border-color:var(--deep,#0F4C5C);color:var(--deep,#0F4C5C)}
 .aichat-btn.pri{background:var(--deep,#0F4C5C);border-color:var(--deep,#0F4C5C);color:var(--on-deep,#fff);font-weight:600}
 .aichat-btn:disabled{opacity:.45;cursor:default}
-.aichat-bar{display:flex;gap:8px;align-items:flex-end;flex:none;padding-top:2px}
-.aichat-input{flex:1;min-width:0;resize:none;max-height:130px;min-height:40px;border:1px solid var(--line,#E4DFD6);border-radius:12px;padding:10px 12px;background:var(--panel,#fff);color:var(--ink,#22303A);font:inherit;font-size:calc(12.5px * var(--ui-text-scale));line-height:1.5}
+/* 输入区的长相只在下面「深色外壳」那一段定一次（那边一条规则写全）。这里不再留第二份
+   .aichat-bar —— 两份同特异性的定义谁后谁赢，改一份忘了另一份就是「改了没反应」的经典坑。 */
+.aichat-input{flex:1;min-width:0;resize:none;max-height:130px;min-height:40px;border:1px solid var(--line,#E4DFD6);border-radius:12px;padding:10px 12px;background:var(--paper,#F7F6F2);color:var(--ink,#22303A);font:inherit;font-size:calc(12.5px * var(--ui-text-scale));line-height:1.5}
 .aichat-input:focus{outline:none;border-color:var(--deep,#0F4C5C)}
+.aichat-input:disabled{opacity:.6;cursor:default}
 .aichat-id{flex:none;border:1px solid var(--line,#E4DFD6);border-radius:14px;background:var(--panel,#fff);padding:12px 13px;display:flex;flex-direction:column;gap:10px}
 .aichat-id-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .aichat-id-name{flex:1 1 150px;min-width:0;display:flex;align-items:center;gap:8px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
@@ -788,6 +793,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
 .aichat::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.55;background-image:radial-gradient(circle at 17% 15%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 74% 33%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 85% 56%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 32% 18%,#bb80d2 0 .7px,transparent 1.2px),radial-gradient(circle at 66% 26%,#dc9bea 0 .8px,transparent 1.3px),radial-gradient(circle at 73% 90%,#e9c9ff 0 1px,transparent 1.5px);background-size:100% 100%,100% 100%,100% 100%,193px 157px,271px 211px,100% 100%}
 .aichat [hidden]{display:none!important}
 .aichat-head{flex:none;gap:10px;min-height:34px}
+.aichat-log{padding:10px 2px 0}
 .aichat-menu{position:relative;z-index:6;width:32px;height:32px;border:0;background:transparent;color:#e0cfea;padding:0;cursor:pointer;margin-right:auto;transition:transform 500ms cubic-bezier(.22,1,.36,1)}
 .aichat-menu::before{content:"";position:absolute;inset:-18px;pointer-events:none;border-radius:50%;background:radial-gradient(circle,#cfa8dd33,transparent 68%)}
 .aichat-menu span{position:absolute;left:7px;top:15px;width:18px;height:2px;border-radius:2px;background:currentColor;transition:transform 500ms cubic-bezier(.22,1,.36,1),width 500ms cubic-bezier(.22,1,.36,1),left 500ms cubic-bezier(.22,1,.36,1),opacity 350ms}
@@ -817,21 +823,41 @@ button.aichat-avatar{padding:0;cursor:pointer}
 .aichat-history-empty{margin:22px 0;text-align:center;color:#bba8cf;font-size:calc(12px * var(--ui-text-scale,1))}
 .aichat-chip{background:#ffffff0a;border-color:#c9acd329;color:#e1d2ef;padding:6px 12px}
 .aichat-chip.on{background:#c9a6d438;border-color:#d6b8e16b;color:#fff}
-.aichat-log{padding:8px 0;min-height:0;scrollbar-width:thin;scrollbar-color:#ae8cbb66 transparent}
+.aichat-log{padding:8px 2px 0;min-height:0;scrollbar-width:thin;scrollbar-color:#ae8cbb66 transparent}
 .aichat.is-empty .aichat-log{justify-content:safe flex-end;overflow:auto;padding-bottom:0}
-.aichat-empty{flex:none;border:0;padding:0;background:none;margin-bottom:0}
+/* 空态在深色外壳里也得是一块看得见的「欢迎卡」：以前这里是 border:0/padding:0/background:none，
+   整块被抹平后空对话就只剩一片紫底，用户看到的正是「一个空框」。 */
+.aichat-empty{flex:none;border:1px solid #b08fc045;border-radius:16px;padding:20px 22px;background:#2b243ba6;margin-bottom:0}
 .aichat-empty b{font-size:calc(clamp(25px,4.7vw,38px) * var(--ui-text-scale,1));line-height:1.4;letter-spacing:.01em;margin-bottom:10px;font-weight:700;color:#fcf4ff}
 .aichat-empty p{font-size:calc(16px * var(--ui-text-scale,1));line-height:1.6;margin:0;color:#c0abd0}
 .aichat-empty .aichat-btn{margin-top:12px}
-/* 输入框（本视图的「对话框」）：软阴影照 NepheleDialog（rgba(0,0,0,.15) / offset 8），
-   另加一层紫色外发光；聚焦时那层光呼吸（Nephele SettingChipGroup 的 pulse 0.62↔0.38、
-   1500ms InOutSine，这里按 box-shadow 的模糊半径映射）。 */
-.aichat-bar{display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:18px 20px 12px;border:2px solid #887092;border-radius:23px;background:#272236ed;box-shadow:0 7px 22px #00000026,0 0 18px #cfa8dd24;transition:border-color .15s,box-shadow .3s}
+/* 输入区（本视图的「对话框」本体）：不再往对话框里套第二个带边框的小框 —— 外壳与输入区之间
+   不留第二层圆角边界，只用一条内嵌发丝线把「说」的区域从消息流里分出来；聚焦时那条线亮起并
+   按 Nephele SettingChipGroup 的 pulse（0.62↔0.38、1500ms InOutSine）呼吸。
+   .aichat-bar 这个类名与 :focus-within 的写法是宿主测试（scripts/test-ai-chat.mjs）认的钩子，
+   改名要同步改测试，所以长相换了、名字保留。 */
+.aichat-bar{display:flex;flex-direction:column;align-items:stretch;gap:12px;flex:none;padding:16px 2px 2px;border:0;border-radius:0;border-top:1px solid #c9acd32e;background:transparent;box-shadow:none;transition:border-color .3s}
 .aichat-bar:focus-within{border-color:#b99cc7;animation:aichat-bar-glow 3s ease-in-out infinite alternate}
-@keyframes aichat-bar-glow{from{border-color:#b99cc7;box-shadow:0 7px 22px #00000026,0 0 18px #cfa8dd40}to{border-color:#cdb0d8;box-shadow:0 7px 22px #00000026,0 0 32px #d9b6ea70}}
+@keyframes aichat-bar-glow{from{border-color:#b99cc7;box-shadow:0 0 0 1px #b99cc729,0 0 16px #cfa8dd33}to{border-color:#cdb0d8;box-shadow:0 0 0 1px #cdb0d847,0 0 28px #d9b6ea59}}
 .aichat-input{width:100%;box-sizing:border-box;flex:none;border:0;border-radius:0;padding:3px 0;min-height:42px;background:transparent;font-size:calc(15px * var(--ui-text-scale,1));color:#f5eaff;line-height:1.6}
 .aichat-input::placeholder{color:#bca9cf;opacity:1}
-.aichat-input:focus{outline:none}
+/* 为什么这里要写一长串 :not() —— 宿主 src/styles.css 有一条全局 !important 规则
+   （input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea
+   {background:var(--control-bg)!important;border-radius:8px!important}，特异性 (0,3,1)），
+   它把页面里每个 textarea 都刷成「实心底 + 8px 圆角」的独立控件。插件样式虽然注入在 <head>
+   末尾，但**两边都带 !important 时比的是特异性、不是先后**（宿主自己在 .market-search 那条
+   注释里记过这个坑，v0.176.0 真机探针实测），所以光写 background:transparent 拿不回来 ——
+   结果就是对话框里那颗输入框自带一个实心小圆角框，正是用户说的「框里再套一个小框」。
+   下面这条把选择器抬到 (0,6,1) 才压得住，让整个对话框本体就是输入面。
+   同理 :focus-visible 的 outline 也会在输入框上再画一圈（宿主 styles.css:255），一并去掉，
+   聚焦反馈交给 .aichat-bar:focus-within 的呼吸光。 */
+.aichat .aichat-bar textarea.aichat-input.aichat-input:not([type="checkbox"]):not([type="radio"]):not([type="range"]){
+  background:transparent !important;
+  border-color:transparent !important;
+  border-radius:0 !important;
+  box-shadow:none !important;
+  outline:none !important;
+}
 .aichat-compose-tools{display:flex;align-items:center;gap:12px;min-width:0}
 .aichat-personalize{display:grid;place-items:center;flex:none;width:30px;height:30px;border:1px solid #a588b03d;border-radius:9px;color:#c8b2d8;background:transparent;cursor:pointer}
 .aichat-personalize svg{width:18px;height:18px}
@@ -839,6 +865,8 @@ button.aichat-avatar{padding:0;cursor:pointer}
 .aichat-send{display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:50%;padding:0;background:#cfa8dd;color:#fff;flex:none;cursor:pointer}
 .aichat-send svg{width:21px;height:21px}
 .aichat-send:disabled{opacity:.45;cursor:default}
+.aichat-send.is-blocked{background:#8d7b97}
+.aichat-send.is-blocked:hover{background:#a28fae}
 .aichat-shortcuts{position:relative;isolation:isolate;display:flex;flex:none;gap:3px;padding:3px;background:#c1a8ca15;border:1px solid #c6acd51f;border-radius:13px;overflow-x:auto;scrollbar-width:none;box-shadow:inset 0 1px 4px #1c132833}
 .aichat-shortcuts button{position:relative;z-index:1;flex:1 0 auto;font:inherit;font-size:calc(11.5px * var(--ui-text-scale,1));padding:6px 12px;color:#ddd0ef;border:1px solid transparent;border-radius:10px;background:transparent;cursor:pointer;transition:color .3s,background .25s,border-color .25s,box-shadow .25s}
 .aichat-shortcuts button:hover{background:#bf9ecd4d;border-color:#c5a5d366;box-shadow:0 0 12px #cfaae42e;color:#fff}
@@ -849,19 +877,20 @@ button.aichat-avatar{padding:0;cursor:pointer}
    光块在场时被选中的按钮不能再画第二层底，否则两层叠加会糊成实心块。 */
 .aichat-shortcuts .selection-glow{border-radius:10px;background:#c9a6d445;border:1px solid #d6b8e199;box-shadow:0 0 14px #cfaae459,0 0 3px #e6d0f22e}
 .aichat-shortcuts.has-selection-glow button.on{background:transparent;border-color:transparent;box-shadow:none;color:#fff}
-.aichat-feed{font-size:calc(10.5px * var(--ui-text-scale,1));opacity:.85}
+.aichat-feed{font-size:calc(10.5px * var(--ui-text-scale,1));opacity:.85;flex:1;min-width:0}
 .aichat button:focus-visible{outline:2px solid #ead3f4;outline-offset:3px}
+.aichat-menu:focus-visible{outline:2px solid #ead3f4;outline-offset:3px;border-radius:8px}
 .aichat-msg.ai{background:#2b243bd9}
 .aichat-msg.me{background:#856294;color:#fff}
 .aichat-id{max-height:40%;overflow:auto}
-@media (max-width:640px){.aichat-row.me{max-width:90%}.aichat{gap:8px;padding:16px 18px 24px;border-radius:14px}.aichat-empty b{font-size:calc(26px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(13px * var(--ui-text-scale,1))}.aichat-bar{padding:14px;border-radius:20px}.aichat-head{gap:6px}.aichat-chip{font-size:calc(10px * var(--ui-text-scale,1));padding:5px 8px}.aichat-tools{width:100%}.aichat-model{max-width:68%;padding:6px 10px}}
-@media (max-height:480px){.aichat{padding-top:12px;padding-bottom:16px}.aichat-empty b{font-size:calc(23px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(12px * var(--ui-text-scale,1))}.aichat-feed{display:none}}
+@media (max-width:640px){.aichat-row.me{max-width:90%}.aichat{gap:8px;padding:16px 18px 14px;border-radius:14px}.aichat-empty b{font-size:calc(26px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(13px * var(--ui-text-scale,1))}.aichat-empty{padding:16px 16px}.aichat-bar{padding:12px 0 0}.aichat-head{gap:6px}.aichat-chip{font-size:calc(10px * var(--ui-text-scale,1));padding:5px 8px}.aichat-feed{display:none}.aichat-tools{width:100%}.aichat-model{max-width:68%;padding:6px 10px}}
+@media (max-height:480px){.aichat{padding-top:12px;padding-bottom:10px}.aichat-empty b{font-size:calc(23px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(12px * var(--ui-text-scale,1))}.aichat-feed{display:none}.aichat-empty{padding:12px 14px}}
 @media (max-width:640px){.aichat-sidebar{left:18px;top:60px;width:min(320px,calc(100% - 36px));max-height:calc(100% - 84px)}}
 @media (max-height:480px){.aichat-sidebar{top:56px;max-height:calc(100% - 72px);gap:8px;padding:12px}}
-@media (prefers-reduced-motion:reduce){.aichat-bar,.aichat-menu,.aichat-menu span,.aichat-sidebar,.aichat-backdrop,.aichat-session,.aichat-shortcuts button,.aichat-shortcuts .selection-glow{transition:none}.aichat,.aichat-bar,.aichat-think i{animation:none}}
+@media (prefers-reduced-motion:reduce){.aichat-bar,.aichat-menu,.aichat-menu span,.aichat-sidebar,.aichat-backdrop,.aichat-session,.aichat-shortcuts button,.aichat-shortcuts .selection-glow{transition:none}.aichat,.aichat-menu,.aichat-bar,.aichat-think i{animation:none}}
 /* 应用内「减少动效」开关（data-ui-motion=reduced）与系统开关同级：入场、呼吸光都要停。
    光块的位置换算本身不看动效开关 —— selectionGlow 在 reducedMotion() 下直接跳到终态。 */
-:root[data-ui-motion="reduced"] .aichat,:root[data-ui-motion="reduced"] .aichat-bar{animation:none}
+:root[data-ui-motion="reduced"] .aichat,:root[data-ui-motion="reduced"] .aichat-menu,:root[data-ui-motion="reduced"] .aichat-bar{animation:none}
 :root[data-ui-motion="reduced"] .aichat-shortcuts .selection-glow{transition:none}
 `;
     document.head.append(st);
@@ -979,8 +1008,10 @@ button.aichat-avatar{padding:0;cursor:pointer}
 
   function paintBusy() {
     if (!ui) return;
-    ui.send.disabled = busy || !configured;
+    // 未配置时发送键**不置灰**：点得动才有回音（会弹「去配置」），置灰等于又回到「点了没反应」。
+    ui.send.disabled = busy;
     ui.input.disabled = busy;
+    ui.send.classList.toggle("is-blocked", !configured);
     paintSessions();
     renderThread();
   }
@@ -1034,6 +1065,12 @@ button.aichat-avatar{padding:0;cursor:pointer}
     loaded = true;
   }
 
+  /** 输入框的引导语要跟着「有没有模型」变：未配置时输入框本身就要说明点发送会发生什么。 */
+  function paintPlaceholder() {
+    if (!ui?.input) return;
+    ui.input.placeholder = configured ? "帮我把这周的事理一遍" : "还没配模型 —— 先写也行，点发送会带你去配置";
+  }
+
   /** 头部那行「已收集 N 条」：让用户知道 AI 看得见的不只是自己的任务清单。 */
   function paintFeed() {
     if (!ui || !ui.feed) return;
@@ -1051,6 +1088,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
     if (st) { configured = !!st.configured; modelLabel = st.model || ""; }
     if (ui) {
       ui.model.textContent = configured ? (modelLabel || "已配置模型") : "未配置模型";
+      paintPlaceholder();
       paintBusy();
     }
   }
@@ -1068,6 +1106,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
     const root = node(`<div class="aichat">
       <div class="aichat-head">
         <button type="button" class="aichat-menu" data-menu aria-label="展开对话历史" title="对话历史" aria-controls="aichat-history" aria-expanded="false"><span></span><span></span><span></span></button>
+        <div class="aichat-feed"></div>
         <button class="aichat-chip" data-ctx>带本机数据</button>
         <button type="button" class="aichat-chip aichat-effort" data-think></button>
       </div>
@@ -1090,9 +1129,10 @@ button.aichat-avatar{padding:0;cursor:pointer}
         <p class="aichat-id-tip">头像与名称只存进本机数据，不会发给模型。改过名称后头像自动换成名称首字，上传过图片则以图片为准。</p>
         <input type="file" class="aichat-file" accept="image/*" hidden>
       </div>
-      <div class="aichat-log"></div>
-      <button type="button" class="aichat-jump" hidden>↓ 有新回复</button>
-      <div class="aichat-feed"></div>
+      <div class="aichat-flow">
+        <div class="aichat-log"></div>
+        <button type="button" class="aichat-jump" hidden>↓ 有新回复</button>
+      </div>
       <div class="aichat-bar">
         <textarea class="aichat-input" rows="1" aria-label="对话内容" placeholder="帮我把这周的事理一遍"></textarea>
         <div class="aichat-compose-tools">
@@ -1109,6 +1149,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
       root,
       sessionList: root.querySelector(".aichat-session-list"),
       shortcuts: root.querySelector(".aichat-shortcuts"),
+      body: root.querySelector(".aichat-flow"),
       log: root.querySelector(".aichat-log"),
       input: root.querySelector(".aichat-input"),
       send: root.querySelector("[data-send]"),
@@ -1128,6 +1169,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
       tide.ui.onDispose?.(() => { chipGlow?.dispose(); chipGlow = null; });
     }
     ui.model.textContent = configured ? (modelLabel || "已配置模型") : "未配置模型";
+    paintPlaceholder();
     ui.ctx.classList.toggle("on", withContext);
     ui.ctx.setAttribute("aria-pressed", String(withContext));
     ui.ctx.title = withContext ? "每次提问都会把本机任务、近三天时间块与插件消息一起发给模型" : "已关闭：只问通用问题，不上传本机数据";
@@ -1215,10 +1257,14 @@ button.aichat-avatar{padding:0;cursor:pointer}
       ui.input.style.height = "auto";
       ui.input.style.height = `${Math.min(130, ui.input.scrollHeight)}px`;
     };
+    // 发送永远要有回音：以前未配置模型时这里直接 return，用户看到的就是「点了没反应」。
+    // 现在三条早退路径各给一句话，并且把「去配置」摆在最显眼的位置（提示条上直接给动作）。
+    const openAiSettings = () => window.dispatchEvent(new CustomEvent("tide:open-settings", { detail: { section: "ai" } }));
     const send = () => {
-      if (busy || !configured) return;
+      if (busy) { tide.notify("上一条还在回，等它说完再发"); return; }
+      if (!configured) { tide.notify("还没配模型，AI 没法回答", { action: openAiSettings, actionLabel: "去配置", ms: 12000 }); return; }
       const q = ui.input.value.trim();
-      if (!q) return;
+      if (!q) { tide.notify("先写点什么，再按发送"); ui.input.focus(); return; }
       ui.input.value = "";
       ui.input.style.height = "auto";
       draft = "";

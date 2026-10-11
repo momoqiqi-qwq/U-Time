@@ -192,9 +192,12 @@ function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = 
       + '    nextBigText, render, heroHtml, rowsHtml, groupChipsHtml, swapHtml, rulesHtml, setActiveGroup, addGroup, removeGroup, renameGroup,\n'
       + '    duplicateGroup, importMembers, tabMenuHtml,\n'
       + '    roomHtml, roomBeds, roomBunks, roomDims, roomBunkCount, roomScene, roomBounds, roomProjectAll, roomProjectPoint, roomView,\n'
+      + '    normalizeSeats, normalizeBedNames, normalizeLinks, seatsOf, bedNamesOf, roomLinks, moveSeat, toggleLink, bedSlotAtPoint, roomBedLabel,\n'
+      + '    ROOM_BED_MAX, BED_NAME_MAX, ROOM_LINK_MAX, ROOM_BED_HIT,\n'
       + '    roomZoomDist, roomWheelPx, ROOM_ZOOM_MIN, ROOM_ZOOM_MAX, ROOM_ZOOM_PINCH_GAIN, ROOM_ZOOM_WHEEL_GAIN, ROOM_ZOOM_MAX_PX,\n'
       + '    normalizeRoomSize, roomSizeOf, ROOM_SIZES, ROOM_VIEWS, ROOM_VIEW_DEFAULT, ROOM_BOX_WIDE, ROOM_BOX_NARROW, roomBox, ROOM_BUNK_SPLIT, roomTurnDeg,\n'
       + '    get tabMenu() { return tabMenu; }, set tabMenu(v) { tabMenu = v; },\n'
+      + '    get roomSel() { return roomSel; }, set roomSel(v) { roomSel = v; },\n'
       + '    get MY_GEN() { return MY_GEN; }, set MY_GEN(v) { MY_GEN = v; } };\n'
       + '  tide.ui.registerView({ id: VIEW_ID,'
     ),
@@ -1655,7 +1658,7 @@ console.log('PASS: dorm-duty 多套轮换互不串台、旧数据迁移不丢字
   assert.match(PLUGIN_SRC, /const ROOM_BOX_NARROW = \{ w: 105, h: 140 \}/, '手机用竖版取景框 —— 横版下星距只剩 21px，名字必压');
   assert.match(PLUGIN_SRC, /dd-mrow\.dd-flash/, '定位后要有可辨认的闪烁样式');
   assert.match(PLUGIN_SRC, /\$\{roomHtml\(g, s\)\}/, '星图卡片必须接进 paint()');
-  assert.match(PLUGIN_SRC, /bindRoom\(g, s\)/, 'bind() 里要真的把星图绑上');
+  assert.match(PLUGIN_SRC, /bindRoom\(g, s, commit\)/, 'bind() 里要真的把星图绑上，并把落盘链（commit）交给它 —— 拖星换床要自己存');
   assert.match(PLUGIN_SRC, /roomStopSpin\(\);\s*\n\s*roomLive = null;/, '视图被换掉时要停掉自动旋转，否则 rAF 会一直对着摘掉的节点跑');
   assert.match(PLUGIN_SRC, /tide\.storage\.set\("roomView"/, '视角要落盘（跨轮换共用）');
   assert.match(PLUGIN_SRC, /\.dd-room\[data-room-beds="off"\] :is\(\.dd-room-slab,\.dd-room-post\)\{display:none\}/,
@@ -1786,5 +1789,259 @@ console.log('PASS: dorm-duty 多套轮换互不串台、旧数据迁移不丢字
     assert.ok(fx.ROOM_ZOOM_MAX_PX > 0, '单帧位移上限必须存在，否则一次超大 delta 会一帧到底');
   }
 
-  console.log('PASS: 宿舍床位星图（roomSize 归一化 0/4/6/8、4/6/8 人 2/3/4 张上下铺贴左右墙且先下后上、三机位投影不出 NaN/不越框/星距 ≥34px/近大远小压幅、默认机位与对角线拉开、序号与名单同序、铺板立柱数量、当班高亮含每轮多人、空床与超编、关闭档、视角脏值兜底、显示床铺开关（只改显隐不动几何）、旋转条（0..360 度）与「停止 / 继续旋转」按钮、点名字改名（热区与星点分成两颗按钮）、nephele 透光与减少动效、拖动与点选不打架、跨端字段一致、缩放（滚轮 / 触控板捏合：按位移等比、单帧有上限、可逆、夹取与 deltaMode 折算））');
+  /* 9.10 编辑模式：拖星换床 / 空床别名 / 自定连线（v0.191.0）。
+     这一整套的价值全在「床位槽 ≠ 名单位次」上：seatsOf() 是唯一事实源，
+     所以先把它的补座规则钉死（星图、下拉「移到 X 号床」、拖星、跨端备份全都从这里取人），
+     再钉渲染与接线。三条契约最容易被人「顺手改坏」：
+       ① 拖走一个人必须是**拖走** —— 原来的床空出来，不能把后面的人往前挤（否则每拖一次乱一次）；
+       ② 空床别名只是备注，床上睡着人时必须让位给成员名；
+       ③ 画了自己的线就不再画默认的值日折线（两条叠在一起谁也看不清）。 */
+  {
+    const { fx: f2 } = bootPlugin({ today: '2026-09-17', seed: quietSeed() });
+    const norm = (patch) => f2.normalizeGroup(GROUP(patch), '2026-09-17');
+    /* ⚠️ vm 里造出来的数组（seatsOf / roomLinks … 返回的）原型是**另一个 realm** 的 Array，
+       deepStrictEqual 会因为它跟宿主数组原型不同而判「不相等」—— 于是先摊平成宿主数组，
+       再统一用「可读的字符串」比较：床位表写成人名序列，一眼就能看出谁睡哪张床。 */
+    const ids = (g, size) => [...f2.seatsOf(g, size)].map((m) => (m ? m.id : null));
+    const seatStr = (g, size) => ids(g, size).map((x) => x || '空').join(' ');
+    const linkStr = (links) => [...links].map((e) => `${e[0]}→${e[1]}`).join('，') || '（无）';
+
+    /* ① 没编辑过 = 老行为：第 i 位成员睡第 i 号床（老数据里根本没有 seats 字段） */
+    assert.equal(seatStr(norm({ roomSize: 4 }), 4), 'mA mB mC 空', '没编辑过时，床位槽就是名单位次');
+    assert.equal(seatStr(norm({ roomSize: 6 }), 6), 'mA mB mC 空 空 空', '床位比人多时后面都是空床');
+    assert.equal(seatStr(norm({ roomSize: 0 }), 0), '', '关闭档没有床位槽');
+
+    /* ② seats 只是「先落座」，剩下的空槽按名单顺序补 —— 于是换过床之后再删人 / 加人，
+          也不会留下一排空床等人手动摆一遍。 */
+    assert.equal(seatStr(norm({ roomSize: 4, seats: ['mC', '', 'mA'] }), 4), 'mC mB mA 空',
+      'seats 里点了名的按槽坐，空槽按名单顺序补（小北自动落到 2 号床）');
+    assert.equal(seatStr(norm({ roomSize: 4, seats: ['mA', 'mA', 'mZ', 42] }), 4), 'mA mB mC 空',
+      '重复 id 只认第一个，指向已删除成员 / 非字符串一律当空床');
+    assert.equal(seatStr(norm({ roomSize: 4, seats: ['mB', 'mC', 'mA'] }), 4), 'mB mC mA 空',
+      '三个人各就各位时，谁都不许被顺手挪走');
+
+    /* ③ 拖星换床 = 对调两个床位槽 */
+    const gm = norm({ roomSize: 4 });
+    assert.equal(f2.moveSeat(gm, 0, 3), true, '把 1 号床的人挪到 4 号床');
+    assert.equal(seatStr(gm, 4), '空 mB mC mA', '拖走就是拖走：1 号床空出来，不把后面的人往前挤');
+    assert.equal(f2.moveSeat(gm, 3, 1), true, '再把 4 号床的人挪到 2 号床（两人换铺）');
+    assert.equal(seatStr(gm, 4), '空 mA mC mB', '空床能接人，被换的人也回到 2 号床');
+    assert.equal(f2.moveSeat(gm, 0, 0), false, '原地不动不算一次改动（否则白写一次盘）');
+    assert.equal(f2.moveSeat(gm, 0, 4), false, '越界的床位不许动');
+    assert.equal(f2.moveSeat(gm, -1, 2), false, '负数床位不许动');
+    assert.equal(f2.moveSeat(gm, NaN, 2), false, '脏槽号不许动');
+    assert.equal(f2.moveSeat(norm({ roomSize: 4, members: [] }), 0, 1), false, '两边都是空床 = 什么也不做');
+    const gOne = norm({ roomSize: 4, members: MEMBERS.slice(0, 1) });
+    assert.equal(f2.moveSeat(gOne, 0, 2), true, '只有一个人时也能挪床');
+    assert.equal(seatStr(gOne, 4), '空 空 mA 空', '挪到 3 号床后，1 号床就空着');
+
+    /* ④ 自定连线：连 / 拆 / 自环 / 越界；方向 = 虚线的流动方向，所以**不排序** */
+    const gl = norm({ roomSize: 4 });
+    assert.equal(f2.toggleLink(gl, 0, 2), true, '连一条 1 号床 → 3 号床');
+    assert.equal(linkStr(gl.links), '0→2', '方向按点的顺序记（流动方向就是值的顺序）');
+    assert.equal(f2.toggleLink(gl, 0, 2), true, '同样两颗再点一次 = 拆掉');
+    assert.equal(linkStr(gl.links), '（无）', '拆完就回到默认值日路线');
+    assert.equal(f2.toggleLink(gl, 2, 0), true);
+    assert.equal(linkStr(gl.links), '2→0', '反过来点就是反方向的线');
+    assert.equal(f2.toggleLink(gl, 1, '2'), true, '字符串槽号也要认（dataset 里读出来就是字符串）');
+    assert.equal(linkStr(gl.links), '2→0，1→2', '可以一路连下去，边不会互相顶掉');
+    assert.equal(f2.toggleLink(gl, 1, 1), false, '自己连自己不是线');
+    assert.equal(f2.toggleLink(gl, 1, 9), false, '越界的床位不能连');
+
+    /* ⑤ 归一化：坏数据不许把星图弄崩；人数调小之后越界的边要自己掉 */
+    const cut = norm({ roomSize: 4, links: [[0, 7], [1, 2], [2, 2], [3, 1], [1, 3], [0, 1]] });
+    assert.equal(linkStr(cut.links), '1→2，3→1，0→1',
+      '越界（0-7）/ 自环 / 重复的无向边都要丢掉，重复时留先出现的那个方向');
+    assert.equal(norm({ roomSize: 4, links: '坏了' }).links.length, 0, 'links 是脏值时退回空数组');
+    assert.equal(norm({ roomSize: 4, seats: '坏了', bedNames: 5 }).seats.length, 0, 'seats 是脏值时退回空数组（= 按名单顺序坐）');
+    assert.equal(norm({ roomSize: 4, seats: '坏了', bedNames: 5 }).bedNames.length, 0, 'bedNames 是脏值时退回空数组');
+    assert.equal(f2.normalizeSeats(new Array(20).fill('x')).length, f2.ROOM_BED_MAX, '床位槽不超过上限');
+    assert.equal([...f2.normalizeSeats(new Array(20).fill('x'))].filter(Boolean).length, 1, '重复的 id 只留一次');
+    const manyLinks = [];
+    for (let a = 0; a < 8; a++) for (let b = a + 1; b < 8; b++) manyLinks.push([a, b]);   // 8 张床的完全图 = 28 条
+    assert.equal(norm({ roomSize: 8, links: manyLinks }).links.length, f2.ROOM_LINK_MAX,
+      `连线最多 ${f2.ROOM_LINK_MAX} 条（再多图就糊成一片）`);
+    assert.equal(f2.ROOM_LINK_MAX, 24, '上限与实现一致');
+
+    /* ⑥ 空床别名：只显示在空床上，名字不该被别名顶掉 */
+    const gb = norm({ roomSize: 4, members: MEMBERS.slice(0, 2), bedNames: ['占位别名', '', '  堆 箱子  ', '靠窗'] });
+    assert.equal([...f2.bedNamesOf(gb, 4)].join('|'), '占位别名||堆 箱子|靠窗', '别名要折掉多余空白');
+    assert.equal(f2.bedNamesOf(gb, 8).length, 8, '别名数组要补齐到当前床位档 —— 不然调大档位就取不到');
+    const htmlBed = f2.roomHtml(gb, f2.snapshot(gb));
+    assert.ok(!htmlBed.includes('占位别名'), '床上睡着人时显示成员名，别名让位（否则两个名字打架）');
+    assert.match(htmlBed, />堆 箱子</, '空床的别名要显示出来（「这张留给谁」/「堆行李箱」）');
+
+    /* ⑦ 自定连线取代默认的值日路线 */
+    const glr = norm({ roomSize: 4, links: [[0, 2], [2, 1]] });
+    const htmlLink = f2.roomHtml(glr, f2.snapshot(glr));
+    assert.equal((htmlLink.match(/dd-room-flow/g) || []).length, 2, '两条自定线就是两条线');
+    assert.ok(!htmlLink.includes('dd-room-loop'), '画了自己的线就不再画默认的回环虚线（两条叠在一起谁也看不清）');
+    assert.equal((htmlLink.match(/data-room-link="/g) || []).length, 2, '每条自定线都要带 data-room-link，roomDraw 靠它原地重画');
+    assert.match(htmlLink, /<line class="dd-room-flow dd-room-link" data-room-link="0" x1=/, '每条线各画各的（不再是一整条折线）');
+    const gPlain = norm({ roomSize: 4 });
+    const htmlPlain = f2.roomHtml(gPlain, f2.snapshot(gPlain));
+    assert.equal((htmlPlain.match(/dd-room-flow/g) || []).length, 1, '没连过线时还是那条默认折线');
+    assert.match(htmlPlain, /class="dd-room-loop"/, '默认路线尾端的回环虚线不能被弄丢');
+
+    /* ⑧ 编辑模式的界面：开关、编辑条、名字变输入框、空床不再 disabled */
+    const gE = norm({ roomSize: 4, members: MEMBERS.slice(0, 2) });
+    f2.state.roomView = { view: 'solid', spin: false, th: NaN, ph: NaN, dist: 1, beds: true, edit: false };
+    const offE = f2.roomHtml(gE, f2.snapshot(gE));
+    assert.match(offE, /data-room-edit="off"/, '没开编辑时容器上写着 off（那两条接管指针的 CSS 靠它）');
+    assert.match(offE, /<button class="dd-room-edit" data-room-edit type="button"[^>]*>编辑床位</, '要有一个「编辑床位」按钮');
+    assert.match(offE, /data-room-bed="2"[^>]*disabled/, '平时空床是装饰，点不动');
+    assert.ok(!offE.includes('data-bed-input'), '没开编辑就不该有名字输入框');
+    assert.ok(!offE.includes('dd-room-editbar'), '没开编辑就不该有编辑条');
+
+    f2.state.roomView = { view: 'solid', spin: false, th: NaN, ph: NaN, dist: 1, beds: true, edit: true };
+    const onE = f2.roomHtml(gE, f2.snapshot(gE));
+    assert.match(onE, /data-room-edit="on"/, '开了编辑容器上写着 on');
+    assert.match(onE, /<button class="dd-room-edit on" data-room-edit type="button"[^>]*>完成编辑</, '按钮变成「完成编辑」');
+    assert.equal((onE.match(/data-bed-input="/g) || []).length, 4, '每张床（含空床）都有能就地改名字的输入框');
+    assert.match(onE, /data-bed-input="2"[^>]*value=""[^>]*placeholder="空床"/, '空床的输入框是空的、提示写「空床」');
+    assert.match(onE, /data-bed-input="0"[^>]*value="阿青"[^>]*placeholder="成员名"/, '占床的输入框填着成员名');
+    assert.ok(!/data-room-bed="2"[^>]*disabled/.test(onE), '编辑模式下空床要能点（选中它、连到它、把别人挪上去）');
+    assert.match(onE, /class="dd-room-editbar"/, '要有编辑条');
+    assert.match(onE, /data-room-moveto/, '编辑条里要有「移到 X 号床」—— 键盘和不想拖的人也得能走完全程');
+    assert.match(onE, /data-room-link-clear/, '要有「清空连线」');
+    assert.match(onE, /data-room-seat-reset/, '要有「恢复默认床位」');
+    assert.match(onE, /先选一颗星/, '还没选星时下拉要说清怎么办，而不是给一个空下拉');
+    assert.match(onE, /<select data-room-moveto disabled>/, '还没选星时下拉该是灰的');
+
+    /* ⑨ 选中一颗星之后：那颗星带 sel 与 aria-pressed，「移到」下拉列出每一张床 */
+    f2.roomSel = 2;
+    const selE = f2.roomHtml(gE, f2.snapshot(gE));
+    assert.match(selE, /class="dd-bed down empty sel"/, '选中的空床要带 sel（外圈实线靠它）');
+    assert.match(selE, /已选 第 3 号床：/, '编辑条要说清现在选的是哪张床');
+    assert.match(selE, /<select data-room-moveto>/, '选中之后下拉可用');
+    assert.equal((selE.match(/<option value="\d"/g) || []).length, 4, '下拉里列着每一张床（含空床）');
+    assert.match(selE, /<option value="2" selected>第 3 号床 · 下铺（空）<\/option>/, '当前所在的床在下拉里是预选的');
+    assert.match(selE, /data-room-bed="2"[^>]*aria-pressed="true"/, '选中的星要播报「按下了」');
+    assert.ok(!/data-room-bed="1"[^>]*aria-pressed/.test(selE), '没选中的星不该带 aria-pressed（读屏会分不清选中）');
+    f2.roomSel = 0;
+    const selE0 = f2.roomHtml(gE, f2.snapshot(gE));
+    assert.match(selE0, /已选 阿青：/, '选到占床的星就报成员名');
+    assert.match(selE0, /<option value="0" selected>第 1 号床 · 下铺（阿青）<\/option>/, '下拉里连谁睡那儿一起说');
+    assert.match(selE0, /class="dd-bed down now sel"/, '选中的当班星：sel 与 now 可以同时在');
+
+    /* ⑩ 退出编辑：sel / 「已选中」一个字都不该留在普通模式里 */
+    f2.state.roomView = { ...f2.state.roomView, edit: false };
+    const afterE = f2.roomHtml(gE, f2.snapshot(gE));
+    assert.ok(!afterE.includes(' sel"'), '退出编辑后不该还剩 sel 类');
+    assert.ok(!afterE.includes('已选中'), '退出编辑后无障碍说明也不该还写着已选中');
+    assert.ok(!afterE.includes('data-bed-input'), '退出编辑后输入框要变回按钮 / 文字');
+    assert.match(afterE, /<button class="dd-bed-name" type="button" data-room-rename="mA"/, '占床的名字要变回「点了就改名」的按钮');
+
+    /* ⑪ 数字徽标是**床位号**，无障碍说明同时给出「床位号 + 谁 + 名单第几」——
+          编辑模式把人挪过床之后这两个数就不一样了，只报一个会让人对不上。 */
+    const gR = norm({ roomSize: 4, seats: ['mC', '', 'mA'] });
+    const htmlR = f2.roomHtml(gR, f2.snapshot(gR));
+    assert.match(htmlR, /<b class="dd-bed-no">1<\/b>/, '1 号床上写着 1');
+    assert.match(htmlR, /第 1 号床 · 下铺 · 老陈 · 名单第 3 位/, '老陈在 1 号床，但他是名单第 3 位');
+    assert.match(htmlR, /第 3 号床 · 下铺 · 阿青 · 名单第 1 位/, '阿青挪到 3 号床，名单上仍是第 1 位');
+
+    /* ⑫ 落点命中（拖星换床的核心）：压在星上命中它，空白处松手 = 不换床 */
+    const scene4 = f2.roomScene(4);
+    /* 机位要拿 ROOM_VIEWS 里的**真实数字**：th/ph 传 NaN 会让整幅投影都变成 NaN，
+       于是「压在星上」也命不中 —— 那是测试自己喂的脏值，不是实现的问题（roomView() 才会兜底）。 */
+    const topView = f2.ROOM_VIEWS.find((x) => x.id === 'top');
+    const v4 = { view: 'top', spin: false, th: topView.th, ph: topView.ph, dist: 1, beds: true };
+    const box4 = f2.roomBox();
+    const L4 = f2.roomProjectAll(scene4, v4, box4);
+    for (let i = 0; i < 4; i++) {
+      assert.equal(f2.bedSlotAtPoint(L4, box4, L4.stars[i].x, L4.stars[i].y), i, `指针压在 ${i + 1} 号床的星上 → 命中它`);
+    }
+    assert.equal(f2.bedSlotAtPoint(L4, box4, -5, 10), -1, '拖到图的左边外面 = 取消这一拖');
+    assert.equal(f2.bedSlotAtPoint(L4, box4, box4.w + 5, 10), -1, '右边外面同理');
+    assert.equal(f2.bedSlotAtPoint(L4, box4, 10, box4.h + 5), -1, '下边外面同理');
+    assert.equal(f2.bedSlotAtPoint(L4, box4, NaN, 10), -1, '脏坐标 = 没命中（不许「就近硬凑」一张床）');
+    assert.equal(f2.bedSlotAtPoint(null, box4, 1, 1), -1, '还没投影过时不许抛错');
+    assert.equal(f2.bedSlotAtPoint({ stars: [] }, box4, 1, 1), -1, '空星图 = 没命中');
+    // 半径语义用「假投影」单验：真星图里床位绕墙一圈，凭感觉挑坐标很容易正好落在某颗星旁边
+    const r4 = box4.w * f2.ROOM_BED_HIT;
+    const fakeL = { stars: [{ x: 20, y: 20 }, { x: 100, y: 100 }] };
+    assert.equal(f2.bedSlotAtPoint(fakeL, box4, 20 + r4 * 0.99, 20), 0, '半径之内命中');
+    assert.equal(f2.bedSlotAtPoint(fakeL, box4, 20 + r4 * 1.01, 20), -1, '半径之外不命中（松手等于取消）');
+    assert.equal(f2.bedSlotAtPoint(fakeL, box4, 100, 100), 1, '第二颗星命中 2 号槽');
+    // 「离所有星都够远」的那一点自己搜出来，再断言它确实什么都不命中
+    let farP = null, farD = 0;
+    for (let gx = 2; gx < box4.w; gx += 2) {
+      for (let gy = 2; gy < box4.h; gy += 2) {
+        const d = Math.min(...L4.stars.map((p) => Math.hypot(p.x - gx, p.y - gy)));
+        if (d > farD) { farD = d; farP = { x: gx, y: gy }; }
+      }
+    }
+    assert.ok(farD > r4 * 1.5, `星图里要真有一块「离所有星都够远」的地方（最远 ${farD.toFixed(1)}，阈值 ${r4.toFixed(1)}）`);
+    assert.equal(f2.bedSlotAtPoint(L4, box4, farP.x, farP.y), -1, '空白处松手 = 不换床');
+
+    /* ⑬ 接线与样式（都只有真手势碰得到，所以钉在源码上） */
+    assert.match(PLUGIN_SRC, /if \(roomEditOn\(\) && star\) \{ startStarDrag\(e, star\); return; \}/,
+      '编辑模式下从星星上按下去 = 拖星换床，不是转视角');
+    assert.match(PLUGIN_SRC, /const to = p \? bedSlotAtPoint\(d\.L, roomLive\?\.box \|\| d\.box, p\.x, p\.y\) : -1/,
+      '落点要走「指针位置 → 取景框坐标 → 最近的床」这条链');
+    assert.match(PLUGIN_SRC, /apply\(\(\) => \{ if \(moveSeat\(g, d\.from, d\.to\)\) roomSel = d\.to; \}\)/,
+      '真的换成了床才算一次改动（拖回原地 / 拖出图外不该写盘）');
+    assert.match(PLUGIN_SRC, /const doc = host\.ownerDocument \|\| \(typeof document !== "undefined" \? document : null\)/,
+      'pointermove / pointerup 要挂在 document 上：指针拖出星图外面也要跟手');
+    assert.match(PLUGIN_SRC, /doc\?\.removeEventListener\("pointerup", onStarUp, true\)/,
+      '松手要立刻摘掉 document 上的监听 —— 否则每拖一次都多挂一层');
+    assert.match(PLUGIN_SRC, /if \(roomEditOn\(\)\) return;/, '编辑模式下不许自动旋转（边转边拖会拖空）');
+    assert.match(PLUGIN_SRC, /if \(roomLive && roomView\(\)\.spin && !roomEditOn\(\)\) roomRaf = roomRafLater\(roomSpin\)/,
+      '松手后要不要恢复旋转也得看在不在编辑模式');
+    assert.match(PLUGIN_SRC, /if \(roomDragMoved > 4 \|\| roomEditOn\(\)\) return;/,
+      '编辑模式里点星星是「选中 / 连线」，不该再去成员列表里跳行');
+    assert.match(PLUGIN_SRC, /if \(roomSel < 0 \|\| roomSel === i\) \{ roomSel = roomSel === i \? -1 : i; await paint\(\); return; \}/,
+      '点同一颗星 = 取消选中（这是「我不想连了」的逃出口）');
+    assert.match(PLUGIN_SRC, /await commit\(\(\) => \{ toggleLink\(g, roomSel, i\); roomSel = i; \}\)/,
+      '点第二颗星就连线，并把选中挪过去 —— 于是能一路连下去不用回点起点');
+    assert.match(PLUGIN_SRC, /q\("button\[data-room-edit\]"\)\?\.addEventListener\("click"/,
+      '编辑开关要真的绑上事件（必须写成 button[...]：容器 div 上也有 data-room-edit 属性）');
+    assert.match(PLUGIN_SRC, /q\("\[data-room-moveto\]"\)\?\.addEventListener\("change"/, '「移到 X 号床」要真的绑上事件');
+    assert.match(PLUGIN_SRC, /q\("\[data-room-link-clear\]"\)\?\.addEventListener\("click"/, '「清空连线」要真的绑上事件');
+    assert.match(PLUGIN_SRC, /q\("\[data-room-seat-reset\]"\)\?\.addEventListener\("click"/, '「恢复默认床位」要真的绑上事件');
+    assert.match(PLUGIN_SRC, /confirmFn\("恢复默认床位？/, '「恢复默认床位」不可逆，要先问一句');
+    assert.match(PLUGIN_SRC, /root\.querySelectorAll\("\[data-bed-input\]"\)/, '就地改名要真的绑上事件');
+    assert.match(PLUGIN_SRC, /if \(e\.key === "Enter"\) \{ e\.preventDefault\(\); el\.blur\(\); \}/, '改名输入框回车要提交（交给 blur → change）');
+    assert.match(PLUGIN_SRC, /else if \(e\.key === "Escape"\) \{ e\.preventDefault\(\); el\.value = ""; el\.blur\(\); \}/, 'Esc 要能放弃这次输入');
+    assert.match(PLUGIN_SRC, /g\.bedNames\[i\] \|\| ""/, '改名时要拿旧值比一次：没动过 / 清空后放弃都不该落盘');
+    assert.match(PLUGIN_SRC, /\.dd-room\[data-room-edit="on"\] \.dd-bed\{touch-action:none;cursor:grab\}/,
+      '编辑模式下只有「床上」接管指针：卡片其余部分还得能滚（别做成滚不动的黑洞）');
+    assert.match(PLUGIN_SRC, /\.dd-bed\.dragging\{[\s\S]{0,140}?var\(--dd-dx,0px\)/, '被拖走的那颗星要跟着指针走');
+    assert.match(PLUGIN_SRC, /\.dd-bed\.drop \.dd-bed-star\{/, '要有一眼看出「会落到哪张床」的高亮');
+    assert.match(PLUGIN_SRC, /\.dd-bed\.sel \.dd-bed-star\{/, '选中的星要有自己的描边');
+    assert.match(PLUGIN_SRC, /\.dd-bed-in\{/, '编辑模式的名字输入框要有自己的样式');
+    assert.match(PLUGIN_SRC, /\.dd-room-editbar\{/, '编辑条要有自己的样式');
+    assert.match(PLUGIN_SRC, /\.dd-room-edit\.on\{/, '「正在编辑」要看得出来（不然不知道自己还在编辑模式里）');
+    /* 换床那一下必须用 bindRoom 闭包里的 g。
+       apply/commit 的回调是**不带参数**的（`(mutate) => { mutate(); … }`），
+       写成 `apply((gg) => moveSeat(gg, …))` 会拿到 undefined —— moveSeat 静默 return false，
+       症状是「星星跟着指针走完一圈、松手什么都没变」，纯看代码看不出来（真机实测抓到过一次）。 */
+    assert.ok(!/apply\(\([a-z]+\)\s*=>/.test(PLUGIN_SRC), 'apply 的回调不许带参数（拿到的是 undefined）');
+    assert.match(PLUGIN_SRC, /apply\(\(\) => \{ if \(moveSeat\(g, d\.from, d\.to\)\) roomSel = d\.to; \}\)/,
+      '拖星换床要写闭包里的那一组，且落床成功后把选中挪到新床上');
+
+    /* ⑭ 复制整套轮换：副本的成员换了新 id，seats 必须跟着重映射。
+          不映射的话副本里每张床都指向一个不存在的人 —— 表现是「复制出来的组，星图全是空床」。 */
+    assert.match(PLUGIN_SRC, /const idMap = new Map\(src\.members\.map\(\(m, i\) => \[m\.id, members\[i\]\.id\]\)\)/,
+      '副本的成员换了 id，seats 要跟着重映射');
+    {
+      const { fx: f3, storage: st3 } = bootPlugin({
+        today: '2026-09-17',
+        seed: quietSeed({ groups: [GROUP({ roomSize: 4, seats: ['mC', 'mA', 'mB'] })], activeId: 'g1' }),
+      });
+      await settle();
+      const src = f3.state.groups[0];
+      assert.equal(f3.seatsOf(src, 4).map((m) => (m ? m.name : '空')).join(' '), '老陈 阿青 小北 空', '源组的床位先摆好');
+      const copy = await f3.duplicateGroup('g1');
+      assert.ok(copy && copy.id !== 'g1', '复制出第二个轮换');
+      assert.equal(f3.seatsOf(copy, 4).map((m) => (m ? m.name : '空')).join(' '), '老陈 阿青 小北 空',
+        '副本床位跟着换 id，谁睡哪张床不变');
+      const srcIds = new Set(src.members.map((m) => m.id));
+      assert.ok(copy.members.every((m) => !srcIds.has(m.id)), '副本的成员必须是全新 id（否则两组共享同一批人）');
+      assert.equal([...src.seats].join(' '), 'mC mA mB', '原组的床位分配一个字都不能被改动');
+      assert.equal(st3.get('groups').length, 2, '复制要落盘');
+    }
+  }
+
+  console.log('PASS: 宿舍床位星图（roomSize 归一化 0/4/6/8、4/6/8 人 2/3/4 张上下铺贴左右墙且先下后上、三机位投影不出 NaN/不越框/星距 ≥34px/近大远小压幅、默认机位与对角线拉开、序号与名单同序、铺板立柱数量、当班高亮含每轮多人、空床与超编、关闭档、视角脏值兜底、显示床铺开关（只改显隐不动几何）、旋转条（0..360 度）与「停止 / 继续旋转」按钮、点名字改名（热区与星点分成两颗按钮）、nephele 透光与减少动效、拖动与点选不打架、跨端字段一致、缩放（滚轮 / 触控板捏合：按位移等比、单帧有上限、可逆、夹取与 deltaMode 折算）、编辑模式（床位槽补座规则、拖星换床＝对调两槽且拖走就是拖走、越界与自环与重复连线归一化、空床别名让位成员名、自定连线取代默认路线、名字变输入框与空床可点、选中态与「移到 X 号床」、退出编辑不留痕、床位号与名单位次分开播报、落点命中的半径语义、复制整套轮换重映射 seats））');
 }

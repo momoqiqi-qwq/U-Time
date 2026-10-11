@@ -8,6 +8,11 @@
 // 形态完全不同：点分复合标签的 JSON 接口、只给 Unix 时间戳的 JSON 接口、GBK 编码的 Discuz HTML。
 // 光读代码没法确信字段解析与 id 隔离都对，所以 fixture 按真站响应的结构与写法裁剪而成。
 //
+// 起因三：分类原本挤在一个 `type` 字段里，三种语义混着用 —— 摩课云的消息性质（202/203）、赛氪的
+// 赛事级别（全国性/省级）、我要参赛网的站点分类（公益大赛）。换源就作废、站点叫法直接当 chip。
+// 现在拆成三条正交轴（kind 性质 / level 级别 / field 学科），每轴一张封闭表，原生标签经表归一，
+// 认不出留空、不设「其他」占格子。这一层的不变量（归一、跨源保留、单值收行）同样只能真跑源码验。
+//
 // 不变量都必须真跑源码才断言得出来，正则匹配只能证明「我写了这行」。
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -218,7 +223,9 @@ async function boot({ filter, seen = [], records = [], knownIds, source, customS
     get list() { return listNode(); },
     cards,
     chipLabels: (sel) => node(sel).children.map((b) => b.textContent),
-    typeBarHidden: () => node('[data-type-bar]').style.display === 'none',
+    /** 三条分类轴（kind 性质 / level 级别 / field 学科）各自的 chip 文案与整行是否收掉。 */
+    axisLabels: (axis) => node(`[data-axis-chips="${axis}"]`).children.map((b) => b.textContent),
+    axisHidden: (axis) => node(`[data-axis-bar="${axis}"]`).style.display === 'none',
     clickChip: async (sel, label) => {
       const b = node(sel).children.find((x) => x.textContent === label);
       assert.ok(b, `chip「${label}」必须渲染出来（现有：${node(sel).children.map((x) => x.textContent).join(' / ')}）`);
@@ -254,7 +261,7 @@ async function node_addSource(node) {
 /* 命不中的绝对月份 → 抓完第 1 页静默回「全部」并落盘 */
 {
   const got = await boot({
-    filter: { kw: '', type: 'all', month: '2026-05', hideSeen: false, auto: false, showCover: false },
+    filter: { kw: '', kind: 'all', level: 'all', field: 'all', month: '2026-05', hideSeen: false, auto: false, showCover: false },
     records: SEPTEMBER,
   });
   assert.equal(got.stored().month, 'all', '跨月后残留的月份筛选必须自动回「全部」');
@@ -264,24 +271,36 @@ async function node_addSource(node) {
 
 /* 仍然命中的月份要保留，别把用户的选择抹掉 */
 {
-  const got = await boot({ filter: { type: 'all', month: '2026-09' }, records: SEPTEMBER });
+  const got = await boot({ filter: { month: '2026-09' }, records: SEPTEMBER });
   assert.equal(got.stored().month, '2026-09', '命得中的月份不能被自愈逻辑顺手清掉');
 }
 
-/* 脏持久化值全部归一：旧原始类型码要能用、格式不对的月份要作废（只看行为，不看回写） */
+/* 脏持久化值全部归一：旧分类码要迁到新轴上、格式不对的月份要作废（只看行为，不看回写） */
 {
   const got = await boot({ filter: { type: '203', month: '2026-9' }, records: SEPTEMBER });
   const empty = got.list.innerHTML;
-  assert.match(empty, /类型「赛事动态」/, '空态要列出正在生效的筛选（旧原始类型码 203 已迁到赛事动态）');
+  assert.match(empty, /性质「赛事」/, '空态要列出正在生效的筛选（旧原始类型码 203 已迁到性质轴的「赛事」）');
   assert.doesNotMatch(empty, /月份「/, '非 YYYY-MM 的月份一律作废，不能再参与过滤');
   assert.ok(got.clearButton(), '空态必须给一键清除按钮');
+}
+
+/* 旧值另外两种形态：lv:全国性（赛氪自造叫法）→ 级别轴；cat:公益大赛（站点分类词）→ 学科轴 */
+{
+  const got = await boot({ source: 'saikr', filter: { type: 'lv:全国性' }, server: makeServer([[SAIKR_API, { body: SAIKR_BODY }]]) });
+  assert.equal(got.cards(), 1, '「全国性」那条留下、省级那条滤掉（站点叫法先归一成级别轴 id 才谈得上过滤）');
+  assert.deepEqual(got.axisLabels('level'), ['全部', '全国', '省级'], '级别 chip 用归一后的词表，不再是站点自造叫法');
+}
+{
+  const got = await boot({ filter: { type: 'cat:公益大赛' }, records: SEPTEMBER });
+  assert.match(got.list.innerHTML, /学科「体育公益」/, '旧 cat: 前缀要落到学科轴（站点词「公益大赛」→ 体育公益）');
+  assert.ok(got.clearButton(), '命不中也要给一键清除');
 }
 
 /* 只看未读滤光时同样列名 + 点清除后恢复全部。
    这里顺带压住 id 命名空间迁移：旧版本 storage 里的 seen 是一维裸 id（当时只有摩课云），
    读回来不补 `mokeroad:` 前缀的话，升级一次等于全部消息复活成 NEW。 */
 {
-  const got = await boot({ filter: { kw: '  ', type: 'all', month: 'all', hideSeen: true }, seen: [1, 2], records: SEPTEMBER });
+  const got = await boot({ filter: { kw: '  ', month: 'all', hideSeen: true }, seen: [1, 2], records: SEPTEMBER });
   assert.match(got.list.innerHTML, /只看未读/, '空白关键词不算生效筛选，只看未读要列出来');
   assert.equal(got.cards(), 0, '裸 id 补前缀后要能命中原条目，只看未读才会滤光');
   got.clickList({ closest: (sel) => (sel === '[data-clear-filters]' ? {} : null) });
@@ -304,29 +323,33 @@ async function node_addSource(node) {
   assert.match(html, /截止 2026-\d{2}-\d{2}/, '赛氪：报名截止（regist_end_time）要显示出来');
   assert.match(html, /正在报名/, '赛氪：接口给的报名状态要带上');
   assert.match(html, /某心理学普及工作委员会 · 全国/, '赛氪：主办方与范围拼成摘要');
-  assert.deepEqual(got.chipLabels('[data-chips]'), ['全部', '全国性', '省级'], '赛氪：类型 chip 由 level_name 长出来');
+  assert.deepEqual(got.axisLabels('level'), ['全部', '全国', '省级'], '赛氪：level_name 归一后长成「级别」那一排');
   assert.match(html, /data-id="saikr:57786"/, '条目 id 要带源前缀');
-  assert.equal(got.typeBarHidden(), false, '有类型维度的源不能把那一排藏掉');
+  assert.equal(got.axisHidden('level'), false, '有两个取值的轴不能收掉');
+  assert.equal(got.axisHidden('kind'), true, '两条都是「报名」⇒ 性质那排只有一个取值，整行收掉而不是留一颗「全部」');
+  assert.match(html, /数理化生/, '学科轴从标题里长（心理知识大赛 ⇒ 数理化生），不靠站点分类');
 }
 {
   const got = await boot({ source: 'jingsai', server: makeServer([[JINGSAI_HOME, { body: JINGSAI_BODY }]]) });
   const html = got.list.innerHTML;
   assert.doesNotMatch(got.status(), /抓取失败/, '我要参赛网的桩接口本身要跑通');
   assert.equal(got.cards(), 2, '我要参赛网：两个 list_bbda 块要各出一条');
-  assert.match(html, /公益大赛/, '我要参赛网：Discuz 的「分类」要成为类型');
+  assert.match(html, /站点分类：公益大赛/, '我要参赛网：站点自己的分类挂到 meta 的 title 上，不占视觉但不丢');
   assert.match(html, /2026-09-17 17:49/, '我要参赛网：页面里写的 2026-9-17 要补零');
   assert.match(html, /报名时间：2026年9月16日/, '我要参赛网：|| 分隔的正文行要成为摘要');
-  assert.deepEqual(got.chipLabels('[data-chips]'), ['全部', '公益大赛', '设计比赛'], '我要参赛网：分类排要列全');
+  assert.deepEqual(got.axisLabels('field'), ['全部', '文学外语', '设计艺术'], '我要参赛网：学科轴按标题归一（文学知识竞答 / IP形象征集）');
+  assert.equal(got.axisHidden('kind'), true, '两条都是「报名」⇒ 性质行收掉');
+  assert.equal(got.axisHidden('level'), true, '级别没凑够两个取值 ⇒ 级别行收掉（不拿「其他」占格子凑数）');
   assert.match(html, /data-id="jingsai:24056"/, '我要参赛网：条目 id 取 article 编号');
   // 要害：`<base href>` 指站点根。按页面路径 /bisai/ 拼会得出 404 的 /bisai/article-x-1.html
   assert.equal(baseOf(JINGSAI_BODY, JINGSAI_HOME), 'https://www.52jingsai.com/', 'fixture 的 base 指向站点根');
   assert.ok(got.requests.every((u) => u === JINGSAI_HOME), '第 1 页就是列表页本身');
 }
 
-/* ══════════ ③ 切源：立刻换数据、落盘，并把上一家残留的筛选作废 ══════════ */
+/* ══════════ ③ 切源：立刻换数据、落盘，并把上一家残留的月份作废 ══════════ */
 {
   const got = await boot({
-    filter: { type: 'n202', month: '2026-09' },
+    filter: { month: '2026-09' },
     server: makeServer([
       [MOKEROAD_API, () => ({ body: mokeroadBody(SEPTEMBER) })],
       [SAIKR_API, { body: SAIKR_BODY }],
@@ -343,13 +366,33 @@ async function node_addSource(node) {
   assert.match(got.list.innerHTML, /心理知识大赛/, '列表要整个换成新源');
   assert.doesNotMatch(got.list.innerHTML, /消息 1/, '上一家的条目不能留下');
   assert.equal(got.stored('source'), 'saikr', '当前源要落盘，下次进视图还在');
-  const f = got.stored();
-  assert.equal(f.type, 'all', '换源要把上一家的类型筛选清掉（n202 在赛氪这边根本不成立）');
-  assert.equal(f.month, 'all', '换源要把上一家的月份筛选清掉');
+  assert.equal(got.stored().month, 'all', '换源要把上一家的月份筛选清掉');
   assert.match(got.status(), /源 <b>赛氪竞赛广场<\/b>/, '状态行要说明现在是哪一家');
 
   await got.clickChip('[data-sources]', '我要参赛网');
   assert.match(got.list.innerHTML, /文学知识竞答/, '第三个内置源也要抓得动');
+}
+
+/* ══════════ ③b 分类轴跨源保留：归一后是同一套词表，换源不该抹掉用户的选择；
+   命不中时也必须能在界面上看出来，否则又是「拉取 40 条 · 显示 0 条」被读成抓取失败 ══════════ */
+{
+  const got = await boot({
+    filter: { kind: 'notice' },
+    server: makeServer([
+      [MOKEROAD_API, () => ({ body: mokeroadBody(SEPTEMBER) })],
+      [SAIKR_API, { body: SAIKR_BODY }],
+    ]),
+  });
+  assert.equal(got.cards(), 2, '摩课云两条都是「公告」（newsType 202）⇒ 性质「公告」要全留下');
+  assert.deepEqual(got.axisLabels('kind'), ['全部', '公告'], '性质 chip 由新闻类型归一而来，不显示 202 这种原始码');
+
+  await got.clickChip('[data-sources]', '赛氪竞赛广场');
+  assert.equal(got.stored().kind, 'notice', '换源不再作废分类轴（同一套词表才谈得上跨源复用）');
+  assert.equal(got.cards(), 0, '赛氪两条都是「报名」，性质「公告」在这边命不中');
+  assert.match(got.list.innerHTML, /性质「公告」/, '空态要把生效中的轴列出来');
+  assert.deepEqual(got.axisLabels('kind'), ['全部', '报名', '公告'],
+    '命不中的「公告」也要留在台面上，且顺序按表走（不至于一颗都没高亮却还在过滤）');
+  assert.ok(got.clearButton(), '并且给一键清除');
 }
 {
   // 关键词跟人不跟源，换源不能顺手抹掉；但残留的关键词必须能在界面上看出来，
@@ -400,7 +443,9 @@ async function node_addSource(node) {
   assert.match(html, /作品提交截至 9 月 30 日/, 'RSS：description 要成为摘要');
   assert.match(html, /usr-1:https:\/\/cms\.example\.edu\.cn\/contest\/1207\.htm/,
     'RSS：guid 当稳定 id，跨刷新才不会反复判 NEW');
-  assert.equal(got.typeBarHidden(), true, '自定义源没有类型维度，那一排要收掉，而不是留一个孤零零的「全部」');
+  assert.equal(got.axisHidden('kind'), true, '自定义源两条都是「报名」⇒ 性质行收掉，而不是留一颗孤零零的「全部」');
+  assert.equal(got.axisHidden('level'), true, '级别只有一个取值时同样收掉');
+  assert.deepEqual(got.axisLabels('field'), ['全部', '数学建模', '设计艺术'], '学科轴从标题里长出来（RSS 没有站点分类可用）');
   assert.match(got.status(), /自定义源只取第 1 页/, '自定义源没有翻页，状态行要讲清楚');
 }
 {
@@ -546,4 +591,4 @@ async function node_addSource(node) {
   assert.match(got.list.innerHTML, /class="gx-card seen"/, '点了提醒要顺手标已读');
 }
 
-console.log('PASS: gx-news 残留筛选自愈 + 多源（三内置源解析 / 切源作废类型月份 / id 按源隔离 / 自定义源三路识别 / 添加浮层与广播快照）');
+console.log('PASS: gx-news 残留筛选自愈 + 多源（三内置源解析 / 三条分类轴归一与跨源保留 / id 按源隔离 / 自定义源三路识别 / 添加浮层与广播快照）');

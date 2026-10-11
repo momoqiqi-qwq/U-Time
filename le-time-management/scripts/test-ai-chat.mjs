@@ -697,13 +697,49 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
   // 行下空位：58px 是浮层口径（NepheleDialog 要露按钮阴影），本视图不是浮层
   assert.match(mainSrc, /padding:26px clamp\(22px,9%,100px\) 18px;/, "底部内边距必须收到 18px");
   assert.doesNotMatch(mainSrc, /padding:26px clamp\(22px,9%,100px\) 58px;/, "别退回 58px：行下会多出 82px 空位");
+  /* 对话框本体（v0.193.0）：以前 .aichat 是一层纯装饰壳，真正的输入区是壳里另起的一个带边框、
+     带独立底色的小框 —— 用户看到的就是「框里套小框」，点发送还没反应。现在消息流与输入区是同一块
+     对话面里的上下两段：顶栏（标题/状态）→ 消息流 → 输入区 → 快捷提问。 */
   {
-    const tmpl = mainSrc.slice(mainSrc.indexOf('<div class="aichat-log"></div>'), mainSrc.indexOf('<div class="aichat-shortcuts"'));
-    const feedAt = tmpl.indexOf('class="aichat-feed"');
-    const barAt = tmpl.indexOf('class="aichat-bar"');
-    assert.ok(feedAt > 0 && barAt > 0 && feedAt < barAt,
-      "「已收集 N 条」要排在输入框上面 —— 留在最后一行就等于在行下再垫一条");
+    const headAt = mainSrc.indexOf('<div class="aichat-head"');
+    const backdropAt = mainSrc.indexOf('<div class="aichat-backdrop"');
+    const flowAt = mainSrc.indexOf('<div class="aichat-flow">');
+    const barAt = mainSrc.indexOf('<div class="aichat-bar">');
+    const shortAt = mainSrc.indexOf('<div class="aichat-shortcuts"');
+    const feedAt = mainSrc.indexOf('class="aichat-feed"');
+    assert.ok(headAt > 0 && backdropAt > headAt && flowAt > backdropAt && barAt > flowAt && shortAt > barAt,
+      "顺序必须是 顶栏 → 消息流(.aichat-flow) → 输入区(.aichat-bar) → 快捷提问：输入区贴着对话框底部，中间别再垫一层");
+    assert.ok(feedAt > headAt && feedAt < backdropAt,
+      "「已收集 N 条」这类状态是顶栏的一句话，要跟着标题走 —— 留在输入区下面就等于在行下再垫一条");
+    assert.match(mainSrc, /\.aichat-flow\{display:flex;flex-direction:column;gap:8px;min-height:0;flex:1\}/,
+      "消息流那一块要可伸缩，否则长对话会把输入区挤出框外");
+    assert.doesNotMatch(mainSrc, /<div class="aichat-body">\s*<div class="aichat-log">/,
+      "消息流包裹层不能叫 .aichat-body —— 那是单条消息气泡容器的名字，同名会把 gap/column 套到每条气泡上");
   }
+
+  /* 输入区不许再画第二层框（自己的边框 + 独立底色 + 独立圆角），否则又回到「框里套小框」 */
+  assert.match(mainSrc, /\.aichat-bar\{display:flex;flex-direction:column;align-items:stretch;gap:12px;flex:none;padding:16px 2px 2px;border:0;border-radius:0;border-top:1px solid #c9acd32e;background:transparent;box-shadow:none;transition:border-color \.3s\}/,
+    "输入区要跟对话框同一块面：只留一条顶部分隔线，不要自己的边框/底色/圆角");
+
+  /* 宿主 src/styles.css 那条通用输入框规则（input/select/textarea，带 !important、特异性 (0,3,1)）
+     会把 textarea 刷成 --control-bg 实底 + 8px 圆角，插件样式注入在 <head> 末尾也压不住 ——
+     两边都 !important 时比的是特异性、不是先后（宿主自己在 .market-search 那条注释里记过这个坑）。
+     压不住的结果就是紫卡里嵌一颗白色实心小圆角框，正是用户说的「框里再套一个小框」。 */
+  assert.match(mainSrc, /\.aichat \.aichat-bar textarea\.aichat-input\.aichat-input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="range"\]\)\{/,
+    "要压过宿主那条通用输入框规则：选择器必须抬到 (0,6,1)");
+  {
+    const guard = mainSrc.slice(mainSrc.indexOf('.aichat .aichat-bar textarea.aichat-input.aichat-input'), mainSrc.indexOf('.aichat-compose-tools'));
+    assert.match(guard, /background:transparent !important;/, "底色必须透明（宿主把它刷成了 --control-bg 实底）");
+    assert.match(guard, /border-radius:0 !important;/, "圆角必须归零（宿主钉死了 8px）");
+    assert.match(guard, /outline:none !important;/, "聚焦描边也要去掉，聚焦反馈交给 .aichat-bar:focus-within 的呼吸光");
+  }
+
+  /* 空对话时那块欢迎卡要看得见：以前深色段用 border:0;padding:0;background:none 把它抹平，
+     整块只剩一片紫底 —— 那就是用户看到的「一个空框」。 */
+  assert.doesNotMatch(mainSrc, /\.aichat-empty\{border:0;padding:0;background:none\}/,
+    "空态不能抹平");
+  assert.match(mainSrc, /\.aichat-empty\{flex:none;border:1px solid #b08fc045;border-radius:16px;padding:20px 22px;background:#2b243ba6;margin-bottom:0\}/,
+    "空态是一张有底有边的欢迎卡");
 
   // 入场与发光照 NepheleDialog（opacity 300ms OutCubic + scale .9→1 400ms OutBack + 软阴影）
   assert.match(mainSrc, /@keyframes aichat-dialog-in\{from\{transform:translate3d\(0,20px,0\) scale\(\.9\)\}to\{transform:none\}\}/,
@@ -716,10 +752,35 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
   // 减少动效：新加的动画 / 过渡都要进白名单，否则省电模式照旧播
   assert.match(mainSrc, /\.aichat-shortcuts button,\.aichat-shortcuts \.selection-glow\{transition:none\}/,
     "prefers-reduced-motion 白名单要包含快捷提问行与光块");
-  assert.match(mainSrc, /\.aichat,\.aichat-bar,\.aichat-think i\{animation:none\}/,
-    "入场与呼吸光都要能停");
-  assert.match(mainSrc, /:root\[data-ui-motion="reduced"\] \.aichat,:root\[data-ui-motion="reduced"\] \.aichat-bar\{animation:none\}/,
+  assert.match(mainSrc, /\.aichat,\.aichat-menu,\.aichat-bar,\.aichat-think i\{animation:none\}/,
+    "入场与呼吸光都要能停（.aichat-menu 的汉堡位移动画也在内）");
+  assert.match(mainSrc, /:root\[data-ui-motion="reduced"\] \.aichat,:root\[data-ui-motion="reduced"\] \.aichat-menu,:root\[data-ui-motion="reduced"\] \.aichat-bar\{animation:none\}/,
     "应用内的「减少动效」开关与系统开关同级，也要停");
+}
+
+/* ───────── 发送永远要有回音（v0.193.0）───────── */
+
+/* 用户的原话是「点了一点反应都没有」。旧实现里未配置模型时 send() 直接 return，界面上一句话都不给，
+   只有底部胶囊写着「未配置模型」—— 等于把「没配模型」伪装成「按钮坏了」。现在三条早退路径各给一句话，
+   并且把「去配置」做成提示条上的动作；发送键也不再因为未配置而置灰（置灰同样是没反应）。 */
+{
+  assert.match(mainSrc, /if \(busy\) \{ tide\.notify\("上一条还在回，等它说完再发"\); return; \}/,
+    "正在回复时再点发送也要说一句");
+  assert.match(mainSrc, /if \(!configured\) \{ tide\.notify\("还没配模型，AI 没法回答", \{ action: openAiSettings, actionLabel: "去配置", ms: 12000 \}\); return; \}/,
+    "未配置模型时点发送必须给提示，并且提示条上直接给「去配置」动作");
+  assert.match(mainSrc, /if \(!q\) \{ tide\.notify\("先写点什么，再按发送"\); ui\.input\.focus\(\); return; \}/,
+    "空输入也要有回音，别静默 return");
+  assert.match(mainSrc, /const openAiSettings = \(\) => window\.dispatchEvent\(new CustomEvent\("tide:open-settings", \{ detail: \{ section: "ai" \} \}\)\);/,
+    "「去配置」要真的把设置面板的 AI 分区叫出来");
+
+  assert.match(mainSrc, /ui\.send\.disabled = busy;/, "发送键只在「正在回复」时置灰");
+  assert.doesNotMatch(mainSrc, /ui\.send\.disabled = busy \|\| !configured;/,
+    "别把 !configured 加回 disabled：置灰等于又回到「点了没反应」");
+  assert.match(mainSrc, /ui\.send\.classList\.toggle\("is-blocked", !configured\);/,
+    "未配置时用 is-blocked 换色提示，而不是禁用");
+  assert.match(mainSrc, /\.aichat-send\.is-blocked\{background:#8d7b97\}/, "换色提示要有样式");
+  assert.match(mainSrc, /ui\.input\.placeholder = configured \? "帮我把这周的事理一遍" : "还没配模型 —— 先写也行，点发送会带你去配置";/,
+    "未配置时占位词要说明「点了会带你去配置」");
 }
 
 /* 行为：同一组提问**不许重建行**（重建会连光块和它的 ResizeObserver 一起扔掉、

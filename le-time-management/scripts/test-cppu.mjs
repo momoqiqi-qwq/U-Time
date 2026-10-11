@@ -238,7 +238,8 @@ assert.ok(source.includes('accinfo'), '一卡通余额必须合并电子账户�
 assert.ok(source.includes('current=${current}&type=${type}'), '账单流水必须按平台的方向参数分别取入账与支出，不能混在一趟翻页里');
 assert.ok(source.includes('year: "按年"') && source.includes('month: "按月"') && source.includes('day: "按日"'),
   '一卡通充值统计必须支持按年、按月、按日三种模式');
-assert.ok(source.includes('data-card-sync') && source.includes('data-card-login'), '一卡通视图必须支持自动登录和主动同步');
+assert.ok(source.includes('data-card-login'), '一卡通视图必须支持在视图内登录');
+assert.ok(source.includes('if(cardState.username&&cardState.password)return sync();'), '一卡通进入视图时必须自动同步平台账单');
 assert.ok(!source.includes('data-card-add') && !source.includes('data-card-del'), '一卡通统计不得再让用户手工新增或删除充值记录');
 assert.equal(cardIsRecharge({typeFrom:'1',resume:'校园卡充值'}), true, '平台入账中的充值应被识别');
 assert.equal(cardIsRecharge({typeFrom:'1',resume:'微信支付转账',turnoverType:'充值'}), true, '平台真实的微信转账充值不得被误排除');

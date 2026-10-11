@@ -103,6 +103,23 @@
      clip-path 只能填充，画不出描边。 */
   const ROOM_STAR_PTS = "0,-50 12.34,-16.99 47.55,-15.45 19.97,6.49 29.39,40.45 0,21 -29.39,40.45 -19.97,6.49 -47.55,-15.45 -12.34,-16.99";
 
+  /* ── 星图编辑模式（v0.191.0）──
+     「谁睡哪张床」和「谁在名单里排第几」原本是同一件事（第 i 位成员 = 第 i 号床），
+     实际宿舍里不成立：换床位、空床、有人睡上铺有人睡下铺，都跟值日顺序无关。
+     于是把床位分配单独存一份 seats（**床位槽 → 成员 id**），不写就是原来的默认排法（见 seatsOf）。
+     三样都按**床位槽**记，不按人：
+       · seats    谁睡第 i 号床（"" = 空床）
+       · bedNames 空床的别名（"备用床"这类；有人睡时显示成员名，别名让位）
+       · links    自定连线（[a, b] = 从 a 号床连到 b 号床，**保方向** —— 虚线的流动方向就是你点的顺序）
+     换人 / 改名 / 移出成员都不会把连线搞乱；把成员从名单里删掉，他那张床自动空出来。 */
+  const ROOM_BED_MAX = 8;      // 床位槽上限，对齐 ROOM_SIZES 的最大值（seats / bedNames 都按它截）
+  const BED_NAME_MAX = 10;     // 空床别名的长度上限（够写「靠窗上铺」「堆行李箱」这类）
+  const ROOM_LINK_MAX = 24;    // 自定连线最多几条（8 张床的完全图只有 28 条，够用）
+  /* 拖星星时的落点半径 = 取景框宽度的这个比例。实测最挤的 8 人间、360px 宽下相邻两颗星
+     相差约 11 个取景框单位（≈38px），0.12 就是「往目标那颗星身上放」，放手时大概不会误伤邻居；
+     再放大一点会把房间中央的空档也算成命中，拖到一半松手就搬了人。 */
+  const ROOM_BED_HIT = 0.12;
+
   const state = {
     groups: [],       // 多套轮换；顺序即界面上标签的顺序
     activeId: "",     // 当前选中的那套
@@ -111,9 +128,9 @@
     gen: 0,
     busy: false,
     membersOrderKey: "",
-    // 星图的观察位（跨轮换共用一套）：档位 / 自动旋转 / 拖出来的角度 / 缩放 / 要不要画铺位线框。
+    // 星图的观察位（跨轮换共用一套）：档位 / 自动旋转 / 拖出来的角度 / 缩放 / 要不要画铺位线框 / 编辑模式。
     // 卫生起见存成对象而不是散在 state 上 —— roomView() 会逐字段挡脏值。
-    roomView: { view: ROOM_VIEW_DEFAULT, spin: true, th: NaN, ph: NaN, dist: 1, beds: true },
+    roomView: { view: ROOM_VIEW_DEFAULT, spin: true, th: NaN, ph: NaN, dist: 1, beds: true, edit: false },
   };
   let root = null;
   let MY_GEN = 0;
@@ -244,6 +261,10 @@
       removed: [],
       overrides: {},
       lastNotified: "",
+      // 床位分配 / 空床别名 / 自定连线（星图编辑模式的产物，空 = 按名单顺序默认排）
+      seats: [],
+      bedNames: [],
+      links: [],
     };
   }
   /** 归一化一组。未识别的键原样保留 —— 别端（小程序）不展示 sound，但也不能把它抹掉。 */
@@ -262,6 +283,11 @@
     g.perRound = Math.min(MEMBER_MAX, Math.max(1, Math.round(Number(g.perRound) || 1)));
     // 宿舍床位数：只认 0（关闭）/ 4 / 6 / 8。认了别的数会让星图画不出铺位。
     g.roomSize = normalizeRoomSize(g.roomSize);
+    // 床位分配 / 空床别名 / 自定连线。links 的越界判定要拿 size 当边界，所以只能排在 roomSize 之后 ——
+    // 调换顺序的话「人数从 8 改回 4」会留下一条指向不存在的床的连线，画出来就是条凭空伸出去的线。
+    g.seats = normalizeSeats(g.seats);
+    g.bedNames = normalizeBedNames(g.bedNames);
+    g.links = normalizeLinks(g.links, g.roomSize);
     g.remindTime = normalizeTime(g.remindTime) || "08:00";
     g.remindEnabled = g.remindEnabled !== false;
     g.sound = String(g.sound || "beep");
@@ -719,6 +745,60 @@
       .dd-bed.empty .dd-bed-name{background:transparent;color:var(--ink-3,#A1A9AF);font-weight:600;cursor:default}
       /* 点星星 → 成员列表里对应那行闪一下，用来回答「3 号是谁」。 */
       .dd-mrow.dd-flash{background:color-mix(in srgb,var(--mint,#2EC4B6) 18%,transparent);border-radius:10px;transition:background .25s ease}
+      /* ── 编辑模式 ──
+         按下「编辑床位」之后：星星可以整颗拖到别的床上、点两颗连一条线、名字变输入框。
+         这里最要紧的是 touch-action：.dd-room 本来是 pan-y（上下拖滚页面），但**床上**必须
+         完全接管指针，否则手机上按住星星一拖就变成滚页面。所以只在 .dd-bed 上改成 none，
+         卡片其余部分照旧能滚 —— 别把整张卡片变成滚不动的黑洞。 */
+      .dd-room[data-room-edit="on"]{user-select:none}
+      .dd-room[data-room-edit="on"] .dd-bed{touch-action:none;cursor:grab}
+      .dd-room-edit{height:28px;padding:0 12px;border-radius:999px;flex:none;font-family:inherit;
+        border:1px dashed color-mix(in srgb,var(--deep,#0F4C5C) 34%,var(--line,#DCD6CB));
+        background:transparent;color:var(--ink-2,#7E8B94);
+        font-size:calc(11.5px * var(--ui-text-scale));font-weight:700;cursor:pointer}
+      .dd-room-edit:hover:not(.on){border-color:var(--deep,#0F4C5C);color:var(--deep,#0F4C5C)}
+      .dd-room-edit:focus-visible{outline:2px solid var(--deep,#0F4C5C);outline-offset:2px}
+      /* 正在编辑 → 变成实心（和「人数档 / 分组」那些 chip.on 同一组令牌：--deep 底 + --on-deep 字，
+         这两枚由主题对比度测试守着；自己配色的话深色主题下很容易掉到 4.5:1 以下）。
+         注意 hover 要 :not(.on)：实心之后再把字染成 --deep，就是深底深字、整个人看不见了。 */
+      .dd-room-edit.on{background:var(--deep,#0F4C5C);border-style:solid;border-color:var(--deep,#0F4C5C);
+        color:var(--on-deep,#fff)}
+      .dd-room-editbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;
+        padding:7px 9px;border-radius:12px;
+        border:1px dashed color-mix(in srgb,var(--deep,#0F4C5C) 30%,var(--line,#DCD6CB));
+        background:color-mix(in srgb,var(--deep,#0F4C5C) 5%,transparent)}
+      .dd-room-editmsg{flex:1;min-width:180px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+      .dd-room-moveto{display:inline-flex;align-items:center;gap:5px;flex:none;
+        font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+      .dd-room-moveto select{height:26px;max-width:11em;font-family:inherit;font-size:calc(11.5px * var(--ui-text-scale));
+        border-radius:8px;padding:0 4px;background:var(--panel,#fff);color:var(--ink,#22303A);
+        border:1px solid color-mix(in srgb,var(--deep,#0F4C5C) 30%,var(--line,#DCD6CB))}
+      .dd-room-mini{height:26px;padding:0 10px;border-radius:8px;flex:none;font-family:inherit;
+        border:1px solid color-mix(in srgb,var(--deep,#0F4C5C) 26%,var(--line,#DCD6CB));
+        background:var(--panel,#fff);color:var(--ink-2,#7E8B94);
+        font-size:calc(11.5px * var(--ui-text-scale));cursor:pointer}
+      .dd-room-mini:hover:not(:disabled){border-color:var(--deep,#0F4C5C);color:var(--deep,#0F4C5C)}
+      .dd-room-mini:disabled{opacity:.45;cursor:default}
+      /* 选中的那颗星：外圈实线（虚线是「连线」的语汇，这里刻意不用）＋ 抬高一层。
+         这个类**只在编辑模式下才会被加上**，平时类名串一个字都不变。 */
+      .dd-bed.sel{z-index:4}
+      .dd-bed.sel .dd-bed-star{box-shadow:0 0 0 2px var(--panel,#fff),0 0 0 4px color-mix(in srgb,var(--deep,#0F4C5C) 70%,transparent)}
+      /* 拖到哪张床 → 哪张床亮起来，松手就落到那儿 */
+      .dd-bed.drop .dd-bed-star{box-shadow:0 0 0 2px var(--mint,#2EC4B6),0 0 14px color-mix(in srgb,var(--mint,#2EC4B6) 60%,transparent)}
+      /* 正被拖走的那颗星：跟着指针走（--dd-dx / --dd-dy 是拖动代码每帧写上去的），
+         顺便淡一点表示「拿在手上」；transition 关掉，不然它会追着指针慢慢挪。 */
+      .dd-bed.dragging{z-index:5;opacity:.85;transition:none;
+        transform:translate(calc(-50% + var(--dd-dx,0px)),calc(-50% + var(--dd-dy,0px))) scale(1.1)}
+      /* 编辑模式的名字输入框：占着 .dd-bed-name 的位置与字号，只是把「一块牌子」换成可编辑的样子。
+         宽度按 em 跟着字号走 —— 空床别名（「堆行李箱」）也放得下。 */
+      .dd-bed-in{width:6.4em;max-width:6.4em;text-align:center;font-family:inherit;user-select:text;
+        padding:1px 4px;box-sizing:border-box;border-radius:9px;
+        font-size:calc(11px * var(--ui-text-scale));font-weight:650;color:var(--ink,#22303A);
+        border:1px dashed color-mix(in srgb,var(--deep,#0F4C5C) 42%,var(--line,#DCD6CB));
+        background:color-mix(in srgb,var(--panel,#fff) 88%,transparent)}
+      .dd-bed-in:focus{outline:2px solid var(--deep,#0F4C5C);outline-offset:1px}
+      .dd-bed.empty .dd-bed-in{border-color:color-mix(in srgb,var(--deep,#0F4C5C) 26%,transparent);
+        color:var(--ink-2,#7E8B94);font-weight:600}
       /* nephele 星空背景开着时把卡片让成透光薄层，把整幅星图交还给背景；关掉则退回普通卡片。 */
       :root[data-nephele-background="on"] .dd-room-card{background:color-mix(in srgb,var(--panel,#fff) 30%,transparent);
         border-color:color-mix(in srgb,var(--line,#E4DFD6) 58%,transparent);backdrop-filter:blur(3px) saturate(1.08)}
@@ -960,6 +1040,142 @@
     };
   }
 
+  /* ── 星图编辑模式：床位分配 / 空床别名 / 自定连线（v0.191.0）──
+     这一节全是纯函数（不碰 DOM、不碰 state），所以能直接喂给单测。
+     存的是**床位槽**而不是人：把成员从名单里删掉，他那张床自动空出来，不会留下悬空的座位。 */
+  /** 归一化床位分配。只收「像成员 id 的字符串」；重复的 id 只认第一个（第二个槽当成空床），
+      空串 / 非字符串一律当空床 —— 空床交给 seatsOf() 按名单顺序补人。 */
+  function normalizeSeats(raw) {
+    const out = [];
+    const seen = new Set();
+    for (const item of Array.isArray(raw) ? raw : []) {
+      if (out.length >= ROOM_BED_MAX) break;
+      const id = typeof item === "string" ? item.trim().slice(0, 64) : "";
+      if (!id || seen.has(id)) { out.push(""); continue; }
+      seen.add(id);
+      out.push(id);
+    }
+    return out;
+  }
+  /** 归一化空床别名。只留到 ROOM_BED_MAX 个槽，每项 trim + 截断；空白别名换成空串（= 显示「空床」）。 */
+  function normalizeBedNames(raw) {
+    const list = Array.isArray(raw) ? raw.slice(0, ROOM_BED_MAX) : [];
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      out.push(typeof list[i] === "string" ? list[i].trim().replace(/\s+/g, " ").slice(0, BED_NAME_MAX) : "");
+    }
+    return out;
+  }
+  /** 归一化自定连线。丢掉自环（自己连自己）、越界的槽号（人数从 8 改成 4 之后剩下来的）、
+      重复的无向边（A→B 与 B→A 是同一条，留先出现的那个方向 —— 方向就是虚线的流动方向）。 */
+  function normalizeLinks(raw, size) {
+    const n = Math.max(0, Math.round(Number(size)) || 0);
+    const out = [];
+    const seen = new Set();
+    for (const item of Array.isArray(raw) ? raw : []) {
+      if (out.length >= ROOM_LINK_MAX) break;
+      if (!Array.isArray(item) || item.length < 2) continue;
+      const a = Math.round(Number(item[0])), b = Math.round(Number(item[1]));
+      if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+      if (a === b || a < 0 || b < 0 || a >= n || b >= n) continue;
+      const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push([a, b]);
+    }
+    return out;
+  }
+  /** 这间宿舍当前的自定连线（已按当前人数滤过一遍）。 */
+  function roomLinks(g, size) {
+    return normalizeLinks(g && g.links, size);
+  }
+  /** 空床别名补齐到 size 长度 —— 渲染时按槽取用，不用每次判 undefined。 */
+  function bedNamesOf(g, size) {
+    const n = Math.max(0, Math.round(Number(size)) || 0);
+    const raw = normalizeBedNames(g && g.bedNames);
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(raw[i] || "");
+    return out;
+  }
+  /** 床位槽 → 成员（null = 空床）。这是「谁睡哪张床」的唯一事实源。
+      ① 先按 g.seats 落座：空串 / 重复 id / 已经不在名单里的 id 一律跳过（那张床空着）；
+      ② 剩下的空槽**按成员名单顺序**自动补座 —— 所以没编辑过时结果与「第 i 位成员睡第 i 号床」
+         完全一样，新加进来的成员也会自己落到空床上，不必先手动摆一遍。 */
+  function seatsOf(g, size) {
+    const members = g && Array.isArray(g.members) ? g.members : [];
+    const n = Math.max(0, Math.round(Number(size)) || 0);
+    const out = new Array(n).fill(null);
+    if (!n) return out;
+    const byId = new Map(members.map((m) => [m.id, m]));
+    const used = new Set();
+    const raw = g && Array.isArray(g.seats) ? g.seats : [];
+    for (let i = 0; i < n && i < raw.length; i++) {
+      const id = typeof raw[i] === "string" ? raw[i].trim() : "";
+      if (!id || used.has(id)) continue;
+      const m = byId.get(id);
+      if (!m) continue;
+      out[i] = m;
+      used.add(id);
+    }
+    let k = 0;
+    for (let i = 0; i < n; i++) {
+      if (out[i]) continue;
+      while (k < members.length && used.has(members[k].id)) k += 1;
+      if (k >= members.length) break;   // 人比床位少：剩下的就是空床
+      out[i] = members[k];
+      used.add(members[k].id);
+      k += 1;
+    }
+    return out;
+  }
+  /** 把 from 号槽与 to 号槽对调（拖星星换床 / 「移到」下拉都走这里）。
+      先把当前分配**实体化**再换 —— 否则「拖走第 1 位成员」会因为 g.seats 还是空的而丢掉这个动作。
+      成功返回 true；同一个槽、越界、没人可搬都返回 false。 */
+  function moveSeat(g, from, to) {
+    const size = roomSizeOf(g);
+    const a = Math.round(Number(from)), b = Math.round(Number(to));
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+    if (a === b || a < 0 || b < 0 || a >= size || b >= size) return false;
+    const seats = seatsOf(g, size).map((m) => (m ? m.id : ""));
+    if (seats[a] === seats[b]) return false;   // 两张床都是空的，换个寂寞
+    const tmp = seats[a];
+    seats[a] = seats[b];
+    seats[b] = tmp;
+    g.seats = seats;
+    return true;
+  }
+  /** 建 / 拆一条自定连线：两点之间已经有线就删掉（再点一次 = 撤销）。保方向，不排序。 */
+  function toggleLink(g, a, b) {
+    const size = roomSizeOf(g);
+    const x = Math.round(Number(a)), y = Math.round(Number(b));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (x === y || x < 0 || y < 0 || x >= size || y >= size) return false;
+    const links = roomLinks(g, size).map((e) => [e[0], e[1]]);
+    const i = links.findIndex((e) => (e[0] === x && e[1] === y) || (e[0] === y && e[1] === x));
+    if (i >= 0) links.splice(i, 1); else links.push([x, y]);
+    g.links = links;
+    return true;
+  }
+  /** 指针落点 → 最近的那个床位槽；太远（或没落在图上）返回 -1 = 这一拖不算数。
+      坐标是**取景框单位**（调用方把屏幕坐标换算过来）。半径按取景框宽度的比例给，
+      因为取景框本身是等比映射的（容器的 aspect-ratio 就是 box.w/box.h），
+      所以同一份单位在横竖两种取景框下都是「一个单位 = 同样多 CSS 像素」，手感一致。 */
+  function bedSlotAtPoint(L, box, x, y) {
+    if (!L || !L.stars || !L.stars.length) return -1;
+    const w = box && Number.isFinite(box.w) && box.w > 0 ? box.w : ROOM_BOX_WIDE.w;
+    const h = box && Number.isFinite(box.h) && box.h > 0 ? box.h : ROOM_BOX_WIDE.h;
+    if (!(x >= 0 && y >= 0 && x <= w && y <= h)) return -1;   // 拖到图外 = 取消
+    const r = w * ROOM_BED_HIT;
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < L.stars.length; i++) {
+      const p = L.stars[i];
+      if (!p) continue;
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return bestD <= r ? best : -1;
+  }
+
   /* ── 相机：球形轨道 + 透视 ── */
   const clampPh = (ph) => Math.max(0.14, Math.min(Math.PI - 0.14, ph));
 
@@ -1017,11 +1233,16 @@
       spin: raw.spin === true,
       // 只有显式关掉才不画铺位（缺席 = 老数据 = 画，跟以前的观感一致）
       beds: raw.beds !== false,
+      // 编辑模式：只有显式 true 才算开着（与 beds 相反的判法 —— 编辑模式是一脚踏进去、
+      // 改完就退出来的状态，缺省必须是关；老数据里没有这个词，默认也就是关）。
+      edit: raw.edit === true,
       th: Number.isFinite(th) ? th : base.th,
       ph: Number.isFinite(ph) ? clampPh(ph) : base.ph,
       dist: Number.isFinite(dist) ? Math.max(ROOM_ZOOM_MIN, Math.min(ROOM_ZOOM_MAX, dist)) : 1,
     };
   }
+  /** 正在编辑床位。编辑时不自动旋转（拖星星时目标必须在原地），点星也不去成员列表找号。 */
+  const roomEditOn = () => roomView().edit === true;
   /** 相机三轴（右 / 上 / 前）与镜头到目标的距离。目标点取房间中心偏上一点。 */
   function roomCamera(scene, v, box) {
     const bb = box || roomBox();
@@ -1072,22 +1293,38 @@
   /* ── 渲染 ── */
   const roomFmt = (n) => String(Math.round(n * 100) / 100);
   const roomPts = (list) => list.map((p) => `${roomFmt(p.x)},${roomFmt(p.y)}`).join(" ");
-  /** 星星的无障碍名字，也是「点这颗星代表谁」的唯一说明。 */
-  const roomBedLabel = (i, m, now) => (m
-    ? `第 ${i + 1} 位 · ${m.name} · ${i % 2 ? "上铺" : "下铺"}${now ? " · 今天值日" : ""}`
-    : `第 ${i + 1} 位 · 空床`);
+  /** 星星的无障碍名字，也是「点这颗星代表谁」的唯一说明。
+      星上那个数字是**床位号**（编辑模式可以把人挪到别的床上，所以它不再等于名单位次），
+      成员在名单里的位次改挂在这里说，不然编辑过床位之后就没人知道谁排第几了。 */
+  const roomBedLabel = (i, m, now, rank) => {
+    const bed = `第 ${i + 1} 号床 · ${i % 2 ? "上铺" : "下铺"}`;
+    if (!m) return `${bed} · 空床`;
+    return `${bed} · ${m.name} · 名单第 ${rank || 0} 位${now ? " · 今天值日" : ""}`;
+  };
 
   /** 首帧的整段 SVG。拖动时不会走这里 —— 那条路是 roomDraw() 原地改属性。 */
-  function roomSceneSvg(L) {
+
+  /** 首帧的整段 SVG。拖动时不会走这里 —— 那条路是 roomDraw() 原地改属性。 */
+  function roomSceneSvg(L, links) {
     const poly = (pts, cls) => `<polygon class="${cls}" points="${roomPts(pts)}"/>`;
     const seg = (a, b, cls) => `<line class="${cls}" x1="${roomFmt(a.x)}" y1="${roomFmt(a.y)}" x2="${roomFmt(b.x)}" y2="${roomFmt(b.y)}"/>`;
     // 画家算法：远的先画。铺板是半透明的，画反了后排会盖在前排上。
     const furniture = L.order.map((i) => L.slabs[i].quads.map((q) => poly(q, "dd-room-slab")).join("")
       + L.posts[i].segs.map(([a, b]) => seg(a, b, "dd-room-post")).join("")).join("");
-    const flow = L.stars.length > 1
-      ? `<polyline class="dd-room-flow" points="${roomPts(L.stars)}"/>`
-        + seg(L.stars[L.stars.length - 1], L.stars[0], "dd-room-loop")
-      : "";
+    /* 自定连线**取代**默认的值日路线，不叠加：两条线画在一起谁也看不清，而用户自己连过图
+       之后，他要看的就是自己连的那张图（默认路线的语义还在「轮换规则」那张卡里）。
+       每条线各画各的（不是一条折线），所以任意拓扑都能画：星形、交叉、甚至画成一个方框。
+       方向 = 首点 → 次点，虚线的流动方向就照这个走。 */
+    const custom = (Array.isArray(links) ? links : []).filter((e) => L.stars[e[0]] && L.stars[e[1]]);
+    const flow = custom.length
+      // data-room-link 是留给 roomDraw() 原地重画的把手：自动旋转每帧都按这个次序把新坐标写回来
+      ? custom.map(([a, b], k) => `<line class="dd-room-flow dd-room-link" data-room-link="${k}"`
+        + ` x1="${roomFmt(L.stars[a].x)}" y1="${roomFmt(L.stars[a].y)}"`
+        + ` x2="${roomFmt(L.stars[b].x)}" y2="${roomFmt(L.stars[b].y)}"/>`).join("")
+      : L.stars.length > 1
+        ? `<polyline class="dd-room-flow" points="${roomPts(L.stars)}"/>`
+          + seg(L.stars[L.stars.length - 1], L.stars[0], "dd-room-loop")
+        : "";
     return furniture + flow;
   }
 
@@ -1095,32 +1332,53 @@
   function roomHtml(g, s) {
     const size = roomSizeOf(g);
     const v = roomView();
-    const nowIds = new Set(assigneesFor(g, s.today).map((m) => m.id));
+    const edit = v.edit === true;
     const chips = ROOM_SIZES.map((n) => `<button class="dd-chip${n === size ? " on" : ""}" data-room-size="${n}" type="button" aria-pressed="${n === size ? "true" : "false"}">${n ? `${n} 人间` : "关闭"}</button>`).join("");
     const head = `<div class="dd-room-title">${faIcon("star")}宿舍床位 · 值日星图<span class="dd-room-sizes" role="group" aria-label="宿舍人数">${chips}</span></div>`;
     if (!size) {
-      return `${head}<div class="dd-muted">选一个 4 / 6 / 8 人间：床位会画成一片星图，星星上写成员名字，星上的数字是他在轮换里的位次，连线就是从第 1 位到第 x 位的值日顺序。</div>`;
+      return `${head}<div class="dd-muted">选一个 4 / 6 / 8 人间：床位会画成一片星图，星星上写成员名字，星上的数字是床位号，连线就是从第 1 张床到第 x 张床的值日顺序。想按自己的意思排床位、连自己的线，点上面的「编辑床位」。</div>`;
     }
 
     const scene = roomScene(size);
     const box = roomBox();
     const L = roomProjectAll(scene, v, box);
+    /* 「谁睡哪张床」的唯一事实源就是 seatsOf()：星图、拖星换床、自定连线都从这里取人。
+       g.members[i] 那种「名单位次 = 床位号」的偷懒写法在有了编辑模式之后不再成立。 */
+    const seats = seatsOf(g, size);
+    const aliases = bedNamesOf(g, size);   // 空床别名：只能改、也只显示在空床上
+    const links = roomLinks(g, size);      // 自定连线；非空时取代默认的值日路线
+    const rank = new Map(g.members.map((m, i) => [m.id, i + 1]));
+    const nowIds = new Set(assigneesFor(g, s.today).map((m) => m.id));
     const starsHtml = scene.beds.map((_, i) => {
-      const m = g.members[i] || null;
+      const m = seats[i] || null;
       const now = !!m && nowIds.has(m.id);
       const p = L.stars[i];
+      const sel = edit && i === roomSel;
       // up / down 决定名字挂星星上方还是下方：侧视下同一张铺的两颗星几乎竖直相叠，
       // 名字都挂下方会互相压住。
-      const cls = ["dd-bed", i % 2 ? "up" : "down", now ? "now" : "", m ? "" : "empty"].filter(Boolean).join(" ");
-      // 名字是**另一颗按钮**：点名字就地改名，点星星本身仍然是「跳到成员列表那一行」。
-      // 空床没有可改的名字，退回纯文本（也就不会被键盘 Tab 到）。
-      const nameHtml = m
-        ? `<button class="dd-bed-name" type="button" data-room-rename="${esc(m.id)}" title="点击名字以改名" aria-label="给 ${esc(m.name)} 改名">${esc(m.name)}</button>`
-        : `<span class="dd-bed-name">空床</span>`;
+      const cls = ["dd-bed", i % 2 ? "up" : "down", now ? "now" : "", m ? "" : "empty", sel ? "sel" : ""].filter(Boolean).join(" ");
+      /* 名字是**另一颗控件**（HTML 里 button 不能嵌 button，所以 .dd-bed 只是普通容器）：
+         · 平时：点名字就地改名，点星星本身是「跳到成员列表里的那一行」；
+         · 编辑模式：名字变成输入框 —— 占床的改成员名，空床的改**床位别名**（「这张留给谁」
+           或「堆行李箱」）。空床本来没有名字可改，别名就是编辑模式给它的用处。
+         两种控件的字号 / 位置由同一组 CSS 管，所以这里只换标签名。 */
+      let nameHtml;
+      if (edit) {
+        nameHtml = `<input class="dd-bed-name dd-bed-in" type="text" data-bed-input="${i}"`
+          + ` value="${esc(m ? m.name : aliases[i])}" maxlength="${m ? MEMBER_MAX : BED_NAME_MAX}"`
+          + ` placeholder="${m ? "成员名" : "空床"}"`
+          + ` aria-label="${esc(m ? `第 ${i + 1} 号床的成员名` : `第 ${i + 1} 号床的别名`)}">`;
+      } else if (m) {
+        nameHtml = `<button class="dd-bed-name" type="button" data-room-rename="${esc(m.id)}" title="点击名字以改名" aria-label="给 ${esc(m.name)} 改名">${esc(m.name)}</button>`;
+      } else {
+        nameHtml = `<span class="dd-bed-name">${esc(aliases[i] || "空床")}</span>`;
+      }
       return `<div class="${cls}"`
         + ` style="left:${(p.x / box.w * 100).toFixed(3)}%;top:${(p.y / box.h * 100).toFixed(3)}%;--k:${L.kAt(p).toFixed(3)};--phase:${(-(i * 0.6) % 4).toFixed(2)}s">`
-        + `<button class="dd-bed-star" type="button" data-room-bed="${i}"${m ? ` data-room-id="${esc(m.id)}"` : " disabled"}`
-        + ` aria-label="${esc(roomBedLabel(i, m, now))}"${now ? ' aria-current="true"' : ""}>`
+        // 空床平时是打不开的装饰（disabled），编辑模式下必须能点：选中它、连到它、把别人挪上去
+        + `<button class="dd-bed-star" type="button" data-room-bed="${i}"${m ? ` data-room-id="${esc(m.id)}"` : ""}${!m && !edit ? " disabled" : ""}`
+        + ` aria-label="${esc(roomBedLabel(i, m, now, m ? rank.get(m.id) : 0) + (sel ? " · 已选中" : ""))}"`
+        + `${sel ? ' aria-pressed="true"' : ""}${now ? ' aria-current="true"' : ""}>`
         + `<svg class="dd-bed-glyph" viewBox="-50 -50 100 100"><polygon points="${ROOM_STAR_PTS}"/></svg><b class="dd-bed-no">${i + 1}</b></button>`
         + `${nameHtml}</div>`;
     }).join("");
@@ -1130,8 +1388,21 @@
       <span class="dd-room-views" role="group" aria-label="视角">${views}</span>
       <label class="dd-room-spin"><input type="checkbox" data-room-beds${v.beds ? " checked" : ""}>显示床铺</label>
       <button class="dd-room-stop${v.spin ? " spinning" : ""}" data-room-spin type="button" title="${v.spin ? "固定当前角度，不再自动旋转" : "恢复自动旋转"}">${v.spin ? "停止" : "继续旋转"}</button>
-      <span class="dd-room-hint">左右拖动转视角 · 滚轮 / 捏合缩放 · 点名字改名</span>
+      <button class="dd-room-edit${edit ? " on" : ""}" data-room-edit type="button" aria-pressed="${edit ? "true" : "false"}" title="${edit ? "收起编辑，回到只看星星" : "打开编辑：拖动星星换床铺、改名字、连自己的线"}">${edit ? "完成编辑" : "编辑床位"}</button>
+      <span class="dd-room-hint">${edit ? "拖动星星到别的床上＝换床 · 点两颗星连一条线 · 名字直接改下面的输入框" : "左右拖动转视角 · 滚轮 / 捏合缩放 · 点名字改名"}</span>
     </div>`;
+    /* 编辑条：只在编辑模式出现，放在视角那一行的**下面**（星图上面），因为它要跟「选中的是哪颗星」
+       绑在一起说。三件事在这里解决：把选中那颗星挪到第几号床（键盘也能干完全程）、
+       清空自定连线回到默认值日路线、把这张星图整个恢复成「第 i 位成员睡第 i 号床」。 */
+    const cur = edit && roomSel >= 0 && roomSel < size ? roomSel : -1;
+    const curText = cur < 0 ? "" : (seats[cur] ? seats[cur].name : (aliases[cur] || `第 ${cur + 1} 号床`));
+    const moves = cur < 0 ? "" : scene.beds.map((_, i) => `<option value="${i}"${i === cur ? " selected" : ""}>第 ${i + 1} 号床 · ${i % 2 ? "上铺" : "下铺"}${seats[i] ? `（${esc(seats[i].name)}）` : aliases[i] ? `（${esc(aliases[i])}）` : "（空）"}</option>`).join("");
+    const editbar = edit ? `<div class="dd-room-editbar">
+      <span class="dd-room-editmsg">${cur < 0 ? "点一颗星选中它：再点第二颗就连一条线，拖动它到别的床上就换床。" : `已选 ${esc(curText)}：再点一颗星连一条线（可以连着点，一路连过去），拖动它就换到别的床上。`}</span>
+      <label class="dd-room-moveto">移到<select data-room-moveto${cur < 0 ? " disabled" : ""}>${cur < 0 ? `<option value="">先选一颗星</option>` : moves}</select></label>
+      <button class="dd-room-mini" data-room-link-clear type="button"${links.length ? "" : " disabled"}>清空连线${links.length ? `（${links.length}）` : ""}</button>
+      <button class="dd-room-mini" data-room-seat-reset type="button"${g.seats.length || g.bedNames.length || g.links.length ? "" : " disabled"}>恢复默认床位</button>
+    </div>` : "";
     /* 旋转条（星图**下面**那一行）：拖动即转到对应角度，松手后若没按「停止」就接着自动旋转。
        它替代了原来的「自动旋转」勾选框 —— 同一件事只留一个控件，而且「按一下就停在这儿」
        比「先去勾一个框」更贴手。 */
@@ -1145,11 +1416,11 @@
     const extra = g.members.length > size
       ? `<div class="dd-note">名单里还有 ${g.members.length - size} 位成员没排进这间宿舍 —— 调大宿舍人数，或把多余的成员移到别的轮换里。</div>` : "";
     const empty = g.members.length ? "" : `<div class="dd-note">还没有成员。先在上一张卡里添加：第 1 个人住 1 号床（下铺）。</div>`;
-    const legend = `<div class="dd-note">实心星是上铺、空心星是下铺（同一张铺的两颗星沿铺宽略微错开，只为俯视时也分得开 —— 是示意，不是真实床位坐标）；星上的数字是他在名单里的位次，实线按 1→${size} 走、流动方向就是值日顺序，尾端虚线绕回第 1 位；今天当班的星亮成绿色。<b>点星上的名字就能就地改名</b>；点星星本身则是跳到它在成员列表里的那一行。下面的「旋转条」可以直接把视角拖到某个角度，松手后若不按「停止」就接着自动旋转，按「停止」就把角度钉住不动。床架觉得碍事可以把上面的「显示床铺」关掉，只剩星星与连线。<b>触控板在图上直接捏合就能缩放</b>（鼠标滚轮同理，向上滚放大）。</div>`;
+    const legend = `<div class="dd-note">实心星是上铺、空心星是下铺（同一张铺的两颗星沿铺宽略微错开，只为俯视时也分得开 —— 是示意，不是真实床位坐标）；星上的数字是床位号（编辑模式把人挪到别的床上之后它就不再等于名单位次了，所以谁排第几改挂在鼠标悬停的说明里），默认连线按 1→${size} 走、流动方向就是值日顺序，尾端虚线绕回第 1 位；今天当班的星亮成绿色。<b>点星上的名字就能就地改名</b>；点星星本身则是跳到它在成员列表里的那一行。想按自己的意思排床位就点「编辑床位」：星星可以整颗拖到别的床上（拖到睡着人的床上＝两人换铺），点两颗星之间就连一条自己的线（接着点就一路连下去，「清空连线」回到默认的值日路线），名字就地改，空床也能起个名字当备注。下面的「旋转条」可以直接把视角拖到某个角度，松手后若不按「停止」就接着自动旋转，按「停止」就把角度钉住不动。床架觉得碍事可以把上面的「显示床铺」关掉，只剩星星与连线。<b>触控板在图上直接捏合就能缩放</b>（鼠标滚轮同理，向上滚放大）。</div>`;
 
-    return `${head}${bar}
-      <div class="dd-room" data-room data-room-beds="${v.beds ? "on" : "off"}" style="aspect-ratio:${box.w}/${box.h}">
-        <svg class="dd-room-svg" viewBox="0 0 ${box.w} ${box.h}" preserveAspectRatio="none" aria-hidden="true">${roomSceneSvg(L)}</svg>
+    return `${head}${bar}${editbar}
+      <div class="dd-room" data-room data-room-beds="${v.beds ? "on" : "off"}" data-room-edit="${edit ? "on" : "off"}" style="aspect-ratio:${box.w}/${box.h}">
+        <svg class="dd-room-svg" viewBox="0 0 ${box.w} ${box.h}" preserveAspectRatio="none" aria-hidden="true">${roomSceneSvg(L, links)}</svg>
         ${starsHtml}
       </div>${turn}${extra}${empty}${legend}`;
   }
@@ -1160,6 +1431,14 @@
   let roomResize = null;   // 窗口跨过断点要重画：取景框换了，旧的那份百分比就对不上了
   let roomHover = false;   // 鼠标压在星图上 → 暂停自动旋转（不然星星一直在动，点不准也看不清）
   let roomDragMoved = 0;   // 刚结束的那次拖动挪了多少像素：>4 就不当成「点击星星」
+  /* 编辑模式里「当前选中的是哪颗星」（床位槽号，-1 = 没选）。**故意不落盘**：
+     它是一次操作的中间状态，重启后用户不会期待上次选中的星还亮着。
+     它是编辑模式的连线起点 —— 点第二颗星就连线，然后把选中挪到第二颗上，
+     于是「1→2→3→1」这种一路连下去不用反复点回第一颗。 */
+  let roomSel = -1;
+  /* 正在被手指 / 鼠标拖着换床的那颗星。和上面的 drag（转视角）分开：转视角是整张图动，
+     拖星是星星跟着指针走一格，两者在编辑模式下只会触发一个（起点在星上就拖星）。 */
+  let roomStarDrag = null;
 
   /* ── 旋转条（星图下面那条滑杆）与「停止」按钮的状态 ──
      拖滑杆的语义和拖星图一致：手上还按着就别让每帧的自动旋转把角度拽走（roomStopSpin），
@@ -1235,18 +1514,39 @@
         el.setAttribute("x2", roomFmt(b.x)); el.setAttribute("y2", roomFmt(b.y));
       }
     }
-    setPts(svg.querySelector(".dd-room-flow"), L.stars);
+    /* 连线有两种画法（与 roomSceneSvg 里的第一帧同一条规矩）：画过自定连线就只更新那些
+       <line>，没画过就更新默认的折线 + 回环虚线。自定连线的条数与顺序来自 g.links，
+       条数变了会走整页重画（commit → paint），所以这里按次序逐个设坐标就够了。 */
+    const flowEl = svg.querySelector(".dd-room-flow");
     const loop = svg.querySelector(".dd-room-loop");
-    if (loop && L.stars.length > 1) {
-      const a = L.stars[L.stars.length - 1], b = L.stars[0];
-      loop.setAttribute("x1", roomFmt(a.x)); loop.setAttribute("y1", roomFmt(a.y));
-      loop.setAttribute("x2", roomFmt(b.x)); loop.setAttribute("y2", roomFmt(b.y));
+    const linkEls = svg.querySelectorAll("[data-room-link]");
+    if (linkEls.length) {
+      const links = roomLinks(g, roomLive.scene.size);
+      linkEls.forEach((el, k) => {
+        const e = links[k];
+        const a = e ? L.stars[e[0]] : null;
+        const b = e ? L.stars[e[1]] : null;
+        if (!a || !b) return;
+        el.setAttribute("x1", roomFmt(a.x)); el.setAttribute("y1", roomFmt(a.y));
+        el.setAttribute("x2", roomFmt(b.x)); el.setAttribute("y2", roomFmt(b.y));
+      });
+    } else {
+      setPts(flowEl, L.stars);
+      if (loop && L.stars.length > 1) {
+        const a = L.stars[L.stars.length - 1], b = L.stars[0];
+        loop.setAttribute("x1", roomFmt(a.x)); loop.setAttribute("y1", roomFmt(a.y));
+        loop.setAttribute("x2", roomFmt(b.x)); loop.setAttribute("y2", roomFmt(b.y));
+      }
     }
     // 星星也顺手对齐一次：换过人数档之后成员可能变，类名与可点性要跟着走。
     // ⚠️ [data-room-bed] 是**星点按钮**（里层），位置与 up/down/now/empty 这些类名在
     // **外层容器 .dd-bed** 上（样式写的是 .dd-bed.now .dd-bed-glyph）—— 两处分家之后
     // 类名必须落到 closest(".dd-bed")，不然旋转一帧就把「今天当班」的绿色洗掉了。
     const nowIds = new Set(assigneesFor(g, s.today).map((m) => m.id));
+    // 人跟着**床位槽**走，不是跟着名单位次走：编辑模式下这两件事已经分家了。
+    const seats = seatsOf(g, roomLive.scene.size);
+    const rank = new Map(g.members.map((m, i) => [m.id, i + 1]));
+    const edit = roomEditOn();
     host.querySelectorAll("[data-room-bed]").forEach((el) => {
       const i = Number(el.dataset.roomBed);
       const p = L.stars[i];
@@ -1255,13 +1555,17 @@
       wrap.style.left = `${(p.x / roomLive.box.w * 100).toFixed(3)}%`;
       wrap.style.top = `${(p.y / roomLive.box.h * 100).toFixed(3)}%`;
       wrap.style.setProperty("--k", L.kAt(p).toFixed(3));
-      const m = g.members[i] || null;
+      const m = seats[i] || null;
       const now = !!m && nowIds.has(m.id);
+      const sel = edit && i === roomSel;
       wrap.classList.toggle("now", now);
       wrap.classList.toggle("empty", !m);
-      el.disabled = !m;
+      wrap.classList.toggle("sel", sel);
+      // 空床在编辑模式下是「可以放人的格子」，不能禁掉
+      el.disabled = !m && !edit;
       if (m) el.dataset.roomId = m.id; else delete el.dataset.roomId;
-      el.setAttribute("aria-label", roomBedLabel(i, m, now));
+      el.setAttribute("aria-label", roomBedLabel(i, m, now, m ? rank.get(m.id) : 0) + (sel ? " · 已选中" : ""));
+      if (sel) el.setAttribute("aria-pressed", "true"); else el.removeAttribute("aria-pressed");
       if (now) el.setAttribute("aria-current", "true"); else el.removeAttribute("aria-current");
     });
     // 滑杆跟着转：自动旋转每帧都走到这儿，拖动中 roomSyncTurn() 自己会让开用户的手。
@@ -1275,6 +1579,10 @@
   function roomSpin() {
     roomRaf = 0;
     if (!roomLive || !roomLive.host.isConnected || !roomView().spin) return;
+    /* 编辑模式下整幅图**不自动转**：星星一边转一边被拖是要拖空的，而且「我把这颗星放到哪张床」
+       需要一个不动的参照系（不然松手的位置和你瞄准的位置差半张床）。不排下一帧就等于停住，
+       退出编辑走 commit→paint→bindRoom→roomSpinSync()，转不转由 spin 按钮决定。 */
+    if (roomEditOn()) return;
     // 停在星图上就把旋转停下来：默认开着自动旋转是为了好看，但边转边点星星会点空。
     // 只认鼠标 / 触控笔 —— 触摸设备的 :hover 会粘住，手指一碰就再也不转了。
     if (!roomReduceMotion() && !document.hidden && !roomHover) {
@@ -1285,12 +1593,15 @@
   }
   function roomSpinSync() {
     roomStopSpin();
-    if (roomLive && roomView().spin) roomRaf = roomRafLater(roomSpin);
+    if (roomLive && roomView().spin && !roomEditOn()) roomRaf = roomRafLater(roomSpin);
   }
 
   /** 绑定星图：拖动转视角、滚轮 / 触控板捏合缩放、自动旋转、换视角、点星定位。
       人数档的绑定在 bind() 里（它要 await 落盘）。 */
-  function bindRoom(g, s) {
+  function bindRoom(g, s, commit) {
+    /* 「改数据 → 落盘 → 整页重画」那条链由 bind() 传进来（它要 await save()）。
+       单独验证星图时（比如测试里直接调 bindRoom）退回同一条默认链，而不是把拖动变成哑巴。 */
+    const apply = typeof commit === "function" ? commit : async (mutate) => { mutate(); await save(); await paint(); };
     const host = root?.querySelector?.("[data-room]") || null;
     roomStopSpin();
     roomLive = null;
@@ -1316,8 +1627,87 @@
     // 拖动转视角。CSS 里给的是 touch-action:pan-y —— 手机上左右拖转视角、上下拖滚动页面，
     // 不把整张卡片变成「滚不动的黑洞」。
     let drag = null;
+    /* 编辑模式里从一颗星上按下去 = **拖这颗星换床**，不是转视角。整段手势绑在 document 上：
+       指针一挪就会滑出星星本身、甚至滑出星图，绑在 host 上会「拖到一半事件没了」。
+       只在按下去那一刻挂，松手立刻摘掉 —— 否则每画一次星图都会多挂一层。 */
+    const doc = host.ownerDocument || (typeof document !== "undefined" ? document : null);
+    const bedWrap = (i) => host.querySelector(`[data-room-bed="${i}"]`)?.closest?.(".dd-bed") || null;
+    const markDrop = (to) => {
+      host.querySelectorAll(".dd-bed.drop").forEach((el) => el.classList.remove("drop"));
+      const wrap = to >= 0 ? bedWrap(to) : null;
+      if (wrap) wrap.classList.add("drop");
+    };
+    /** 指针位置 → 取景框里的坐标。星图 SVG 用的是 preserveAspectRatio="none"，
+        所以就是一次线性映射（百分比与 viewBox 一一对应），不必管缩放中心在哪。 */
+    const pointInRoom = (e) => {
+      const r = host.getBoundingClientRect?.();
+      const box = roomLive?.box;
+      if (!r || !r.width || !r.height || !box) return null;
+      return { x: (e.clientX - r.left) / r.width * box.w, y: (e.clientY - r.top) / r.height * box.h };
+    };
+    const onStarMove = (e) => {
+      const d = roomStarDrag;
+      if (!d || e.pointerId !== d.id) return;
+      const dx = e.clientX - d.x, dy = e.clientY - d.y;
+      roomDragMoved = Math.max(roomDragMoved, Math.abs(dx) + Math.abs(dy));
+      if (!d.moved) {
+        if (roomDragMoved <= 4) return;   // 还没挪够：先当它是一次点击（选中 / 连线）
+        d.moved = true;
+        host.classList.add("dragging");
+        bedWrap(d.from)?.classList.add("dragging");
+      }
+      // 跟手：星星本身也按位移挪一下（CSS 里的 --dd-dx / --dd-dy），不然「拖着一颗不动的星」
+      // 完全看不出在拖谁 —— 落点高亮说明的是「会落到哪」，这颗星的位移说明的是「我在拖它」。
+      const held = bedWrap(d.from);
+      if (held) {
+        held.style.setProperty("--dd-dx", `${dx}px`);
+        held.style.setProperty("--dd-dy", `${dy}px`);
+      }
+      const p = pointInRoom(e);
+      // 拖到星图外面 = 取消（bedSlotAtPoint 对越界坐标直接回 -1）
+      const to = p ? bedSlotAtPoint(d.L, roomLive?.box || d.box, p.x, p.y) : -1;
+      if (to === d.to) return;
+      d.to = to;
+      markDrop(to);
+    };
+    const onStarUp = (e) => {
+      const d = roomStarDrag;
+      if (!d || (e && e.pointerId !== d.id)) return;
+      roomStarDrag = null;
+      try { doc?.removeEventListener("pointermove", onStarMove, true); } catch { /* 没有 doc 就算了 */ }
+      try { doc?.removeEventListener("pointerup", onStarUp, true); } catch { /* 同上 */ }
+      try { doc?.removeEventListener("pointercancel", onStarUp, true); } catch { /* 同上 */ }
+      host.classList.remove("dragging");
+      host.querySelectorAll(".dd-bed.dragging,.dd-bed.drop").forEach((el) => el.classList.remove("dragging", "drop"));
+      // 取消掉的那次拖动要把「跟着指针挪出去」的那点位移收回原位
+      const back = bedWrap(d.from);
+      if (back) { back.style.removeProperty("--dd-dx"); back.style.removeProperty("--dd-dy"); }
+      roomSpinSync();
+      if (!d.moved) return;   // 没真的挪动 → 当成点击，交给 bind() 里那条 [data-room-bed] 的处理
+      // 拖到别人睡的床上 = 两人换铺（moveSeat 就是对调两个床位槽）；拖回原地 / 拖出图外 = 什么也不做
+      if (d.to < 0 || d.to === d.from) return;
+      // 注意：apply/commit 的入参是一个**不带参数**的回调（`(mutate) => { mutate(); … }`），
+      // 别指望它把当前那一组传回来 —— 那样拿到的会是 undefined，moveSeat 静默返回 false，
+      // 表现成「星星跟着指针走了一圈、松手却什么都没变」。这里用 bindRoom 闭包里的 g。
+      apply(() => { if (moveSeat(g, d.from, d.to)) roomSel = d.to; });
+    };
+    function startStarDrag(e, starEl) {
+      const from = Number(starEl.dataset.roomBed);
+      if (!(from >= 0) || !roomLive) return;
+      const box = roomLive.box;
+      roomStarDrag = { from, id: e.pointerId, x: e.clientX, y: e.clientY, moved: false, to: -1, box, L: roomProjectAll(roomLive.scene, roomView(), box) };
+      roomDragMoved = 0;
+      roomStopSpin();
+      try {
+        doc?.addEventListener("pointermove", onStarMove, true);
+        doc?.addEventListener("pointerup", onStarUp, true);
+        doc?.addEventListener("pointercancel", onStarUp, true);
+      } catch { /* 没有 doc 就算了 */ }
+    }
     host.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
+      const star = e.target?.closest?.(".dd-bed-star") || null;
+      if (roomEditOn() && star) { startStarDrag(e, star); return; }
       roomDragMoved = 0;
       drag = { id: e.pointerId, x: e.clientX, y: e.clientY, th: roomView().th, ph: roomView().ph, active: false };
       roomStopSpin();
@@ -1725,12 +2115,19 @@
     const src = state.groups.find((x) => x.id === id);
     if (!src) return null;
     const reid = (list) => list.map((m) => ({ id: uid("m"), name: m.name }));
+    const members = reid(src.members);
+    /* 副本的成员**换了新 id**，而 seats 是按床位槽记一串成员 id 的 —— 不跟着重映射的话，
+       副本里每一张床都会指向一个不存在的人（表现是「复制出来的组，星图全是空床」）。
+       links / bedNames 是按**槽位序号**记的，与成员 id 无关，原样带走即可。 */
+    const idMap = new Map(src.members.map((m, i) => [m.id, members[i].id]));
+    const seats = Array.isArray(src.seats) ? src.seats.map((x) => (x && idMap.get(x)) || "") : [];
     const copy = normalizeGroup({
       ...src,
       id: uid("g"),
       name: nextCopyName(src.name, state.groups),
-      members: reid(src.members),
+      members,
       removed: reid(src.removed),
+      seats,
       overrides: {},
       lastNotified: "",
     }, tide.util.today());
@@ -2126,7 +2523,7 @@
     // 宿舍星图：人数档（要落盘，走 commit）+ 视角档 / 自动旋转 + 「点星星找人对上号」
     root.querySelectorAll("[data-room-size]").forEach((btn) => btn.addEventListener("click", async () => {
       const n = Number(btn.dataset.roomSize) || 0;
-      if (n !== roomSizeOf(g)) await commit(() => { g.roomSize = n; });
+      if (n !== roomSizeOf(g)) await commit(() => { g.roomSize = n; roomSel = -1; });   // 床位变了，原来选中的槽未必还在
     }));
     root.querySelectorAll("[data-room-view]").forEach((btn) => btn.addEventListener("click", async () => {
       const id = btn.dataset.roomView;
@@ -2176,15 +2573,57 @@
     });
     // 拖动过之后再抬手会补一个 click，那种不该被当成「点星星找人对号」
     root.querySelectorAll("[data-room-bed][data-room-id]").forEach((el) => el.addEventListener("click", () => {
-      if (roomDragMoved > 4) return;
+      if (roomDragMoved > 4 || roomEditOn()) return;   // 编辑模式里点星星是「选中 / 连线」，不是找人
       const row = root.querySelector(`[data-members] .dd-mrow[data-id="${el.dataset.roomId}"]`);
       if (!row || !row.classList) return;
       row.scrollIntoView({ block: "center" });
       row.classList.add("dd-flash");
       setTimeout(() => row.classList.remove("dd-flash"), 1600);
     }));
+    /* 编辑模式的连线：点第一颗星选中它，点第二颗就把这两张床连起来，并**把选中挪到第二颗** ——
+       于是 1→2→3→1 可以一路点下去，不用每次点回起点。再点一次已选中的那颗 = 取消选中。
+       同一个点还兼着「选中给下拉框用」：选中之后「移到 X 号床」那个下拉才有意义。 */
+    root.querySelectorAll("[data-room-bed]").forEach((el) => el.addEventListener("click", async () => {
+      if (!roomEditOn() || roomDragMoved > 4) return;
+      const i = Number(el.dataset.roomBed);
+      if (!(i >= 0)) return;
+      // 没选 → 选中它；选的就是它 → 取消（这也是「我不想连了」的逃出口）
+      if (roomSel < 0 || roomSel === i) { roomSel = roomSel === i ? -1 : i; await paint(); return; }
+      await commit(() => { toggleLink(g, roomSel, i); roomSel = i; });
+    }));
+    /* 编辑模式的改名：占床的改成员名（和成员列表里那个输入框同一套规则），
+       空床的改**床位别名**（「这张留给谁」/「堆行李箱」）。两条都要落盘 + 重画，所以走 commit。 */
+    root.querySelectorAll("[data-bed-input]").forEach((el) => {
+      const i = Number(el.dataset.bedInput);
+      const done = async () => {
+        const m = seatsOf(g, roomSizeOf(g))[i] || null;
+        const max = m ? MEMBER_MAX : BED_NAME_MAX;
+        const raw = String(el.value || "").trim().replace(/\s+/g, " ").slice(0, max);
+        const before = m ? m.name : (g.bedNames[i] || "");
+        if (raw === before) { await paint(); return; }   // 没动（含「清空后放弃」）就原样退回
+        if (m) {
+          if (!raw) { await paint(); return; }           // 成员不能没有名字
+          await commit(() => {
+            const idx = g.members.findIndex((x) => x.id === m.id);
+            if (idx >= 0) g.members[idx].name = raw;
+          });
+        } else {
+          await commit(() => {
+            const next = bedNamesOf(g, roomSizeOf(g));
+            next[i] = raw;   // 空串 = 把别名去掉，床位回到「空床」
+            g.bedNames = next;
+          });
+        }
+      };
+      el.addEventListener("change", done);
+      el.addEventListener("keydown", (e) => {
+        // 回车 = 提交（交给 blur → change）；Esc = 放弃这次输入（值清空，change 里会退回原值）
+        if (e.key === "Enter") { e.preventDefault(); el.blur(); }
+        else if (e.key === "Escape") { e.preventDefault(); el.value = ""; el.blur(); }
+      });
+    });
     // 点星上的名字 → 就地改名。与成员列表里那个输入框同一套规则：空名 / 没变都不动，
-    // 取消（promptFn 返回 null）也什么都不做。
+    // 取消（promptFn 返回 null）也什么都不做。（编辑模式里名字是输入框，走上面那条路。）
     root.querySelectorAll("[data-room-rename]").forEach((el) => el.addEventListener("click", async () => {
       if (roomDragMoved > 4) return;
       const idx = g.members.findIndex((m) => m.id === el.dataset.roomRename);
@@ -2196,7 +2635,33 @@
       if (name === cur.name) return;
       await commit(() => { g.members[idx].name = name; });
     }));
-    bindRoom(g, snapshot(g));
+    /* 编辑模式开关。它是**视图状态**，和视角 / 旋转 / 缩放一起存 roomView ——
+       「我正在编辑」不是某一组轮换的属性，换组不该把它忘掉。退出时顺手清掉选中。 */
+    q("button[data-room-edit]")?.addEventListener("click", async () => {
+      state.roomView.edit = !roomEditOn();
+      if (!state.roomView.edit) roomSel = -1;
+      await save();
+      await paint();
+    });
+    // 「移到 X 号床」：给键盘和「不想拖」的人一条完整可用的路（拖星只是更快的那条）
+    q("[data-room-moveto]")?.addEventListener("change", async (e) => {
+      const to = Number(e.currentTarget.value);
+      if (!(to >= 0) || roomSel < 0 || to === roomSel) return;
+      await commit(() => { if (moveSeat(g, roomSel, to)) roomSel = to; });
+    });
+    q("[data-room-link-clear]")?.addEventListener("click", async () => {
+      if (!g.links.length) return;
+      await commit(() => { g.links = []; });   // 清空 = 回到「1→N 的默认值日路线」
+    });
+    /* 「恢复默认床位」：床位分配、空床别名、自定连线一次全清 —— 于是又变回
+       「第 i 位成员睡第 i 号床」。成员名单一个字都不动，但这个动作本身不可逆，所以先问一句。 */
+    q("[data-room-seat-reset]")?.addEventListener("click", async () => {
+      if (!g.seats.length && !g.bedNames.length && !g.links.length) return;
+      if (!confirmFn("恢复默认床位？床位分配、空床别名、自定连线都会清掉，成员名单不动。")) return;
+      roomSel = -1;
+      await commit(() => { g.seats = []; g.bedNames = []; g.links = []; });
+    });
+    bindRoom(g, snapshot(g), commit);
 
     // 提醒
     q("[data-remind]")?.addEventListener("change", async (e) => {

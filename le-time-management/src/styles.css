@@ -4675,15 +4675,41 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   color: var(--on-deep) !important;
 }
 
-/* 标签：底色和文字色必须成对给出，只改底色会让 #0F4C5C 这类深色字留在深色底上 */
-:root[data-theme-mode="dark"] .plugview :where(.gx-tag:not(.n), .pp-tag:not(.top):not(.unread)) {
+/* 标签：底色和文字色必须成对给出，只改底色会让 #0F4C5C 这类深色字留在深色底上。
+   竞赛消息雷达的三条分类轴各有语义色（学科默认深青 / 级别 .lv 灰 / 性质 .k-*），
+   一个都不能被压成同一种颜色，否则三枚标签并排时看不出哪枚是哪条轴。 */
+:root[data-theme-mode="dark"] .plugview :where(.gx-tag, .pp-tag:not(.top):not(.unread)) {
   background: color-mix(in srgb, var(--deep) 16%, var(--panel)) !important;
   color: var(--deep) !important;
 }
 
-:root[data-theme-mode="dark"] .plugview .gx-tag.n {
+:root[data-theme-mode="dark"] .plugview .gx-tag.lv {
+  background: color-mix(in srgb, var(--ink-2) 16%, var(--panel)) !important;
+  color: var(--ink-2) !important;
+}
+
+:root[data-theme-mode="dark"] .plugview .gx-tag.k {
   background: color-mix(in srgb, var(--grape) 18%, var(--panel)) !important;
   color: var(--grape) !important;
+}
+
+/* 性质轴里最该被看见的三颗（报名 / 榜单 / 培训）各自保住色相；文字统一用 --ink，
+   深底浅字对比度最高，色相全靠底色区分。这里必须用 :is 而不是 :where ——
+   :where 不贡献优先级，会被上面 `.gx-tag.k` 的同名 !important 压掉。 */
+:root[data-theme-mode="dark"] .plugview :is(.gx-tag.k-signup, .gx-tag.k-result, .gx-tag.k-train) {
+  color: var(--ink) !important;
+}
+
+:root[data-theme-mode="dark"] .plugview .gx-tag.k-signup {
+  background: color-mix(in srgb, var(--q4) 22%, var(--panel)) !important;
+}
+
+:root[data-theme-mode="dark"] .plugview .gx-tag.k-result {
+  background: color-mix(in srgb, var(--sun) 22%, var(--panel)) !important;
+}
+
+:root[data-theme-mode="dark"] .plugview .gx-tag.k-train {
+  background: color-mix(in srgb, var(--sea) 22%, var(--panel)) !important;
 }
 
 :root[data-theme-mode="dark"] .plugview .pp-tag.top {

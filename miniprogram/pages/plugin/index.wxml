@@ -444,12 +444,15 @@
         <button class="btn pri gx-refresh" bindtap="onGxRefresh" disabled="{{gx.fetching}}">刷新</button>
         <view class="search-wrap"><view class="search-ico"></view><input class="gx-kw" value="{{gx.kw}}" aria-label="关键词过滤：答辩 / 数学 / 报名 / 截止" bindinput="onGxKw" confirm-type="search" /></view>
       </view>
+      <block wx:for="{{gx.axes}}" wx:for-item="ax" wx:key="axis">
+        <view class="gx-chips gx-axis" wx:if="{{ax.show}}">
+          <view class="gx-lab">{{ax.name}}</view>
+          <view class="gx-chip {{item.on ? 'on' : ''}}" wx:for="{{ax.chips}}" wx:for-item="item" wx:key="id" data-axis="{{ax.axis}}" data-id="{{item.id}}" bindtap="onGxAxis">{{item.label}}</view>
+        </view>
+      </block>
       <view class="gx-chips">
-        <view class="gx-chip {{item.on ? 'on' : ''}}" wx:for="{{gx.typeChips}}" wx:key="id" data-id="{{item.id}}" bindtap="onGxType">{{item.label}}</view>
-        <view class="gx-chip {{gx.hideSeen ? 'on' : ''}}" bindtap="onGxToggleSeen">只看未读</view>
-      </view>
-      <view class="gx-chips" wx:if="{{gx.monthChips.length > 1}}">
         <view class="gx-chip {{item.on ? 'on' : ''}}" wx:for="{{gx.monthChips}}" wx:key="id" data-id="{{item.id}}" bindtap="onGxMonth">{{item.label}}</view>
+        <view class="gx-chip {{gx.hideSeen ? 'on' : ''}}" bindtap="onGxToggleSeen">只看未读</view>
       </view>
       <view class="gx-status {{gx.error ? 'err' : ''}}">
         <text wx:if="{{gx.error}}">抓取失败：{{gx.error}}（点「刷新」重试；模拟器/体验版请勾选「不校验合法域名」）</text>
@@ -460,7 +463,7 @@
         <view wx:else class="gx-card {{item.seen ? 'seen' : ''}}" data-id="{{item.id}}" bindtap="onGxTap" data-act="open">
           <view class="gx-main">
             <view class="gx-title">{{item.title}}<text class="gx-new" wx:if="{{item.isNew}}">NEW</text></view>
-            <view class="gx-meta"><text class="gx-tag {{item.tagHot ? 'hot' : ''}}">{{item.tagName}}</text><text>{{item.time}}</text></view>
+            <view class="gx-meta"><text wx:for="{{item.tags}}" wx:for-item="t" wx:key="label" class="gx-tag {{t.cls}}">{{t.label}}</text><text>{{item.time}}</text></view>
             <view class="gx-snip" wx:if="{{item.snippet}}">{{item.snippet}}</view>
           </view>
           <button class="btn small ghost gx-remind" data-id="{{item.id}}" data-act="remind" catchtap="onGxTap">提醒</button>

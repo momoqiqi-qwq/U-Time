@@ -209,7 +209,7 @@ tide.util.mmOf("09:30"); tide.util.hhmmOf(570); tide.util.durLabel(90);
 ```
 
 - 内置插件 `public/plugins/cn-holiday/`（中国节假日）：由 cn-holiday Skill 移植，内置 2024–2026 数据快照，支持下个假期倒计时、下次休息日、指定日期放假/调休判断、全年安排；缺失年份通过 `tide.http` 联网读取并缓存。
-- 内置插件 `public/plugins/gx-news/`（竞赛消息雷达）：`tide.http.get` 抓取摩课云竞赛平台公告、关键词/类型/月份/已读过滤、`openUrl` 打开详情、`parseWhen` 一键转提醒。
+- 内置插件 `public/plugins/gx-news/`（竞赛消息雷达）：`tide.http.get` 抓取摩课云 / 赛氪 / 我要参赛网三家的竞赛公告（也能粘网址加自定义源），关键词/月份/已读过滤；分类拆成三条正交轴——性质（报名 榜单 公告 培训 赛事）、级别（国际 全国 省级 市级 校级）、学科（数学建模 程序设计 电子机械 数理化生 经济管理 文学外语 设计艺术 体育公益），站点自己的分类词经同一套封闭词表归一，认不出的轴留空不占位；`openUrl` 打开详情、`parseWhen` 一键转提醒。
 - 内置插件 `public/plugins/chaoxing-notify/`（学习通通知）：需要登录态的场景——`http.session/fetch` 保持 Cookie、`desEncryptHex` 在本机完成超星 DES 登录加密（改造自 chaoxing-notify-skill）。注意：学习通「消息中心」接口有平台 IP 白名单，被拒时插件会明确提示；课程列表与通知分享码查询不受影响。
 - 内置插件 `public/plugins/cppu-notify/`（警大门户通知）：改造自 cppu-notify-skill，完整复刻三段式 SSO 链路（主 SSO 验证码手输 → sso-jw bridge → 门户 tp_up）+ Sudy CAS RSA 加密（BigInt 移植，与原实现逐字节一致）。相比原 skill 移除了 74MB 的 tesseract OCR 运行时——验证码改为界面内手输，CASTGC 有效时可在当前应用运行会话内尝试静默续期免验证码。HTTP Cookie 会话目前只保存在内存，因此退出并重启应用后不能承诺自动登录；密码仍不落盘，验证码仍需手输。
 - 内置插件 `public/plugins/wechat-push/`（微信推送）：时间块开始前 N 分钟经 Server酱 推送到微信，带测试按钮与推送日志。

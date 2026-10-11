@@ -18,6 +18,85 @@ const POMO_MODES = [
    中文继续作为文本渲染，只有 class 走这里映射。 */
 const CX_CAT_CLS = { "考试": "exam", "作业": "work", "签到": "checkin", "通知": "notice" };
 
+/* 竞赛消息分类体系 —— 与桌面端 public/plugins/gx-news/main.js 同源（词表要改就两处一起改）。
+   三条互不干涉的轴，每轴一张**有序**表：表顺序 = chip 顺序 = 关键词命中优先级。
+     kind  性质：报名 / 榜单 / 公告 / 培训 / 赛事
+     level 级别：国际 / 全国 / 省级 / 市级 / 校级
+     field 学科：数学建模 / 程序设计 / 电子机械 / 数理化生 / 经济管理 / 文学外语 / 设计艺术 / 体育公益
+   站点原生标签（摩课云的 newsType）只当第一手证据，经表归一后落到轴上；认不出的轴留空，
+   不设「其他」桶 —— 空标签不渲染也不成 chip，界面才不会被「其他」堆满。
+   ⚠️ WXSS 的选择器标识符不能含非 ASCII（见上面 CX_CAT_CLS 的教训），
+   所以 class 后缀一律用这里的 ASCII id，中文只作 label 渲染。 */
+const GX_KIND_TABLE = [
+  { id: "signup", label: "报名", kw: /报名|开赛|征集|征稿|招募|参赛|投递|投稿|提交|通道|入口|截止/ },
+  { id: "result", label: "榜单", kw: /榜单|获奖|奖项|名单|结果|公示|成绩|晋级|入围|评审|揭晓|评比/ },
+  { id: "notice", label: "公告", kw: /公告|通知|须知|安排|说明|调整|变更|延期|预告|政策|日程|时间表/ },
+  { id: "train", label: "培训", kw: /培训|讲座|公开课|研讨会|分享会|工作坊|训练营|辅导|答疑|宣讲/ },
+  { id: "race", label: "赛事", kw: /竞赛|大赛|比赛|挑战赛|擂台|赛项|初赛|复赛|决赛|半决赛|选拔/ },
+];
+const GX_LEVEL_TABLE = [
+  { id: "intl", label: "国际", kw: /国际|全球|世界|亚洲|亚太|海外/ },
+  { id: "nation", label: "全国", kw: /全国|国家级|国家|中华|中国|教育部|国赛/ },
+  { id: "prov", label: "省级", kw: /省级|全省|省赛|省大学生|分赛区|赛区|自治区/ },
+  { id: "city", label: "市级", kw: /市级|全市|市赛|地市/ },
+  { id: "school", label: "校级", kw: /校级|校赛|校内|本校|校园|学校|学院|我校/ },
+];
+const GX_FIELD_TABLE = [
+  { id: "math", label: "数学建模", kw: /数学|数模|建模|统计|概率|运筹|精算/ },
+  { id: "code", label: "程序设计", kw: /程序|编程|算法|软件|计算机|信息|人工智能|网络安全|区块链|开源|物联网|大数据|数据|芯片/ },
+  { id: "eng", label: "电子机械", kw: /电子(?!商)|电气|机械|工程|自动化|机器人|航空|航天|能源|材料|建筑|土木|测绘|结构|水利|环境|交通|制造|车辆/ },
+  { id: "sci", label: "数理化生", kw: /物理|化学|生物|医药|医学|药学|护理|生命|健康|农业|食品|地理|地质|天文|心理/ },
+  { id: "biz", label: "经济管理", kw: /经济|金融|财务|管理|商务|电商|营销|会计|审计|创业|创新|职业|就业|物流|贸易|市场|投资|规划/ },
+  { id: "lang", label: "文学外语", kw: /英语|外语|翻译|语文|汉语|文学|写作|演讲|辩论|阅读|诗歌|诗词|哲学|历史|法律|新闻|思政|征文/ },
+  { id: "art", label: "设计艺术", kw: /设计|美术|艺术|绘画|书法|摄影|音乐|舞蹈|动漫|影视|传媒|广告|服装|播音|主持|创意|IP形象/ },
+  { id: "sport", label: "体育公益", kw: /体育|运动|健身|球|田径|游泳|武术|棋|电竞|志愿|公益|支教|环保|慈善|劳动/ },
+];
+const GX_AXES = { kind: GX_KIND_TABLE, level: GX_LEVEL_TABLE, field: GX_FIELD_TABLE };
+const GX_AXIS_NAME = { kind: "性质", level: "级别", field: "学科" };
+const GX_AXIS_KEYS = ["kind", "level", "field"];
+
+/** 表内首个命中的 id（表顺序即优先级：越靠前越具体）；命中不了返回空串。 */
+function gxPick(table, text) {
+  const s = String(text == null ? "" : text);
+  if (!s) return "";
+  for (const row of table) if (row.kw.test(s)) return row.id;
+  return "";
+}
+const gxAxisLabel = (axis, id) => ((GX_AXES[axis] || []).find((r) => r.id === id) || {}).label || "";
+/** 只认表里有的 id（持久化值写坏了也不会变成静默过滤）；不合法返回空串。 */
+const gxAxisId = (axis, v) => ((GX_AXES[axis] || []).some((r) => r.id === v) ? v : "");
+const gxHasType = (t, code) => String(t || "").split(".").indexOf(code) >= 0;
+
+/** 一条消息 → 三条轴。原生标签算硬证据，关键词只在标题与摘要里兜底；认不出就留空。 */
+function gxClassify(m) {
+  const nat = (m && m.native) || {};
+  const text = ((m && m.title) || "") + " " + ((m && m.snippet) || "");
+  return {
+    kind: nat.kind || gxPick(GX_KIND_TABLE, text) || "",
+    level: nat.level || gxPick(GX_LEVEL_TABLE, text) || "",
+    field: gxPick(GX_FIELD_TABLE, text) || gxPick(GX_FIELD_TABLE, nat.field) || "",
+  };
+}
+
+/** 卡片上最多三枚标签：性质（分色）/ 级别 / 学科，缺的轴不占位。 */
+function gxTags(m) {
+  const out = [];
+  if (m.kind) out.push({ cls: "k k-" + m.kind, label: gxAxisLabel("kind", m.kind) });
+  if (m.level) out.push({ cls: "lv", label: gxAxisLabel("level", m.level) });
+  if (m.field) out.push({ cls: "", label: gxAxisLabel("field", m.field) });
+  return out;
+}
+
+/** 某条轴的 chip：顺序永远按表走（不跟抓取结果的先后漂移）；正在生效、这一批里已命不中的
+    那个也留在台面上，否则就是「一个都没高亮却仍在过滤」。 */
+function gxAxisChips(list, filter, axis) {
+  const has = {};
+  for (const m of list) if (m[axis]) has[m[axis]] = 1;
+  const opts = GX_AXES[axis].filter((r) => has[r.id] || filter[axis] === r.id);
+  return [{ id: "all", label: "全部" }].concat(opts.map((r) => ({ id: r.id, label: r.label })))
+    .map((c) => ({ id: c.id, label: c.label, on: filter[axis] === c.id }));
+}
+
 /* 插件使用说明：分组与使用步骤与桌面端 plugin-guide/main.js 同源 */
 const GUIDE_GROUPS = [
   { name: "学习与校园", ids: ["shiguang-schedule", "school-notice", "chaoxing-notify", "cppu-notify", "exam-calendar"] },
@@ -871,9 +950,16 @@ Page({
   /* ════ 竞赛消息雷达（gxxsjs.com 摩课云公告） ════ */
   loadGx() {
     const f = store.pluginStorageGet("gx-news", "filter", null) || {};
+    // 旧版存的是单一 type（n202 / n203 / other 或裸 newsType）：n202→性质·公告、n203→性质·赛事，
+    // other 就是当年那个「其他」桶，现在直接消失（不设该桶）。
+    const old = String(f.type == null ? "" : f.type);
+    const legacyKind = (old === "n202" || old === "202") ? "notice" : (old === "n203" || old === "203") ? "race" : "";
     this._gx = {
       filter: {
-        kw: f.kw || "", type: ["all", "n202", "n203", "other"].indexOf(f.type) >= 0 ? f.type : "all",
+        kw: f.kw || "",
+        kind: gxAxisId("kind", f.kind) || legacyKind || "all",
+        level: gxAxisId("level", f.level) || "all",
+        field: gxAxisId("field", f.field) || "all",
         month: f.month || "all", hideSeen: !!f.hideSeen,
       },
       /* 桌面端 v0.66.0 起条目 id 带源前缀（`mokeroad:123`），因为多源之后三家的 id 都是自增数字、必然撞号。
@@ -897,13 +983,18 @@ Page({
       const res = await net.request({ url: "https://www.gxxsjs.com/prod-api/home/competition/news/page?pageNum=" + page + "&pageSize=40" });
       const d = res.data && typeof res.data === "object" ? res.data : null;
       if (res.statusCode !== 200 || !d || d.code !== 0 || !d.data) throw new Error((d && d.msg) || "HTTP " + res.statusCode);
-      const fresh = (d.data.records || []).map((r) => ({
-        id: r.newsId,
-        title: String(r.newsTitle || "(无标题)"),
-        type: String(r.newsType || ""),
-        time: String(r.publishTime || "").slice(0, 16),
-        snippet: String(r.newsInfo || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120),
-      }));
+      const fresh = (d.data.records || []).map((r) => {
+        const t = String(r.newsType || "");
+        const item = {
+          id: r.newsId,
+          title: String(r.newsTitle || "(无标题)"),
+          // 站点自己标的性质（202 = 平台通知，203 = 赛事动态）留作硬证据，其余交给关键词兜底。
+          native: { kind: gxHasType(t, "203") ? "race" : gxHasType(t, "202") ? "notice" : "", label: t },
+          time: String(r.publishTime || "").slice(0, 16),
+          snippet: String(r.newsInfo || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120),
+        };
+        return Object.assign(item, gxClassify(item));
+      });
       if (page === 1) gx.list = fresh;
       else {
         const ids = new Set(gx.list.map((m) => m.id));
@@ -938,11 +1029,12 @@ Page({
     if (!gx) return;
     if (reset) gx.rendered = 14;
     const kw = gx.filter.kw.trim().toLowerCase();
-    const hasType = (t, code) => String(t || "").split(".").indexOf(code) >= 0;
     const rows = gx.list.filter((m) => {
-      if (gx.filter.type === "n202" && !hasType(m.type, "202")) return false;
-      if (gx.filter.type === "n203" && !hasType(m.type, "203")) return false;
-      if (gx.filter.type === "other" && (hasType(m.type, "202") || hasType(m.type, "203"))) return false;
+      // 三条轴是「与」关系：性质+级别+学科可叠加，比如「报名 × 全国 × 数学建模」。
+      for (const axis of GX_AXIS_KEYS) {
+        const want = gx.filter[axis];
+        if (want !== "all" && (m[axis] || "") !== want) return false;
+      }
       if (gx.filter.month !== "all" && ((m.time || "").slice(0, 7) || "unknown") !== gx.filter.month) return false;
       if (gx.filter.hideSeen && gx.seen.has(m.id)) return false;
       if (kw && !(m.title.toLowerCase().includes(kw) || m.snippet.toLowerCase().includes(kw))) return false;
@@ -961,10 +1053,9 @@ Page({
         vms.push({ kind: "month", key: "m_" + mo, label: this.gxMonthLabel(mo) + " · " + counts[mo] + " 条" });
         lastMonth = mo;
       }
-      const tn = hasType(m.type, "203") ? "赛事动态" : hasType(m.type, "202") ? "平台通知" : "其他";
       vms.push({
-        kind: "item", key: String(m.id), id: String(m.id), title: m.title, tagName: tn,
-        tagHot: tn === "赛事动态", time: m.time, snippet: m.snippet,
+        kind: "item", key: String(m.id), id: String(m.id), title: m.title, tags: gxTags(m),
+        nat: (m.native && m.native.label) || "", time: m.time, snippet: m.snippet,
         isNew: !gx.seen.has(m.id), seen: gx.seen.has(m.id),
       });
     }
@@ -979,8 +1070,12 @@ Page({
         count: rows.length,
         kw: gx.filter.kw,
         hideSeen: gx.filter.hideSeen,
-        typeChips: [{ id: "all", label: "全部" }, { id: "n202", label: "平台通知" }, { id: "n203", label: "赛事动态" }, { id: "other", label: "其他" }]
-          .map((c) => ({ id: c.id, label: c.label, on: gx.filter.type === c.id })),
+        // 一条轴只有一个可选值（或一个都没有）、又没在过滤时整行收掉 —— 旧版的「其他」桶
+        // 就是靠「永远至少有一项」把这个收行机会吃掉的。
+        axes: GX_AXIS_KEYS.map((axis) => {
+          const chips = gxAxisChips(gx.list, gx.filter, axis);
+          return { axis, name: GX_AXIS_NAME[axis], chips, show: chips.length > 2 || gx.filter[axis] !== "all" };
+        }),
         monthChips: [{ id: "all", label: "全部" }].concat(months.map((mo) => ({ id: mo, label: this.gxMonthLabel(mo) })))
           .map((c) => ({ id: c.id, label: c.label, on: gx.filter.month === c.id })),
         more: gx.rendered < rows.length ? "page" : gx.hasMore ? "next" : "end",
@@ -997,8 +1092,11 @@ Page({
     clearTimeout(this._gxKwTimer);
     this._gxKwTimer = setTimeout(() => this.gxPaint(true), 250);
   },
-  onGxType(e) {
-    this._gx.filter.type = e.currentTarget.dataset.id;
+  onGxAxis(e) {
+    if (!this._gx) return;
+    const axis = e.currentTarget.dataset.axis;
+    if (!GX_AXES[axis]) return;
+    this._gx.filter[axis] = e.currentTarget.dataset.id;
     store.pluginStorageSet("gx-news", "filter", this._gx.filter);
     this.gxPaint(true);
   },
