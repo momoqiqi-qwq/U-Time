@@ -48,8 +48,24 @@ echo "==== [2/3] Windows 安装包（nsis + msi）===="
 sed 's|^npm run tauri -- build "\$@"|npm run tauri -- bundle "$@"|' build-windows.sh \
   > "$ROOT/.workbuddy-ai/tmp/bundle-windows.sh"
 bash "$ROOT/.workbuddy-ai/tmp/bundle-windows.sh" --bundles nsis,msi
-cp src-tauri/target/release/bundle/nsis/*_x64-setup.exe "$OUT/UTime-$VER-x64-setup.exe"
-cp src-tauri/target/release/bundle/msi/*_x64_zh-CN.msi  "$OUT/UTime-$VER-x64-zh-CN.msi"
+
+# nsis/ 与 msi/ 是历版共用的输出目录，堆着几十个旧版本产物：
+# 直接 glob 会多匹配，cp 把目标当目录，报 "cp: target '...' is not a directory" 并中断。
+# 所以按版本精确挑，且要求恰好一个匹配 —— 不匹配宁可失败，也不能错发别人的产物。
+pick_one() {
+  local label="$1"; shift
+  local matches=() m
+  for m in "$@"; do [ -f "$m" ] && matches+=("$m"); done
+  if [ "${#matches[@]}" != "1" ]; then
+    echo "  ✗ $label：期望恰好 1 个产物，实际 ${#matches[@]} 个（${matches[*]:-无}）" >&2
+    return 1
+  fi
+  printf '%s\n' "${matches[0]}"
+}
+NSIS_BIN="$(pick_one 'NSIS 安装包' src-tauri/target/release/bundle/nsis/*_"$VER"_x64-setup.exe)"
+MSI_BIN="$(pick_one 'MSI 安装包' src-tauri/target/release/bundle/msi/*_"$VER"_x64_zh-CN.msi)"
+cp "$NSIS_BIN" "$OUT/UTime-$VER-x64-setup.exe"
+cp "$MSI_BIN"  "$OUT/UTime-$VER-x64-zh-CN.msi"
 
 # ---------- 3. Android ----------
 echo "==== [3/3] Android APK（两个 ABI）===="
@@ -71,17 +87,24 @@ echo "  提示：全局关掉该弹窗（含浏览器/网盘下载的安装包�
 
 # ---------- 4. 校验 + 摘要 ----------
 echo "==== 校验产物版本 ===="
-python -c "
-import sys
-ok=True
-for v in ['$VER']:
-    for p in ['$OUT/UTime-$VER-x64-portable.exe','$OUT/UTime-$VER-x64-setup.exe']:
-        d=open(p,'rb').read()
-        n=d.count(v.encode('utf-16-le'))
-        print(f'  {p.split(chr(47))[-1]}: {v} u16={n}')
-        if n==0: ok=False
-sys.exit(0 if ok else 1)
-" || { echo "✗ 产物版本不符，别发布"; exit 1; }
+# 用 node 而不是 python：本机只装了 `py`（`python` 不在 PATH），原写法在这里必挂。
+# 两个 exe 的版本串按 UTF-16LE 存在；MSI 把版本放在 CFB 属性流里、APK 在压缩过的
+# AndroidManifest 里，裸字节都数不到，所以只校验 exe 两件（与历版一致）。
+node -e '
+const fs = require("fs");
+const [ver, ...files] = process.argv.slice(1);
+const needle = Buffer.from(ver, "utf16le");
+let ok = true;
+for (const p of files) {
+  const buf = fs.readFileSync(p);
+  let n = 0, at = -1;
+  while ((at = buf.indexOf(needle, at + 1)) !== -1) n++;
+  console.log("  " + p.split(/[\\/]/).pop() + ": " + ver + " u16=" + n);
+  if (n === 0) ok = false;
+}
+process.exit(ok ? 0 : 1);
+' "$VER" "$OUT/UTime-$VER-x64-portable.exe" "$OUT/UTime-$VER-x64-setup.exe" \
+  || { echo "✗ 产物版本不符，别发布"; exit 1; }
 
 cd "$OUT"
 sha256sum UTime-$VER-* > SHA256SUMS.txt
@@ -91,4 +114,7 @@ ls -la "$OUT"
 echo ""
 echo "下一步（各版本独立 Release，最新版带 --latest，旧版加 --latest=false）："
 echo "  gh release create v$VER --repo momoqiqi-qwq/U-Time --title \"U-Time v$VER\" \\"
-echo "     --notes-file .workbuddy-ai/tmp/release-notes-$VER.md $OUT/UTime-$VER-*"
+echo "     --notes-file .workbuddy-ai/tmp/release-notes-$VER.md --latest \\"
+echo "     $OUT/UTime-$VER-* $OUT/SHA256SUMS.txt"
+echo "  发布后核对（curl 走 github.com，本机没配代理时记得带上 HTTP(S)_PROXY）："
+echo "  cd $LM && npm run check:update-release:full"
