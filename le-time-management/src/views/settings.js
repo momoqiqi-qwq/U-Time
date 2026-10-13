@@ -19,6 +19,7 @@ import { createSyncCard } from "./settings/sync.js";
 import { createKeywordHighlightsCard } from "./settings/highlights.js";
 import { createTaskSettingsCard } from "./settings/tasks.js";
 import { createCppuLoginCard } from "./settings/cppuLogin.js";
+import { createCppuAwardCard } from "./settings/cppuAward.js";
 import { createTestingCard } from "./settings/testing.js";
 
 let info = null;
@@ -137,6 +138,7 @@ export function renderSettings(container, opts = {}) {
       { id: "lan", create: ({ render }) => createLanCard({ settings: S.getState().settings, info, render }), label: "局域网联动", icon: "network-wired", hint: "手机联动与二维码", keywords: "手机 WiFi 二维码 端口 配对" },
       { id: "plugins", create: ({ render }) => createPluginSettingsCard({ rerender: render }).card, label: "插件管理", icon: "puzzle-piece", hint: "启用 / 导入 / 导出", keywords: "插件 权限 导入 ZIP 启用 停用 开发文档" },
       { id: "cppu-login", create: ({ render }) => createCppuLoginCard(), label: "警大登录设置", icon: "gear", hint: "登录重试 / 自动登录", keywords: "警大 门户 账号 登录 自动登录 密码 验证码 重试" },
+      { id: "cppu-award", create: ({ render }) => createCppuAwardCard(), label: "警大获奖名单", icon: "trophy", hint: "人名榜开关", keywords: "警大 获奖 名单 人名榜 排名 个人 团体 绿色 黄色 红色 开关" },
       { id: "testing", create: ({ render }) => createTestingCard(), label: "测试", icon: "mobile-screen-button", hint: "手机预览 / 尺寸 / 横竖屏", keywords: "测试 手机版 预览 模拟 手机 内置浏览器 横屏 竖屏" },
       // 更新入口在「关于」里（软件更新）：关键词挂这儿，搜「更新 / 升级」也能落到关于。
       { id: "about", create: ({ render }) => createAboutCard(info, getRegistry()), label: "关于", icon: "circle-info", hint: "版本 / 软件更新 / 免责声明 / 开源信息", keywords: "免责声明 使用说明 隐私 数据 官方 权限 版本 更新 更新历史 更新记录 历史版本 升级 检查更新 自动更新 弹窗提示 忽略此版本 卸载 卸载应用 清除数据 删除数据 卸载 U-Time 开源 框架 GitHub 发布 下载 Releases 插件开发 API 文档 项目仓库" },

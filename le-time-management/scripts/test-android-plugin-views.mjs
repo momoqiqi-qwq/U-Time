@@ -4,7 +4,7 @@ import fs from "node:fs";
 
 const shell = readProductSource(new URL("../src/shell.js", import.meta.url), "utf8");
 const plugin = readProductSource(new URL("../public/plugins/cppu-notify/main.js", import.meta.url), "utf8");
-const ids = ["cppu-credit", "cppu-cx", "cppu-qj", "cppu-notify", "cppu-xk", "cppu-card"];
+const ids = ["cppu-credit", "cppu-cx", "cppu-qj", "cppu-notify", "cppu-xk", "cppu-card", "cppu-award"];
 for (const id of ids) assert.ok(plugin.includes(`"${id}"`), `${id} must be registered`);
 // v0.180.0：卡片上的「打开」按钮已删（卡片本身就是入口），切片终点从 `const open =` 换成 `const toggle =`。
 const block = shell.slice(shell.indexOf("        const cardViews ="), shell.indexOf("        const toggle = el(\"button\", {", shell.indexOf("        const cardViews =")));

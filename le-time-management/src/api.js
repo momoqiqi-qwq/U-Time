@@ -130,6 +130,14 @@ export const api = {
     return invoke("reveal_saved_file", { path });
   },
 
+  /* 界面演示图：让 Rust 侧（src-tauri/src/lib.rs 的 capture_ui_shot）把主窗口 WebView
+     的当前画面截成 PNG，落进系统下载目录并返回绝对路径。桌面端专用 —— Android 的
+     WebView 没有对应的渲染层接口，Rust 侧会直接返回错误，入口由 src/uiShot.js 隐藏。 */
+  async captureUiShot(name) {
+    if (!isTauri) throw new Error("界面演示图仅在桌面端可用");
+    return invoke("capture_ui_shot", { name: String(name || "") });
+  },
+
   async appInfo() {
     if (!isTauri) return { version: "web-dev", os: "browser", arch: navigator.platform || "web", dataDir: "localStorage（浏览器调试模式）" };
     return invoke("app_info");

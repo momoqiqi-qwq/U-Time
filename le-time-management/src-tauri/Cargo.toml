@@ -1,6 +1,6 @@
 [package]
 name = "letime"
-version = "0.206.2"
+version = "0.211.0"
 description = "Le时间管理 · 时间块与四象限"
 authors = ["yile"]
 edition = "2021"
@@ -36,6 +36,11 @@ tauri-plugin-notification = "2"
 
 [target."cfg(target_os = \"windows\")".dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# 界面演示图（capture_ui_shot）：走 WebView2 的 ICoreWebView2::CapturePreview 截当前画面。
+# 这两个 crate 本来就在依赖树里（tauri → wry → webview2-com），这里只是提升为直接依赖，
+# 不新增编译单元；windows 的 feature 按「内存流 IStream + HGLOBAL」最小集添加。
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Memory"] }
+webview2-com = "0.38"
 
 # 教务导入窗口的 Android 关闭通道：JniHandle::exec 回调里调 Activity.finish()
 # （版本与 tauri 锁定的 jni 0.21 统一，避免双版本共存的类型不一致）

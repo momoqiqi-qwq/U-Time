@@ -102,3 +102,8 @@ cloudflare-pages/plugin-guide/.wrangler/
 
 # web-grab 的抓取产物（接口返回数据可随时重跑生成，只入库工具源码）
 /web-grab/out/
+
+# 演示图出图的中间产物（PNG 与几何审计 json 可随时重跑生成，成品 jpg 在 docs/screenshots/）
+/tools/shots/out/
+# 技能 letime-plugin-ui-check 落在插件工程根下的预览页（__cx2-<tag>-<theme>.html，每次重跑覆盖）
+/le-time-management/__cx2-*.html

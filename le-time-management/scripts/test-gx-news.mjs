@@ -1,8 +1,9 @@
 // 竞赛消息雷达（gx-news）的回归：残留筛选自愈 + 多源抓取。
 //
-// 起因一：APK 上「拉取 40 条 · 显示 0 条」被当成抓取失败 —— 实际是上次点的「月份」chip 存成了
-// 绝对月份，跨月之后一条也命不中，而月份那一排 chip 因为该月已不在列表里，一个都不高亮，
-// 界面上完全看不出还在过滤。手机与电脑各存各的 data.json，所以只有一端表现异常。
+// 起因一：APK 上「拉取 40 条 · 显示 0 条」被当成抓取失败 —— 实际是上次点的时间筛选存成了
+// 绝对值，跨月之后一条也命不中，界面上完全看不出还在过滤。手机与电脑各存各的 data.json，
+// 所以只有一端表现异常。v0.9.0 把「月份」那一排 chip 换成两个日期框（范围可跨月、可单边），
+// 「筛不到就静静滤着」这个故障形态没变，自愈与列名两条不变量照旧压在这里。
 //
 // 起因二：插件从「只有摩课云一个源」改成多源（摩课云 / 赛氪 / 我要参赛网 + 自定义）。三家的响应
 // 形态完全不同：点分复合标签的 JSON 接口、只给 Unix 时间戳的 JSON 接口、GBK 编码的 Discuz HTML。
@@ -234,6 +235,24 @@ async function boot({ filter, seen = [], records = [], knownIds, source, customS
     },
     clearButton: () => listNode().children.find((c) => c.dataset.clearFilters === '1'),
     clickList: (target) => listNode().handlers.click.forEach((f) => f({ target })),
+    /** 时间范围那一行（v0.9.0 起是两个原生日期框，不再是月份 chip）。 */
+    rangeNode: (which) => node(which === 'from' ? '[data-range-from]' : '[data-range-to]'),
+    rangeChars: () => ({ from: node('[data-range-from]').value, to: node('[data-range-to]').value }),
+    rangeHint: () => node('[data-range-cap]').textContent,
+    rangeClearDisabled: () => node('[data-range-clear]').disabled,
+    /** 填日期框并按 `change` 提交（真日期框选完 / 键盘改完失焦走的就是这条路）。 */
+    fillRange: async (from, to) => {
+      const box = node('[data-range-from]'), box2 = node('[data-range-to]');
+      if (from !== undefined) box.value = from;
+      if (to !== undefined) box2.value = to;
+      (from !== undefined ? box : box2).handlers.change[0]();
+      await settle(8);
+    },
+    /** 点「✕ 不限」。 */
+    clearRange: async () => {
+      node('[data-range-clear]').handlers.click[0]();
+      await settle(8);
+    },
     /** 走一遍「＋ 添加源」浮层：填地址 → 点「检测并添加」，返回浮层上的结果提示文案。 */
     addSourceViaDialog: async (url, name = '') => {
       await node_addSource(node);
@@ -258,30 +277,85 @@ async function node_addSource(node) {
 
 /* ══════════ ① 残留筛选自愈（v0.60.1 的三条不变量在多源下必须依然成立） ══════════ */
 
-/* 命不中的绝对月份 → 抓完第 1 页静默回「全部」并落盘 */
+/* 命不中的时间范围 → 抓完第 1 页静默清空并落盘（v0.9.0 起范围取代了绝对月份，
+   但「绝对值筛不到东西就静静滤着」这个故障形态一模一样，必须同样自愈）。 */
 {
   const got = await boot({
-    filter: { kw: '', kind: 'all', level: 'all', field: 'all', month: '2026-05', hideSeen: false, auto: false, showCover: false },
+    filter: { kw: '', kind: 'all', level: 'all', field: 'all', from: '2026-05-01', to: '2026-05-31', hideSeen: false, auto: false, showCover: false },
     records: SEPTEMBER,
   });
-  assert.equal(got.stored().month, 'all', '跨月后残留的月份筛选必须自动回「全部」');
+  const f = got.stored();
+  assert.equal(f.from, '', '跨月后残留的时间范围必须自动清空（原样留着就是「日期框里写着 5 月却显示 0 条」）');
+  assert.equal(f.to, '', '范围是一体的：清就从两端一起清，不留半截「5 月 1 日之后」');
   assert.doesNotMatch(got.status(), /抓取失败/, '桩接口本身要跑通，否则后面的断言都是空的');
-  assert.ok(!/被筛选全部滤掉/.test(got.list.innerHTML), '月份自愈后不该再走空态');
+  assert.ok(!/被筛选全部滤掉/.test(got.list.innerHTML), '范围自愈后不该再走空态');
 }
 
-/* 仍然命中的月份要保留，别把用户的选择抹掉 */
+/* 仍然命中的范围要保留，别把用户的选择抹掉 */
+{
+  const got = await boot({ filter: { from: '2026-09-01', to: '2026-09-30' }, records: SEPTEMBER });
+  assert.equal(got.stored().from, '2026-09-01', '命得中的范围不能被自愈逻辑顺手清掉');
+  assert.equal(got.stored().to, '2026-09-30', '下界同理');
+  assert.equal(got.cards(), 2, '9 月两条都落在范围里');
+}
+
+/* 旧版的绝对月份要迁成同一个月的时间范围：老设备升级后原来选的那个月还生效 */
 {
   const got = await boot({ filter: { month: '2026-09' }, records: SEPTEMBER });
-  assert.equal(got.stored().month, '2026-09', '命得中的月份不能被自愈逻辑顺手清掉');
+  const f = got.stored();
+  assert.equal(f.from, '2026-09-01', 'month「2026-09」迁成区间下界 = 月初');
+  assert.equal(f.to, '2026-09-30', 'month「2026-09」迁成区间上界 = 月末（不是月初，否则整个月只剩 1 日）');
+  assert.equal(f.month, undefined, '旧的 month 字段要就地删掉，不能留在持久化里当第二个事实源');
+  assert.equal(got.cards(), 2, '迁移后那一个月照旧命中');
 }
 
-/* 脏持久化值全部归一：旧分类码要迁到新轴上、格式不对的月份要作废（只看行为，不看回写） */
+/* 脏持久化值全部归一：旧分类码要迁到新轴上、写坏的时间范围要作废（只看行为，不看回写） */
 {
   const got = await boot({ filter: { type: '203', month: '2026-9' }, records: SEPTEMBER });
   const empty = got.list.innerHTML;
   assert.match(empty, /性质「赛事」/, '空态要列出正在生效的筛选（旧原始类型码 203 已迁到性质轴的「赛事」）');
-  assert.doesNotMatch(empty, /月份「/, '非 YYYY-MM 的月份一律作废，不能再参与过滤');
+  assert.doesNotMatch(empty, /时间「/, '非 YYYY-MM 的月份一律作废，不能再参与过滤');
   assert.ok(got.clearButton(), '空态必须给一键清除按钮');
+}
+
+/* 时间范围：任意区间 / 单边 / 两端填反 / 一键回到不限 */
+{
+  // 9 月 3 日到 9 月 5 日：只有 9-03 那条落进来（跨月任意区间，旧的月份 chip 表达不了这个）
+  const got = await boot({ records: SEPTEMBER });
+  await got.fillRange('2026-09-03', '2026-09-05');
+  assert.equal(got.cards(), 1, '任意区间只留落进范围的那条');
+  assert.match(got.list.innerHTML, /消息 2/, '留的是 9 月 3 日那条');
+  assert.equal(got.rangeChars().from, '2026-09-03', '日期框要回显 state，而不是留在原生控件自己的值里');
+  assert.match(got.rangeHint(), /命中 1 条/, '生效中的范围要把命中条数说出来');
+}
+{
+  // 只填下界：上界留空 = 不限
+  const got = await boot({ records: SEPTEMBER });
+  await got.fillRange('2026-09-10', '');
+  assert.equal(got.cards(), 1, '单边范围（9 月 10 日之后）只留 9 月 12 日那条');
+  assert.equal(got.rangeClearDisabled(), false, '有范围在生效时「✕ 不限」要可点');
+}
+{
+  // 两端填反：提交时交换，不能变成「一条都命中不了」的区间
+  const got = await boot({ records: SEPTEMBER });
+  await got.fillRange('2026-09-05', '2026-09-01');
+  const f = got.stored();
+  assert.equal(f.from, '2026-09-01', '填反了就交换：下界取小的那个');
+  assert.equal(f.to, '2026-09-05', '填反了就交换：上界取大的那个');
+  assert.equal(got.cards(), 1, '交换后区间有意义，9 月 3 日那条留下');
+}
+{
+  // 时间未知的条目只在「不限」时留下，不会被默认放行
+  const got = await boot({ records: [...SEPTEMBER, rec(3, '')] });
+  assert.equal(got.cards(), 3, '不限时间时三条都在');
+  await got.fillRange('2026-09-01', '2026-09-30');
+  assert.equal(got.cards(), 2, '设了范围之后，时间未知的那条要被排除');
+  await got.clearRange();
+  assert.equal(got.cards(), 3, '「✕ 不限」要一次性放开');
+  const f = got.stored();
+  assert.equal(f.from, '', '清空后下界落回空串');
+  assert.equal(f.to, '', '清空后上界落回空串');
+  assert.equal(got.rangeClearDisabled(), true, '没有范围在生效时「✕ 不限」要禁用');
 }
 
 /* 旧值另外两种形态：lv:全国性（赛氪自造叫法）→ 级别轴；cat:公益大赛（站点分类词）→ 学科轴 */
@@ -298,17 +372,24 @@ async function node_addSource(node) {
 
 /* 只看未读滤光时同样列名 + 点清除后恢复全部。
    这里顺带压住 id 命名空间迁移：旧版本 storage 里的 seen 是一维裸 id（当时只有摩课云），
-   读回来不补 `mokeroad:` 前缀的话，升级一次等于全部消息复活成 NEW。 */
+   读回来不补 `mokeroad:` 前缀的话，升级一次等于全部消息复活成 NEW。
+   时间范围特意取「命得中但被别的轴滤光」的那一种（9 月）：命不中的范围会被自愈静默清掉，
+   根本走不到空态 —— 空态还列着范围，正是「范围确实在生效」的证据。
+   一键清除必须把两个日期框也一起清掉（只清 state 不清界面就是老坑的翻版）。 */
 {
-  const got = await boot({ filter: { kw: '  ', month: 'all', hideSeen: true }, seen: [1, 2], records: SEPTEMBER });
+  const got = await boot({ filter: { kw: '  ', from: '2026-09-01', to: '2026-09-30', hideSeen: true }, seen: [1, 2], records: SEPTEMBER });
   assert.match(got.list.innerHTML, /只看未读/, '空白关键词不算生效筛选，只看未读要列出来');
+  assert.match(got.list.innerHTML, /时间「2026-09-01 ~ 2026-09-30」/, '空态要把生效中的时间范围原样列出来');
   assert.equal(got.cards(), 0, '裸 id 补前缀后要能命中原条目，只看未读才会滤光');
   got.clickList({ closest: (sel) => (sel === '[data-clear-filters]' ? {} : null) });
   await settle(8);
   const after = got.stored();
   assert.equal(after.hideSeen, false, '清除按钮要把只看未读关掉');
   assert.equal(after.kw, '', '清除按钮要顺带清掉关键词');
-  assert.doesNotMatch(got.list.innerHTML, /被筛选全部滤掉/, '清除后消息要回来');
+  assert.equal(after.from, '', '清除按钮要把时间范围下界一起清掉');
+  assert.equal(after.to, '', '清除按钮要把时间范围上界一起清掉');
+  assert.deepEqual(got.rangeChars(), { from: '', to: '' }, '界面上的两个日期框要跟着空');
+  assert.equal(got.cards(), 2, '清除后消息要回来');
 }
 
 /* ══════════ ② 三个内置源各自的解析 ══════════ */
@@ -346,10 +427,10 @@ async function node_addSource(node) {
   assert.ok(got.requests.every((u) => u === JINGSAI_HOME), '第 1 页就是列表页本身');
 }
 
-/* ══════════ ③ 切源：立刻换数据、落盘，并把上一家残留的月份作废 ══════════ */
+/* ══════════ ③ 切源：立刻换数据、落盘，并把上一家残留的时间范围作废 ══════════ */
 {
   const got = await boot({
-    filter: { month: '2026-09' },
+    filter: { from: '2026-09-01', to: '2026-09-30' },
     server: makeServer([
       [MOKEROAD_API, () => ({ body: mokeroadBody(SEPTEMBER) })],
       [SAIKR_API, { body: SAIKR_BODY }],
@@ -367,7 +448,10 @@ async function node_addSource(node) {
   assert.match(got.list.innerHTML, /心理知识大赛/, '列表要整个换成新源');
   assert.doesNotMatch(got.list.innerHTML, /消息 1/, '上一家的条目不能留下');
   assert.equal(got.stored('source'), 'saikr', '当前源要落盘，下次进视图还在');
-  assert.equal(got.stored().month, 'all', '换源要把上一家的月份筛选清掉');
+  const f = got.stored();
+  assert.equal(f.from, '', '换源要把上一家的时间范围清掉（下界）');
+  assert.equal(f.to, '', '换源要把上一家的时间范围清掉（上界）');
+  assert.equal(got.rangeChars().from, '', '清掉之后日期框也要跟着空，不能只是 state 空了');
   assert.match(got.status(), /源 <b>赛氪竞赛广场<\/b>/, '状态行要说明现在是哪一家');
 
   await got.clickChip('[data-sources]', '我要参赛网');

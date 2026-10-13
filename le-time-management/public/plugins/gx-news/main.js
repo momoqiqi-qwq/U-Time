@@ -109,7 +109,7 @@
     seen: new Set(),
     known: {},            // 源 id -> 上次第 1 页的 id 快照（判「新消息」用）
     // kind / level / field 三条轴各自独立，「all」= 该轴不设限。
-    filter: { kw: "", kind: "all", level: "all", field: "all", month: "all", hideSeen: false, auto: false, showCover: false },
+    filter: { kw: "", kind: "all", level: "all", field: "all", from: "", to: "", hideSeen: false, auto: false, showCover: false },
     timer: null, renderedCount: CHUNK,
   };
   let ui = null, paintToken = 0, fetchSeq = 0, dialog = null;
@@ -224,6 +224,32 @@
     if (mo === "unknown") return "时间未知";
     const [y, m] = mo.split("-");
     return `${y}年${Number(m)}月`;
+  }
+
+  /* ── 时间范围（v0.9.0 起取代「月份」chip 那一排）──
+     一排绝对月份按钮只能按「月」选，选不了「9 月 10 日到 10 月 8 日」这种跨月区间；月份一多，
+     那一排还要占掉筛选面板三行。改成两个原生日期框后：范围任意、面板反而不那么长。
+     边界一律按 `YYYY-MM-DD` 字符串比较 —— 列表里的 `time` 就是补零后的同一格式，
+     字符串大小序与时间序一致，不必造 Date（也就不会踩时区把 9 月 1 日读成 8 月 31 日）。 */
+
+  /** 日期框的值：空的当「不限」。只认 `YYYY-MM-DD`。 */
+  const dateStr = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v == null ? "" : v)) ? String(v) : "");
+  const monthStr = (v) => (/^\d{4}-\d{2}$/.test(String(v == null ? "" : v)) ? String(v) : "");
+
+  /** 某月最后一天。旧版存的「月份」筛迁移成日期区间时，上界要落到月底而不是月初。 */
+  function monthEnd(mo) {
+    const [y, m] = mo.split("-").map(Number);
+    return new Date(y, m, 0).getDate();
+  }
+
+  /** 一条消息的发布日（只截到「天」）。时间未知返回空串 —— 它只在「不限」时留下。 */
+  const dayOf = (m) => String(m.time || "").slice(0, 10);
+
+  /** 生效中的时间范围文案；两侧都没设返回空串。 */
+  function rangeText(from, to) {
+    if (!from && !to) return "";
+    if (from && to) return `${from} ~ ${to}`;
+    return from ? `${from} 之后` : `${to} 之前`;
   }
 
   /** 稳定短哈希：自定义条目没有 id 字段时，用「地址 + 标题」折出一个，跨刷新才不会重判 NEW。 */
@@ -702,7 +728,19 @@
     for (const axis of ["kind", "level", "field"]) {
       if (f[axis] !== "all" && !AXES[axis].some((r) => r.id === f[axis])) f[axis] = "all";
     }
-    if (f.month !== "all" && f.month !== "unknown" && !/^\d{4}-\d{2}$/.test(String(f.month))) f.month = "all";
+    /* 时间范围：只认补零的 `YYYY-MM-DD`（原生日期框给的就是这个形状）。
+       旧版的「月份」筛选（`month: "2026-09"`）就地迁成月初→月末的区间 —— 老设备升级后
+       原来选的那一个月还生效，不用用户再点一次；写坏的值一律作废，绝不静默过滤。 */
+    const legacyMonth = monthStr(f.month);
+    delete f.month;
+    f.from = dateStr(f.from);
+    f.to = dateStr(f.to);
+    if (legacyMonth && !f.from && !f.to) {
+      f.from = `${legacyMonth}-01`;
+      f.to = `${legacyMonth}-${pad2(monthEnd(legacyMonth))}`;
+    }
+    // 两端都填了却反着（先点「至」再点「从」）就交换：区间永远读得出「起 → 止」。
+    if (f.from && f.to && f.from > f.to) { const t = f.from; f.from = f.to; f.to = t; }
     f.hideSeen = !!f.hideSeen;
     f.showCover = !!f.showCover;
     return f;
@@ -712,7 +750,12 @@
   const legacyId = (x) => { const s = String(x); return s.includes(":") ? s : `${LEGACY_SRC}:${s}`; };
 
   async function loadPrefs() {
-    state.filter = sanitizeFilter(await tide.storage.get("filter", null));
+    const rawFilter = await tide.storage.get("filter", null);
+    state.filter = sanitizeFilter(rawFilter);
+    /* 老键（旧 `month` / 更旧的 `type`）在内存里已经被用掉了，就顺手落盘一次：
+       否则原始值一直躺在 data.json 里，每次进视图都会被重新迁回来 —— 用户明明点过
+       「✕ 不限」，下次打开又冒出同一段范围，只清内存不落盘就是这种反复。 */
+    if (rawFilter && typeof rawFilter === "object" && (rawFilter.month !== undefined || rawFilter.type !== undefined)) savePrefs();
     state.seen = new Set((await tide.storage.get("seen", []) || []).map(legacyId));
     state.custom = normalizeCustom(await tide.storage.get("customSources", []));
     const saved = String(await tide.storage.get("source", "") || "");
@@ -748,7 +791,7 @@
       const v = state.filter[axis];
       if (v !== "all") out.push(`${AXIS_NAME[axis]}「${axisLabel(axis, v)}」`);
     }
-    if (state.filter.month !== "all") out.push(`月份「${monthLabel(state.filter.month)}」`);
+    if (state.filter.from || state.filter.to) out.push(`时间「${rangeText(state.filter.from, state.filter.to)}」`);
     if (state.filter.hideSeen) out.push("只看未读");
     return out;
   }
@@ -799,10 +842,17 @@
       state.fetchedAt = Date.now();
       state.error = null;
       if (page === 1) {
-        // 月份是绝对值：跨一个月之后本次抓取里就没有它，界面却会「一个 chip 都不高亮」地继续过滤。
-        // 抓完第 1 页先把它对齐到真实存在的月份，命不中就静默回「全部」。
-        if (state.filter.month !== "all" && !state.list.some((m) => monthOf(m) === state.filter.month)) {
-          state.filter.month = "all";
+        // 时间范围是绝对值：跨月 / 跨年之后本次抓取里一条都落不进它，界面却会「日期框里明明写着
+        // 9 月」地继续过滤（旧版的绝对月份就在这儿把「拉取 40 条 · 显示 0 条」变成假故障）。
+        // 抓完第 1 页先看有没有一条落在范围里，一条都没有就静默清空并落盘 —— 面板上日期框会一起变空，
+        // 所以不存在「看不出在过滤」的状态。只要还剩一条命中就原样保留，不抹用户的选择。
+        const from = state.filter.from, to = state.filter.to;
+        if ((from || to) && !state.list.some((m) => {
+          const d = dayOf(m);
+          return d && (!from || d >= from) && (!to || d <= to);
+        })) {
+          state.filter.from = "";
+          state.filter.to = "";
           savePrefs();
         }
         await broadcastNew(src, fresh);
@@ -818,13 +868,20 @@
 
   function filtered() {
     const kw = state.filter.kw.trim().toLowerCase();
+    const from = dateStr(state.filter.from), to = dateStr(state.filter.to);
     const rows = state.list.filter((m) => {
       // 三条轴是「与」关系：性质+级别+学科可以叠加，比如「报名 × 全国 × 数学建模」。
       for (const axis of ["kind", "level", "field"]) {
         const want = state.filter[axis];
         if (want !== "all" && (m[axis] || "") !== want) return false;
       }
-      if (state.filter.month !== "all" && monthOf(m) !== state.filter.month) return false;
+      // 时间范围同样是「与」：起止任意一侧可空。补零格式下字符串比较 = 时间比较。
+      const day = dayOf(m);
+      if (from || to) {
+        if (!day) return false;                                    // 时间未知的条目只在「不限」时留下
+        if (from && day < from) return false;
+        if (to && day > to) return false;
+      }
       if (state.filter.hideSeen && state.seen.has(m.id)) return false;
       if (kw && !(m.title.toLowerCase().includes(kw) || m.snippet.toLowerCase().includes(kw))) return false;
       return true;
@@ -853,6 +910,22 @@
       .gx-chip{font-size:calc(12px * var(--ui-text-scale));border:1px solid #E4DFD6;background:#fff;border-radius:16px;padding:6px 13px;cursor:pointer;color:#7E8B94}
       .gx-chip.on{background:#0F4C5C;color:#fff;border-color:#0F4C5C}
       .gx-chip.add{border-style:dashed;color:#0F4C5C}
+      /* ── 时间范围（v0.9.0 取代「月份」那一排 chip）──
+         两个原生日期框：范围任意、可跨月，面板也不再被十几个月挤成三行。
+         配色沿用本插件其余控件的写法（与 .gx-chip / .gx-kw 同一套浅色值），
+         这样面板在浅色与深色下都是同一种质感，不出现「只有这两个框不一样」。 */
+      .gx-range{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
+      .gx-date{display:inline-flex;align-items:center;gap:6px;font-size:calc(11px * var(--ui-text-scale));color:#7E8B94}
+      .gx-date>span{flex:none}
+      .gx-date input[type="date"]{height:32px;padding:0 9px;border:1px solid #E4DFD6;border-radius:9px;background:#fff;color:#22303A;font-size:calc(12px * var(--ui-text-scale));font-family:inherit}
+      .gx-date input[type="date"]:focus{outline:none;border-color:#0F4C5C;box-shadow:0 0 0 2px rgba(15,76,92,.16)}
+      .gx-range-tilde{color:#A9B2BA;flex:none}
+      .gx-range-clear{font-size:calc(11px * var(--ui-text-scale));padding:5px 10px;border:1px dashed #CFC8BA;border-radius:16px;background:#fff;color:#0F4C5C;cursor:pointer;flex:none}
+      .gx-range-clear:hover:not(:disabled){background:#EFEAE1}
+      .gx-range-clear:disabled{opacity:.45;cursor:default}
+      /* 生效中的范围说清「命中了多少条」；没设时退成灰色提示，不抢 chip 的注意力。 */
+      .gx-range-cap{font-size:calc(10.5px * var(--ui-text-scale));color:#7E8B94;margin-left:auto;transition:color .16s ease}
+      .gx-range-cap.on{color:#0F4C5C;font-weight:600}
       .gx-link{font-size:calc(11.5px * var(--ui-text-scale));color:#7E8B94;cursor:pointer;background:none;border:none;text-decoration:underline;text-underline-offset:3px}
       .gx-link:hover{color:#0F4C5C}
       .gx-toggle{display:flex;align-items:center;gap:6px;font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;cursor:pointer;user-select:none}
@@ -927,6 +1000,45 @@
       + (src.pages ? "" : '<span class="gx-cap">　自定义源只取第 1 页</span>');
   }
 
+  /** 时间范围那一行：日期框的值永远从 state 里回写（切源 / 一键清除 / 自愈都会改它）。
+      正在敲的那个框不回写 —— 用户打到一半的 `2026-1` 被覆盖掉是很烦的事。 */
+  function paintDateRange() {
+    if (!ui || !ui.dateRange) return;
+    const { from, to, clear, cap } = ui.dateRange;
+    const f = state.filter.from || "", t = state.filter.to || "";
+    if (!(document.activeElement && document.activeElement === from)) from.value = f;
+    if (!(document.activeElement && document.activeElement === to)) to.value = t;
+    clear.disabled = !f && !t;
+    cap.textContent = rangeText(f, t)
+      ? `发布日在 ${rangeText(f, t)} 里，命中 ${filtered().length} 条`
+      : "按发布日筛，两端都含当天；留空即不限";
+    cap.classList.toggle("on", !!(f || t));
+  }
+
+  /** 提交一次时间范围：只认 `YYYY-MM-DD`，两端填反了就交换，一侧填了一侧空也允许。 */
+  function commitRange() {
+    if (!ui || !ui.dateRange) return;
+    state.filter.from = dateStr(ui.dateRange.from.value);
+    state.filter.to = dateStr(ui.dateRange.to.value);
+    if (state.filter.from && state.filter.to && state.filter.from > state.filter.to) {
+      const t = state.filter.from;
+      state.filter.from = state.filter.to;
+      state.filter.to = t;
+    }
+    savePrefs();
+    paintChips();
+    paintList(true);
+  }
+
+  function clearRange() {
+    if (!state.filter.from && !state.filter.to) return;
+    state.filter.from = "";
+    state.filter.to = "";
+    savePrefs();
+    paintChips();
+    paintList(true);
+  }
+
   function chipRow(container, items, current, onPick) {
     container.replaceChildren(...items.map((c) => {
       const b = document.createElement("button");
@@ -965,13 +1077,12 @@
         (id) => { state.filter[axis] = id; savePrefs(); paintChips(); paintList(true); });
     }
 
-    const months = [...new Set(state.list.map(monthOf))].filter((mo) => mo !== "unknown").sort().reverse();
-    if (state.list.some((m) => monthOf(m) === "unknown")) months.push("unknown");
-    chipRow(ui.months, [{ id: "all", label: "全部" }, ...months.map((mo) => ({ id: mo, label: monthLabel(mo) }))],
-      state.filter.month, (id) => { state.filter.month = id; savePrefs(); paintChips(); paintList(true); });
+    // 时间范围交给日期框那一行（不再是一排绝对月份 chip）
+    paintDateRange();
 
     const axesOn = ["kind", "level", "field"].some((a) => state.filter[a] !== "all");
-    ui.filterSummary.textContent = `筛选${axesOn || state.filter.month !== "all" || state.filter.hideSeen ? " · 已设置" : ""}`;
+    const timeOn = !!(state.filter.from || state.filter.to);
+    ui.filterSummary.textContent = `筛选${axesOn || timeOn || state.filter.hideSeen ? " · 已设置" : ""}`;
 
     ui.hideSeen.classList.toggle("on", !!state.filter.hideSeen);
     ui.showCover.classList.toggle("on", !!state.filter.showCover);
@@ -1142,13 +1253,14 @@
 
   /** 换源：清掉上一家的结果，再抓第一页。
       分类三条轴与关键词、只看未读一律保留 —— 归一之后它们是同一套跨源通用词表，
-      「报名 × 全国」这种组合换了源照样成立；月份是绝对值、只在这一家的数据里成立，清掉。
+      「报名 × 全国」这种组合换了源照样成立；时间范围是绝对值、只在这一家的数据里成立，清掉。
       保留的轴若在新源里命不中，chip 会把它留在台面上并高亮、空态也会列出来加一键清除，
       所以不会出现「一个都没高亮却仍在过滤」。 */
   function setSource(id) {
     if (state.sourceId === id) return;
     state.sourceId = id;
-    state.filter.month = "all";
+    state.filter.from = "";
+    state.filter.to = "";
     state.list = []; state.page = 1; state.hasMore = true; state.error = null; state.fetchedAt = 0;
     state.fetching = false;
     fetchSeq += 1;
@@ -1223,7 +1335,8 @@
       // 删的正是当前源：回落到默认的摩课云并重抓，否则界面停在一张空列表上。
       // 分类轴同理保留（跨源词表），只有绝对月份要清。
       state.sourceId = LEGACY_SRC;
-      state.filter.month = "all";
+      state.filter.from = "";
+      state.filter.to = "";
       state.list = []; state.error = null; state.fetching = false;
       fetchSeq += 1;
       saveSource(); savePrefs();
@@ -1283,7 +1396,15 @@
         <div class="gx-toolbar" data-axis-bar="kind"><span class="gx-lab">性质</span><div class="gx-chips" data-axis-chips="kind"></div></div>
         <div class="gx-toolbar" data-axis-bar="level"><span class="gx-lab">级别</span><div class="gx-chips" data-axis-chips="level"></div></div>
         <div class="gx-toolbar" data-axis-bar="field"><span class="gx-lab">学科</span><div class="gx-chips" data-axis-chips="field"></div></div>
-        <div class="gx-toolbar"><span class="gx-lab">月份</span><div class="gx-chips" data-months></div></div>
+        <div class="gx-toolbar gx-toolbar-range"><span class="gx-lab">时间</span>
+          <div class="gx-range">
+            <label class="gx-date"><span>从</span><input type="date" data-range-from aria-label="起始日期（含当天）" title="起始日期（含当天），留空表示不限"></label>
+            <span class="gx-range-tilde">~</span>
+            <label class="gx-date"><span>至</span><input type="date" data-range-to aria-label="结束日期（含当天）" title="结束日期（含当天），留空表示不限"></label>
+            <button class="gx-range-clear" data-range-clear type="button" title="清空时间范围">✕ 不限</button>
+            <span class="gx-range-cap" data-range-cap>按发布日筛，两端都含当天；留空即不限</span>
+          </div>
+        </div>
         <label class="gx-toggle hide-seen"><i></i>只看未读</label>
       </div></details>
       <div class="gx-status"></div>
@@ -1301,7 +1422,12 @@
         level: { row: wrap.querySelector('[data-axis-bar="level"]'), chips: wrap.querySelector('[data-axis-chips="level"]') },
         field: { row: wrap.querySelector('[data-axis-bar="field"]'), chips: wrap.querySelector('[data-axis-chips="field"]') },
       },
-      months: wrap.querySelector("[data-months]"),
+      dateRange: {
+        from: wrap.querySelector("[data-range-from]"),
+        to: wrap.querySelector("[data-range-to]"),
+        clear: wrap.querySelector("[data-range-clear]"),
+        cap: wrap.querySelector("[data-range-cap]"),
+      },
       filterSummary: wrap.querySelector("[data-filter-summary]"),
       list: wrap.querySelector("[data-list]"),
       kw: wrap.querySelector(".gx-kw"),
@@ -1328,6 +1454,22 @@
     });
     ui.kw.addEventListener("keydown", (e) => e.stopPropagation());
 
+    /* 时间范围：`change`（原生日期框选完 / 键盘改完失焦）才提交并落盘，
+       `input` 只用来实时回显「命中 N 条」——每敲一个字符就重排列表会很跳。 */
+    const rangeInputs = [ui.dateRange.from, ui.dateRange.to];
+    for (const input of rangeInputs) {
+      input.addEventListener("change", commitRange);
+      input.addEventListener("input", () => {
+        const f = dateStr(ui.dateRange.from.value), t = dateStr(ui.dateRange.to.value);
+        ui.dateRange.cap.textContent = rangeText(f, t)
+          ? `发布日在 ${rangeText(f, t)} 里，命中 ${filtered().length} 条`
+          : "按发布日筛，两端都含当天；留空即不限";
+      });
+      // 宿主与插件都用键盘快捷键，输入框里的回车 / 空格 / Esc 不能冒泡出去
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") commitRange(); e.stopPropagation(); });
+    }
+    ui.dateRange.clear.addEventListener("click", clearRange);
+
     ui.hideSeen.addEventListener("click", () => {
       state.filter.hideSeen = !state.filter.hideSeen;
       savePrefs(); paintChips(); paintList(true);
@@ -1346,7 +1488,7 @@
 
     ui.list.addEventListener("click", (e) => {
       if (e.target.closest("[data-clear-filters]")) {
-        state.filter = { ...state.filter, kw: "", kind: "all", level: "all", field: "all", month: "all", hideSeen: false };
+        state.filter = { ...state.filter, kw: "", kind: "all", level: "all", field: "all", from: "", to: "", hideSeen: false };
         ui.kw.value = "";
         savePrefs();
         paintAll(true);

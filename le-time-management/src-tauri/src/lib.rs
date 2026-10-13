@@ -739,6 +739,140 @@ fn save_to_download_dir(app: &AppHandle, raw_name: &str, bytes: &[u8]) -> Result
     Ok(final_path.to_string_lossy().into_owned())
 }
 
+/// 界面演示图：把主窗口 WebView 的当前画面截成 PNG，落到下载目录，返回绝对路径。
+///
+/// 为什么不用前端方案（html2canvas 之类）：那只能重画 DOM —— 真字体渲染、滚动位置、
+/// 跨域 iframe（插件页）里的内容都拿不到，配色一变还要自己再维护一套。Windows 上
+/// WebView2 自带 `ICoreWebView2::CapturePreview`，由渲染进程直接给 PNG 字节，
+/// 不经过屏幕抓取：窗口被别的窗口遮住、甚至最小化到任务栏都不影响，也不吃 DPI 缩放。
+///
+/// 线程模型：`CapturePreview` 只能在 UI 线程发起，完成回调同样由 UI 线程的消息循环派发。
+/// 所以这里用 `with_webview`（回调本身就在 UI 线程）发起请求后立刻返回，真正的等待放在
+/// 异步命令里 —— 若在 UI 线程上同步等回调，消息循环被自己堵死，必然超时。
+#[tauri::command]
+async fn capture_ui_shot(app: AppHandle, name: Option<String>) -> Result<String, String> {
+    let bytes = capture_webview_png(&app).await?;
+    save_to_download_dir(&app, &shot_file_name(name.as_deref()), &bytes)
+}
+
+/// 截图文件名：调用方给的标签（一般写当前视图名）+ 时间戳，非法字符剔掉。
+/// 标签留空时只留时间戳 —— 文件名不合法会被 `save_to_download_dir` 直接拒掉。
+fn shot_file_name(raw: Option<&str>) -> String {
+    let label: String = raw
+        .unwrap_or("")
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        .take(40)
+        .collect();
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let label = label.trim();
+    if label.is_empty() {
+        format!("界面演示图-{stamp}.png")
+    } else {
+        format!("界面演示图-{label}-{stamp}.png")
+    }
+}
+
+#[cfg(target_os = "windows")]
+async fn capture_webview_png(app: &AppHandle) -> Result<Vec<u8>, String> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "找不到主窗口，无法截图".to_string())?;
+    let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
+    window
+        .with_webview(move |webview| {
+            if let Err(e) = unsafe { start_capture_preview(webview.controller(), tx.clone()) } {
+                let _ = tx.send(Err(e));
+            }
+        })
+        .map_err(|e| format!("无法访问 WebView 渲染层: {e}"))?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        rx.recv_timeout(Duration::from_secs(20))
+            .map_err(|_| "截图超时：渲染层没有在 20 秒内返回画面".to_string())?
+    })
+    .await
+    .map_err(|e| format!("截图任务异常: {e}"))?
+}
+
+/// 发起 CapturePreview：内存流 + 完成回调，PNG 字节由回调里读出后经 mpsc 交回。
+#[cfg(target_os = "windows")]
+unsafe fn start_capture_preview(
+    controller: webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Controller,
+    tx: std::sync::mpsc::Sender<Result<Vec<u8>, String>>,
+) -> Result<(), String> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG;
+    use webview2_com::CapturePreviewCompletedHandler;
+    use windows::Win32::Foundation::HGLOBAL;
+    use windows::Win32::System::Com::StructuredStorage::CreateStreamOnHGlobal;
+    use windows::Win32::System::Com::IStream;
+
+    let core = controller
+        .CoreWebView2()
+        .map_err(|e| format!("WebView 还没准备好（页面尚未创建）: {e}"))?;
+
+    // 内存流：CapturePreview 往这里写 PNG；fdeleteonrelease = true，由 COM 负责释放。
+    let stream: IStream = CreateStreamOnHGlobal(HGLOBAL(std::ptr::null_mut()), true)
+        .map_err(|e| format!("无法创建截图缓冲区: {e}"))?;
+
+    let handler_stream = stream.clone();
+    let handler = CapturePreviewCompletedHandler::create(Box::new(move |result| {
+        let out = match result {
+            Ok(()) => read_stream_bytes(&handler_stream),
+            Err(e) => Err(format!("渲染层截图失败: {e}")),
+        };
+        let _ = tx.send(out);
+        Ok(())
+    }));
+
+    core.CapturePreview(
+        COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG,
+        &stream,
+        &handler,
+    )
+    .map_err(|e| format!("发起截图失败: {e}"))
+}
+
+/// 把内存流里的 PNG 字节读出来。长度取 `IStream::Stat` 的 cbSize ——
+/// `GlobalSize` 给的是内存块容量，会比实际字节数大（尾随未用空间会被写进文件）。
+#[cfg(target_os = "windows")]
+unsafe fn read_stream_bytes(stream: &windows::Win32::System::Com::IStream) -> Result<Vec<u8>, String> {
+    use windows::Win32::System::Com::StructuredStorage::GetHGlobalFromStream;
+    use windows::Win32::System::Com::{STATFLAG_NONAME, STATSTG};
+    use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+
+    let mut stat = STATSTG::default();
+    let size = match stream.Stat(&mut stat, STATFLAG_NONAME) {
+        Ok(()) => stat.cbSize as usize,
+        Err(_) => 0,
+    };
+
+    let hglobal = GetHGlobalFromStream(stream).map_err(|e| format!("无法读取截图缓冲区: {e}"))?;
+    let size = if size > 0 { size } else { GlobalSize(hglobal) };
+    if size == 0 {
+        return Err("截图数据为空".into());
+    }
+    let ptr = GlobalLock(hglobal);
+    if ptr.is_null() {
+        return Err("无法锁定截图缓冲区".into());
+    }
+    let bytes = std::slice::from_raw_parts(ptr as *const u8, size).to_vec();
+    let _ = GlobalUnlock(hglobal);
+    Ok(bytes)
+}
+
+#[cfg(not(target_os = "windows"))]
+async fn capture_webview_png(_app: &AppHandle) -> Result<Vec<u8>, String> {
+    Err("界面演示图目前只支持桌面端（Windows）".into())
+}
+
 /// 在系统文件管理器里定位一个刚落盘的文件（插件「下载附件」横幅点击用）。
 ///
 /// Windows 走 `SHOpenFolderAndSelectItems`：文件管理器打开到所在目录，并把这个文件
@@ -2310,6 +2444,7 @@ pub fn run() {
             save_download,
             save_download_base64,
             reveal_saved_file,
+            capture_ui_shot,
             app_info,
             http_get,
             http_get_icon,

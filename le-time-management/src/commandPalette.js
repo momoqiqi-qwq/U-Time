@@ -9,6 +9,7 @@ import { openQuickCapture } from "./capture.js";
 import { closeLayer } from "./motion.js";
 import { SETTINGS_SEARCH_ENTRIES, SETTINGS_SECTION_LABELS } from "./settingsSearchIndex.js";
 import { scoreSearchEntry } from "./searchMatch.js";
+import { captureUiShot, uiShotSupported } from "./uiShot.js";
 
 let modal = null;
 let input = null;
@@ -74,6 +75,14 @@ function entries() {
     { kind: "导航", title: "任务表", sub: "任务优先级", keywords: "quadrant 任务 任务表 四象限", priority: 70, run: () => navigate("quadrant") },
     { kind: "导航", title: "插件中心", sub: "搜索、启停和管理插件", keywords: "plugin market 插件", priority: 70, run: () => navigate("market") },
     { kind: "导航", title: "设置", sub: "提醒、同步、快捷键、插件权限", keywords: "settings 配置", priority: 60, run: () => navigate("settings") },
+    // 桌面端专属：手机端截不了自己的渲染层（见 src/uiShot.js 的说明），直接不出现。
+    ...(uiShotSupported() ? [{
+      kind: "命令", title: "生成界面演示图", sub: "把当前界面截成 PNG 存到下载目录",
+      keywords: "screenshot shot 截图 界面图片 演示图 配图 出图 capture",
+      priority: 55,
+      // 面板自身会先关闭（run 里已经 closeCommandPalette），延时是为了等遮罩收完再截。
+      run: () => captureUiShot({ delay: 320 }),
+    }] : []),
   ];
 
   const tasks = S.getState().tasks.map((t) => ({

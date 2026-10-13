@@ -31,6 +31,18 @@
   const CARD_PAGE_SIZE = 100, CARD_MAX_PAGES = 50;
   const PAGES_MAX = 10, PAGE_SIZE = 50, CHUNK = 15;
   const AUTO_REFRESH_MS = 10 * 60 * 1000;
+  // 获奖名单视图（cppu-award）：获奖信息只在通知正文里，所以它得先把通知列表往回翻够页，
+  // 再逐条读正文筛选。上限写死是为了别把一次刷新变成几百个详情请求。
+  const AWARD_CACHE_KEY = "awardBoardCache";
+  // 翻页策略：**按时间回溯，而不是固定页数**。门户通知一年几百条，写死 4 页只够看到今年，
+  // 而获奖名单往往要看前两三年。所以首屏先翻 AWARD_PAGES 页，再一路往后翻到覆盖
+  // AWARD_YEARS 个自然年为止（或翻到底、或撞上 AWARD_PAGES_MAX 的防呆上限）。
+  const AWARD_PAGES = 4;          // 首屏先翻 4 页（50 条/页 = 200 条）
+  const AWARD_PAGES_STEP = 10;    // 「再往前翻」每次加 10 页（500 条）
+  const AWARD_PAGES_MAX = 60;     // 上限 60 页（3000 条）：再往前对门户不礼貌，收益也低
+  const AWARD_YEARS = 3;          // 默认回溯到「今年往前数 3 个自然年」（2025 年 ⇒ 翻到 2023 年为止）
+  const AWARD_NOTICE_MAX = 60;    // 单轮最多读多少条候选正文（每条一次详情请求）；未读的留到下一轮
+  const AWARD_CACHE_MAX = 200;    // 奖项记录落盘上限（正文留缓存里，这里只存解析结果）
 
   // ── 左侧校园服务栏 ──
   // 标题与图标不写死：进入插件时抓一次网页元信息（<title> / favicon / 图标名），
@@ -61,6 +73,9 @@
     // 直接打开 cardRecharge 这类受保护深链，平台还没建立自己的 H5 session 时会先报「未授权」；
     // 所以这里改成 U-Time 内部视图：先加载一卡通 H5 首页/登录壳，再由视图内按钮跳充值等子页。
     { view: "cppu-card", label: "一卡通", icon: "credit-card" },
+    // 获奖名单与「警大通知」同源（名单就长在通知正文里，共用同一份正文缓存），
+    // 所以入口放在校园服务这一侧，跟着通知走，而不是挂到「教务」子菜单下。
+    { view: "cppu-award", label: "获奖名单", icon: "trophy" },
   ];
   // 需要登录才能进的入口：点一下不直接开裸地址（那样只会落到统一身份认证登录页），
   // 而是用插件自身那份统一身份认证会话（sso.cppu.edu.cn 的 CASTGC，随 rememberMe 保 5 天）
@@ -117,6 +132,10 @@
   };
   let ui = null, io = null, sentinelCb = null, paintToken = 0, autoRefreshTimer = null;
   let filterOutsideHandler = null; // 筛选下拉的「点外部收回」监听，重进插件时替换旧监听
+  // 获奖名单视图的状态：与通知视图共用 state.notices / state.details（同一次登录、同一份正文缓存），
+  // 但 DOM 引用、进度与解析结果独立 —— 两个视图会同时活着，不能让它们互相盖掉对方的 ui。
+  const awState = { el: null, loading: false, error: "", progress: "", records: [], board: null, syncedAt: 0, pages: AWARD_PAGES, pendingCands: 0 };
+  let awardPanel = null, awardPanelLoading = null;
 
   function observeSentinel(node, cb) {
     sentinelCb = cb;
@@ -1290,57 +1309,69 @@
     }
   }
 
+  /**
+   * 通知正文 + 附件：只取数、不碰 UI。
+   *
+   * 为什么从 loadDetail 里抠出来（v0.207.0）：获奖名单视图要批量读几十条通知的正文才能在
+   * 里面筛出获奖名单，而两个视图会同时活在内存里 —— 共用一个 `ui` 变量必然互相污染。
+   * 取数（这里）与呈现（loadDetail / 获奖视图）分开后，两边都能各自决定什么时候画。
+   */
+  async function fetchNoticeContent(rid) {
+    let res;
+    try {
+      res = await tide.http.fetch(state.sid, "POST", PORTAL + "/tp_up/up/pim/showpim/getPimDetailInfoById", {
+        headers: {
+          "Content-Type": "application/json;charset=utf-8",
+          "Referer": referer(),
+          "Cookie": "tp_up=" + state.token,
+        },
+        body: JSON.stringify({ RESOURCE_ID: rid }),
+      });
+    } catch (e) {
+      throw new Error(explainHttpError(e));
+    }
+    if (res.status !== 200) throw new Error(`详情接口 HTTP ${res.status}`);
+    const arr = JSON.parse(res.body);
+    const d = Array.isArray(arr) ? arr[0] : null;
+    if (!d) throw new Error("通知详情格式异常或会话已过期");
+    let text = d.PIM_CONTENT || "", contentData = null, contentError = "", attachmentError = "", affixes = [];
+    const cu = d.CONTENT_URL || "";
+    if (cu) {
+      const url = portalUrl(cu);
+      try {
+        const cres = await getPage(url, false, { headers: { "Referer": referer(), "Cookie": "tp_up=" + state.token } });
+        if (cres.status !== 200) throw new Error(`正文接口 HTTP ${cres.status}`);
+        const mm = cres.body.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
+        let obj;
+        try { obj = JSON.parse(mm ? mm[1] : cres.body); contentData = obj; text = obj.result || obj.content || text; }
+        catch { text = cres.body; }
+      } catch (e) { contentError = String(e.message || e); }
+    }
+    // 附件与正文独立获取；任一路失败仍展示另一路，且允许重试。
+    try {
+      const ares = await tide.http.fetch(state.sid, "POST", PORTAL + "/tp_up/up/pim/showpim/getPimAffixList", {
+        headers: { "Content-Type": "application/json;charset=utf-8", "Referer": referer(), "Cookie": "tp_up=" + state.token },
+        body: JSON.stringify({ RESOURCE_ID: rid }),
+      });
+      if (ares.status !== 200) throw new Error(`附件列表接口 HTTP ${ares.status}`);
+      affixes = JSON.parse(ares.body);
+      if (!Array.isArray(affixes)) throw new Error("附件列表格式异常或会话已过期");
+    } catch (e) { attachmentError = String(e.message || e); }
+    return {
+      content: cleanText(text) || cleanText(d.PIM_CONTENT),
+      attachments: extractAttachments([arr, contentData, affixes], text),
+      contentError, attachmentError,
+    };
+  }
+
   async function loadDetail(rid, force = false) {
     const cur = state.details[rid] || {};
     if (cur.loading || (!force && (cur.detailVersion === 2 || (!state.token && (cur.content || cur.attachments))))) return;
     state.details[rid] = { ...cur, loading: true };
     updateDetail(rid);
     try {
-      let res;
-      try {
-        res = await tide.http.fetch(state.sid, "POST", PORTAL + "/tp_up/up/pim/showpim/getPimDetailInfoById", {
-          headers: {
-            "Content-Type": "application/json;charset=utf-8",
-            "Referer": referer(),
-            "Cookie": "tp_up=" + state.token,
-          },
-          body: JSON.stringify({ RESOURCE_ID: rid }),
-        });
-      } catch (e) {
-        throw new Error(explainHttpError(e));
-      }
-      if (res.status !== 200) throw new Error(`详情接口 HTTP ${res.status}`);
-      const arr = JSON.parse(res.body);
-      const d = Array.isArray(arr) ? arr[0] : null;
-      if (!d) throw new Error("通知详情格式异常或会话已过期");
-      let text = d.PIM_CONTENT || "", contentData = null, contentError = "", attachmentError = "", affixes = [];
-      const cu = d.CONTENT_URL || "";
-      if (cu) {
-        const url = portalUrl(cu);
-        try {
-          const cres = await getPage(url, false, { headers: { "Referer": referer(), "Cookie": "tp_up=" + state.token } });
-          if (cres.status !== 200) throw new Error(`正文接口 HTTP ${cres.status}`);
-          const mm = cres.body.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
-          let obj;
-          try { obj = JSON.parse(mm ? mm[1] : cres.body); contentData = obj; text = obj.result || obj.content || text; }
-          catch { text = cres.body; }
-        } catch (e) { contentError = String(e.message || e); }
-      }
-      // 附件与正文独立获取；任一路失败仍展示另一路，且允许重试。
-      try {
-        const ares = await tide.http.fetch(state.sid, "POST", PORTAL + "/tp_up/up/pim/showpim/getPimAffixList", {
-          headers: { "Content-Type": "application/json;charset=utf-8", "Referer": referer(), "Cookie": "tp_up=" + state.token },
-          body: JSON.stringify({ RESOURCE_ID: rid }),
-        });
-        if (ares.status !== 200) throw new Error(`附件列表接口 HTTP ${ares.status}`);
-        affixes = JSON.parse(ares.body);
-        if (!Array.isArray(affixes)) throw new Error("附件列表格式异常或会话已过期");
-      } catch (e) { attachmentError = String(e.message || e); }
-      state.details[rid] = {
-        content: cleanText(text) || cleanText(d.PIM_CONTENT),
-        attachments: extractAttachments([arr, contentData, affixes], text),
-        contentError, attachmentError, detailVersion: contentError || attachmentError ? 0 : 2,
-      };
+      const got = await fetchNoticeContent(rid);
+      state.details[rid] = { ...got, detailVersion: got.contentError || got.attachmentError ? 0 : 2 };
       await saveNoticeCache();
     } catch (e) {
       state.details[rid] = { error: String(e.message || e) };
@@ -2928,6 +2959,282 @@
     return () => { jwMounted.delete(cfg.id); };
   }
 
+  /* ═════════ 警大获奖名单（cppu-award） ═════════
+     为什么单开一个视图、而不是在通知列表上加一个筛选项：获奖信息散在几十条通知的正文里，
+     而用户想要的是「谁得了什么奖」的横向视图（按项目排下来、按获奖数量排名），
+     跟「按时间读通知」是两种读法 —— 塞进筛选器只会让通知视图多出一堆跟读通知无关的状态。
+     数据源与通知视图完全同一份 state.notices / state.details（同一次登录、同一份正文缓存），
+     解析与渲染全在 award-list.js，这里只管取数、进度与骨架，所以主文件没有因此变胖。
+     口径：只认正文里明确的获奖段落，宁少不滥；每条记录都能点回原通知核对。 */
+  function awShellHtml() {
+    return `<div class="${sideShellClass()}">
+      <aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}
+      <div class="pp-main"><div class="pp-wrap">
+      <div class="pp-toolbar">
+        <button class="pp-btn pri" data-aw-sync>刷新名单</button>
+        <button class="pp-btn" data-aw-deeper title="再往回翻 500 条通知">再往前翻</button>
+        <button class="pp-btn" data-aw-notify>回通知</button>
+        <button class="pp-btn" data-aw-relogin>重新登录</button>
+        <span style="flex:1"></span>
+      </div>
+      <div data-aw-status></div>
+      <div data-aw-panel></div>
+      <div style="height:30px"></div>
+      </div></div>
+    </div>`;
+  }
+
+  /* 进度行：与 award-list.js 的「统计口径」并排读得通 —— 这里说「扫了多少、翻到哪一年」，
+     那里说「认了多少」。 */
+  function awStatusLine() {
+    if (awState.progress) return awState.progress;
+    if (!awState.board) return `还没同步过：点「刷新名单」开始（往回翻通知到 ${AWARD_YEARS} 个自然年，再逐条读正文筛获奖名单）`;
+    const s = awState.board.stats;
+    const at = awState.syncedAt ? new Date(awState.syncedAt).toLocaleString("zh-CN", { hour12: false }) : "—";
+    const cov = awCoverage();
+    const pending = awState.pendingCands ? ` · 还有 ${awState.pendingCands} 条候选没读（再点一次刷新继续）` : "";
+    return `${state.username ? `学号 ${state.username} · ` : ""}已扫 ${state.notices.length} 条通知${cov ? `（覆盖 ${cov}）` : ""} · 命中获奖通知 ${s.notices} 条 · 奖项 ${s.awards} 人次${pending} · 同步于 ${at}`;
+  }
+  function awPaint(el) {
+    if (!el || el.isConnected === false) return;
+    const box = el.querySelector("[data-aw-status]");
+    if (box) {
+      // 失败时整条状态行就是重试入口（与通知视图同一种横幅，用户不必去别处找刷新）
+      box.innerHTML = awState.error && !awState.progress
+        ? bannerRefreshHtml(awState.error, "aw-banner-refresh")
+        : `<div style="margin:2px 0 10px;font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#4A5A66)">${esc(awStatusLine())}</div>`;
+    }
+    awardPanel?.render(el.querySelector("[data-aw-panel]"), awState.board, {
+      syncedAt: awState.syncedAt, progress: awState.progress, error: awState.error,
+      onOpenSource: (rid) => awOpenNotice(rid),
+    });
+  }
+
+  /* 「来源通知」按钮：切回通知视图并把那条通知展开 —— 名单是从那句话里抽出来的，
+     能一眼看到原句才算可核对（这也是不做原文照搬的前提）。 */
+  function awOpenNotice(rid) {
+    if (state.notices.some((x) => itemKey(x) === rid)) {
+      state.expanded.add(rid);
+      setSeen(rid);
+    }
+    tide.util.navigate("plug:cppu-notify");
+  }
+
+  // 取模块里的纯函数（titleLooksAward / parseAwardNotice / buildAwardBoard）供同步流程用，
+  // 顺带把面板渲染器建起来 —— 面板要用宿主的滑动选中光（铁律六同一套实现），
+  // 插件拿不到 src/selectionGlow.js，只能让宿主开出来的 tide.ui.selectionGlow 代画。
+  function ensureAwardPanel() {
+    if (!awardPanelLoading) {
+      awardPanelLoading = import("/plugins/cppu-notify/award-list.js")
+        .then(async (mod) => {
+          awardPanel = await mod.createAwardPanel(tide.storage, {
+            selectionGlow: (box, opts) => tide.ui.selectionGlow?.(box, opts),
+          });
+          return mod;
+        })
+        .catch(() => { awardPanelLoading = null; awardPanel = null; awState.error = "获奖名单模块加载失败，请重新打开本视图重试"; throw new Error("获奖名单模块加载失败"); });
+    }
+    return awardPanelLoading;
+  }
+
+  /* 登录：与通知视图同一套凭据（cookie → 静默续期 → 密钥库密码），任一成功即可继续。 */
+  async function awEnsureSession() {
+    if (state.token) return true;
+    try {
+      const restored = await restoreCookies();
+      if (!restored) await newSession();
+      if (state.token) return true;
+      if (await silentRenew()) { await saveCookies(); return true; }
+      if (await passwordAutoLogin()) return true;
+    } catch { /* 落到人工登录表单 */ }
+    return false;
+  }
+
+  /* 列表只往回翻、不覆盖 state.notices：通知视图已经把前几页装进来了，这里只补它没装的部分，
+     免得用户刚从通知列表滚到第 3 页、一进获奖名单又被重置回第 1 页。
+     untilYear：翻到「这一页最后一条的年份 ≤ untilYear」就停。门户通知一年几百条，
+     固定页数会把更早的获奖通知挡在候选集之外 —— 表现就是「怎么只识别到今年的」。 */
+  async function awFetchList(maxPages, untilYear = 0) {
+    for (let page = 1; page <= maxPages; page++) {
+      let res;
+      try {
+        res = await tide.http.fetch(state.sid, "POST", PORTAL + "/tp_up/up/pim/allpim/getAllPimList", {
+          headers: {
+            "Content-Type": "application/json;charset=utf-8",
+            "Referer": referer(),
+            "Cookie": "tp_up=" + state.token,
+          },
+          body: JSON.stringify({ pageNum: page, pageSize: PAGE_SIZE }),
+        });
+      } catch (e) {
+        throw new Error(explainHttpError(e));
+      }
+      if (res.status !== 200) throw new Error(`列表接口 HTTP ${res.status}，登录可能已过期`);
+      let d;
+      try { d = JSON.parse(res.body); } catch { throw new Error("会话已过期，请重新登录"); }
+      const items = Array.isArray(d?.list) ? d.list : [];
+      if (!items.length) { state.hasMore = false; break; }
+      const ids = new Set(state.notices.map((x) => x.RESOURCE_ID));
+      state.notices = state.notices.concat(items.filter((x) => !ids.has(x.RESOURCE_ID)));
+      if (items.length < PAGE_SIZE) { state.hasMore = false; break; }
+      // 这一页的最后一条已经比目标年份更早 ⇒ 目标区间已覆盖，不必再翻。
+      const oldest = Number(items[items.length - 1]?.CREATE_TIME || 0);
+      if (untilYear && oldest) {
+        const y = new Date(oldest).getFullYear();
+        if (y && y <= untilYear) break;
+      }
+    }
+    state.fetchedAt = Date.now();
+    await saveNoticeCache();
+  }
+
+  /* 覆盖区间：让用户一眼看出这次翻到了哪一年，而不是疑惑「怎么只有今年的」。
+     用起止年月 + 条数表达，比页码直观。 */
+  function awCoverage() {
+    const times = state.notices.map((it) => Number(it.CREATE_TIME || 0)).filter((n) => n > 0);
+    if (!times.length) return "";
+    const ym = (t) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+    return `${ym(Math.min(...times))} ~ ${ym(Math.max(...times))}`;
+  }
+
+  function awDetailCached(rid) {
+    const det = state.details[rid];
+    return det && det.content ? det : null;
+  }
+  async function awDetailFetch(rid) {
+    const got = await fetchNoticeContent(rid);
+    state.details[rid] = { ...got, detailVersion: got.contentError || got.attachmentError ? 0 : 2 };
+    return state.details[rid];
+  }
+
+  async function saveAwardCache() {
+    try {
+      await tide.storage.set(AWARD_CACHE_KEY, {
+        username: state.username,
+        syncedAt: awState.syncedAt,
+        records: awState.records.slice(0, AWARD_CACHE_MAX),
+      });
+    } catch { /* 写盘失败不影响本次阅读 */ }
+  }
+  async function restoreAwardCache() {
+    try {
+      const cache = await tide.storage.get(AWARD_CACHE_KEY, null);
+      if (!cache || cache.username !== state.username || !Array.isArray(cache.records) || !cache.records.length) return false;
+      const mod = await ensureAwardPanel();
+      awState.records = cache.records;
+      awState.board = mod.buildAwardBoard(cache.records);
+      awState.syncedAt = Number(cache.syncedAt) || 0;
+      return true;
+    } catch { return false; }
+  }
+
+  async function awSync(el, deeper = false) {
+    if (awState.loading) return;
+    if (deeper) awState.pages = Math.min(AWARD_PAGES_MAX, awState.pages + AWARD_PAGES_STEP);
+    awState.loading = true;
+    awState.error = "";
+    awState.progress = "正在拉取通知列表…";
+    awPaint(el);
+    try {
+      const mod = await ensureAwardPanel();
+      // 按时间回溯：翻到覆盖 AWARD_YEARS 个自然年为止（点过「再往前翻」则按累计页数继续往前）。
+      const untilYear = new Date().getFullYear() - (AWARD_YEARS - 1);
+      await awFetchList(awState.pages, untilYear);
+      // 先按标题筛「像获奖」的（这一步免费），再逐条读正文由 award-list.js 判定收不收。
+      const cands = state.notices.filter((it) => mod.titleLooksAward(titleOf(it)));
+      // 已读过正文的（上一轮读的、或用户在通知视图里点开过的）不重复请求；一轮读不完的留到下一轮，
+      // 于是「再点一次刷新」能继续往前推进，而不是每次都在同一批候选上打转。
+      const unread = cands.filter((it) => !state.details[itemKey(it)]?.content);
+      const batch = unread.slice(0, AWARD_NOTICE_MAX);
+      awState.pendingCands = Math.max(0, unread.length - batch.length);
+      let failed = 0;
+      for (let i = 0; i < batch.length; i++) {
+        awState.progress = `正在读正文筛选获奖名单 ${i + 1}/${batch.length}（候选 ${cands.length} 条）`;
+        awPaint(el);
+        if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
+        try { await awDetailFetch(itemKey(batch[i])); } catch { failed += 1; }
+      }
+      // 再对**全部**候选统一解析：已读的走内存缓存，不产生请求。
+      const records = [];
+      for (const it of cands) {
+        const det = awDetailCached(itemKey(it));
+        const rec = det?.content
+          ? mod.parseAwardNotice({ rid: itemKey(it), title: titleOf(it), text: det.content, date: Number(it.CREATE_TIME || 0) })
+          : null;
+        if (rec) records.push(rec);
+      }
+      awState.records = records;
+      awState.board = mod.buildAwardBoard(records);
+      awState.syncedAt = Date.now();
+      await saveAwardCache();
+      if (failed) awState.error = `${failed} 条通知的正文没读到（网络或会话中断），名单可能不全，点这条状态行可重试。`;
+    } catch (e) {
+      awState.error = String(e?.message || e);
+    }
+    awState.loading = false;
+    awState.progress = "";
+    awPaint(el);
+  }
+
+  function awRemount(el) {
+    el.innerHTML = awShellHtml();
+    bindSide(el);
+    loadLinkMeta(el);
+    awStart(el);
+  }
+  async function awStart(el) {
+    try { await ensureAwardPanel(); } catch { awPaint(el); return; }
+    if (await restoreAwardCache()) awPaint(el);
+    if (!state.token) { awState.progress = "正在恢复登录状态…"; awPaint(el); }
+    const ok = await awEnsureSession();
+    if (!el.isConnected) return;
+    if (!ok) {
+      awState.progress = "";
+      await prepareLoginForm();
+      if (!el.isConnected) return;
+      paintLogin(el, loginHint?.msg || "", {
+        prefillCode: loginHint?.code || "",
+        // 只换回页面内容，不重跑 mountAwardView：容器上的监听器挂在 el 本身，再挂一遍会双触发。
+        onDone: () => awRemount(el),
+        onFailure: () => false,
+      });
+      return;
+    }
+    await awSync(el);
+  }
+
+  function mountAwardView(el) {
+    ensureStyle();
+    el.innerHTML = awShellHtml();
+    bindSide(el);
+    loadLinkMeta(el);
+    const openLogin = async () => {
+      await prepareLoginForm();
+      if (!el.isConnected) return;
+      paintLogin(el, loginHint?.msg || "", {
+        prefillCode: loginHint?.code || "",
+        onDone: () => awRemount(el),
+        onFailure: () => false,
+      });
+    };
+    el.addEventListener("click", async (e) => {
+      if (e.target.closest("[data-aw-sync]")) { await awSync(el); return; }
+      if (e.target.closest("[data-aw-banner-refresh]")) { await awSync(el); return; }
+      // 「再往前翻」：把回溯页数往上加一档再同步 —— 首页只翻到近三年，更早的要用户自己决定。
+      if (e.target.closest("[data-aw-deeper]")) { await awSync(el, true); return; }
+      if (e.target.closest("[data-aw-notify]")) { tide.util.navigate("plug:cppu-notify"); return; }
+      if (e.target.closest("[data-aw-relogin]")) {
+        state.token = ""; state.notices = []; state.details = {}; state.pending = null; state.captcha = "";
+        awState.board = null; awState.records = []; awState.error = ""; awState.syncedAt = 0;
+        awState.pages = AWARD_PAGES; awState.pendingCands = 0;
+        await openLogin();
+        return;
+      }
+    });
+    awStart(el);
+    return () => { if (awState.el === el) awState.el = null; };
+  }
+
   const cardState = {
     rows: [], mode: "month", kind: "in", sid: null, username: "", password: "", accessToken: "",
     tokenType: "bearer", refreshToken: "", expiresAt: 0, loading: false, syncedAt: 0, error: "",
@@ -3599,6 +3906,7 @@
         <span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="pp-kw" data-kw type="text" aria-label="关键词过滤：标题 / 发布人 / 单位 / 分类" title="关键词过滤：标题 / 发布人 / 单位 / 分类" placeholder=""></span>
         <label class="pp-toggle" data-ar title="打开插件期间每 10 分钟自动同步一次"><i></i>自动刷新</label>
         <span style="flex:1"></span>
+        <button class="pp-btn" data-award>获奖名单</button>
         <button class="pp-btn" data-relogin>重新登录</button>
       </div>
       <details class="plugin-filter-menu"><summary data-filter-summary>筛选</summary><div class="plugin-filter-menu-panel">
@@ -3654,6 +3962,7 @@
       if (menu?.open && !menu.contains(e.target)) menu.removeAttribute("open");
     };
     document.addEventListener("pointerdown", filterOutsideHandler, true);
+    el.querySelector("[data-award]").addEventListener("click", () => tide.util.navigate("plug:cppu-award"));
     el.querySelector("[data-relogin]").addEventListener("click", () => {
       stopAutoRefresh();
       state.token = ""; state.notices = []; state.details = {}; state.expanded.clear(); state.pending = null; state.captcha = ""; state.sid = null; ui = null;
@@ -3732,6 +4041,8 @@
 
   tide.ui.registerView({ id: "cppu-notify", title: "警大通知", icon: 'building-columns', render });
   tide.ui.registerView({ id: "cppu-card", title: "警大一卡通", icon: "credit-card", render: mountCardView });
+  // 获奖名单：通知正文里的获奖段落抽出来单独看（个人/团体排名 + 按时间的奖项项目）
+  tide.ui.registerView({ id: "cppu-award", title: "警大获奖名单", icon: "trophy", render: mountAwardView });
   // 教务只读视图：侧栏「校园服务」里的选课 / 请假 / 成绩 / 创新学分入口直接 navigate 过来
   for (const cfg of JW_VIEWS) {
     tide.ui.registerView({

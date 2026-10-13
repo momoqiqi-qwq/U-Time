@@ -12,6 +12,7 @@ import { applyTouchZoomViewport } from "./mobileViewport.js";
 import { initTaskReminders } from "./taskReminder.js";
 import { initCommandPalette } from "./commandPalette.js";
 import { initGlobalShortcuts } from "./globalShortcuts.js";
+import { initUiShot } from "./uiShot.js";
 import { initAutomation } from "./automation.js";
 import { initMotionInteractions, reducedMotion } from "./motion.js";
 import { initLanPushGate } from "./lanPushGate.js";
@@ -67,6 +68,7 @@ async function boot() {
   initCapture();
   initTaskReminders();
   initCommandPalette();
+  initUiShot();
   initGlobalShortcuts().catch((e) => console.warn("全局快捷键不可用:", e));
   // 应用内更新：内部自己延迟 8s 再查，且不 await —— 绝不挡住首屏。
   initUpdateChecker();

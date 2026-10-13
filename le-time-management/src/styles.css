@@ -2106,7 +2106,10 @@ button.about-list-row:hover { background:color-mix(in srgb,var(--deep) 5%,transp
 .plugin-filter-menu[open]>summary{border-color:var(--deep);color:var(--deep)}
 .plugin-filter-menu[open]>summary::after{transform:rotate(180deg)}
 .plugin-filter-menu>summary:focus-visible{outline:2px solid var(--deep);outline-offset:2px}
-.plugin-filter-menu-panel{display:flex;flex-direction:column;gap:10px;min-width:min(300px,calc(var(--ui-vw, 100vw) - 40px));max-width:min(520px,calc(var(--ui-vw, 100vw) - 40px));padding:12px;margin-top:6px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:var(--shadow)}
+/* 面板宽高（v0.207.0 加宽加高）：原来是定宽 300~520px 的小卡片，四条轴一起展开时 chip 一行只能放两三颗，
+   「源」那一排尤其挤。现在**铺满宿主给插件的宽度**（上限 760px 兜底，避免超宽屏上拉成一条长带），
+   内边距与行距同步放大，展开一次看得完。宿主只给尺寸，排版仍归各插件自己的样式。 */
+.plugin-filter-menu-panel{display:flex;flex-direction:column;gap:14px;width:100%;box-sizing:border-box;min-width:min(300px,calc(var(--ui-vw, 100vw) - 40px));max-width:min(760px,calc(var(--ui-vw, 100vw) - 40px));padding:16px 18px;margin-top:6px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:var(--shadow)}
 .plugin-filter-menu:not([open])>.plugin-filter-menu-panel{display:none}
 .plugin-filter-menu-panel .pp-toolbar,.plugin-filter-menu-panel .gx-toolbar,.plugin-filter-menu-panel .rss-toolbar{margin:0}
 .plugin-filter-menu-panel .pp-chips,.plugin-filter-menu-panel .gx-chips,.plugin-filter-menu-panel .rss-chips,.plugin-filter-menu-panel .ecal-chips,.plugin-filter-menu-panel .cx2-chips,.plugin-filter-menu-panel .cx2-tabs{display:flex;flex-wrap:wrap;gap:7px;margin:0}

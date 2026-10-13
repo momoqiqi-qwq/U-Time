@@ -6,6 +6,9 @@ export const DEFAULT_GLOBAL_SHORTCUTS = {
   enabled: true,
   commandPalette: "CommandOrControl+Shift+Space",
   quickCapture: "CommandOrControl+Shift+A",
+  // 界面演示图（src/uiShot.js）：刻意避开 Ctrl+Shift+S —— 那是浏览器/WebView 的「另存为」，
+  // 在桌面端虽然多半抢不到，但换 Alt 组合更省事，也不必和系统的截图键（Win+Shift+S）撞。
+  uiShot: "CommandOrControl+Alt+S",
 };
 
 let registered = [];
@@ -57,6 +60,7 @@ export async function applyGlobalShortcuts() {
   const defs = [
     { key: "命令面板", shortcut: String(cfg.commandPalette || "").trim(), event: "tide:command-palette" },
     { key: "快速捕获", shortcut: String(cfg.quickCapture || "").trim(), event: "tide:quick-capture" },
+    { key: "界面演示图", shortcut: String(cfg.uiShot || "").trim(), event: "tide:ui-shot" },
   ].filter((x) => x.shortcut);
   const seen = new Set();
   for (const def of defs) {

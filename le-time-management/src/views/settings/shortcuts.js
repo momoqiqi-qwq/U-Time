@@ -4,6 +4,7 @@ import { computePluginShortcutMap, getPluginShortcutCustoms, setPluginShortcut }
 import { pluginShortcutEntries } from "../../pluginShortcutEntries.js";
 import { DEFAULT_GLOBAL_SHORTCUTS, getShortcutConfig, getGlobalShortcutStatus, applyGlobalShortcuts } from "../../globalShortcuts.js";
 import { toggleSwitch } from "../../switchControl.js";
+import { uiShotSupported } from "../../uiShot.js";
 
 export async function createShortcutCard({ settings, info, render }) {
     /* 全局快捷键 */
@@ -11,6 +12,11 @@ export async function createShortcutCard({ settings, info, render }) {
     const shortcutEnabled = toggleSwitch({ checked: shortcutCfg.enabled !== false });
     const commandShortcut = el("input", { type: "text", value: shortcutCfg.commandPalette || DEFAULT_GLOBAL_SHORTCUTS.commandPalette, placeholder: DEFAULT_GLOBAL_SHORTCUTS.commandPalette, spellcheck: "false" });
     const captureShortcut = el("input", { type: "text", value: shortcutCfg.quickCapture || DEFAULT_GLOBAL_SHORTCUTS.quickCapture, placeholder: DEFAULT_GLOBAL_SHORTCUTS.quickCapture, spellcheck: "false" });
+    // 界面演示图（src/uiShot.js → Rust capture_ui_shot）：截当前界面存 PNG。
+    // 只桌面端有意义 —— Android 的 WebView 没有对应接口，所以手机端整行连同说明一起不显示，
+    // 而不是留一个「点了会报错」的键位框。
+    const shotSupported = uiShotSupported();
+    const shotShortcut = el("input", { type: "text", value: shortcutCfg.uiShot || DEFAULT_GLOBAL_SHORTCUTS.uiShot, placeholder: DEFAULT_GLOBAL_SHORTCUTS.uiShot, spellcheck: "false" });
     const shortcutStatus = el("div", { class: "shortcut-status" });
     const paintShortcutStatus = (status = getGlobalShortcutStatus()) => {
       if (!status.supported) shortcutStatus.textContent = `${status.errors?.[0] || "当前环境不支持系统级快捷键"}；应用内 Ctrl+K 仍可用。`;
@@ -68,12 +74,15 @@ export async function createShortcutCard({ settings, info, render }) {
       el("div", { class: "shortcut-grid" },
         el("span", {}, "命令面板"), commandShortcut,
         el("span", {}, "快速捕获"), captureShortcut,
+        ...(shotSupported ? [el("span", {}, "界面演示图"), shotShortcut] : []),
       ),
       el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:12px" },
         el("button", { class: "btn pri sm", onclick: async () => {
           shortcutCfg.enabled = shortcutEnabled.checked;
           shortcutCfg.commandPalette = commandShortcut.value.trim() || DEFAULT_GLOBAL_SHORTCUTS.commandPalette;
           shortcutCfg.quickCapture = captureShortcut.value.trim() || DEFAULT_GLOBAL_SHORTCUTS.quickCapture;
+          // 手机端这一行不显示，也就别去覆盖已存下的键位（换回桌面端时仍生效）。
+          if (shotSupported) shortcutCfg.uiShot = shotShortcut.value.trim() || DEFAULT_GLOBAL_SHORTCUTS.uiShot;
           await S.saveNow();
           const status = await applyGlobalShortcuts();
           paintShortcutStatus(status);
@@ -83,13 +92,16 @@ export async function createShortcutCard({ settings, info, render }) {
           shortcutEnabled.checked = true;
           commandShortcut.value = DEFAULT_GLOBAL_SHORTCUTS.commandPalette;
           captureShortcut.value = DEFAULT_GLOBAL_SHORTCUTS.quickCapture;
+          shotShortcut.value = DEFAULT_GLOBAL_SHORTCUTS.uiShot;
           shortcutCfg.enabled = true; shortcutCfg.commandPalette = commandShortcut.value; shortcutCfg.quickCapture = captureShortcut.value;
+          if (shotSupported) shortcutCfg.uiShot = shotShortcut.value;
           await S.saveNow();
           paintShortcutStatus(await applyGlobalShortcuts());
           toast("已恢复默认快捷键");
         } }, "恢复默认"),
       ),
       shortcutStatus,
+      ...(shotSupported ? [el("p", { class: "shortcut-hint" }, "「界面演示图」把当前界面（真实数据、当前主题与滚动位置）截成 PNG 存进系统下载目录，用来写文档或提问题时配图；也可以在命令面板里搜「演示图」触发。")] : []),
       el("div", { class: "plugin-shortcut-block" },
         el("b", { class: "shortcut-sub-title" }, "插件快捷键"),
         pluginShortcutBox,

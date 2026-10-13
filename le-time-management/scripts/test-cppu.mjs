@@ -677,8 +677,8 @@ assert.doesNotMatch(source, /\/je\/doAct|\/je\/develop\/funcInfo\/(save|add|upda
 assert.ok(source.includes('const JW_LOAD = JWAPP + "/je/load"'), '教务取数端点必须挂在 jw 域，不能混进 sso-jw');
 
 /* 警大学分原入口成为警大成绩，避免教务菜单出现两张重复成绩页。 */
-assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-notify', 'cppu-qj', 'cppu-xk'],
-  '必须注册通知及五个教务/一卡通视图，登录设置属于应用设置');
+assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-notify', 'cppu-qj', 'cppu-xk'],
+  '必须注册通知、获奖名单及五个教务/一卡通视图，登录设置属于应用设置');
 assert.ok(views.filter((v) => v.id !== 'cppu-notify').every((v) => typeof v.render === 'function'), '插件子视图必须有 render');
 assert.ok(views.some((v) => v.id === 'cppu-cx' && v.title === '警大创新学分'), '创新学分视图要有独立标题');
 assert.ok(views.some((v) => v.id === 'cppu-credit' && v.title === '警大成绩'), '原警大学分视图应以警大成绩注册');
@@ -686,7 +686,7 @@ assert.match(source, /view: "cppu-credit", label: "警大成绩"/, '教务菜单
 assert.match(source, /id: "cppu-credit", title: "警大成绩"[^\n]*keys: \["grade"\][^\n]*menu: JW_MENU\.grades,[\s\S]*?body: \(\) => jwGradesHtml\(\)/,
   '原警大学分入口必须读取成绩接口并使用 cppu-helper 成绩页及导出功能');
 assert.doesNotMatch(source, /view: "cppu-grades"|id: "cppu-grades"/, '不能保留重复的成绩入口');
-for (const v of ['cppu-xk', 'cppu-qj', 'cppu-credit', 'cppu-cx', 'cppu-card']) assert.ok(source.includes(`view: "${v}"`), `校园服务栏必须有 ${v} 入口`);
+for (const v of ['cppu-xk', 'cppu-qj', 'cppu-credit', 'cppu-cx', 'cppu-card', 'cppu-award']) assert.ok(source.includes(`view: "${v}"`), `校园服务栏必须有 ${v} 入口`);
 assert.match(source, /url\.startsWith\("view:"\)\) \{ tide\.util\.navigate\("plug:" \+ url\.slice\(5\)\)/,
   'view: 入口必须在插件内切视图，而不是开系统浏览器（教务 SPA 没有 URL 深链）');
 assert.match(source, /data-goto="\$\{esc\("view:" \+ item\.view\)\}"/,
