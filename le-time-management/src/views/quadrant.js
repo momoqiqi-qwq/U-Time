@@ -13,9 +13,8 @@ import { withSearchGlyph } from "../searchField.js";
 // 展开状态跨重渲染保持
 const expandedCards = new Set();
 
-function taskCard(t) {
+function taskCard(t, scheduled) {
   const state = S.getState();
-  const scheduled = state.blocks.find((b) => b.taskId === t.id);
   const highlightCfg = getKeywordHighlights(state.settings);
   const hasNote = !!(t.note && t.note.trim());
   // 标题现在一律换行完整显示（卡片随内容变高），不再截断，
@@ -508,7 +507,7 @@ function quadrantCell(def, matches) {
     const scheduled = new Map();
     for (const block of blocks) if (!scheduled.has(block.taskId)) scheduled.set(block.taskId, block);
     reconcileCards(tasks.map((task) => ({ key: task.id,
-      signature: JSON.stringify([task, scheduled.get(task.id), appearance]), create: () => taskCard(task) })));
+      signature: JSON.stringify([task, scheduled.get(task.id), appearance]), create: () => taskCard(task, scheduled.get(task.id)) })));
     cell.querySelector(".cnt").textContent = `${tasks.filter((t) => !t.done).length} 项`;
   };
   renderList();

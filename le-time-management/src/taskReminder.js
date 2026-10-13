@@ -7,7 +7,7 @@
 //     所以「应用被划掉之后到点还响」这件事只能交给原生闹钟。
 import * as S from "./store.js";
 import { toast } from "./ui.js";
-import { playSound, startAlarmLoop, stopAlarmLoop, alarmRinging, DEFAULT_LOOP_SOUND_ID } from "./sound.js";
+import { playSound, startAlarmLoop, stopAlarmLoop, DEFAULT_LOOP_SOUND_ID } from "./sound.js";
 import {
   isAndroidRuntime, isDesktopRuntime, postNativeReminder,
   postDesktopReminder, cancelNativeReminder,
@@ -234,11 +234,6 @@ function stopRing({ silent = false } = {}) {
   postNativeReminder({ ...reminderRecord(current.ev), urgent: false, repeatMs: 0, at: Date.now() }, { silent: true });
   if (!silent) toast(`已停止「${current.ev.task.title}」的响铃，任务还留着`);
   return true;
-}
-
-/** 当前是否正在长鸣。 */
-export function ringActive() {
-  return !!ring || alarmRinging();
 }
 
 /**

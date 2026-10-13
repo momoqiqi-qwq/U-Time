@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>WG-SNIFF-TEST</title>
+<style>
+  body{font:14px/1.7 system-ui;margin:24px;max-width:760px}
+  code{background:#eee;padding:1px 5px;border-radius:4px}
+  .ok{color:#0a7a3d}.bad{color:#a11}
+</style>
+</head>
+<body>
+<h1>WG-SNIFF-TEST</h1>
+<p>本页只做一件事：<b>让页面自己发两个 JSON 请求</b>（一个 fetch、一个 XHR），
+用来验证油猴插件到底有没有挂上 <code>window.fetch</code> / <code>XMLHttpRequest.prototype</code>。</p>
+<p>页面本身不出现插件面板里的任何文案。</p>
+<ul>
+  <li>fetch：<span id="f">待定</span></li>
+  <li>XHR：<span id="x">待定</span></li>
+</ul>
+<p id="verdict">等 3 秒后看右下角浮标的数字：变成 2 就说明嗅探链路是通的。</p>
+
+<script>
+  fetch('/docs/api-demo.json?via=fetch&t=' + Date.now())
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      document.getElementById('f').textContent = 'OK total=' + j.data.total;
+      document.getElementById('f').className = 'ok';
+    })
+    .catch(function (e) {
+      document.getElementById('f').textContent = 'FAIL ' + e.message;
+      document.getElementById('f').className = 'bad';
+    });
+
+  var x = new XMLHttpRequest();
+  x.open('GET', '/docs/api-demo.json?via=xhr&t=' + Date.now());
+  x.onload = function () {
+    document.getElementById('x').textContent = 'OK status=' + x.status;
+    document.getElementById('x').className = 'ok';
+  };
+  x.onerror = function () {
+    document.getElementById('x').textContent = 'FAIL';
+    document.getElementById('x').className = 'bad';
+  };
+  x.send();
+</script>
+</body>
+</html>

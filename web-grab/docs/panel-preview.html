@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>SPA 抓取增强器 · 面板配色预览</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 26px 30px 34px; background: #fbfaf8; color: #22303a;
+         font: 14px/1.55 -apple-system, "Segoe UI", system-ui, "Microsoft YaHei", sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 19px; }
+  .lead { margin: 0 0 20px; color: #6b7783; font-size: 12.5px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .cap { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+  .cap b { font-size: 13.5px; }
+  .cap small { color: #8c99a4; font-size: 11.5px; }
+  .stage { padding: 16px; border-radius: 16px; border: 1px solid rgba(0,0,0,.07); }
+
+    
+  *{box-sizing:border-box;font-family:-apple-system,"Segoe UI",system-ui,"Microsoft YaHei",sans-serif}
+
+  /* 颜色一律取自 --wg-* 令牌（由 applyTheme 注入，见「主题 / Nephele 适配」一节），
+     这里不出现任何硬编码色值，换主题就是换一组令牌。 */
+  .fab{position:fixed;right:18px;bottom:18px;z-index:2147483647;display:flex;align-items:center;gap:6px;
+       background:var(--wg-bg);color:var(--wg-ink);border:1px solid var(--wg-line);border-radius:999px;padding:8px 14px;
+       font-size:12px;cursor:pointer;box-shadow:var(--wg-shadow);user-select:none;
+       backdrop-filter:var(--wg-glass);-webkit-backdrop-filter:var(--wg-glass)}
+  .fab:hover{background:var(--wg-elev)}
+  .fab b{color:var(--wg-accent);font-weight:600}
+  .pane[data-wg-nephele="on"] .fab{border-color:var(--wg-edge);
+       background:linear-gradient(120deg,color-mix(in srgb,var(--wg-accent) 16%,var(--wg-bg)),var(--wg-bg))}
+  .wrap{position:fixed;right:18px;bottom:70px;z-index:2147483646;width:min(760px,92vw);height:min(560px,80vh);
+        background:var(--wg-bg);color:var(--wg-ink);border:1px solid var(--wg-line);border-radius:var(--wg-radius);
+        display:flex;flex-direction:column;box-shadow:var(--wg-shadow);overflow:hidden;font-size:12.5px;
+        backdrop-filter:var(--wg-glass);-webkit-backdrop-filter:var(--wg-glass)}
+  .pane[data-wg-nephele="on"] .wrap{border-color:var(--wg-edge);
+        background:linear-gradient(165deg,color-mix(in srgb,var(--wg-accent) 13%,var(--wg-bg)),var(--wg-bg) 58%)}
+
+  /* Nephele 云雾与星尘：只在 nephele=on 时显示，动效遵守 prefers-reduced-motion */
+  .wg-sky{position:absolute;inset:0;overflow:hidden;pointer-events:none;opacity:0;transition:opacity .45s ease}
+  .pane[data-wg-nephele="on"] .wg-sky{opacity:1}
+  .wg-cloud{position:absolute;border-radius:50%;filter:blur(24px)}
+  .wg-cloud.c1{width:58%;height:50%;left:-10%;top:-14%;animation:wg-cloud-x 12.5s ease-in-out infinite alternate;
+       background:radial-gradient(circle at 40% 40%,var(--wg-cloud1),transparent 70%)}
+  .wg-cloud.c2{width:52%;height:46%;right:-12%;top:4%;animation:wg-cloud-y 17.5s ease-in-out infinite alternate;
+       background:radial-gradient(circle at 60% 40%,var(--wg-cloud2),transparent 70%)}
+  .wg-cloud.c3{width:48%;height:42%;left:16%;bottom:-18%;animation:wg-cloud-x 21s ease-in-out infinite alternate-reverse;
+       background:radial-gradient(circle at 50% 50%,var(--wg-cloud3),transparent 70%)}
+  .wg-star{position:absolute;border-radius:50%;background:var(--wg-star);box-shadow:0 0 4px var(--wg-dust);
+       animation:wg-twinkle 4s ease-in-out infinite}
+  @keyframes wg-cloud-x{from{transform:translate3d(-5%,0,0)}to{transform:translate3d(7%,3%,0)}}
+  @keyframes wg-cloud-y{from{transform:translate3d(0,-4%,0)}to{transform:translate3d(3%,6%,0)}}
+  @keyframes wg-twinkle{0%,100%{opacity:.16}50%{opacity:.8}}
+
+  header,main,footer{position:relative;z-index:1}
+  header{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--wg-line);background:var(--wg-head)}
+  header .title{font-weight:600;font-size:13px;color:var(--wg-ink)}
+  header .sp{flex:1}
+  button{background:color-mix(in srgb,var(--wg-bg) 88%,var(--wg-ink) 12%);color:var(--wg-ink);
+         border:1px solid var(--wg-line);border-radius:8px;padding:4px 9px;font-size:12px;cursor:pointer}
+  button:hover{background:var(--wg-elev)}
+  button.primary{background:var(--wg-accent);border-color:var(--wg-accent);color:var(--wg-on-accent)}
+  button.primary:hover{background:color-mix(in srgb,var(--wg-accent) 86%,#000)}
+  button.mini{padding:2px 7px;font-size:11.5px}
+  button.on{background:var(--wg-accent-soft);border-color:var(--wg-accent-line);color:var(--wg-ink)}
+  input[type=text]{background:color-mix(in srgb,var(--wg-bg) 92%,var(--wg-ink) 8%);border:1px solid var(--wg-line);
+         color:var(--wg-ink);border-radius:8px;padding:5px 8px;font-size:12px;width:170px}
+  main{flex:1;display:flex;min-height:0}
+  .list{width:44%;border-right:1px solid var(--wg-line);overflow:auto}
+  .item{padding:7px 10px;border-bottom:1px solid var(--wg-line-soft);cursor:pointer}
+  .item:hover{background:var(--wg-elev)}
+  .item.sel{background:var(--wg-accent-soft);box-shadow:inset 3px 0 0 var(--wg-accent)}
+  .item .p{color:var(--wg-ink);word-break:break-all;line-height:1.35}
+  .item .m{color:var(--wg-ink2);font-size:11px;margin-top:2px;display:flex;gap:8px;flex-wrap:wrap}
+  .tag{background:var(--wg-good-bg);color:var(--wg-good);border:1px solid var(--wg-good-line);border-radius:5px;padding:0 5px;font-size:10.5px}
+  .tag.dim{background:color-mix(in srgb,var(--wg-bg) 88%,var(--wg-ink) 12%);color:var(--wg-ink3);border-color:var(--wg-line-soft)}
+  .detail{flex:1;display:flex;flex-direction:column;min-width:0}
+  .bar{display:flex;gap:6px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--wg-line);flex-wrap:wrap}
+  pre{margin:0;padding:10px;overflow:auto;flex:1;font:11.5px/1.5 ui-monospace,Consolas,monospace;color:var(--wg-ink2);white-space:pre}
+  footer{padding:6px 10px;border-top:1px solid var(--wg-line);color:var(--wg-ink3);font-size:11px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .hide{display:none!important}
+  kbd{background:color-mix(in srgb,var(--wg-bg) 88%,var(--wg-ink) 12%);border:1px solid var(--wg-line);border-radius:4px;padding:0 4px;font-size:10.5px}
+  @media (prefers-reduced-motion: reduce){.wg-cloud,.wg-star{animation:none!important}}
+  @media (max-width:560px){.wrap{width:96vw;height:76vh}input[type=text]{width:108px}.list{width:48%}}
+
+  /* 预览专用：把 fixed 的面板摆进卡片里 */
+  .pane { display: block; }
+  .pane .wrap, .pane .fab { position: static; right: auto; bottom: auto; width: auto; height: auto; max-width: none; }
+  .pane .wrap { width: 100%; height: 336px; }
+  .pane .fab { display: inline-flex; margin-top: 12px; }
+</style>
+</head>
+<body>
+  <h1>SPA 抓取增强器 · 面板配色</h1>
+  <p class="lead">同一份面板代码，四种配色。颜色全部来自 <code>--wg-*</code> 令牌：页面有主题令牌就借页面的（产品各主题 / shadcn 系站点），
+  没有就用内置浅深两套；Nephele 打开时换紫调 + 毛玻璃 + 云雾星尘。</p>
+  <div class="grid">
+  <section class="cell">
+    <div class="cap"><b>浅色 · 内置兜底</b><small>站点没有主题令牌时（或系统偏好浅色）</small></div>
+    <div class="stage" style="background:#f4f2ee">
+      <div class="pane" data-wg-nephele="off" data-wg-mode="light" style="--wg-bg:#ffffff;--wg-head:#f7f6f2;--wg-ink:#22303a;--wg-ink2:#5b6b78;--wg-ink3:#8c99a4;--wg-line:#e4dfd6;--wg-line-soft:#efece5;--wg-accent:#0f4c5c;--wg-on-accent:#ffffff;--wg-good:#2e9d8f;--wg-shadow:0 20px 60px rgba(35,32,28,.18);--wg-cloud1:#7f9cf55c;--wg-cloud2:#c498d36b;--wg-cloud3:#a8d8c850;--wg-star:#9e72be;--wg-dust:#aa72c6;--wg-elev:color-mix(in srgb, var(--wg-bg) 90%, var(--wg-ink) 10%);--wg-accent-soft:color-mix(in srgb, var(--wg-accent) 14%, var(--wg-bg));--wg-accent-line:color-mix(in srgb, var(--wg-accent) 45%, var(--wg-line));--wg-good-bg:color-mix(in srgb, var(--wg-good) 16%, var(--wg-bg));--wg-good-line:color-mix(in srgb, var(--wg-good) 42%, var(--wg-line));--wg-edge:color-mix(in srgb, var(--wg-accent) 30%, var(--wg-line));--wg-radius:14px;--wg-glass:none">
+        <div class="wrap">
+          <div class="wg-sky">
+            <div class="wg-cloud c1"></div><div class="wg-cloud c2"></div><div class="wg-cloud c3"></div>
+            <div class="wg-star" style="left:74.07%;top:87.79%;width:3px;height:3px;animation-delay:0.60s"></div><div class="wg-star" style="left:75.47%;top:11.38%;width:2px;height:2px;animation-delay:2.08s"></div><div class="wg-star" style="left:70.88%;top:18.53%;width:3px;height:3px;animation-delay:3.08s"></div><div class="wg-star" style="left:28.98%;top:32.44%;width:2px;height:2px;animation-delay:1.96s"></div><div class="wg-star" style="left:92.35%;top:52.82%;width:2px;height:2px;animation-delay:0.12s"></div><div class="wg-star" style="left:70.60%;top:81.65%;width:2px;height:2px;animation-delay:1.78s"></div><div class="wg-star" style="left:3.28%;top:22.97%;width:3px;height:3px;animation-delay:1.79s"></div><div class="wg-star" style="left:83.49%;top:21.89%;width:2px;height:2px;animation-delay:0.75s"></div><div class="wg-star" style="left:54.53%;top:37.49%;width:2px;height:2px;animation-delay:1.01s"></div><div class="wg-star" style="left:2.22%;top:35.65%;width:2px;height:2px;animation-delay:1.39s"></div><div class="wg-star" style="left:23.69%;top:40.49%;width:3px;height:3px;animation-delay:1.21s"></div><div class="wg-star" style="left:61.98%;top:15.31%;width:3px;height:3px;animation-delay:1.30s"></div><div class="wg-star" style="left:87.48%;top:45.70%;width:2px;height:2px;animation-delay:2.28s"></div><div class="wg-star" style="left:96.59%;top:19.63%;width:2px;height:2px;animation-delay:3.67s"></div><div class="wg-star" style="left:74.16%;top:20.18%;width:2px;height:2px;animation-delay:2.60s"></div><div class="wg-star" style="left:88.85%;top:17.78%;width:2px;height:2px;animation-delay:0.01s"></div>
+          </div>
+          <header>
+            <span class="title">SPA 抓取增强器</span>
+            <input type="text" placeholder="过滤接口路径…" />
+            <button class="mini">暂停</button>
+            <button class="mini">主题·自动</button>
+            <button class="mini ">Nephele·自动</button>
+            <span class="sp"></span>
+            <button class="mini">✕</button>
+          </header>
+          <main>
+            <div class="list">
+              
+              <div class="item sel">
+                <div class="p">/api/Competition.Competition/index</div>
+                <div class="m"><span class="tag ">17 行 @ data.data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">42ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/Competition.CompetitionCate/index</div>
+                <div class="m"><span class="tag ">12 行 @ data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">31ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/Events.Events/index</div>
+                <div class="m"><span class="tag ">4 行 @ data.data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">28ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/SiteConfig/getFullConfig</div>
+                <div class="m"><span class="tag dim">GET</span><span class="tag dim">200</span><span class="tag dim">19ms</span></div>
+              </div>
+            </div>
+            <div class="detail">
+              <div class="bar">
+                <button class="mini ">复制 curl</button><button class="mini ">复制原始 JSON</button><button class="mini primary">导出 JSON (17 行)</button><button class="mini ">导出 CSV</button><button class="mini ">导出 Markdown</button><button class="mini ">复制 fetch 代码</button><button class="mini ">模竞全量抓取</button>
+              </div>
+              <pre>listPath: data.data
+字段(31): competition_id, title, title_sub, cate_id, level_id, stage, is_hot, is_rec …
+
+[
+  {
+    "competition_id": 40,
+    "title": "数维杯秋季赛",
+    "created_time": 1756623600,
+    "deadline": 1795194000
+  },
+  … 其余 15 行已省略
+]</pre>
+            </div>
+          </main>
+          <footer>
+            <span>Alt+G 开/关</span>
+            <span class="note">配色：内置浅色</span>
+            <span>数据只在本地内存，不上传</span>
+          </footer>
+        </div>
+        <div class="fab"><span>抓取增强</span><b>37</b></div>
+      </div>
+    </div>
+  </section>
+  <section class="cell">
+    <div class="cap"><b>深色 · 跟随系统</b><small>prefers-color-scheme: dark，或页面 html.dark</small></div>
+    <div class="stage" style="background:#0f1721">
+      <div class="pane" data-wg-nephele="off" data-wg-mode="dark" style="--wg-bg:#1c2833;--wg-head:#17212b;--wg-ink:#e7f0ee;--wg-ink2:#a6b6ba;--wg-ink3:#7b8a92;--wg-line:#31414d;--wg-line-soft:#26343f;--wg-accent:#37a6a0;--wg-on-accent:#07241f;--wg-good:#6ee7a8;--wg-shadow:0 20px 60px rgba(0,0,0,.5);--wg-cloud1:#67749e47;--wg-cloud2:#aa7cbc52;--wg-cloud3:#7f98951f;--wg-star:#f4e4ff;--wg-dust:#dca0ef;--wg-elev:color-mix(in srgb, var(--wg-bg) 90%, var(--wg-ink) 10%);--wg-accent-soft:color-mix(in srgb, var(--wg-accent) 14%, var(--wg-bg));--wg-accent-line:color-mix(in srgb, var(--wg-accent) 45%, var(--wg-line));--wg-good-bg:color-mix(in srgb, var(--wg-good) 16%, var(--wg-bg));--wg-good-line:color-mix(in srgb, var(--wg-good) 42%, var(--wg-line));--wg-edge:color-mix(in srgb, var(--wg-accent) 30%, var(--wg-line));--wg-radius:14px;--wg-glass:none">
+        <div class="wrap">
+          <div class="wg-sky">
+            <div class="wg-cloud c1"></div><div class="wg-cloud c2"></div><div class="wg-cloud c3"></div>
+            <div class="wg-star" style="left:74.07%;top:87.79%;width:3px;height:3px;animation-delay:0.60s"></div><div class="wg-star" style="left:75.47%;top:11.38%;width:2px;height:2px;animation-delay:2.08s"></div><div class="wg-star" style="left:70.88%;top:18.53%;width:3px;height:3px;animation-delay:3.08s"></div><div class="wg-star" style="left:28.98%;top:32.44%;width:2px;height:2px;animation-delay:1.96s"></div><div class="wg-star" style="left:92.35%;top:52.82%;width:2px;height:2px;animation-delay:0.12s"></div><div class="wg-star" style="left:70.60%;top:81.65%;width:2px;height:2px;animation-delay:1.78s"></div><div class="wg-star" style="left:3.28%;top:22.97%;width:3px;height:3px;animation-delay:1.79s"></div><div class="wg-star" style="left:83.49%;top:21.89%;width:2px;height:2px;animation-delay:0.75s"></div><div class="wg-star" style="left:54.53%;top:37.49%;width:2px;height:2px;animation-delay:1.01s"></div><div class="wg-star" style="left:2.22%;top:35.65%;width:2px;height:2px;animation-delay:1.39s"></div><div class="wg-star" style="left:23.69%;top:40.49%;width:3px;height:3px;animation-delay:1.21s"></div><div class="wg-star" style="left:61.98%;top:15.31%;width:3px;height:3px;animation-delay:1.30s"></div><div class="wg-star" style="left:87.48%;top:45.70%;width:2px;height:2px;animation-delay:2.28s"></div><div class="wg-star" style="left:96.59%;top:19.63%;width:2px;height:2px;animation-delay:3.67s"></div><div class="wg-star" style="left:74.16%;top:20.18%;width:2px;height:2px;animation-delay:2.60s"></div><div class="wg-star" style="left:88.85%;top:17.78%;width:2px;height:2px;animation-delay:0.01s"></div>
+          </div>
+          <header>
+            <span class="title">SPA 抓取增强器</span>
+            <input type="text" placeholder="过滤接口路径…" />
+            <button class="mini">暂停</button>
+            <button class="mini">主题·自动</button>
+            <button class="mini ">Nephele·自动</button>
+            <span class="sp"></span>
+            <button class="mini">✕</button>
+          </header>
+          <main>
+            <div class="list">
+              
+              <div class="item sel">
+                <div class="p">/api/Competition.Competition/index</div>
+                <div class="m"><span class="tag ">17 行 @ data.data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">42ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/Competition.CompetitionCate/index</div>
+                <div class="m"><span class="tag ">12 行 @ data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">31ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/Events.Events/index</div>
+                <div class="m"><span class="tag ">4 行 @ data.data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">28ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/SiteConfig/getFullConfig</div>
+                <div class="m"><span class="tag dim">GET</span><span class="tag dim">200</span><span class="tag dim">19ms</span></div>
+              </div>
+            </div>
+            <div class="detail">
+              <div class="bar">
+                <button class="mini ">复制 curl</button><button class="mini ">复制原始 JSON</button><button class="mini primary">导出 JSON (17 行)</button><button class="mini ">导出 CSV</button><button class="mini ">导出 Markdown</button><button class="mini ">复制 fetch 代码</button><button class="mini ">模竞全量抓取</button>
+              </div>
+              <pre>listPath: data.data
+字段(31): competition_id, title, title_sub, cate_id, level_id, stage, is_hot, is_rec …
+
+[
+  {
+    "competition_id": 40,
+    "title": "数维杯秋季赛",
+    "created_time": 1756623600,
+    "deadline": 1795194000
+  },
+  … 其余 15 行已省略
+]</pre>
+            </div>
+          </main>
+          <footer>
+            <span>Alt+G 开/关</span>
+            <span class="note">配色：内置深色</span>
+            <span>数据只在本地内存，不上传</span>
+          </footer>
+        </div>
+        <div class="fab"><span>抓取增强</span><b>37</b></div>
+      </div>
+    </div>
+  </section>
+  <section class="cell">
+    <div class="cap"><b>Nephele 浅 · 云雾与星尘</b><small>产品开启 Nephele 风格界面（浅色）</small></div>
+    <div class="stage" style="background:#ece5f4">
+      <div class="pane" data-wg-nephele="on" data-wg-mode="light" style="--wg-bg:#fbf8ff;--wg-head:#e4d7f4;--wg-ink:#3e344f;--wg-ink2:#675c77;--wg-ink3:#786b89;--wg-line:#c6b8d4;--wg-line-soft:#ded3e9;--wg-accent:#81559b;--wg-on-accent:#ffffff;--wg-good:#2e9d8f;--wg-shadow:0 18px 46px rgba(52,30,72,.22);--wg-cloud1:#7f9cf55c;--wg-cloud2:#c498d36b;--wg-cloud3:#a8d8c850;--wg-star:#9e72be;--wg-dust:#aa72c6;--wg-elev:color-mix(in srgb, var(--wg-bg) 90%, var(--wg-ink) 10%);--wg-accent-soft:color-mix(in srgb, var(--wg-accent) 14%, var(--wg-bg));--wg-accent-line:color-mix(in srgb, var(--wg-accent) 45%, var(--wg-line));--wg-good-bg:color-mix(in srgb, var(--wg-good) 16%, var(--wg-bg));--wg-good-line:color-mix(in srgb, var(--wg-good) 42%, var(--wg-line));--wg-edge:color-mix(in srgb, var(--wg-accent) 30%, var(--wg-line));--wg-radius:20px;--wg-glass:blur(22px) saturate(1.12)">
+        <div class="wrap">
+          <div class="wg-sky">
+            <div class="wg-cloud c1"></div><div class="wg-cloud c2"></div><div class="wg-cloud c3"></div>
+            <div class="wg-star" style="left:74.07%;top:87.79%;width:3px;height:3px;animation-delay:0.60s"></div><div class="wg-star" style="left:75.47%;top:11.38%;width:2px;height:2px;animation-delay:2.08s"></div><div class="wg-star" style="left:70.88%;top:18.53%;width:3px;height:3px;animation-delay:3.08s"></div><div class="wg-star" style="left:28.98%;top:32.44%;width:2px;height:2px;animation-delay:1.96s"></div><div class="wg-star" style="left:92.35%;top:52.82%;width:2px;height:2px;animation-delay:0.12s"></div><div class="wg-star" style="left:70.60%;top:81.65%;width:2px;height:2px;animation-delay:1.78s"></div><div class="wg-star" style="left:3.28%;top:22.97%;width:3px;height:3px;animation-delay:1.79s"></div><div class="wg-star" style="left:83.49%;top:21.89%;width:2px;height:2px;animation-delay:0.75s"></div><div class="wg-star" style="left:54.53%;top:37.49%;width:2px;height:2px;animation-delay:1.01s"></div><div class="wg-star" style="left:2.22%;top:35.65%;width:2px;height:2px;animation-delay:1.39s"></div><div class="wg-star" style="left:23.69%;top:40.49%;width:3px;height:3px;animation-delay:1.21s"></div><div class="wg-star" style="left:61.98%;top:15.31%;width:3px;height:3px;animation-delay:1.30s"></div><div class="wg-star" style="left:87.48%;top:45.70%;width:2px;height:2px;animation-delay:2.28s"></div><div class="wg-star" style="left:96.59%;top:19.63%;width:2px;height:2px;animation-delay:3.67s"></div><div class="wg-star" style="left:74.16%;top:20.18%;width:2px;height:2px;animation-delay:2.60s"></div><div class="wg-star" style="left:88.85%;top:17.78%;width:2px;height:2px;animation-delay:0.01s"></div>
+          </div>
+          <header>
+            <span class="title">SPA 抓取增强器</span>
+            <input type="text" placeholder="过滤接口路径…" />
+            <button class="mini">暂停</button>
+            <button class="mini">主题·自动</button>
+            <button class="mini on">Nephele·开</button>
+            <span class="sp"></span>
+            <button class="mini">✕</button>
+          </header>
+          <main>
+            <div class="list">
+              
+              <div class="item sel">
+                <div class="p">/api/Competition.Competition/index</div>
+                <div class="m"><span class="tag ">17 行 @ data.data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">42ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/Competition.CompetitionCate/index</div>
+                <div class="m"><span class="tag ">12 行 @ data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">31ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/Events.Events/index</div>
+                <div class="m"><span class="tag ">4 行 @ data.data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">28ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/SiteConfig/getFullConfig</div>
+                <div class="m"><span class="tag dim">GET</span><span class="tag dim">200</span><span class="tag dim">19ms</span></div>
+              </div>
+            </div>
+            <div class="detail">
+              <div class="bar">
+                <button class="mini ">复制 curl</button><button class="mini ">复制原始 JSON</button><button class="mini primary">导出 JSON (17 行)</button><button class="mini ">导出 CSV</button><button class="mini ">导出 Markdown</button><button class="mini ">复制 fetch 代码</button><button class="mini ">模竞全量抓取</button>
+              </div>
+              <pre>listPath: data.data
+字段(31): competition_id, title, title_sub, cate_id, level_id, stage, is_hot, is_rec …
+
+[
+  {
+    "competition_id": 40,
+    "title": "数维杯秋季赛",
+    "created_time": 1756623600,
+    "deadline": 1795194000
+  },
+  … 其余 15 行已省略
+]</pre>
+            </div>
+          </main>
+          <footer>
+            <span>Alt+G 开/关</span>
+            <span class="note">配色：Nephele浅色</span>
+            <span>数据只在本地内存，不上传</span>
+          </footer>
+        </div>
+        <div class="fab"><span>抓取增强</span><b>37</b></div>
+      </div>
+    </div>
+  </section>
+  <section class="cell">
+    <div class="cap"><b>Nephele 深</b><small>产品 Nephele + 深色（或手动锁定 Nephele）</small></div>
+    <div class="stage" style="background:#211b2b">
+      <div class="pane" data-wg-nephele="on" data-wg-mode="dark" style="--wg-bg:#31263f;--wg-head:#342350;--wg-ink:#f6eefc;--wg-ink2:#d1c2df;--wg-ink3:#b6a4c7;--wg-line:#645371;--wg-line-soft:#50415f;--wg-accent:#d3afe9;--wg-on-accent:#2b1e37;--wg-good:#8ee0b0;--wg-shadow:0 18px 46px rgba(20,10,32,.55);--wg-cloud1:#67749e47;--wg-cloud2:#aa7cbc52;--wg-cloud3:#7f98951f;--wg-star:#f4e4ff;--wg-dust:#dca0ef;--wg-elev:color-mix(in srgb, var(--wg-bg) 90%, var(--wg-ink) 10%);--wg-accent-soft:color-mix(in srgb, var(--wg-accent) 14%, var(--wg-bg));--wg-accent-line:color-mix(in srgb, var(--wg-accent) 45%, var(--wg-line));--wg-good-bg:color-mix(in srgb, var(--wg-good) 16%, var(--wg-bg));--wg-good-line:color-mix(in srgb, var(--wg-good) 42%, var(--wg-line));--wg-edge:color-mix(in srgb, var(--wg-accent) 30%, var(--wg-line));--wg-radius:20px;--wg-glass:blur(22px) saturate(1.12)">
+        <div class="wrap">
+          <div class="wg-sky">
+            <div class="wg-cloud c1"></div><div class="wg-cloud c2"></div><div class="wg-cloud c3"></div>
+            <div class="wg-star" style="left:74.07%;top:87.79%;width:3px;height:3px;animation-delay:0.60s"></div><div class="wg-star" style="left:75.47%;top:11.38%;width:2px;height:2px;animation-delay:2.08s"></div><div class="wg-star" style="left:70.88%;top:18.53%;width:3px;height:3px;animation-delay:3.08s"></div><div class="wg-star" style="left:28.98%;top:32.44%;width:2px;height:2px;animation-delay:1.96s"></div><div class="wg-star" style="left:92.35%;top:52.82%;width:2px;height:2px;animation-delay:0.12s"></div><div class="wg-star" style="left:70.60%;top:81.65%;width:2px;height:2px;animation-delay:1.78s"></div><div class="wg-star" style="left:3.28%;top:22.97%;width:3px;height:3px;animation-delay:1.79s"></div><div class="wg-star" style="left:83.49%;top:21.89%;width:2px;height:2px;animation-delay:0.75s"></div><div class="wg-star" style="left:54.53%;top:37.49%;width:2px;height:2px;animation-delay:1.01s"></div><div class="wg-star" style="left:2.22%;top:35.65%;width:2px;height:2px;animation-delay:1.39s"></div><div class="wg-star" style="left:23.69%;top:40.49%;width:3px;height:3px;animation-delay:1.21s"></div><div class="wg-star" style="left:61.98%;top:15.31%;width:3px;height:3px;animation-delay:1.30s"></div><div class="wg-star" style="left:87.48%;top:45.70%;width:2px;height:2px;animation-delay:2.28s"></div><div class="wg-star" style="left:96.59%;top:19.63%;width:2px;height:2px;animation-delay:3.67s"></div><div class="wg-star" style="left:74.16%;top:20.18%;width:2px;height:2px;animation-delay:2.60s"></div><div class="wg-star" style="left:88.85%;top:17.78%;width:2px;height:2px;animation-delay:0.01s"></div>
+          </div>
+          <header>
+            <span class="title">SPA 抓取增强器</span>
+            <input type="text" placeholder="过滤接口路径…" />
+            <button class="mini">暂停</button>
+            <button class="mini">主题·自动</button>
+            <button class="mini on">Nephele·开</button>
+            <span class="sp"></span>
+            <button class="mini">✕</button>
+          </header>
+          <main>
+            <div class="list">
+              
+              <div class="item sel">
+                <div class="p">/api/Competition.Competition/index</div>
+                <div class="m"><span class="tag ">17 行 @ data.data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">42ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/Competition.CompetitionCate/index</div>
+                <div class="m"><span class="tag ">12 行 @ data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">31ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/Events.Events/index</div>
+                <div class="m"><span class="tag ">4 行 @ data.data</span><span class="tag dim">POST</span><span class="tag dim">200</span><span class="tag dim">28ms</span></div>
+              </div>
+              <div class="item ">
+                <div class="p">/api/SiteConfig/getFullConfig</div>
+                <div class="m"><span class="tag dim">GET</span><span class="tag dim">200</span><span class="tag dim">19ms</span></div>
+              </div>
+            </div>
+            <div class="detail">
+              <div class="bar">
+                <button class="mini ">复制 curl</button><button class="mini ">复制原始 JSON</button><button class="mini primary">导出 JSON (17 行)</button><button class="mini ">导出 CSV</button><button class="mini ">导出 Markdown</button><button class="mini ">复制 fetch 代码</button><button class="mini ">模竞全量抓取</button>
+              </div>
+              <pre>listPath: data.data
+字段(31): competition_id, title, title_sub, cate_id, level_id, stage, is_hot, is_rec …
+
+[
+  {
+    "competition_id": 40,
+    "title": "数维杯秋季赛",
+    "created_time": 1756623600,
+    "deadline": 1795194000
+  },
+  … 其余 15 行已省略
+]</pre>
+            </div>
+          </main>
+          <footer>
+            <span>Alt+G 开/关</span>
+            <span class="note">配色：Nephele深色</span>
+            <span>数据只在本地内存，不上传</span>
+          </footer>
+        </div>
+        <div class="fab"><span>抓取增强</span><b>37</b></div>
+      </div>
+    </div>
+  </section></div>
+</body>
+</html>

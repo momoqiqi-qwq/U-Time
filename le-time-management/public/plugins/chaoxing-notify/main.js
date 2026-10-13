@@ -55,7 +55,35 @@
     taskbarBadge: true,
     cacheLoaded: false,
     workStatus: {},
+    cardColors: new Map(),   // id -> 颜色键；"none" = 用户显式清掉这张卡（压过规则，否则「只去掉这一条」做不到）
+    colorRules: [],          // [{ scope, color }]：整组上色的规则，新同步到的通知命中即自动同色
+    colorScope: "card",      // 右键菜单里上次选的作用范围，下次打开沿用
   };
+
+  /* ── 卡片颜色标记（右键 / 长按）──────────────────────────────────────────────
+     和「已读覆盖」同族：只落在本机，不动学习通平台的任何数据。分两层 ——
+       · cardColors：一条通知一个色，最具体，永远优先；
+       · colorRules：整组上色的规则（作用域见 scopeLabel），以后新同步进来的通知
+         只要命中规则就自动带上同一个颜色。"所有没做完的作业都是这个颜色"靠的就是它，
+         不用一条条点，也不怕刷新后被新通知冲掉。
+     色值本身是固定色、不跟主题走：它是「我用它区分什么」的语义，主题一换就改色反而认不出来。
+     底色与描边用 color-mix 就地稀释，所以浅色与深色主题下都不会糊成一块。 */
+  const CARD_COLORS = [
+    { key: "red", name: "红", hex: "#e0523f" },
+    { key: "orange", name: "橙", hex: "#e07b2a" },
+    { key: "amber", name: "琥珀", hex: "#d4a017" },
+    { key: "green", name: "绿", hex: "#2fa36b" },
+    { key: "teal", name: "青", hex: "#2b9aa6" },
+    { key: "blue", name: "蓝", hex: "#3b7dd8" },
+    { key: "violet", name: "紫", hex: "#8a5bd6" },
+    { key: "pink", name: "粉", hex: "#d0568f" },
+    { key: "gray", name: "灰", hex: "#8b8f98" },
+  ];
+  const COLOR_BY_KEY = new Map(CARD_COLORS.map((c) => [c.key, c]));
+  const COLOR_NONE = "none";   // 「清除颜色标记」的哨兵值，不是可选色
+  const HW_SCOPE = "hw";       // 所有没做完的作业 = 未截止未提交 + 已逾期未提交
+  const catScope = (cat) => `cat:${cat}`;
+  const courseScope = (course) => `course:${course}`;
   let host = null;
   let active = true;
   let badgeTimer = null;
@@ -359,6 +387,9 @@ const CX_PY_DATA = {
   async function saveKnown() { await tide.storage.set("knownIds", [...state.knownIds].slice(-MAX_KEEP)); }
   async function saveIgnored() { await tide.storage.set("ignoredIds", [...state.ignoredIds].slice(-MAX_KEEP)); }
   async function saveReadOverrides() { await tide.storage.set("readOverrides", [...state.readOverrides].slice(-MAX_KEEP)); }
+  async function saveCardColors() { await tide.storage.set("cardColors", [...state.cardColors].slice(-MAX_KEEP)); }
+  async function saveColorRules() { await tide.storage.set("colorRules", state.colorRules); }
+  async function saveColorScope() { await tide.storage.set("colorScope", state.colorScope); }
   async function savePrefs() { await tide.storage.set("filter", state.filter); }
 
   /* 配色一律走主题变量（--ink / --ink-2 / --ink-3 / --panel / --paper / --line / --deep / --sea / --coral / --sun / --mint），
@@ -551,6 +582,33 @@ const CX_PY_DATA = {
       .cx2-head>.cx2-actions{width:auto;flex:none;align-items:center;flex-wrap:nowrap}
       .cx2-head>.cx2-actions>button{flex:none}
       @media(max-width:760px){.cx2-nav{gap:16px}.cx2-tools>summary{min-height:46px}.cx2-updated{max-width:160px;overflow-wrap:anywhere}.cx2 h2{font-size:calc(22px * var(--ui-text-scale))}.cx2-inbox-tools .cx2-search{width:auto;min-width:0;flex-basis:0}.cx2-inbox-tools .plugin-filter-menu>summary{padding-inline:10px}}
+
+      /* ── 卡片颜色标记（右键 / 长按）───────────────────────────────────────
+         用户自己选的固定色只进 --cx2-c，底色与描边用 color-mix 就地稀释，浅色/深色主题都不糊。
+         左边框只单写 color、绝不写 border 简写 —— 否则会吞掉上面的类型色（cat-*）与未读描边。 */
+      .cx2 .cx2-card.cx2-marked{border-left-color:var(--cx2-c);background:color-mix(in srgb,var(--cx2-c) 13%,var(--panel));border-top-color:color-mix(in srgb,var(--cx2-c) 36%,var(--line));border-right-color:color-mix(in srgb,var(--cx2-c) 36%,var(--line));border-bottom-color:color-mix(in srgb,var(--cx2-c) 36%,var(--line))}
+      .cx2 .cx2-card.cx2-marked:hover{border-color:color-mix(in srgb,var(--cx2-c) 58%,var(--line));border-left-color:var(--cx2-c)}
+      .cx2-cdot{flex:none;width:9px;height:9px;border-radius:50%;background:var(--cx2-c);box-shadow:0 0 0 2px color-mix(in srgb,var(--cx2-c) 26%,var(--panel))}
+      /* 长按卡片时不要弹出系统的文字选择/链接菜单，让手势留给颜色菜单 */
+      .cx2 [data-id]{-webkit-touch-callout:none}
+      .cx2-colormenu{position:fixed;z-index:2200;width:244px;max-height:calc(100vh - 16px - var(--sat, 0px) - var(--sab, 0px));overflow:auto;padding:7px;border:1px solid color-mix(in srgb,var(--line) 92%,transparent);border-radius:12px;background:color-mix(in srgb,var(--panel) 97%,transparent);box-shadow:0 18px 48px rgba(15,23,42,.26);user-select:none;-webkit-user-select:none}
+      .cx2-colormenu-head{display:flex;flex-direction:column;gap:2px;padding:6px 8px 8px;border-bottom:1px solid var(--line);margin-bottom:5px}
+      .cx2-colormenu-head b{font-size:calc(12.5px * var(--ui-text-scale));color:var(--ink)}
+      .cx2-colormenu-head small{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .cx2-colormenu-label{padding:4px 8px 2px;font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3)}
+      .cx2-colormenu-sep{height:1px;margin:5px 7px;background:var(--line)}
+      .cx2-colormenu [role="menuitem"],.cx2-colormenu [role="menuitemradio"]{display:flex;align-items:center;gap:7px;width:100%;min-height:32px;padding:6px 9px;border:0;border-radius:7px;background:transparent;color:var(--ink);font-size:calc(12.5px * var(--ui-text-scale));text-align:left}
+      .cx2-colormenu [role="menuitem"]:hover,.cx2-colormenu [role="menuitemradio"]:hover{background:color-mix(in srgb,var(--deep) 9%,var(--panel))}
+      .cx2-colormenu [role="menuitemradio"].on{background:color-mix(in srgb,var(--deep) 15%,var(--panel));font-weight:650}
+      .cx2-colormenu-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .cx2-colormenu [role="menuitemradio"] i{flex:none;margin-left:auto;font-style:normal;font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3);font-variant-numeric:tabular-nums}
+      .cx2-colormenu [role="menuitem"]:focus-visible,.cx2-colormenu [role="menuitemradio"]:focus-visible{outline:2px solid color-mix(in srgb,var(--deep) 60%,transparent);outline-offset:1px}
+      .cx2-colormenu [role="menuitem"].danger{color:color-mix(in srgb,var(--coral) 58%,var(--ink))}
+      .cx2-swatches{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:4px 8px 2px}
+      .cx2-swatches button{display:flex;align-items:center;justify-content:center;min-height:30px;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+      .cx2-swatches button span{width:16px;height:16px;border-radius:50%;background:var(--cx2-c)}
+      .cx2-swatches button[aria-pressed="true"]{border-color:var(--cx2-c);box-shadow:0 0 0 2px color-mix(in srgb,var(--cx2-c) 34%,transparent)}
+      @media(pointer:coarse){.cx2-swatches button{min-height:42px}.cx2-colormenu [role="menuitem"],.cx2-colormenu [role="menuitemradio"]{min-height:42px}}
     `; document.head.append(s);
   }
 
@@ -567,6 +625,20 @@ const CX_PY_DATA = {
     state.knownIds = new Set(await tide.storage.get("knownIds", []));
     state.ignoredIds = new Set(await tide.storage.get("ignoredIds", []));
     state.readOverrides = new Map(await tide.storage.get("readOverrides", []));
+    // 颜色标记：读进来时逐项校验，坏数据（改过的手工存档、旧版本残留）直接丢掉而不是让整页崩掉
+    const pairs = await tide.storage.get("cardColors", []);
+    state.cardColors = new Map(Array.isArray(pairs)
+      ? pairs
+        .filter((p) => Array.isArray(p) && p[0] && (COLOR_BY_KEY.has(p[1]) || p[1] === COLOR_NONE))
+        .map((p) => [String(p[0]), p[1]])
+      : []);
+    const rules = await tide.storage.get("colorRules", []);
+    state.colorRules = Array.isArray(rules)
+      ? rules
+        .filter((r) => r && typeof r.scope === "string" && r.scope && COLOR_BY_KEY.has(r.color))
+        .map((r) => ({ scope: r.scope, color: r.color }))
+      : [];
+    state.colorScope = String(await tide.storage.get("colorScope", "card") || "card");
     state.filter = { ...state.filter, ...(await tide.storage.get("filter", null) || {}) };
     state.workStatus = await tide.storage.get("workStatus", null) || {};
     state.lastSyncAt = Number(await tide.storage.get("lastSyncAt", 0)) || 0;
@@ -827,6 +899,214 @@ const CX_PY_DATA = {
   /* 彩色框：卡片左边框按类型着色，与分类标签同色系（通知=deep、作业=sun、考试=coral、签到=mint）。 */
   const CAT_FRAME = { 通知: "deep", 作业: "sun", 考试: "coral", 签到: "mint" };
   const catFrameClass = (n) => `cat-${CAT_FRAME[classify(n)] || "deep"}`;
+
+  /* ── 颜色标记：作用域 / 生效色 / 应用 ──────────────────────────────────────── */
+  const COURSE_RE = /课程名称[：:]\s*([^\n]+)/;
+  /* 正文里的课程名（学习通通知正文固定写「课程名称：XXX」，历史数据里也有半角冒号）。 */
+  function courseOf(n) {
+    const m = String(n?.body || "").match(COURSE_RE);
+    return m ? m[1].trim().slice(0, 40) : "";
+  }
+
+  /* 作业档位，key 与 TODO_SECS 同名 —— 只用来判断「这条算不算没做完的作业」。 */
+  function secOf(n) {
+    if (classify(n) !== "作业") return "";
+    const due = deadline(n.body);
+    const grading = statusOf(n) === "grading";
+    if (!due) return grading ? "grading" : "";
+    const late = new Date(due.replace(" ", "T")).getTime() < Date.now();
+    if (grading) return late ? "done" : "submitted";
+    return late ? "late" : "open";
+  }
+  /* 没做完的作业 = 未截止未提交 + 已逾期未提交（已提交的两档不算）。 */
+  const pendingWork = (n) => { const s = secOf(n); return s === "open" || s === "late"; };
+
+  function scopeHit(scope, n) {
+    if (!n || !scope) return false;
+    if (scope === HW_SCOPE) return pendingWork(n);
+    if (scope.startsWith("cat:")) return classify(n) === scope.slice(4);
+    if (scope.startsWith("course:")) return !!courseOf(n) && courseOf(n) === scope.slice(7);
+    return false;
+  }
+  function scopeLabel(scope) {
+    if (scope === HW_SCOPE) return "所有没做完的作业";
+    if (scope.startsWith("cat:")) return `全部「${scope.slice(4)}」`;
+    if (scope.startsWith("course:")) return `全部「${scope.slice(7)}」`;
+    return "这一条";
+  }
+  /* 规则优先级：课程 > 没做完的作业 > 分类（越具体越优先，否则「这门课」会被「全部作业」吞掉）。 */
+  function ruleColorFor(n) {
+    const course = courseOf(n);
+    const order = [course ? courseScope(course) : "", HW_SCOPE, catScope(classify(n))];
+    for (const scope of order) {
+      if (!scope) continue;
+      const rule = state.colorRules.find((r) => r.scope === scope);
+      if (rule && scopeHit(scope, n)) return rule.color;
+    }
+    return "";
+  }
+  /* 生效色：单卡 > 规则。单卡被显式清成 none 时压过规则 —— 否则「只去掉这一条」做不到。 */
+  function colorOf(n) {
+    if (!n || !n.id) return "";
+    const own = state.cardColors.get(n.id);
+    if (own === COLOR_NONE) return "";
+    if (own) return own;
+    return ruleColorFor(n);
+  }
+  const colorDef = (key) => COLOR_BY_KEY.get(key) || null;
+  const colorNameOf = (key) => colorDef(key)?.name || "";
+  const colorMarked = (n) => !!colorDef(colorOf(n));
+  const cardColorClass = (n) => (colorMarked(n) ? " cx2-marked" : "");
+  const cardColorStyle = (n) => (colorMarked(n) ? ` style="--cx2-c:${colorDef(colorOf(n)).hex}"` : "");
+  /* 颜色不能只靠颜色传达（色弱/灰度下看不出差别），所以再给一个带颜色名的色点。 */
+  function colorDotHtml(n) {
+    const key = colorOf(n);
+    if (!colorDef(key)) return "";
+    return `<span class="cx2-cdot" style="--cx2-c:${colorDef(key).hex}" role="img"`
+      + ` aria-label="颜色标记：${esc(colorNameOf(key))}"`
+      + ` title="本机颜色标记：${esc(colorNameOf(key))}（右键卡片，手机端长按，可改）"></span>`;
+  }
+
+  function trimColors() {
+    if (state.cardColors.size <= MAX_KEEP) return;
+    for (const k of [...state.cardColors.keys()].slice(0, state.cardColors.size - MAX_KEEP)) state.cardColors.delete(k);
+  }
+  /* 把颜色落到「单卡」或「整组」。整组时顺手清掉组内已有的单卡色 ——
+     否则「全组一个颜色」会被组里几条单独的标记挡住，看起来像没生效。 */
+  async function applyColor(colorKey) {
+    if (!cardMenu) return;
+    const n = state.inbox.find((x) => x.id === cardMenu.id);
+    if (!n) { closeCardMenu(); return; }
+    const scope = cardMenu.scope || "card";
+    if (scope === "card") {
+      state.cardColors.set(n.id, colorKey === COLOR_NONE ? COLOR_NONE : colorKey);
+      trimColors();
+      await saveCardColors();
+      tide.notify(colorKey === COLOR_NONE ? "已去掉这张卡片的颜色标记" : `已把这卡片标成${colorNameOf(colorKey)}`);
+    } else {
+      const covered = visibleInbox().filter((x) => scopeHit(scope, x));
+      for (const x of covered) state.cardColors.delete(x.id);
+      state.colorRules = state.colorRules.filter((r) => r.scope !== scope);
+      if (colorKey !== COLOR_NONE) state.colorRules.push({ scope, color: colorKey });
+      await saveCardColors(); await saveColorRules();
+      tide.notify(colorKey === COLOR_NONE
+        ? `已取消「${scopeLabel(scope)}」的颜色`
+        : `「${scopeLabel(scope)}」${covered.length} 条已全部标成${colorNameOf(colorKey)}（以后新同步到的会自动同色）`);
+    }
+    state.colorScope = scope;
+    await saveColorScope();
+    closeCardMenu(); paintMain();
+  }
+  async function clearAllColors() {
+    const n = state.cardColors.size + state.colorRules.length;
+    state.cardColors.clear(); state.colorRules = [];
+    await saveCardColors(); await saveColorRules();
+    closeCardMenu(); paintMain();
+    tide.notify(n ? "已清除全部颜色标记" : "当前没有颜色标记");
+  }
+
+  /* ── 卡片颜色菜单（右键 / 长按）──────────────────────────────────────────────
+     坐标按视口算好写进 inline style，用 position:fixed 自建浮层 —— 与宿主插件
+     school-notice 的 tabMenu 同一约定（fixed 的包含块不是卡片，跟滚动无关）。 */
+  let cardMenu = null;        // { id, x, y, scope }
+  let menuCleanup = null;     // 关闭菜单时要卸掉的「点外面/滚动/改尺寸就收起」监听
+  let longPressTimer = null;
+  let longPressFrom = null;
+  const LONG_PRESS_MS = 520;
+  const LONG_PRESS_SLOP = 10;
+  const vpSize = () => ({
+    w: (typeof window !== "undefined" && window.innerWidth) || 1024,
+    h: (typeof window !== "undefined" && window.innerHeight) || 768,
+  });
+  /* ⚠️ 视口坐标是从屏幕角上量的，而状态栏 / 导航栏 / 横屏挖孔就落在屏幕边上：
+     fixed 的包含块是宿主 .view 的 padding box，.view 垫掉的安全区拦不住 fixed 后代，
+     所以这里必须自己让开。取值走宿主注入的 --sat/--sab/--sal/--sar（读法同宿主的
+     bottomInsetPx()），拿不到时 parseFloat 出 NaN → 0，桌面端行为不变。 */
+  const MENU_W = 244, MENU_H = 348;
+  function vpInsets() {
+    const px = (v) => { try { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(v)) || 0; } catch { return 0; } };
+    return { sat: px("--sat"), sab: px("--sab"), sal: px("--sal"), sar: px("--sar") };
+  }
+  /* 浮层不需要「点外面收起」的遮罩：capture 阶段监听 pointerdown 比全屏遮罩更轻，
+     也不会挡住宿主自己的交互；滚动/改尺寸就收起，免得 fixed 坐标和卡片对不上。 */
+  function bindMenuDismiss() {
+    if (menuCleanup) return;
+    const inMenu = (t) => !!t?.closest?.("[data-color-menu]");
+    const close = () => { if (cardMenu) { closeCardMenu(); paintMain(); } };
+    const outside = (e) => {
+      if (!cardMenu || inMenu(e.target) || e.target?.closest?.("[data-id]")) return;
+      close();
+    };
+    const onScroll = (e) => { if (cardMenu && !inMenu(e?.target)) close(); };
+    try {
+      document.addEventListener("pointerdown", outside, true);
+      window.addEventListener("scroll", onScroll, true);
+      window.addEventListener("resize", close);
+      menuCleanup = () => {
+        document.removeEventListener("pointerdown", outside, true);
+        window.removeEventListener("scroll", onScroll, true);
+        window.removeEventListener("resize", close);
+        menuCleanup = null;
+      };
+    } catch { menuCleanup = null; }
+  }
+  function openCardMenu(id, x, y) {
+    const n = state.inbox.find((v) => v.id === id);
+    if (!n) return;
+    const { w, h } = vpSize();
+    const { sat, sab, sal, sar } = vpInsets();
+    cardMenu = {
+      id,
+      x: Math.max(8 + sal, Math.min(Math.round(x), w - sar - MENU_W)),
+      y: Math.max(8 + sat, Math.min(Math.round(y), h - sab - MENU_H)),
+      scope: state.colorScope || "card",
+    };
+    paintMain();
+    bindMenuDismiss();
+    try { host?.querySelector?.("[data-color-menu]")?.querySelector?.("button")?.focus?.({ preventScroll: true }); } catch {}
+  }
+  function closeCardMenu() {
+    if (!cardMenu) return;
+    cardMenu = null;
+    try { menuCleanup?.(); } catch {}
+    try { host?.querySelector?.("[data-color-menu]")?.remove?.(); } catch {}
+  }
+  function scopeOptionsHtml(n) {
+    const list = [{ scope: "card", label: "仅这一条", hint: "只给这张卡片上色" }];
+    if (pendingWork(n)) list.push({ scope: HW_SCOPE, label: "所有没做完的作业", hint: "未截止未提交 + 已逾期未提交；以后新同步到的没做完作业会自动同色" });
+    const cat = classify(n);
+    list.push({ scope: catScope(cat), label: `全部「${cat}」通知`, hint: `所有分类为「${cat}」的通知，含以后新同步到的` });
+    const course = courseOf(n);
+    if (course) list.push({ scope: courseScope(course), label: `全部「${course}」`, hint: `这门课的全部通知，含以后新同步到的` });
+    return list.map((o) => {
+      const count = visibleInbox().filter((x) => scopeHit(o.scope, x)).length;
+      const on = cardMenu?.scope === o.scope;
+      return `<button role="menuitemradio" data-color-scope="${esc(o.scope)}" aria-checked="${on}" class="${on ? "on" : ""}" title="${esc(o.hint)}">`
+        + `<span class="cx2-colormenu-t">${esc(o.label)}</span>`
+        + (o.scope === "card" ? "" : `<i>${count}</i>`) + `</button>`;
+    }).join("");
+  }
+  function colorMenuHtml() {
+    if (!cardMenu) return "";
+    const n = state.inbox.find((x) => x.id === cardMenu.id);
+    if (!n) return "";
+    const cur = colorOf(n);
+    const swatch = (c) => `<button type="button" data-color-pick="${c.key}" aria-pressed="${cur === c.key}" class="${cur === c.key ? "on" : ""}"`
+      + ` style="--cx2-c:${c.hex}" title="${c.name}" aria-label="${c.name}"><span aria-hidden="true"></span></button>`;
+    const hasRules = state.colorRules.length > 0 || state.cardColors.size > 0;
+    return `<div class="cx2-colormenu" data-color-menu role="menu" aria-label="卡片颜色标记"`
+      + ` style="left:${cardMenu.x}px;top:${cardMenu.y}px">`
+      + `<div class="cx2-colormenu-head"><b>卡片颜色</b><small>${esc(String(n.title || "").slice(0, 22))}</small></div>`
+      + `<div class="cx2-swatches" role="group" aria-label="选择颜色">${CARD_COLORS.map(swatch).join("")}</div>`
+      + `<div class="cx2-colormenu-sep"></div>`
+      + `<div class="cx2-colormenu-label">作用范围</div>`
+      + scopeOptionsHtml(n)
+      + `<div class="cx2-colormenu-sep"></div>`
+      + `<button type="button" role="menuitem" data-color-pick="${COLOR_NONE}">清除颜色标记</button>`
+      + (hasRules ? `<button type="button" role="menuitem" class="danger" data-color-clear-all>清除全部颜色标记</button>` : "")
+      + `</div>`;
+  }
+
   async function restoreIgnored() {
     const n = state.ignoredIds.size;
     state.ignoredIds.clear();
@@ -868,13 +1148,14 @@ const CX_PY_DATA = {
 
   /* 收件箱卡片：收件箱列表与「通知分类」页共用，避免两处漂移。 */
   function inboxCardHtml(n) {
-    const cat=classify(n),isNew=state.newIds.has(n.id);return `<article class="cx2-card ${catFrameClass(n)} ${effUnread(n)?'unread':''}" data-id="${esc(n.id)}"><div class="cx2-title">${esc(n.title)}${isNew?'<span class="cx2-pill cx2-new">NEW</span>':''}${gradingBadge(n)}</div><div class="cx2-meta"><span class="cx2-tag ${cat}">${cat}</span>${n.sender?`<span>${esc(n.sender)}</span>`:''}<span>${esc(n.time||'未知时间')}</span>${effUnread(n)?'<span>未读</span>':'<span>已读</span>'}${linkHintHtml(n)}</div><div class="cx2-body">${esc(n.body||'（无正文）')}</div>${cardActionsHtml(n,'inbox')}</article>`;
+    const cat=classify(n),isNew=state.newIds.has(n.id);return `<article class="cx2-card ${catFrameClass(n)}${colorMarked(n)?' cx2-marked':''} ${effUnread(n)?'unread':''}"${cardColorStyle(n)} data-id="${esc(n.id)}"><div class="cx2-title">${esc(n.title)}${isNew?'<span class="cx2-pill cx2-new">NEW</span>':''}${gradingBadge(n)}</div><div class="cx2-meta">${colorDotHtml(n)}<span class="cx2-tag ${cat}">${cat}</span>${n.sender?`<span>${esc(n.sender)}</span>`:''}<span>${esc(n.time||'未知时间')}</span>${effUnread(n)?'<span>未读</span>':'<span>已读</span>'}${linkHintHtml(n)}</div><div class="cx2-body">${esc(n.body||'（无正文）')}</div>${cardActionsHtml(n,'inbox')}</article>`;
   }
   function inboxHtml() {
     const rows = filteredInbox();
     return `<div class="cx2-toolbar cx2-inbox-tools"><span class="cx2-searchbox"><span class="cx2-search-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="cx2-search" data-search value="${esc(state.filter.kw)}" aria-label="搜索学习通通知" title="搜索课程 / 教师 / 作业 / 考试 / 正文" placeholder=""></span><details class="plugin-filter-menu"><summary>筛选通知${state.filter.category !== "全部" || state.filter.onlyUnread ? " · 已设置" : ""}</summary><div class="plugin-filter-menu-panel"><select class="cx2-select" data-category aria-label="通知类型">${["全部","通知","作业","考试","签到"].map(x=>`<option ${state.filter.category===x?'selected':''}>${x}</option>`).join('')}</select><label class="cx2-check"><input class="switch" role="switch" type="checkbox" data-unread ${state.filter.onlyUnread?'checked':''}> 只看平台未读</label></div></details></div>
       <div class="cx2-summary"><span>显示 ${rows.length} / 共 ${visibleInbox().length} 条</span><span title="含本机标记未读">未读 ${visibleInbox().filter(x=>effUnread(x)).length}</span>${state.newIds.size?`<span>本次新增 ${state.newIds.size}</span>`:''}</div>
-      ${rows.length?`<div class="cx2-grid">${rows.map(inboxCardHtml).join('')}</div>`:'<div class="cx2-empty">没有匹配的通知。</div>'}`;
+      ${rows.length?`<div class="cx2-grid">${rows.map(inboxCardHtml).join('')}</div>`:'<div class="cx2-empty">没有匹配的通知。</div>'}
+      <div class="cx2-hint">右键任一卡片（手机端长按）就能给它上色，9 个颜色任选。想让整组一个颜色就选作用范围 —— 比如「所有没做完的作业」，之后新同步进来的没做完作业会自动跟上同一个颜色，不用再一条条点。颜色只存在本机，不影响学习通平台。${state.colorRules.length?`当前有 ${state.colorRules.length} 条整组规则（${state.colorRules.map(r=>scopeLabel(r.scope)).join('、')}）：在卡片右键菜单里选对应范围再点「清除颜色标记」即可单独取消，或点上方「更多」→「清除全部颜色标记」一次清空。`:''}</div>`;
   }
   /* ── 通知分类页：顶部下拉选学年（按中国学年制从通知时间推导），下方按 通知/作业/考试/签到 分区 ── */
   const CATS = ["通知", "作业", "考试", "签到"];
@@ -909,7 +1190,7 @@ const CX_PY_DATA = {
       : late
         ? `<div class="cx2-due late">已逾期 ${esc(overdueDays(n))} · 截止 ${esc(n.dueText)}</div>`
         : `<div class="cx2-due">${submitted ? "已提交 · " : ""}截止 ${esc(n.dueText)}</div>`;
-    return `<article class="cx2-card ${catFrameClass(n)}${late ? ' late' : ''}" data-id="${esc(n.id)}"><div class="cx2-title">${esc(n.title)}${gradingBadge(n)}</div><div class="cx2-meta"><span class="cx2-tag ${cat}">${cat}</span><span>${esc(n.sender)}</span>${linkHintHtml(n)}</div>${due}<div class="cx2-body">${esc(n.body)}</div>${cardActionsHtml(n,'todo')}</article>`;
+    return `<article class="cx2-card ${catFrameClass(n)}${colorMarked(n)?' cx2-marked':''}${late ? ' late' : ''}"${cardColorStyle(n)} data-id="${esc(n.id)}"><div class="cx2-title">${esc(n.title)}${gradingBadge(n)}</div><div class="cx2-meta">${colorDotHtml(n)}<span class="cx2-tag ${cat}">${cat}</span><span>${esc(n.sender)}</span>${linkHintHtml(n)}</div>${due}<div class="cx2-body">${esc(n.body)}</div>${cardActionsHtml(n,'todo')}</article>`;
   }
   /* 五档各给一个分区：「已提交已过期」以前只有计数没有列表，点开了没东西可看。 */
   const TODO_SECS = [
@@ -929,7 +1210,7 @@ const CX_PY_DATA = {
       const cards = list.map((n) => todoCardHtml(n, s.key === "late", s.key === "submitted" || s.key === "done")).join('');
       return `<section class="cx2-cat-sec"><h4 class="cx2-grade-head"><span class="cx2-dot ${s.dot}"></span>${s.head || s.label}<span class="cx2-grade-sub">${list.length} 条 · ${s.sub}</span></h4>${list.length ? `<div class="cx2-todo">${cards}</div>` : `<div class="cx2-empty">${s.empty}</div>`}</section>`;
     }).join("");
-    return `${kpis}${secs}<div class="cx2-hint">待办按提交状态拆开：未提交的保留在「未截止 / 已逾期」两段；探到已提交的三档单独放在下方，避免和真正待处理的作业混在一起。「已提交待批改」收的是通知里没写结束时间、但已探到已提交的近期作业 —— 成绩没出就还不算完。点上方任意一格只看那一档，再点一次取消。</div>`;
+    return `${kpis}${secs}<div class="cx2-hint">待办按提交状态拆开：未提交的保留在「未截止 / 已逾期」两段；探到已提交的三档单独放在下方，避免和真正待处理的作业混在一起。「已提交待批改」收的是通知里没写结束时间、但已探到已提交的近期作业 —— 成绩没出就还不算完。点上方任意一格只看那一档，再点一次取消。右键任一卡片（手机端长按）也能给它上色，想一眼认出「所有没做完的作业」就选那个作用范围，整组会一起变色、新同步到的也会自动跟上。</div>`;
   }
   /* ── 作业提交状态探测：通知正文里没有提交/批改状态，只能拿附件里的作业入口实地看一眼 ──
      附件 iframe 的 name 是 Base64(URL编码的 JSON)，里面带 workId 和作业入口 URL。
@@ -1137,9 +1418,9 @@ const CX_PY_DATA = {
     syncTaskbarBadge();
     if (!active || !host || host.isConnected === false) return;
     const modeBtns = `<span class="cx2-mode" role="group" aria-label="打开插件时的刷新策略">${["auto", "throttle"].map((m) => `<button class="${state.refreshMode === m ? "on" : ""}" data-mode="${m}" title="${esc(REFRESH_MODES[m].why)}" aria-pressed="${state.refreshMode === m}">${REFRESH_MODES[m].label}</button>`).join("")}</span>`;
-    const tools = `<details class="cx2-tools" data-tools><summary aria-label="更多学习通操作">更多</summary><div class="cx2-tools-panel"><div><div class="cx2-tools-label">打开页面时</div>${modeBtns}</div><label class="cx2-check" title="Windows 任务栏显示未提交作业数（含逾期、近期无截止作业）；已提交、考试与已移除通知不计。每 5 分钟同步，0 条自动隐藏。"><input class="switch" role="switch" type="checkbox" data-taskbar-badge ${state.taskbarBadge ? "checked" : ""}>任务栏作业角标（${unfinishedHomework().length}）</label><button data-full-sync ${state.loading?'disabled':''} title="重新拉取全部通知，可能需要更长时间">完整同步</button>${state.ignoredIds.size?`<button data-ignore-reset title="把被移除的通知重新放回列表，不需要重新同步">恢复已移除（${state.ignoredIds.size}）</button>`:''}<button data-switch>切换登录</button></div></details>`;
+    const tools = `<details class="cx2-tools" data-tools><summary aria-label="更多学习通操作">更多</summary><div class="cx2-tools-panel"><div><div class="cx2-tools-label">打开页面时</div>${modeBtns}</div><label class="cx2-check" title="Windows 任务栏显示未提交作业数（含逾期、近期无截止作业）；已提交、考试与已移除通知不计。每 5 分钟同步，0 条自动隐藏。"><input class="switch" role="switch" type="checkbox" data-taskbar-badge ${state.taskbarBadge ? "checked" : ""}>任务栏作业角标（${unfinishedHomework().length}）</label><button data-full-sync ${state.loading?'disabled':''} title="重新拉取全部通知，可能需要更长时间">完整同步</button>${state.ignoredIds.size?`<button data-ignore-reset title="把被移除的通知重新放回列表，不需要重新同步">恢复已移除（${state.ignoredIds.size}）</button>`:''}${(state.cardColors.size||state.colorRules.length)?`<button data-color-clear-all title="清除全部单卡颜色标记与整组颜色规则">清除全部颜色标记（${state.cardColors.size} 条单卡 + ${state.colorRules.length} 条规则）</button>`:''}<button data-switch>切换登录</button></div></details>`;
     const status = state.error || (state.busy === "open" ? "正在打开学习通网页…" : "");
-    host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-updated">${state.lastSync ? `上次刷新 ${esc(state.lastSync)}` : "尚未刷新"}</p></div><div class="cx2-actions"><button class="primary" data-refresh ${state.loading?'disabled':''} title="刷新最新通知、课程与作业状态">${state.loading?'刷新中…':'刷新'}</button>${tools}</div></div>${navHtml()}${status ? `<div class="cx2-status ${state.error?'err':''}" role="status">${esc(status)}</div>` : ""}<div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?coursesHtml():lookupHtml()}</div></div>`;
+    host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-updated">${state.lastSync ? `上次刷新 ${esc(state.lastSync)}` : "尚未刷新"}</p></div><div class="cx2-actions"><button class="primary" data-refresh ${state.loading?'disabled':''} title="刷新最新通知、课程与作业状态">${state.loading?'刷新中…':'刷新'}</button>${tools}</div></div>${navHtml()}${status ? `<div class="cx2-status ${state.error?'err':''}" role="status">${esc(status)}</div>` : ""}<div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?coursesHtml():lookupHtml()}</div>${colorMenuHtml()}</div>`;
   }
 
   async function refreshAll() {
@@ -1192,6 +1473,16 @@ const CX_PY_DATA = {
     host.addEventListener("click", async (e) => {
       const tools = host.querySelector('[data-tools]');
       if (tools?.open && !tools.contains(e.target)) tools.open = false;
+      // 颜色菜单：先于卡片分支处理并 return，免得点色块时顺手触发了卡片上的按钮
+      if (cardMenu) {
+        const pick = e.target.closest?.('[data-color-pick]');
+        if (pick) { await applyColor(pick.dataset.colorPick); return; }
+        const scopeBtn = e.target.closest?.('[data-color-scope]');
+        if (scopeBtn) { cardMenu.scope = scopeBtn.dataset.colorScope; state.colorScope = cardMenu.scope; await saveColorScope(); paintMain(); return; }
+        if (e.target.closest?.('[data-color-clear-all]')) { await clearAllColors(); return; }
+        const menuEl = host.querySelector('[data-color-menu]');
+        if (!menuEl || !menuEl.contains(e.target)) { closeCardMenu(); paintMain(); }
+      }
       const loginTab=e.target.closest('[data-login-tab]');if(loginTab){const cookie=loginTab.dataset.loginTab==='cookie';host.querySelectorAll('[data-login-tab]').forEach(b=>b.classList.toggle('on',b===loginTab));host.querySelector('[data-login-password]').hidden=cookie;host.querySelector('[data-login-cookie]').hidden=!cookie;return;}
       if(e.target.closest('[data-login]')){const u=host.querySelector('[data-u]').value.trim(),p=host.querySelector('[data-p]').value,status=host.querySelector('[data-login-status]');if(!u||!p){status.textContent='请填写账号和密码';return;}state.remember=host.querySelector('[data-remember]').checked;state.creds={uname:u,password:p};status.textContent='正在登录…';try{await cxLogin(u,p);paintMain();await refreshAll();}catch(err){status.textContent=err.message||err;}return;}
       if(e.target.closest('[data-cookie-login]')){const c=host.querySelector('[data-cookie]').value.trim(),status=host.querySelector('[data-login-status]');state.remember=host.querySelector('[data-remember]').checked;state.creds=null;status.textContent='正在验证 Cookie…';try{await startCookieSession(c);paintMain();await refreshAll();}catch(err){status.textContent=err.message||err;}return;}
@@ -1217,7 +1508,39 @@ const CX_PY_DATA = {
     });
     host.addEventListener("input", (e) => { if(e.target.matches('[data-search]')){state.filter.kw=e.target.value;savePrefs();const pos=e.target.selectionStart;paintMain();const next=host.querySelector('[data-search]');if(next){next.focus();try{next.setSelectionRange(pos,pos);}catch{}}} });
     host.addEventListener("change", (e) => { if(e.target.matches("[data-taskbar-badge]")){setTaskbarBadgeEnabled(e.target.checked);return;} if(e.target.matches('[data-category]')){state.filter.category=e.target.value;savePrefs();paintMain();}if(e.target.matches('[data-unread]')){state.filter.onlyUnread=e.target.checked;savePrefs();paintMain();}if(e.target.matches('[data-cat-year]')){state.filter.catYear=e.target.value;savePrefs();paintMain();} });
-    host.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select'))e.stopPropagation();if(e.key==='Escape'){const tools=host.querySelector('[data-tools]');if(tools?.open){tools.open=false;tools.querySelector('summary').focus();e.stopPropagation();return;}}if(e.target.matches('[data-search]')&&e.key==='Escape'){state.course.searchOpen=false;state.filter.kw='';paintMain();}});
+    host.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select'))e.stopPropagation();if(e.key==='Escape'){if(cardMenu){closeCardMenu();paintMain();e.stopPropagation();return;}const tools=host.querySelector('[data-tools]');if(tools?.open){tools.open=false;tools.querySelector('summary').focus();e.stopPropagation();return;}}if(e.target.matches('[data-search]')&&e.key==='Escape'){state.course.searchOpen=false;state.filter.kw='';paintMain();}});
+    /* 颜色菜单唤起：桌面走右键（contextmenu），手机/平板走长按 —— Android WebView 里
+       长按不一定会派发 contextmenu，所以两条都接，谁先到都能开出同一个菜单（重复调用幂等）。 */
+    host.addEventListener('contextmenu', (e) => {
+      if (e.target.closest?.('[data-color-menu]')) return;
+      const card = e.target.closest?.('[data-id]');
+      if (!card) { if (cardMenu) { closeCardMenu(); paintMain(); } return; }
+      e.preventDefault();
+      openCardMenu(card.dataset.id, e.clientX, e.clientY);
+    });
+    function cancelLongPress() { clearTimeout(longPressTimer); longPressTimer = null; longPressFrom = null; }
+    host.addEventListener('pointerdown', (e) => {
+      // 只在触屏/手写笔上启用长按；鼠标有右键，长按会和按住不放的普通点击抢手势
+      const coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer:coarse)')?.matches;
+      if (!coarse || e.pointerType === 'mouse') return;
+      const card = e.target.closest?.('[data-id]');
+      if (!card) { cancelLongPress(); return; }
+      cancelLongPress();
+      longPressFrom = { id: card.dataset.id, x: e.clientX, y: e.clientY };
+      longPressTimer = setTimeout(() => {
+        const at = longPressFrom; longPressFrom = null; longPressTimer = null;
+        if (!at) return;
+        try { navigator.vibrate?.(12); } catch {}
+        openCardMenu(at.id, at.x, at.y);
+      }, LONG_PRESS_MS);
+    });
+    host.addEventListener('pointerup', cancelLongPress);
+    host.addEventListener('pointercancel', cancelLongPress);
+    host.addEventListener('pointerleave', cancelLongPress);
+    host.addEventListener('pointermove', (e) => {
+      if (!longPressFrom) return;
+      if (Math.abs(e.clientX - longPressFrom.x) > LONG_PRESS_SLOP || Math.abs(e.clientY - longPressFrom.y) > LONG_PRESS_SLOP) cancelLongPress();
+    });
   }
 
   async function render(el) {

@@ -24,7 +24,7 @@ function queueTaskbarBadge(count) {
 
 const registry = new Map();   // id -> { manifest, source, enabled, error }
 const eventBus = new Map();   // event -> Set<{ pluginId, fn }>
-const listeners = { navChanged: new Set(), taskActionsChanged: new Set() };
+const listeners = { navChanged: new Set() };
 const httpCache = new Map();
 const HTTP_CACHE_MAX = 80;
 const builtinManifestMap = new Map(BUILTIN_PLUGINS.map((p) => [p.id, p]));
@@ -162,7 +162,6 @@ const yieldUi = () => new Promise((resolve) => {
 });
 
 export function onNavChanged(fn) { listeners.navChanged.add(fn); return () => listeners.navChanged.delete(fn); }
-export function onTaskActionsChanged(fn) { listeners.taskActionsChanged.add(fn); return () => listeners.taskActionsChanged.delete(fn); }
 function emitNavChanged() { listeners.navChanged.forEach((f) => f()); }
 
 
@@ -330,7 +329,6 @@ function makeApi(man, source) {
       registerTaskAction(def) {
         requirePermission(man, pid, "ui");
         taskActions.push({ ...def, pluginId: pid });
-        listeners.taskActionsChanged.forEach((f) => f());
       },
     },
 
@@ -536,7 +534,6 @@ function removeRegistrations(id) {
     for (const entry of [...set]) if (entry.pluginId === id) set.delete(entry);
     if (!set.size) eventBus.delete(name);
   }
-  listeners.taskActionsChanged.forEach((f) => f());
 }
 
 async function runPlugin(id, source) {

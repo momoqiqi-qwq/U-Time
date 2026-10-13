@@ -282,12 +282,16 @@
 .sg .sem-card-head .sem-when{flex:none;font-size:calc(10px * var(--ui-text-scale));color:var(--sg-faint);font-variant-numeric:tabular-nums;white-space:nowrap}
 .sg .sem-card.is-now .sem-card-head b{color:color-mix(in srgb,var(--sg-coral) 78%,var(--sg-ink))}
 .sg .sem-card.on .sem-card-head b{color:var(--sg-accent)}
-/* 迷你周条：7 列 = 周一到周日；每条的高度与 top 由 JS 按节次算出（百分比），
-   这里只负责定位与裁切。overflow:hidden 是必需的 —— 否则超出 100% 的条会画到卡外。 */
-.sg .sem-mini{position:relative;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;height:96px;padding:2px;border-radius:7px;background:color-mix(in srgb,var(--sg-soft) 72%,var(--sg-card));overflow:hidden}
-.sg .sem-col{position:relative;min-width:0}
-.sg .sem-bar{position:absolute;left:0;right:0;border-radius:2.5px;background:var(--course-accent);opacity:.9;min-height:4px}
-.sg .sem-dow{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px;padding:0 2px;margin-top:3px}
+/* 迷你周图 = 周视图的等比缩略图：同一套网格模板（节次列 + 7 个日列 / 表头带 + N 个节次行），
+   色块用 grid-column / grid-row 落在与 .course-block 完全相同的那一格上。
+   左侧 --sg-sem-label%（节次列占比）与顶部 --sg-sem-head%（表头带占比）由 JS 按周视图的实测
+   宽度算出，因此同一节课在总学期视图与周视图里的相对坐标一致 —— 也就是用户要的「位置相同」。
+   gap 必须为 0：百分比轨道 + 7×1fr 就是周视图 --sg-label-w + 7×1fr 的复刻，
+   一旦留下间隙，间隙会先吃掉宽度，越靠右的列偏得越多。
+   padding 也必须为 0：内边距会把内容盒整体右移又压窄，缩略图上就是恒定几个像素的错位。 */
+.sg .sem-mini{position:relative;display:grid;grid-template-columns:calc(var(--sg-sem-label,0) * 1%) repeat(7,minmax(0,1fr));grid-template-rows:calc(var(--sg-sem-head,0) * 1%) repeat(var(--sg-slot-count,10),minmax(0,1fr));height:96px;padding:0;border-radius:7px;background:color-mix(in srgb,var(--sg-soft) 72%,var(--sg-card));overflow:hidden}
+.sg .sem-bar{border-radius:2.5px;margin:0 1px;background:var(--course-accent);opacity:.9;min-height:2px}
+.sg .sem-dow{display:grid;grid-template-columns:calc(var(--sg-sem-label,0) * 1%) repeat(7,minmax(0,1fr));gap:0;padding:0;margin-top:3px}
 .sg .sem-dow span{font-size:calc(9px * var(--ui-text-scale));color:var(--sg-faint);text-align:center;min-width:0;overflow:hidden}
 .sg .sem-card-foot{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:5px;font-size:calc(10.5px * var(--ui-text-scale));color:var(--sg-sub);min-height:14px}
 .sg .sem-card-foot .sem-count{font-variant-numeric:tabular-nums}
@@ -595,11 +599,22 @@ function toolbar(){
    if(isEnd){for(let i=0;i<slots.length;i++)if(M.minutes(slots[i].endTime)>=mins)return i;return slots.length-1;}
    for(let i=0;i<slots.length;i++)if(M.minutes(slots[i].endTime)>mins)return i;return slots.length-1;
  }
- function gridCourse(c,overlap,order,slotMap){
+ function slotMapOf(){return new Map(table.timeSlots.map((s,i)=>[s.number,i]));}
+ /* 一周 7 天的列序：firstDayOfWeek===7 时周日打头，和周视图表头用的是同一个数组。 */
+ function weekOrder(){return table.config.firstDayOfWeek===7?[6,0,1,2,3,4,5]:[0,1,2,3,4,5,6];}
+ /* 一节课在整个网格里的格子坐标：列 = 星期在列序里的位置（+2，第 1 列是节次列），
+    行 = 起始节次序号（+2，第 1 行是表头带），跨行数 = 占几个节次。
+    周视图的 .course-block 与总学期视图的迷你色块**共用这一个函数** ——
+    两边各写一份的话，位置就会像 v0.45.x 那样悄悄错开（迷你图当时按真实分钟算 top，
+    还把 minM-start 写反了，除第 1 节以外的课全被画到卡片上方裁掉）。 */
+ function courseCell(c,slotMap){
    let startIdx=c.isCustomTime?slotIndexForTime(c.start,false):slotMap.get(c.startSection);
    let endIdx=c.isCustomTime?slotIndexForTime(c.end,true):slotMap.get(c.endSection);
    if(!Number.isInteger(startIdx))startIdx=0;if(!Number.isInteger(endIdx))endIdx=startIdx;endIdx=Math.max(startIdx,endIdx);
-   const col=order.indexOf(c.day-1)+2,row=startIdx+2,span=Math.max(1,endIdx-startIdx+1);
+   return {col:weekOrder().indexOf(c.day-1)+2,row:startIdx+2,span:Math.max(1,endIdx-startIdx+1)};
+ }
+ function gridCourse(c,overlap,slotMap){
+   const {col,row,span}=courseCell(c,slotMap);
    const meta=[c.teacher,c.position].filter(Boolean).map(esc);
    // 课程块内不显示上下课时间：左侧节次列已有完整时间，窄屏上块内时间必然截断成「08:…」（v0.45.3）。
    // 完整时间信息保留在 title 悬停提示与编辑弹窗里。
@@ -610,7 +625,7 @@ function toolbar(){
    const dates=Array.from({length:7},(_,i)=>M.addDays(start,i));
    const year=start.slice(0,4),head=order.map((dayIndex,visualIndex)=>{const date=dates[dayIndex],isToday=date===today;return `<div class="day-head ${isToday?'is-today':''}" style="grid-column:${visualIndex+2};grid-row:1"><span>${days[dayIndex].slice(1)}</span><span class="date">${date.slice(5)}</span></div>`;}).join('');
    let cells='';for(let i=0;i<table.timeSlots.length;i++){const slot=table.timeSlots[i];cells+=`<div class="slot-label" style="grid-column:1;grid-row:${i+2}"><b>${esc(slot.number)}</b><span>${esc(slot.startTime)}</span><span>${esc(slot.endTime)}</span></div>`;for(let v=0;v<7;v++){const dayIndex=order[v],isToday=dates[dayIndex]===today;cells+=`<div class="slot-cell ${isToday?'is-today':''}" style="grid-column:${v+2};grid-row:${i+2}"></div>`;}}
-   const slotMap=new Map(table.timeSlots.map((s,i)=>[s.number,i]));const courses=rows.map(c=>gridCourse(c,overlap,order,slotMap)).join('');
+   const slotMap=slotMapOf();const courses=rows.map(c=>gridCourse(c,overlap,slotMap)).join('');
    return `<div class="schedule-frame" aria-label="时光课程表周视图" style="--slot-count:${table.timeSlots.length}"><div class="schedule-grid"><div class="schedule-corner" style="grid-column:1;grid-row:1">${year}</div>${head}${cells}${courses}</div></div>`;
  }
  function weekContent(){
@@ -641,44 +656,70 @@ function settingsContent(){return `${screenHead('我的',activePack()?.name||'�
     加上 .plugview 20px 与 .sg 20px 的内边距，正文得从约 136px 处才开始，顶上一大片空白。
     参数顺序：标题 / 返回目标 data-action / 副标题 / 返回按钮文案。 */
  function subHead(title,backTo='back',sub='',backLabel='‹ 返回'){return `<div class="screen-head sub-head">${button(backLabel,backTo,'class="ghost"')}<div><h2>${esc(title)}</h2>${sub?`<p class="muted">${esc(sub)}</p>`:''}</div></div>`;}
- /* 总学期视图：整个学期的每一周各一张卡，卡内用色块条画出那一周的课。
+ /* 总学期视图：整个学期的每一周各一张卡，卡内用色块画出那一周的课。
     用户需求是「做一个总学期视图，可以看到所有周」，所以这里要同时满足两件事：
-    ① 能看出「哪一周课多、哪一周空」——靠迷你周条的疏密；
+    ① 能看出「哪一周课多、哪一周空」——靠迷你色块的疏密；
     ② 能看出「哪一周是现在」——靠 is-now 珊瑚描边 + 「本周」小字。
-    点击任意一张卡即跳到那一周，于是它天然顶替了原来那个纯按钮堆的「选择周次」页
+    点击任意一张卡即跳到那一周，于是它天然顶替了原来那个纯按钮堆的「周次选择」页
     （20 周会排成 20 个按钮，既占地方又看不出分布）。
-    纵向映射：把全天时间轴（第一节课开始 → 最后一节结束）压进卡片 96px 高度，
-    条的 top/height 用百分比定位，所以不同周的同一节课位置一致，可横向比对。 */
- function semBar(c,sem){
-   const top=((sem.minM-M.minutes(c.start))/(sem.spanM||1))*100;
-   const h=((M.minutes(c.end)-M.minutes(c.start))/(sem.spanM||1))*100;
-   /* 上下各留 1% 避免贴边；高度不足 5% 的（半节）抬到 5% 免得看不见。 */
-   const height=Math.max(5,h-1.4);
-   return `<span class="sem-bar tone-${tone(c)}" style="top:${top.toFixed(2)}%;height:${height.toFixed(2)}%" title="${esc(`${c.name} · ${c.start}–${c.end}`)}"></span>`;
+    位置：这里画的是周视图的**等比缩略图**，行列坐标由 courseCell 统一给出（见上），
+    所以同一节课在总视图与周视图里落在同一格 —— 用户的原话是「显示像素和真实课表对应课的位置相同」。 */
+ /* 迷你色块：与周视图的 .course-block 落在同一格上（列 = 星期、行 = 节次），
+    位置全部交给 courseCell 算，不再自己按真实分钟换算 top/height。 */
+ function semBar(c,slotMap){
+   const {col,row,span}=courseCell(c,slotMap);
+   return `<span class="sem-bar tone-${tone(c)}" style="grid-column:${col};grid-row:${row}/span ${span}" title="${esc(`${c.name} · ${c.start}–${c.end}`)}"></span>`;
  }
- function semBounds(){
-   const slots=table.timeSlots;if(!slots.length)return{minM:0,maxM:1,spanM:1};
-   const minM=Math.min(...slots.map(s=>M.minutes(s.startTime))),maxM=Math.max(...slots.map(s=>M.minutes(s.endTime)));
-   return{minM,maxM,spanM:Math.max(1,maxM-minM)};
+ /* 缩略图要复刻周视图的两处留白，否则同一节课在两处的相对坐标对不上：
+    ① 左侧节次列：宽度比 = --sg-label-w ÷ 网格宽度；
+    ② 顶部表头带：高度比 = --sg-head-h ÷ 网格高度。
+    这两个量只能在**周视图**在场时量到 —— 总学期视图的 DOM 里只有卡片，没有网格；
+    而且 --sg-head-h 是 CSS 变量、节次行高在 fit-height 下会被拉伸，光靠变量算不准。
+    所以每次渲染出网格就实测一次存进 gridGeom，总学期视图直接复用；
+    宿主宽度变了（旋屏、分屏、侧栏折叠）就作废重测。 */
+ let gridGeom=null;
+ function measureGrid(){
+   const grid=host?.querySelector?.('.schedule-grid');if(!grid)return;
+   const gw=grid.clientWidth,gh=grid.clientHeight;
+   if(!(gw>1)||!(gh>1))return;
+   const head=grid.querySelector('.day-head'),label=grid.querySelector('.slot-label');
+   const lw=label?label.getBoundingClientRect().width:0,hh=head?head.getBoundingClientRect().height:0;
+   gridGeom={hw:host.clientWidth||0,label:Math.max(0,Math.min(40,(lw/gw)*100)),head:Math.max(0,Math.min(30,(hh/gh)*100))};
  }
- function semCard(w,sem){
+ function semRatios(){
+   if(gridGeom&&gridGeom.hw===(host?.clientWidth||0))return{label:gridGeom.label,head:gridGeom.head};
+   /* 兜底：没渲染过周视图（例如刚注册视图就被别的插件切到总学期视图），
+      按 CSS 变量与设定格子高度估一个，误差在 1% 量级。 */
+   const slots=Math.max(1,table.timeSlots.length),sg=host?.querySelector?.('.sg');
+   const cs=sg?getComputedStyle(sg):null;
+   const cssVar=k=>Number.parseFloat(cs?cs.getPropertyValue(k):'')||0;
+   const labelW=cssVar('--sg-label-w')||60,headH=cssVar('--sg-head-h')||52;
+   const pad=cs&&innerWidth>620?(Number.parseFloat(cs.paddingLeft)||0)+(Number.parseFloat(cs.paddingRight)||0):0;
+   const gridW=Math.max(1,(host?.clientWidth||0)-pad);
+   const rowH=Number(style&&style.slotHeight)||76;
+   return{label:gridW>1?Math.min(40,(labelW/gridW)*100):0,head:Math.min(30,(headH/(headH+slots*rowH))*100)};
+ }
+ function semCard(w){
    const {rows}=snapshot(w),today=tide.util.today(),r=realWeek();
    const isNow=r===w,isCur=w===week;
-   const dots=['一','二','三','四','五','六','日'];
-   const cols=dots.map((_,i)=>`<span class="sem-col">${rows.filter(c=>c.day===i+1).map(c=>semBar(c,sem)).join('')}</span>`).join('');
+   const order=weekOrder(),slotMap=slotMapOf(),ratios=semRatios();
+   const bars=rows.map(c=>semBar(c,slotMap)).join('');
+   /* 星期小标签跟着 firstDayOfWeek 走，与周视图表头逐字一致（周日开头时是「日一二三四五六」）。 */
+   const dow=order.map((dayIndex,visualIndex)=>`<span style="grid-column:${visualIndex+2}">${days[dayIndex].slice(1)}</span>`).join('');
    const weekStart=M.monday(table.config.semesterStartDate);
    const mon=M.addDays(weekStart,(w-1)*7);
    const hasToday=hasNow()&&w===r;
-   return `<button class="sem-card ${isCur?'on':''} ${isNow?'is-now':''} ${rows.length?'':'is-empty'}" data-action="pick-week" data-week="${w}" title="${esc(`第 ${w} 周 · ${weekRange(w)} · ${rows.length} 节课`)}">
+   const vars=`--sg-slot-count:${table.timeSlots.length};--sg-sem-label:${ratios.label.toFixed(3)};--sg-sem-head:${ratios.head.toFixed(3)}`;
+   return `<button class="sem-card ${isCur?'on':''} ${isNow?'is-now':''} ${rows.length?'':'is-empty'}" data-action="pick-week" data-week="${w}" style="${vars}" title="${esc(`第 ${w} 周 · ${weekRange(w)} · ${rows.length} 节课`)}">
      <span class="sem-card-head"><b>第 ${w} 周</b><span class="sem-when">${esc(mon.slice(5).replace('-','/'))}</span></span>
-     <span class="sem-mini">${cols}</span>
-     <span class="sem-dow">${dots.map(d=>`<span>${d}</span>`).join('')}</span>
+     <span class="sem-mini">${bars}</span>
+     <span class="sem-dow">${dow}</span>
      <span class="sem-card-foot"><span class="sem-count">${rows.length?`${rows.length} 节课`:'无课'}</span>${isNow?'<span class="sem-flag">本周</span>':(hasToday?'':'')}</span>
    </button>`;
  }
  function weekPickerContent(){
-   const sem=semBounds(),now=realWeek(),total=table.config.semesterTotalWeeks;
-   const cards=Array.from({length:total},(_,i)=>semCard(i+1,sem)).join('');
+   const now=realWeek(),total=table.config.semesterTotalWeeks;
+   const cards=Array.from({length:total},(_,i)=>semCard(i+1)).join('');
    const note=hasNow()?'':'<p class="warning sem-empty-note">当前日期不在本学期范围内（共 '+total+' 周），因此没有「本周」标记。</p>';
    return `${subHead('总学期视图','week',`共 ${total} 周 · 点任意一周即跳转`)}${note}
      <div class="sem-legend"><i class="now">本周（第 ${now>=1&&now<=total?now:'—'} 周）</i><i class="cur">当前查看</i><i class="bar">课程</i></div>
@@ -758,7 +799,7 @@ function styleContent(){return `<button class="style-mask" data-action="back" ta
    ① mode==='style' 画的是「周课表 + 抽屉」，不是单独一页 —— 个性化配置要边改边看课表。
    ② bleed（无边距铺满）跟着周课表本体走，所以 style 模式同样要挂，
       否则抽屉一开、背后的课表会突然缩回左右内边距，闪一下。 */
-function paint(){if(!host?.isConnected)return;clearError();let content='';if(mode==='week')content=weekContent();else if(mode==='today')content=todayContent();else if(mode==='settings')content=settingsContent();else if(mode==='week-picker')content=weekPickerContent();else if(mode==='courses')content=coursesContent();else if(mode==='tables')content=tablesContent();else if(mode==='style')content=weekContent()+styleContent();else if(mode==='edit')content=editContent();else if(mode==='config')content=subHead('时间与学期')+configContent();else if(mode==='edu')content=subHead('文件 / 表格导入')+eduContent();else if(mode==='schools')content=schoolListContent();else if(mode==='adapters')content=adapterListContent();else if(mode==='transfer')content=transferContent();const vars=`--sg-slot-height:${style.slotHeight}px;--sg-course-radius:${style.cornerRadius}px;--sg-course-gap:${style.gap}px;--sg-course-opacity:${style.opacity/100}`;host.innerHTML=`<div class="sg ${(mode==='week'||mode==='style')?'bleed':''} ${style.fitHeight?'fit-height':''} ${style.hideTimes?'hide-times':''} ${style.hideDates?'hide-dates':''} ${style.colorful?'colorful':''}" style="${vars}"><div class="main-stage">${content}</div><p class="error" role="alert" data-error></p>${mode==='settings'?'<footer>拾光课程表 · XingHeYuZhuan（Apache-2.0）· 已嵌入 Le 时间管理 · <a href="/plugins/shiguang-schedule/LICENSE">License</a></footer>':''}</div>`;animateWeek();markStyleSheet();}
+function paint(){if(!host?.isConnected)return;clearError();let content='';if(mode==='week')content=weekContent();else if(mode==='today')content=todayContent();else if(mode==='settings')content=settingsContent();else if(mode==='week-picker')content=weekPickerContent();else if(mode==='courses')content=coursesContent();else if(mode==='tables')content=tablesContent();else if(mode==='style')content=weekContent()+styleContent();else if(mode==='edit')content=editContent();else if(mode==='config')content=subHead('时间与学期')+configContent();else if(mode==='edu')content=subHead('文件 / 表格导入')+eduContent();else if(mode==='schools')content=schoolListContent();else if(mode==='adapters')content=adapterListContent();else if(mode==='transfer')content=transferContent();const vars=`--sg-slot-height:${style.slotHeight}px;--sg-course-radius:${style.cornerRadius}px;--sg-course-gap:${style.gap}px;--sg-course-opacity:${style.opacity/100}`;host.innerHTML=`<div class="sg ${(mode==='week'||mode==='style')?'bleed':''} ${style.fitHeight?'fit-height':''} ${style.hideTimes?'hide-times':''} ${style.hideDates?'hide-dates':''} ${style.colorful?'colorful':''}" style="${vars}"><div class="main-stage">${content}</div><p class="error" role="alert" data-error></p>${mode==='settings'?'<footer>拾光课程表 · XingHeYuZhuan（Apache-2.0）· 已嵌入 Le 时间管理 · <a href="/plugins/shiguang-schedule/LICENSE">License</a></footer>':''}</div>`;animateWeek();markStyleSheet();measureGrid();}
 /* 抽屉已经开着时再重绘（点「恢复默认」、外部导入课程后 paint()），不能重放入场动画 ——
    整块面板会再滑一次，看着像闪了一下。上一次就开着 ⇒ 补 keep-open 把动画掐掉。 */
 let styleSheetOpen=false;

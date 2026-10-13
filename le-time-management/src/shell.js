@@ -184,21 +184,6 @@ function turnChevron(chev, collapsed) {
   );
 }
 
-function movePluginBefore(sourcePluginId, targetPluginId) {
-  if (!sourcePluginId || !targetPluginId || sourcePluginId === targetPluginId) return false;
-  const ids = [...new Set(pluginViews.map((x) => x.pluginId))];
-  const saved = pluginOrderState();
-  const current = [...saved.filter((id) => ids.includes(id)), ...ids.filter((id) => !saved.includes(id))];
-  const from = current.indexOf(sourcePluginId);
-  const to = current.indexOf(targetPluginId);
-  if (from < 0 || to < 0) return false;
-  current.splice(from, 1);
-  current.splice(current.indexOf(targetPluginId), 0, sourcePluginId);
-  S.getState().settings.pluginOrder = current;
-  S.persistSoon();
-  return true;
-}
-
 // ── 插件快捷键（Alt + 字母直达插件视图）──
 // 取数统一走这里：侧栏徽标、按键命中、右键菜单看到的必须是同一份分配结果。
 // 顺序刻意用 pluginViews 的**注册顺序**（= manifest order），而不是显示顺序：
@@ -225,8 +210,10 @@ export function renderShell(root) {
   const desktopWindow = isDesktopRuntime();
   const dragRegion = desktopWindow ? "" : null;
   const settings = S.getState().settings;
-  settings.quickDock ??= { left: null, top: 92, collapsed: false, alwaysOnTop: false };
+  settings.quickDock ??= { left: null, top: 92, collapsed: false, alwaysOnTop: false, moved: false };
   const quickDockState = settings.quickDock;
+  // 老存档没有 moved：默认「跟随触发按钮」，与拖动接线前的行为一致（v0.206.1）。
+  quickDockState.moved ??= false;
   const nav = el("nav", { class: "nav" });
   /* v0.152.0：侧栏选中光块（滑动指示器）。样式见 styles.css 的 .nav-glow；机制与参数照
      Nephele Workshop 的 sidebarActiveIndicator（已读其随包分发的 QML 源码）。
@@ -521,10 +508,22 @@ export function renderShell(root) {
     }
   };
   if (isAndroidRuntime()) {
-    new ResizeObserver(updateDockClearance).observe(rail);
-    new MutationObserver(updateDockClearance).observe(document.documentElement, { attributes: true });
-    window.addEventListener("resize", updateDockClearance);
-    window.addEventListener("tide:ui-preferences-changed", updateDockClearance);
+    // 合帧：ResizeObserver、<html> 属性变更与偏好事件经常在同一帧里连着来，
+    // 逐个直接回调会把 getBoundingClientRect 的同步布局回读做上好几遍。
+    let dockClearanceFrame = 0;
+    const scheduleDockClearance = () => {
+      if (dockClearanceFrame) return;
+      dockClearanceFrame = requestAnimationFrame(() => { dockClearanceFrame = 0; updateDockClearance(); });
+    };
+    new ResizeObserver(scheduleDockClearance).observe(rail);
+    // 只认 <html> 上的内联样式：Android 侧注入的 --sat/--sab、界面缩放都写在 documentElement.style 上。
+    // 不设 attributeFilter 的话，像 data-kbd（每次把焦点移进输入框就改一次）这种与底栏几何
+    // 毫无关系的属性也会触发一轮布局回读；其余偏好（密度 / 底栏尺寸…）走
+    // tide:ui-preferences-changed，下面已监听，不会漏。
+    new MutationObserver(scheduleDockClearance).observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
+    window.addEventListener("resize", scheduleDockClearance);
+    window.addEventListener("tide:ui-preferences-changed", scheduleDockClearance);
+    // 首帧仍然同步算一次：初始定位不能等一帧，否则底栏占位会晚一步生效。
     updateDockClearance();
   }
 
@@ -1662,34 +1661,77 @@ export function renderShell(root) {
     quickDockState.top = y;
   }
 
+  // 拖动过的面板沿用用户落位；没拖动过就贴着触发按钮（顶栏部件本身可拖动换位）。
+  // v0.206.1 之前这里只有「贴触发按钮」一条路 —— 于是每次展开都把落位覆盖掉，拖动等于白拖。
+  function placeQuickDock() {
+    if (quickDockState.moved) positionQuickDock(quickDock);
+    else positionQuickDockNear(quickDockToggle);
+  }
+
+  // 回到自动落位：双击头部把手，或将来任何「重置界面」的入口。
+  function resetQuickDockPosition() {
+    quickDockState.moved = false;
+    if (quickDock) placeQuickDock();
+    S.persistSoon();
+    toast("快捷入口已恢复跟随按钮");
+  }
+
+  // 把手是头部条（头像 + 标题，里面没有可点元素），触屏与鼠标共用 pointer 事件。
+  // 落位写进 settings.quickDock 并在下次展开时沿用，否则拖动会在下次展开时被覆盖。
   function bindQuickDockDrag(node, handle) {
     let pointerId = null;
     let startX = 0;
     let startY = 0;
     let baseX = 0;
     let baseY = 0;
+    let dragged = false; // 本次手势是否真的位移过（区分「拖动」与「点一下把手」）
+    let lastTapAt = 0;
     const onMove = (ev) => {
       if (ev.pointerId !== pointerId) return;
-      positionQuickDock(node, baseX + ev.clientX - startX, baseY + ev.clientY - startY);
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      // 手指/鼠标的几像素抖动不算拖动，免得点一下就留下一个 moved 存档。
+      if (!dragged && Math.abs(dx) + Math.abs(dy) < 4) return;
+      dragged = true;
+      positionQuickDock(node, baseX + dx, baseY + dy);
       ev.preventDefault();
+    };
+    const stop = () => {
+      window.removeEventListener("pointermove", onMove, true);
+      window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", onUp, true);
     };
     const onUp = (ev) => {
       if (ev.pointerId !== pointerId) return;
       pointerId = null;
+      stop();
       node.classList.remove("dragging");
-      window.removeEventListener("pointermove", onMove, true);
-      window.removeEventListener("pointerup", onUp, true);
-      window.removeEventListener("pointercancel", onUp, true);
+      // 手势被打断（系统抢走指针 / 来电）→ 回滚到起拖位置，不写存档。
+      if (ev.type === "pointercancel") {
+        if (dragged) positionQuickDock(node, baseX, baseY);
+        return;
+      }
+      if (!dragged) {
+        // 没位移：当成对把手的点击，350ms 内第二次 = 双击 → 恢复跟随触发按钮。
+        const now = Date.now();
+        if (now - lastTapAt < 350) { lastTapAt = 0; resetQuickDockPosition(); }
+        else lastTapAt = now;
+        return;
+      }
+      // 真的拖动过：清掉 tap 配对（拖动不该和之前的点按凑成「双击」）
+      lastTapAt = 0;
+      quickDockState.moved = true;
       S.persistSoon();
     };
     handle.addEventListener("pointerdown", (ev) => {
-      if (ev.button !== 0) return;
+      if (ev.pointerType === "mouse" && ev.button !== 0) return;
       pointerId = ev.pointerId;
       startX = ev.clientX;
       startY = ev.clientY;
       const rect = node.getBoundingClientRect();
       baseX = rect.left;
       baseY = rect.top;
+      dragged = false;
       node.classList.add("dragging");
       window.addEventListener("pointermove", onMove, true);
       window.addEventListener("pointerup", onUp, true);
@@ -1735,7 +1777,7 @@ export function renderShell(root) {
     quickDockState.collapsed = typeof force === "boolean" ? force : !quickDockState.collapsed;
     if (quickDock) {
       quickDock.classList.toggle("collapsed", quickDockState.collapsed);
-      if (!quickDockState.collapsed) positionQuickDockNear(quickDockToggle);
+      if (!quickDockState.collapsed) placeQuickDock();
     }
     updateQuickDockToggle();
     S.persistSoon();
@@ -1772,11 +1814,13 @@ export function renderShell(root) {
   function mountQuickDock() {
     quickDock?.remove();
     quickDockState.collapsed = true;
+    // 头部条既是面板抬头，也是拖动把手（v0.206.1）：拖动可移动面板、双击恢复跟随触发按钮。
+    const head = el("div", { class: "quick-dock-head", title: "拖动可移动面板 · 双击恢复跟随按钮" },
+      el("span", { class: "quick-menu-avatar", "aria-hidden": "true" }, "YL"),
+      el("div", { class: "quick-dock-title" }, el("b", {}, "Yile Liang"), el("small", {}, "Plus")),
+    );
     const dock = el("div", { class: "quick-dock collapsed", role: "menu", "aria-label": "快捷入口" },
-      el("div", { class: "quick-dock-head" },
-        el("span", { class: "quick-menu-avatar", "aria-hidden": "true" }, "YL"),
-        el("div", { class: "quick-dock-title" }, el("b", {}, "Yile Liang"), el("small", {}, "Plus")),
-      ),
+      head,
       el("div", { class: "quick-dock-grid" },
         createQuickDockButton("plus", "快速新建", () => openQuickCapture()),
         createQuickDockButton("magnifying-glass", "命令搜索", () => window.dispatchEvent(new CustomEvent("tide:command-palette"))),
@@ -1807,6 +1851,7 @@ export function renderShell(root) {
     );
     quickDock = dock;
     root.append(dock);
+    bindQuickDockDrag(dock, head);
     updateQuickDockToggle();
     updatePinButtonState();
     const closeOnOutside = (event) => {
@@ -2116,7 +2161,7 @@ export function renderShell(root) {
       visibleIds = new Set(registrySnapshot.filter(match).map((rec) => rec.id));
       const customOrder = pluginOrderState();
       const rank = new Map(customOrder.map((id, index) => [id, index]));
-      const sorted = getRegistry().filter(match).sort((a, b) => {
+      const sorted = registrySnapshot.filter(match).sort((a, b) => {
         const ar = rank.has(a.id) ? rank.get(a.id) : Number.MAX_SAFE_INTEGER;
         const br = rank.has(b.id) ? rank.get(b.id) : Number.MAX_SAFE_INTEGER;
         return ar - br || (a.manifest?.order || 999) - (b.manifest?.order || 999) || String(a.manifest?.name || a.id).localeCompare(String(b.manifest?.name || b.id), "zh-CN");
@@ -2375,7 +2420,7 @@ export function renderShell(root) {
 
   mountQuickDock();
   quickDockToggle.addEventListener("click", () => toggleQuickDock());
-  window.addEventListener("resize", () => { if (quickDock?.isConnected && !quickDockState.collapsed) positionQuickDockNear(quickDockToggle); }, { passive: true });
+  window.addEventListener("resize", () => { if (quickDock?.isConnected && !quickDockState.collapsed) placeQuickDock(); }, { passive: true });
   renderNav();
   onNavChanged(() => {
     const missingActivePlugin = activeView.startsWith("plug:") && !viewDef(activeView);

@@ -43,6 +43,12 @@ export function durLabel(m) {
   const h = Math.floor(m / 60), r = m % 60;
   return r ? `${h}h ${r}m` : `${h} 小时`;
 }
+/** 两个 `YYYY-MM-DD` 之间的整天数（后者减前者）。用本地零点构造，躲开夏令时与时刻分量。 */
+export function daysBetween(fromStr, toStr) {
+  const [fy, fm, fd] = String(fromStr).split("-").map(Number);
+  const [ty, tm, td] = String(toStr).split("-").map(Number);
+  return Math.round((new Date(ty, tm - 1, td) - new Date(fy, fm - 1, fd)) / 86400000);
+}
 
 /* ── 初始化 / 结构归一化 ── */
 export function normalizeState(raw = {}) {
@@ -87,7 +93,6 @@ export function getState() { return state; }
 export function subscribe(fn) { subs.add(fn); return () => subs.delete(fn); }
 function queueSave() { return persistence.flush(); }
 function scheduleSave() { persistence.schedule(); }
-export const getSaveStatus = persistence.getStatus;
 export const subscribeSaveStatus = persistence.subscribe;
 function emitChanged() {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("tide:state-changed"));

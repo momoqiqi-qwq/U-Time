@@ -3,8 +3,8 @@
   const PUSHPLUS_URL = "https://www.pushplus.plus/send";
   // pushplus 官方文档（经系统浏览器打开，不在应用内跳转）
   const PUSHPLUS_DOCS = [
-    ["使用说明 / SDK", "https://www.pushplus.plus/doc/guide/sdk.html"],
-    ["消息接口文档（参数与返回码）", "https://www.pushplus.plus/doc/guide/api.html"],
+    ["使用说明", "https://www.pushplus.plus/doc/guide/sdk.html"],
+    ["接口文档", "https://www.pushplus.plus/doc/guide/api.html"],
   ];
   const SCT = (key, title, desp) =>
     `https://sctapi.ftqq.com/${encodeURIComponent(key)}.send?title=${encodeURIComponent(title)}&desp=${encodeURIComponent(desp)}`;
@@ -335,18 +335,21 @@
     if (document.getElementById("wp-push-style")) return;
     const st = document.createElement("style"); st.id = "wp-push-style";
     st.textContent = `.wp-wrap{max-width:680px;margin:0 auto}.wp-card{background:var(--panel,#fff);border:1px solid var(--line,#E4DFD6);border-radius:16px;padding:20px 22px}.wp-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}.wp-field{margin-top:12px}.wp-field label{display:block;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);margin-bottom:4px}.wp-field input:not(.switch),.wp-field select,.wp-row select{height:38px;border:1px solid var(--line,#E4DFD6);border-radius:9px;padding:0 10px;background:var(--panel,#fff);color:var(--ink,#22303A)}.wp-field input:not(.switch){width:100%}.wp-btn{font-size:calc(12px * var(--ui-text-scale));border:1px solid var(--line,#E4DFD6);border-radius:8px;padding:8px 13px;background:var(--panel,#fff);cursor:pointer;color:var(--ink,#22303A)}.wp-btn.pri{background:var(--deep,#0F4C5C);color:#fff;border-color:var(--deep,#0F4C5C)}.wp-check{display:inline-flex;gap:8px;align-items:center;font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#667780)}.wp-check .switch{margin-top:0}.wp-note{font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);line-height:1.75;margin-top:10px;background:var(--paper,#f6f7f7);padding:9px 10px;border-radius:9px}.wp-docs{margin-top:10px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}.wp-link{color:var(--sea,#118AB2);cursor:pointer;text-decoration:underline;text-underline-offset:2px}.wp-log{margin-top:14px;border-top:1px dashed var(--line,#EFEAE1);padding-top:8px}.wp-provider{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.wp-provider button{padding:10px;border:1px solid var(--line,#ddd);border-radius:10px;background:var(--panel,#fff);cursor:pointer}.wp-provider button.on{border-color:var(--deep,#0F4C5C);box-shadow:inset 0 0 0 1px var(--deep,#0F4C5C)}.wp-multi{position:relative;display:inline-flex}.wp-multi b{font-weight:650;color:var(--ink,#22303A)}.wp-ms-panel{position:absolute;top:calc(100% + 6px);left:0;z-index:40;background:var(--panel,#fff);border:1px solid var(--line,#E4DFD6);border-radius:12px;padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(146px,1fr));gap:8px 10px;width:min(78vw,430px);max-height:min(56vh,420px);overflow:auto;box-shadow:0 10px 26px rgba(0,0,0,.14);opacity:0;transform:translateY(-6px);visibility:hidden;pointer-events:none;transition:opacity .18s ease,transform .18s ease,visibility 0s linear .18s}.wp-ms-panel.on{opacity:1;transform:translateY(0);visibility:visible;pointer-events:auto;transition:opacity .18s ease,transform .18s ease,visibility 0s}.wp-ms-caret{display:inline-block;transition:transform .18s ease}.wp-multi.open .wp-ms-caret{transform:rotate(180deg)}@media (prefers-reduced-motion:reduce){.wp-ms-panel,.wp-ms-caret{transition:none}}.wp-ms-cap{grid-column:1/-1;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A9B2BA);letter-spacing:.06em;margin-top:2px}.wp-ms-ico{width:17px;flex:none;text-align:center;font-size:calc(13px * var(--ui-text-scale));line-height:1}.wp-ms-note{grid-column:1/-1;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);line-height:1.6}.wp-srcs{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:4px 8px;border-top:1px dashed var(--line,#EFEAE1);padding-top:9px;margin-top:1px;transition:opacity .18s ease}.wp-srcs.off{opacity:.45;pointer-events:none;filter:grayscale(1)}.wp-src{min-height:32px;padding:4px 7px;border-radius:9px;transition:background .18s ease}.wp-src:hover{background:var(--paper,#f6f7f7)}@media (prefers-reduced-motion:reduce){.wp-srcs,.wp-src{transition:none}}.wp-src-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.wp-src-icon{width:20px;height:20px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:6px}.wp-src-icon img{width:20px;height:20px;object-fit:contain;display:block}.wp-src-icon.no-img{background:color-mix(in srgb,var(--deep,#0F4C5C) 12%,var(--panel,#fff))}.wp-src-icon.no-img::after{content:"🔌";font-size:calc(11px * var(--ui-text-scale))}@media(max-width:620px){.wp-provider{grid-template-columns:1fr}.wp-row>*{flex:1}.wp-row .wp-check{flex:auto}}`;
-    st.textContent += `.wp-preview{margin-top:12px;padding:14px;background:#e6e5e3;border:1px solid #d3d2cf;border-radius:8px;color:#1b1b1b}.wp-preview-head{display:flex;align-items:center;gap:9px;margin-bottom:10px;font-size:calc(13px * var(--ui-text-scale))}.wp-preview-avatar{width:34px;height:34px;display:grid;place-items:center;border-radius:5px;background:#18a058;color:#fff;font-weight:750}.wp-preview-time{margin-left:auto;color:#888;font-size:calc(11px * var(--ui-text-scale))}.wp-preview-bubble{margin-left:42px;background:#fff;border:1px solid #ddd;border-radius:5px;padding:12px;max-width:520px;box-shadow:0 1px 2px rgba(0,0,0,.05)}.wp-preview-title{font-weight:700;overflow-wrap:anywhere}.wp-preview-content{margin-top:9px;white-space:pre-wrap;line-height:1.6;font-size:calc(12px * var(--ui-text-scale));overflow-wrap:anywhere}.wp-preview-note{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);margin-top:7px}`;
+    st.textContent += `.wp-preview{margin-top:12px;padding:14px;background:#e6e5e3;border:1px solid #d3d2cf;border-radius:8px;color:#1b1b1b}.wp-preview-head{display:flex;align-items:center;gap:9px;margin-bottom:10px;font-size:calc(13px * var(--ui-text-scale))}.wp-preview-avatar{width:34px;height:34px;display:grid;place-items:center;border-radius:5px}.wp-preview-time{margin-left:auto;color:#888;font-size:calc(11px * var(--ui-text-scale))}.wp-preview-bubble{margin-left:42px;background:#fff;border:1px solid #ddd;border-radius:5px;padding:12px;max-width:520px;box-shadow:0 1px 2px rgba(0,0,0,.05)}.wp-preview-title{font-weight:700;overflow-wrap:anywhere}.wp-preview-content{margin-top:9px;white-space:pre-wrap;line-height:1.6;font-size:calc(12px * var(--ui-text-scale));overflow-wrap:anywhere}.wp-preview-note{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);margin-top:7px}`;
+    /* 微信绿第三段：放在最后写，才稳吃上面同优先级的 .wp-preview-* 规则（同权重后写者胜）。
+       品牌绿一套、深色主题换更亮的一枚（#07C160 压深底偏暗），绿色只出现在「通道 + 成功」上。 */
+    st.textContent += `.wp-wrap{--wp-wx:#07C160;--wp-wx-edge:#07C160}:root[data-theme-mode="dark"] .wp-wrap{--wp-wx:#2AD37F;--wp-wx-edge:#25C97C}.wp-head{display:flex;align-items:center;gap:9px}.wp-logo{width:26px;height:26px;flex:none}.wp-title{font-size:calc(15px * var(--ui-text-scale));font-weight:750}.wp-pill{margin-left:auto;white-space:nowrap;font-size:calc(10.5px * var(--ui-text-scale));font-weight:650;padding:3px 9px;border-radius:999px;color:color-mix(in srgb,var(--wp-wx) 52%,var(--ink,#22303A));background:color-mix(in srgb,var(--wp-wx) 16%,var(--panel,#fff));border:1px solid color-mix(in srgb,var(--wp-wx) 34%,var(--line,#E4DFD6))}.wp-pill.off{color:var(--ink-3,#A9B2BA);background:var(--paper,#f6f7f7);border-color:var(--line,#E4DFD6)}.wp-card{border-top:2px solid color-mix(in srgb,var(--wp-wx-edge) 70%,var(--line,#E4DFD6))}.wp-btn.pri{background:var(--wp-wx);border-color:var(--wp-wx);color:#fff}.wp-provider button.on{border-color:var(--wp-wx-edge);box-shadow:inset 0 0 0 1px var(--wp-wx-edge)}.wp-logsuc{color:color-mix(in srgb,var(--wp-wx) 58%,var(--ink,#22303A))}.wp-logerr{color:var(--danger,#B03535)}.wp-preview-avatar{background:#fff;padding:3px;border:1px solid color-mix(in srgb,var(--wp-wx-edge) 45%,#c9c8c5)}.wp-preview-avatar img{width:24px;height:24px;display:block}.wp-preview-note{color:#6b6b6b}`;
     document.head.append(st);
   }
 
   function render(el) {
     ensureStyle(); el.innerHTML = "";
     const wrap = document.createElement("div"); wrap.className = "wp-wrap";
-    wrap.innerHTML = `<div style="font-size:calc(11px * var(--ui-text-scale));letter-spacing:.3em;color:var(--ink-2,#7E8B94);margin:14px 0 12px">微 信 信 息 推 送 · PushPlus</div><div class="wp-card"><div style="font-size:calc(15px * var(--ui-text-scale));font-weight:750">微信推送通道</div><div class="wp-note">推荐使用 PushPlus：点「一键获取 Token」打开一对一消息页，微信扫码登录后复制页面上的 Token 粘贴回来。默认通过微信公众号渠道发送；如填写群组编码 Topic，则发到对应群组。旧版 Server酱配置继续保留兼容。</div><div class="wp-docs">官方文档：<span class="wp-link" data-doc="${PUSHPLUS_DOCS[0][1]}">${PUSHPLUS_DOCS[0][0]}</span> · <span class="wp-link" data-doc="${PUSHPLUS_DOCS[1][1]}">${PUSHPLUS_DOCS[1][0]}</span></div><div class="wp-provider"><button data-provider="pushplus">PushPlus（推荐）</button><button data-provider="serverchan">Server酱（兼容）</button></div><div data-pp><div class="wp-field"><label>PushPlus Token</label><input data-token type="password" autocomplete="off" placeholder="粘贴 Token"></div><div class="wp-row" style="margin-top:8px"><button class="wp-btn pri" data-gettoken>↗ 一键获取 Token</button><span style="font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)">打开「一对一消息」页（未登录会先跳登录），登录后即可复制 Token</span></div><div class="wp-field"><label>Topic（可选，群组编码）</label><input data-topic type="text" placeholder="不填则只推送给自己"></div></div><div data-sct><div class="wp-field"><label>Server酱 SendKey</label><input data-key type="password" autocomplete="off" placeholder="SCT…"></div></div><div class="wp-row"><label class="wp-check"><input class="switch" role="switch" data-en type="checkbox">启用微信推送</label><div class="wp-multi" data-ms><button type="button" class="wp-btn" data-ms-btn aria-haspopup="true" aria-expanded="false">推送内容：<b data-ms-label></b> <span class="wp-ms-caret" aria-hidden="true">▾</span></button><div class="wp-ms-panel" data-ms-panel><span class="wp-ms-cap">应用内提醒</span><label class="wp-check"><span class="wp-ms-ico" aria-hidden="true">⏰</span><input type="checkbox" data-ms="block">时间块提醒</label><label class="wp-check"><span class="wp-ms-ico" aria-hidden="true">📌</span><input type="checkbox" data-ms="task">任务截止提醒</label><span class="wp-ms-cap">插件收集的新消息</span><label class="wp-check"><span class="wp-ms-ico" aria-hidden="true">🔔</span><input type="checkbox" data-ms="plugin">总开关</label><div class="wp-srcs" data-ms-srcs></div><div class="wp-ms-note">先攒 2 分钟，再把队列里全部待发消息合并成一条推送，尽量少占 PushPlus 频次额度（相同内容 1 小时限 3 条、每分钟限 5 次）。只想收某几个插件的消息，在上面的格子里取消勾选即可。</div><div class="wp-ms-note" data-ms-queue hidden></div></div></div></div><div class="wp-row"><span style="font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)">时间块提前</span><select data-lead><option value="3">3 分钟</option><option value="5">5 分钟</option><option value="10">10 分钟</option><option value="15">15 分钟</option><option value="30">30 分钟</option></select><span style="flex:1"></span><button class="wp-btn" data-show>显示/隐藏凭据</button><button class="wp-btn pri" data-test>发送测试消息</button></div><div class="wp-log" data-log></div><div class="wp-note">日志里 ✓ 表示消息已成功<b>提交</b>到推送服务（官方接口为异步，code=200 只代表已接收）；公众号实际送达以微信为准，受平台频控影响。收不到消息时先用「发送测试消息」验证，再对照上方官方文档排查。</div></div>`;
+    wrap.innerHTML = `<div class="wp-card"><div class="wp-head"><img class="wp-logo" src="/icons/plugins/wechat-push.png" alt="" width="26" height="26"><span class="wp-title">微信推送通道</span><span class="wp-pill off" data-pill>未配置</span></div><div class="wp-docs"><span class="wp-link" data-doc="${PUSHPLUS_DOCS[0][1]}">${PUSHPLUS_DOCS[0][0]}</span> · <span class="wp-link" data-doc="${PUSHPLUS_DOCS[1][1]}">${PUSHPLUS_DOCS[1][0]}</span></div><div class="wp-provider"><button data-provider="pushplus">PushPlus（推荐）</button><button data-provider="serverchan">Server酱</button></div><div data-pp><div class="wp-field"><label>PushPlus Token</label><input data-token type="password" autocomplete="off" placeholder="粘贴 Token"></div><div class="wp-row" style="margin-top:8px"><button class="wp-btn pri" data-gettoken>↗ 获取 Token</button><span style="font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)">扫码登录后复制 Token</span></div><div class="wp-field"><label>Topic</label><input data-topic type="text" placeholder="留空只推给自己"></div></div><div data-sct><div class="wp-field"><label>Server酱 SendKey</label><input data-key type="password" autocomplete="off" placeholder="SCT…"></div></div><div class="wp-row"><label class="wp-check"><input class="switch" role="switch" data-en type="checkbox">启用微信推送</label><div class="wp-multi" data-ms><button type="button" class="wp-btn" data-ms-btn aria-haspopup="true" aria-expanded="false">推送内容：<b data-ms-label></b> <span class="wp-ms-caret" aria-hidden="true">▾</span></button><div class="wp-ms-panel" data-ms-panel><label class="wp-check"><span class="wp-ms-ico" aria-hidden="true">⏰</span><input type="checkbox" data-ms="block">时间块提醒</label><label class="wp-check"><span class="wp-ms-ico" aria-hidden="true">📌</span><input type="checkbox" data-ms="task">任务截止提醒</label><span class="wp-ms-cap">插件消息</span><label class="wp-check"><span class="wp-ms-ico" aria-hidden="true">🔔</span><input type="checkbox" data-ms="plugin">总开关</label><div class="wp-srcs" data-ms-srcs></div><div class="wp-ms-note">攒 2 分钟后合并发送，省频次额度。</div><div class="wp-ms-note" data-ms-queue hidden></div></div></div></div><div class="wp-row"><span style="font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)">时间块提前</span><select data-lead><option value="3">3 分钟</option><option value="5">5 分钟</option><option value="10">10 分钟</option><option value="15">15 分钟</option><option value="30">30 分钟</option></select><span style="flex:1"></span><button class="wp-btn" data-show aria-pressed="false">显示凭据</button><button class="wp-btn pri" data-test>发送测试消息</button></div><div class="wp-log" data-log></div><div class="wp-note">✓ 只表示已提交，实际送达以微信为准。</div></div>`;
     el.append(wrap);
     const previewControls = document.createElement("div");
     previewControls.className = "wp-row";
-    previewControls.innerHTML = `<label for="wp-preview-type">模拟消息</label><select id="wp-preview-type" aria-label="选择要模拟的消息类型"><option value="block">时间块提醒</option><option value="task">任务截止提醒</option><option value="plugin">插件新消息</option><option value="test">测试消息</option></select><button type="button" class="wp-btn" data-preview>查看微信消息预览</button>`;
+    previewControls.innerHTML = `<label for="wp-preview-type">模拟消息</label><select id="wp-preview-type" aria-label="选择要模拟的消息类型"><option value="block">时间块提醒</option><option value="task">任务截止提醒</option><option value="plugin">插件新消息</option><option value="test">测试消息</option></select><button type="button" class="wp-btn" data-preview>微信预览</button>`;
     const preview = document.createElement("div");
     preview.className = "wp-preview";
     preview.hidden = true;
@@ -354,24 +357,21 @@
     async function showPreview() {
       const type = previewControls.querySelector("select").value;
       const at = new Date().toTimeString().slice(0, 5);
-      let msg, sample = false;
+      let msg;
       if (type === "block") {
         const blocks = await tide.blocks.list(tide.util.today());
         const b = blocks.find((x) => x.start && x.title) || { start: "14:00", title: "复习课程", durMin: 50 };
-        sample = !blocks.some((x) => x.start && x.title);
         msg = blockMessage(b);
       } else if (type === "task") {
         const tasks = await tide.tasks.list();
         const task = tasks.find((x) => !x.done && x.due) || { title: "完成报告", due: tide.util.today(), dueTime: "18:00" };
-        sample = !tasks.some((x) => !x.done && x.due);
         msg = taskMessage(task, Array.isArray(task.reminderOffsets) ? Number(task.reminderOffsets[0]) || 0 : 60);
       } else if (type === "plugin") {
-        sample = !state.pluginQueue.length;
         msg = pluginMessage(state.pluginQueue.length ? state.pluginQueue : [{ source: "学校通知", title: "新公告已发布", time: at }], at);
       } else {
         msg = { title: `U-Time测试推送 ${at}`, content: `如果你在微信里看到这条消息，说明推送通道正常 ✓（${at} 发出）` };
       }
-      preview.innerHTML = `<div class="wp-preview-head"><span class="wp-preview-avatar">${state.provider === "pushplus" ? "P" : "S"}</span><b>${state.provider === "pushplus" ? "PushPlus" : "Server酱"}</b><span class="wp-preview-time">${esc(at)}</span></div><div class="wp-preview-bubble"><div class="wp-preview-title">${esc(msg.title)}</div><div class="wp-preview-content">${esc(msg.content)}</div></div><div class="wp-preview-note">${sample ? "当前没有对应数据，展示示例内容。" : "使用当前数据和实际发送的标题、正文。"}仅本地模拟，不发送消息；微信客户端的最终排版以服务商为准。</div>`;
+      preview.innerHTML = `<div class="wp-preview-head"><span class="wp-preview-avatar"><img src="/icons/plugins/wechat-push.png" alt="" width="24" height="24"></span><b>${state.provider === "pushplus" ? "PushPlus" : "Server酱"}</b><span class="wp-preview-time">${esc(at)}</span></div><div class="wp-preview-bubble"><div class="wp-preview-title">${esc(msg.title)}</div><div class="wp-preview-content">${esc(msg.content)}</div></div><div class="wp-preview-note">仅本地模拟，不发送消息</div>`;
       preview.hidden = false;
     }
     previewControls.querySelector("[data-preview]").addEventListener("click", () => showPreview().catch((e) => tide.notify(`预览失败：${e.message || e}`)));
@@ -427,7 +427,7 @@
     ensurePrefs().then(() => {
       ui.token.value = state.token; ui.topic.value = state.topic; ui.key.value = state.oldKey; ui.en.checked = state.enabled;
       ui.lead.value = String(state.lead); paintScope(); paintSources();
-      paintProvider(); paintLog(); paintQueue(); if (state.enabled && configured()) startTimer();
+      paintProvider(); paintLog(); paintQueue(); paintState(); if (state.enabled && configured()) startTimer();
     });
 
     function readFields() {
@@ -436,10 +436,18 @@
       state.blockEnabled = state.pushScope.includes("block");
       state.taskEnabled = state.pushScope.includes("task");
       state.token = ui.token.value.trim(); state.topic = ui.topic.value.trim(); state.oldKey = ui.key.value.trim(); state.lead = Number(ui.lead.value) || 5;
+      paintState();
     }
     function paintProvider() {
       wrap.querySelectorAll("[data-provider]").forEach((b) => b.classList.toggle("on", b.dataset.provider === state.provider));
       ui.pp.style.display = state.provider === "pushplus" ? "block" : "none"; ui.sct.style.display = state.provider === "serverchan" ? "block" : "none";
+    }
+    // 顶部状态胶囊：只有「开着且配好了」才显绿，另两种状态走灰底，免得绿色沦为装饰。
+    function paintState() {
+      const pill = wrap.querySelector("[data-pill]"); if (!pill) return;
+      const ready = configured();
+      pill.textContent = ready && state.enabled ? "推送中" : ready ? "未开启" : "未配置";
+      pill.classList.toggle("off", !(ready && state.enabled));
     }
     wrap.querySelectorAll("[data-doc]").forEach((a) => a.addEventListener("click", () => {
       tide.util.openUrl(a.dataset.doc).catch((e) => tide.notify(`打开官方文档失败：${e.message || e}`));
@@ -448,10 +456,17 @@
       tide.util.openUrl("https://www.pushplus.plus/push1.html").catch((e) => tide.notify(`打开 Token 页失败：${e.message || e}`));
     });
     wrap.querySelectorAll("[data-provider]").forEach((b) => b.addEventListener("click", async () => { readFields(); state.provider = b.dataset.provider; paintProvider(); await save(); }));
-    ui.en.addEventListener("change", async () => { readFields(); state.enabled = ui.en.checked; if (state.enabled && !configured()) { state.enabled = false; ui.en.checked = false; tide.notify(state.provider === "pushplus" ? "请先填写 PushPlus Token" : "请先填写 Server酱 SendKey"); return; } await save(); if (state.enabled) { startTimer(); tick(); tide.notify("微信推送已开启"); } else { if (state.timer) clearInterval(state.timer); state.timer = null; tide.notify("微信推送已关闭"); } });
+    ui.en.addEventListener("change", async () => { readFields(); state.enabled = ui.en.checked; paintState(); if (state.enabled && !configured()) { state.enabled = false; ui.en.checked = false; tide.notify(state.provider === "pushplus" ? "请先填写 PushPlus Token" : "请先填写 Server酱 SendKey"); return; } await save(); if (state.enabled) { startTimer(); tick(); tide.notify("微信推送已开启"); } else { if (state.timer) clearInterval(state.timer); state.timer = null; tide.notify("微信推送已关闭"); } });
     [ui.lead].forEach((x) => x.addEventListener("change", async () => { readFields(); await save(); }));
     [ui.token, ui.topic, ui.key].forEach((x) => x.addEventListener("change", async () => { readFields(); await save(); }));
-    wrap.querySelector("[data-show]").addEventListener("click", () => { const next = ui.token.type === "password" ? "text" : "password"; ui.token.type = next; ui.key.type = next; });
+    wrap.querySelector("[data-show]").addEventListener("click", (e) => {
+      const next = ui.token.type === "password" ? "text" : "password";
+      ui.token.type = next; ui.key.type = next;
+      // 单说一个动词，就必须真的跟着状态走：显示 → 隐藏。原来两个动词并列写在按钮上，
+      // 不用改也不会说谎，但看着像两个按钮。
+      e.currentTarget.textContent = next === "text" ? "隐藏凭据" : "显示凭据";
+      e.currentTarget.setAttribute("aria-pressed", next === "text" ? "true" : "false");
+    });
     // 测试推送：标题带时间戳（PushPlus 相同内容 1 小时限 3 条，重复内容会被 999 拒绝）+ 1 分钟防连点。
     let lastTestAt = 0;
     wrap.querySelector("[data-test]").addEventListener("click", async () => {
@@ -465,7 +480,12 @@
 
   function paintLog() {
     if (!ui?.log) return;
-    ui.log.innerHTML = state.log.length ? state.log.map((l) => `<div style="font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);padding:3px 0">${esc(l)}</div>`).join("") : `<div style="font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A9B2BA)">还没有推送记录</div>`;
+    // ✓ / ✗ 直接决定整行颜色：成功走微信绿、失败走 --danger，其余行仍是 --ink-2。
+    // 行内 color 优先级高于类选择器，所以带类的行不写 color，让 .wp-logsuc / .wp-logerr 生效。
+    ui.log.innerHTML = state.log.length ? state.log.map((l) => {
+      const cls = l.includes("✓") ? "wp-logsuc" : l.includes("✗") ? "wp-logerr" : "";
+      return `<div class="${cls}" style="font-size:calc(11px * var(--ui-text-scale));${cls ? "" : "color:var(--ink-2,#7E8B94);"}padding:3px 0">${esc(l)}</div>`;
+    }).join("") : `<div style="font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A9B2BA)">还没有推送记录</div>`;
   }
 
   tide.ui.registerView({ id: "wechat-push", title: "微信推送", icon: "comment-dots", render });

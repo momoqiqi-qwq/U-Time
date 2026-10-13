@@ -3,7 +3,7 @@
 // 用法：withSearchGlyph(input) —— 输入框本体、类名与事件绑定都不变，只多一层定位容器。
 import { el } from "./ui.js";
 
-export const SEARCH_GLYPH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>';
+const SEARCH_GLYPH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></svg>';
 
 /** 放大镜图标节点（颜色跟随 currentColor，深浅主题同源）。 */
 export function searchGlyph(cls = "search-ico") {

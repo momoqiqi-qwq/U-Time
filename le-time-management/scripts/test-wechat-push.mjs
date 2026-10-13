@@ -9,13 +9,13 @@ const manifest = JSON.parse(fs.readFileSync(new URL('../public/plugins/wechat-pu
 assert.ok(source.includes('https://www.pushplus.plus/doc/guide/sdk.html'), '必须链接官方使用说明/SDK 文档');
 assert.ok(source.includes('https://www.pushplus.plus/doc/guide/api.html'), '必须链接官方消息接口文档');
 assert.ok(source.includes('tide.util.openUrl'), '文档链接必须用 openUrl 经系统浏览器打开');
-assert.equal(manifest.version, '1.10.0');
+assert.equal(manifest.version, '1.12.0');
 assert.ok((manifest.permissions || []).includes('openUrl'), 'manifest 必须声明 openUrl 权限');
 assert.ok((manifest.permissions || []).includes('events'), '订阅 notice:new 必须在 manifest 声明 events 权限');
 const catalog = fs.readFileSync(new URL('../src/pluginCatalog.js', import.meta.url), 'utf8');
 const entry = catalog.slice(catalog.indexOf('"id": "wechat-push"'));
 const block = entry.slice(0, entry.indexOf('},\n  {'));
-assert.match(block, /"1\.10\.0"/, 'pluginCatalog 必须同步插件新版本号');
+assert.match(block, /"1\.12\.0"/, 'pluginCatalog 必须同步插件新版本号');
 assert.match(block, /"openUrl"/, 'pluginCatalog 必须同步 openUrl 权限');
 
 /* ── 2. vm 实测 pushPlus：请求体、成功判定、失败透传 ── */
@@ -79,7 +79,7 @@ assert.match(source, /推送「\$\{title\.slice\(0, 20\)\}」/, '失败日志必
    旧单选下拉（data-scope）已移除；pushScope 数组持久化，老配置从 blockEnabled/taskEnabled 反推。
    v1.8.0 攒批策略（对照 PushPlus 官方限制：相同内容 1 小时限 3 条、每分钟限 5 次、内容 ≤20000 字）：
    首条入队后攒 2 分钟（节流式窗口），到点把队列里全部待发消息合并成一条推送，请求数压到最低。 */
-assert.match(block, /"1\.10\.0"/, 'pluginCatalog 必须同步插件新版本号');
+assert.match(block, /"1\.12\.0"/, 'pluginCatalog 必须同步插件新版本号');
 assert.match(source, /data-ms="block"/, '多选面板要有「时间块」选项');
 assert.match(source, /data-ms="task"/, '多选面板要有「任务截止」选项');
 assert.match(source, /data-ms="plugin"/, '多选面板要有「插件收集的新消息」选项');
@@ -180,4 +180,71 @@ for (const id of ["chaoxing-notify", "cppu-notify", "gx-news", "rss-reader", "sc
     `${id} 首次同步不得把历史条目当新消息广播`);
 }
 
-console.log('PASS: wechat-push 官方文档入口、openUrl 权限、PushPlus 请求体与成功/失败判定、返回码透传与频次限制防护、多选面板可收起与开合动画、插件级勾选两层判定与多列图标下拉、五个消息源插件的 notice:new 广播');
+/* ── 7. v1.11.0 微信绿：品牌色只落在「通道 + 成功」两处 ──
+   事故：整个界面只有一种深青强调色，日志里 ✓ 与 ✗ 同为 --ink-2 灰（成功与失败视觉等价），
+   预览头像还是 P/S 字母方块，看不出这是微信消息。全局没有 --ok/--success 令牌，
+   绿色语义色就是 --mint（#2EC4B6，偏青）—— 微信场景要用微信自己的 #07C160，
+   所以这份绿定义在插件作用域 .wp-wrap 上，不污染全局色板。 */
+assert.match(source, /\.wp-wrap\{--wp-wx:#07C160/, '微信绿必须定义在插件自己的作用域（全局 --mint 是青色，微信场景不能借用）');
+assert.match(source, /:root\[data-theme-mode="dark"\] \.wp-wrap\{--wp-wx:#2AD37F/,
+  '深色主题必须换更亮的绿（#07C160 压深底偏暗）');
+assert.match(source, /\.wp-btn\.pri\{background:var\(--wp-wx\);border-color:var\(--wp-wx\);color:#fff\}/,
+  '主按钮（获取 Token / 发送测试消息）必须是微信绿实底白字');
+assert.match(source, /\.wp-provider button\.on\{border-color:var\(--wp-wx-edge\)/,
+  '渠道选中态的描边要跟着绿（原来只有主题深青）');
+assert.match(source, /\.wp-card\{border-top:2px solid color-mix\(in srgb,var\(--wp-wx-edge\) 70%/,
+  '卡片顶部要有一条绿细线，让「这是微信通道」一眼可辨');
+assert.match(source, /class="wp-logo" src="\/icons\/plugins\/wechat-push\.png"/,
+  '标题左侧用随包微信 logo PNG（FontAwesome solid 里没有 weixin，只能用它）');
+assert.match(source, /data-pill/, '标题右侧要有连接状态胶囊');
+assert.match(source, /pill\.textContent = ready && state\.enabled \? "推送中" : ready \? "未开启" : "未配置"/,
+  '胶囊三态：只有「开着且凭据齐全」才显绿');
+assert.match(source, /pill\.classList\.toggle\("off", !\(ready && state\.enabled\)\)/,
+  '未配置 / 未开启时必须摘掉绿态（否则绿胶囊会说谎）');
+assert.match(source, /l\.includes\("✓"\) \? "wp-logsuc" : l\.includes\("✗"\) \? "wp-logerr"/,
+  '日志 ✓/✗ 必须按行判色，不能再统一 --ink-2');
+assert.match(source, /\.wp-logsuc\{color:color-mix\(in srgb,var\(--wp-wx\) 58%/,
+  '成功行用微信绿与正文色混出的可读绿（纯 #07C160 压浅底只有 2 点多比 1）');
+assert.match(source, /\.wp-logerr\{color:var\(--danger,#B03535\)\}/, '失败行用 --danger');
+assert.doesNotMatch(source, /color:var\(--ink-2,#7E8B94\);padding:3px 0/,
+  '日志行不得再对 ✓/✗ 一律上同一灰度（失败与成功在视觉上必须区分）');
+assert.match(source, /<span class="wp-preview-avatar"><img src="\/icons\/plugins\/wechat-push\.png"/,
+  '微信预览头像必须是微信图标（原来是 P/S 字母）');
+assert.doesNotMatch(source, /"P" : "S"/, '旧的字母头像必须移除');
+assert.doesNotMatch(source, /background:#18a058/, '预览头像的旧硬编码绿底必须清掉，改由 --wp-wx 派生');
+assert.match(source, /\.wp-preview-note\{color:#6b6b6b\}/,
+  '预览提示压在固定的浅灰底上，不能跟主题走 --ink-2（夜间 --ink-2 变浅 ⇒ 浅字压浅底）');
+
+/* ── 8. v1.12.0 描述精简：把「说明书」从界面里拿掉 ──
+   事故：单视图插件实测可见文字 531 字，其中 4 段灰色长说明 + 1 行字距拉开的 kicker 占了一半以上，
+   而每一条都在复述旁边按钮/字段已经说清的事（「点『一键获取 Token』打开一对一消息页…」旁边就是那个按钮）。
+   删的判据不是「看着啰嗦」，而是「删掉这行，功能还看得懂吗」——看得懂才删；
+   所以留下的是操作步骤（扫码登录后复制 Token）和状态说明（✓ 只表示已提交、仅本地模拟）。 */
+assert.doesNotMatch(source, /微 信 信 息 推 送/, '字距拉开的 kicker 整行必须删（卡片标题已写微信推送）');
+assert.doesNotMatch(source, /推荐使用 PushPlus/, '卡片顶那段 110 字的推荐说明必须删（四件事里三件与按钮/字段重复）');
+assert.doesNotMatch(source, /官方文档：/, '文档行不再带「官方文档：」前缀，链接文案自己就说清了');
+assert.doesNotMatch(source, /Server酱（兼容）/, '渠道按钮去掉「（兼容）」后缀（「（推荐）」保留）');
+assert.doesNotMatch(source, /一键获取 Token/, '「一键」是自夸，按钮只留动词短语');
+assert.match(source, />↗ 获取 Token</, '获取 Token 按钮必须还在');
+assert.doesNotMatch(source, /打开「一对一消息」页/, 'Token 旁 33 字提示要压成一行短句');
+assert.match(source, /扫码登录后复制 Token/, 'Token 旁短提示必须还在 —— 那是真的操作步骤，不是说明');
+assert.doesNotMatch(source, /Topic（可选，群组编码）/, 'label 只留字段名，可选性交给 placeholder');
+assert.match(source, /placeholder="留空只推给自己"/, 'placeholder 要说清「什么都不填」会怎样');
+assert.doesNotMatch(source, /应用内提醒/, '多选面板删掉「应用内提醒」分组标题（勾格本身写着时间块/任务截止）');
+assert.match(source, /<span class="wp-ms-cap">插件消息<\/span>/, '「插件收集的新消息」缩成「插件消息」');
+assert.doesNotMatch(source, /先攒 2 分钟，再把队列里全部待发消息合并成一条推送/, '攒批说明压成一句');
+assert.match(source, /攒 2 分钟后合并发送，省频次额度。/, '攒批结论要留一句（用户需要知道为什么要等）');
+assert.doesNotMatch(source, /官方接口为异步，code=200 只代表已接收/, '日志说明压成一句；频次规则只在 999 报错时才由 pushLog 吐出来');
+assert.match(source, /✓ 只表示已提交，实际送达以微信为准。/, '「✓ = 已提交、不等于已送达」这句不能删（这是防误解的关键）');
+assert.doesNotMatch(source, /查看微信消息预览/, '预览按钮文案缩成「微信预览」');
+assert.match(source, />微信预览</, '微信预览按钮必须还在');
+assert.doesNotMatch(source, /当前没有对应数据，展示示例内容。/, '预览说明不再分「示例/真实」两句');
+assert.match(source, /仅本地模拟，不发送消息</, '「只是本地模拟」必须留（否则用户以为真发了）');
+assert.doesNotMatch(source, /sample/, '预览说明不再依赖 sample，变量本身也要清干净');
+/* 「显示凭据」按钮：单说一个动词就必须真的跟着状态走 */
+assert.match(source, /data-show aria-pressed="false">显示凭据</, '按钮初始文案是「显示凭据」');
+assert.doesNotMatch(source, /显示\/隐藏凭据/, '不许退回两个动词并列的旧文案');
+assert.match(source, /e\.currentTarget\.textContent = next === "text" \? "隐藏凭据" : "显示凭据"/,
+  '按下去要变成「隐藏凭据」：原来只切 input type、文案恒定，单动词写法下就会说谎');
+
+console.log('PASS: wechat-push 官方文档入口、openUrl 权限、PushPlus 请求体与成功/失败判定、返回码透传与频次限制防护、多选面板可收起与开合动画、插件级勾选两层判定与多列图标下拉、微信绿品牌色与日志成败配色、五个消息源插件的 notice:new 广播、描述精简后仍留下操作步骤与成败语义');

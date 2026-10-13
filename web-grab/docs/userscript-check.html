@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>USCRIPT-CHECK</title>
+<style>
+  body { margin: 0; padding: 48px; font: 16px/1.7 system-ui, "Microsoft YaHei", sans-serif; background: #fbfaf8; color: #22303a; }
+  code { background: #efece6; padding: 2px 6px; border-radius: 5px; }
+  .box { max-width: 660px; }
+  h1 { font-size: 20px; margin: 0 0 10px; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>USCRIPT-CHECK-PAGE</h1>
+    <p>本页故意不写任何插件界面文案，只留这个标记：<code>USCRIPT-CHECK-PAGE</code>。
+       所以在无障碍树 / 屏幕上只可能出现插件自己渲染出来的东西。</p>
+    <p><b>预期</b>：右下角出现一个浮标按钮（上面有个数字 = 当前页被嗅探到的接口数），按 <code>Alt+G</code> 展开面板。</p>
+    <p><b>如果浮标没出现</b>：<br>
+       ① 先刷新一次本页 —— 安装之前就已经打开的标签页不会自动注入；<br>
+       ② 打开篡改猴「管理面板」，确认列表里有 <code>web-grab</code> 这个脚本且开关是启用；<br>
+       ③ 确认篡改猴本身是启用状态（图标没有变灰）。</p>
+    <p><b>想验证真实效果</b>：去 <code>mojinghub.com/competitions</code>，面板里会多出一个直连接口翻页抓取的按钮。</p>
+  </div>
+</body>
+</html>

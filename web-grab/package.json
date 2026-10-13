@@ -1,0 +1,28 @@
+{
+  "name": "web-grab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "JS 渲染（SPA）站点抓取适配器 + 增强抓取插件：静态层只返回空壳时，自动探测数据接口并走站点适配器直连取数",
+  "bin": {
+    "web-grab": "./src/cli.mjs"
+  },
+  "scripts": {
+    "adapters": "node src/cli.mjs adapters",
+    "inspect": "node src/cli.mjs inspect https://www.mojinghub.com/competitions",
+    "probe": "node src/cli.mjs probe https://www.mojinghub.com/competitions",
+    "routes": "node scripts/routes.mjs https://www.mojinghub.com/competitions",
+    "fetch": "node src/cli.mjs fetch https://www.mojinghub.com/competitions --all --format table",
+    "export:json": "node src/cli.mjs fetch https://www.mojinghub.com/competitions --all --format json --out out/competitions.json",
+    "export:csv": "node src/cli.mjs fetch https://www.mojinghub.com/competitions --all --format csv --out out/competitions.csv",
+    "export:md": "node src/cli.mjs fetch https://www.mojinghub.com/competitions --all --format md --out out/competitions.md",
+    "export:ics": "node src/cli.mjs fetch https://www.mojinghub.com/competitions --all --format ics --ics-window both --ics-days all --out out/competitions.ics",
+    "selftest": "node scripts/selftest.mjs",
+    "selftest:online": "node scripts/selftest.mjs --online",
+    "check:app-ics": "node scripts/check-app-import.mjs",
+    "check:userscript": "node scripts/check-userscript.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -2,7 +2,7 @@ import { api } from "./api.js";
 import { appConfirm, el } from "./ui.js";
 
 export const DISCLAIMER_VERSION = "2";
-export const DISCLAIMER_UPDATED = "2026-10-01";
+const DISCLAIMER_UPDATED = "2026-10-01";
 export const DISCLAIMER_SECTIONS = [
   { title: "独立工具与官方信息", text: "U-Time 是独立开发的时间管理工具，并非学校或第三方服务的官方客户端，也不代表其认可或担保。课程、考试、成绩、学分、选课、请假、账单等信息与办理结果，请以对应官方系统为准；涉及截止时间、缴费或提交的操作，请到官方渠道再次核对。" },
   { title: "提醒与信息准确性", text: "课程、考试和通知可能因数据源更新、网络或解析问题而延迟、遗漏或出错。通知权限、静音、省电策略、应用退出和设备状态都可能影响提醒送达。请先在设置中测试提醒，并为考试、报名等重要事项设置独立的备用提醒，不要把本软件作为唯一保障。" },

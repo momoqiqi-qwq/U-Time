@@ -70,7 +70,7 @@ async function boot() {
   initGlobalShortcuts().catch((e) => console.warn("全局快捷键不可用:", e));
   // 应用内更新：内部自己延迟 8s 再查，且不 await —— 绝不挡住首屏。
   initUpdateChecker();
-  api.appInfo().then((x) => initAutomation(x?.version || "")).catch(() => initAutomation(""));
+  api.appInfo().then((x) => initAutomation(x?.version || ""), () => initAutomation(""));
   // 手机端（局域网）指令 → 应用统一数据层
   if (api.isTauri) {
     const { listen } = await import("@tauri-apps/api/event");
@@ -98,8 +98,7 @@ async function boot() {
     // 手机推回来的数据要不要接收，由电脑端这个确认门决定（挂在全局：推送来的时候
     // 用户多半没开着设置页）。版本带上是为了恢复点能记住是哪版存的。
     api.appInfo()
-      .then((x) => initLanPushGate(x?.version || ""))
-      .catch(() => initLanPushGate(""));
+      .then((x) => initLanPushGate(x?.version || ""), () => initLanPushGate(""));
   }
   // 插件加载放在界面之后，不阻塞首屏
   initPluginHost().catch((e) => console.error("插件宿主初始化失败:", e));

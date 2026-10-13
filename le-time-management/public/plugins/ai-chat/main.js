@@ -11,12 +11,18 @@
 // 三条硬约束（都不是本地能改的）：
 //   · 上游非流式：一次请求拿回整段文本，所以发送后必须自己画等待态；
 //   · 宿主限制：一次 ≤24 条消息、文本总量 ≤60000 字符 ⇒ 历史按轮数截断、快照按条数封顶；
-//   · 安全区：本视图不建浮层、不往宿主容器外挂节点、不按视口尺寸定位（铁律四与
+//   · 安全区：本视图不建 fixed 浮层、不往宿主容器外挂节点、不按视口尺寸定位（铁律四与
 //     scripts/test-plugin-safe-area.mjs 会拦这三类）；吸底输入框靠 .plugview 的满高 flex 列实现。
+//     视图内的弹层（侧栏 / 头像弹窗 / 档位下拉）一律用 absolute —— 包含块是带 transform 的
+//     .aichat，天然落在宿主 .view 的安全区里，不用自己补四条边。
 //
-// v0.175.0 加了「思考强度」：头部一颗按钮循环 自动 → 低 → 中 → 高，档位跟着请求走
-// （tide.ai.chat 的 reasoningEffort → Rust 的 reasoning_effort）。做成一整颗按钮而不是
-// 分段控件或下拉栏的理由写在 THINK_LEVELS 上方。
+// v0.175.0 加了「思考强度」：档位跟着请求走（tide.ai.chat 的 reasoningEffort → Rust 的
+// reasoning_effort）。v0.204.0 把它从「头部一颗循环按钮」改成输入区里的下拉栏 —— 四档是
+// 「一组只能选一个」，逐次循环既看不到有哪几档、又要连点四下才能回到原档；「带本机数据」
+// 也一起从顶栏搬到输入区，改本轮行为的东西贴着「说」的地方。改法见 THINK_LEVELS 上方。
+// v0.205.0 再收一轮输入区：档位栏从「in-flow 折叠块」改成向上展开的浮层（展开不再顶掉
+// 对话），输入框移到最上、两颗胶囊与工具按钮并成一行 —— 用户原话是「让对话拥有更大的
+// 空间…不然看不到上面的对话」。
 (function () {
   const VIEW_ID = "ai-chat";
   const THREAD_KEY = "thread";
@@ -35,15 +41,16 @@
   const AVATAR_SIDE = 128;  // 头像统一压成正方形边长（圆形显示用）
   const DEFAULT_NAME = { me: "我", ai: "AI 助手" };
 
-  /* 思考强度（v0.175.0）：四档循环，`id` 空串 = 不带 reasoning_effort 字段。
-     为什么做成「一颗按钮循环」而不是分段控件 / 下拉栏：
-       · 分段控件属于铁律六的「单选切换」，选中高亮要滑动到新选项，而那个滑动光块是宿主
-         src/selectionGlow.js 的 attachSelectionGlow()，插件侧拿不到（插件只有 tide.*）；
-       · 下拉栏属于铁律七，要自己写展开 + 收起双向动画；更要紧的是本视图的硬纪律是
-         「不建浮层」（见文件头注释，test-ai-chat 与 test-plugin-safe-area 都盯着），
-         弹层还得自己让开四条安全区。
-     一颗按钮循环三档既能设置，又不引入浮层，也不产生「一组选项」需要滑动高亮，
-     两条铁律都不触碰。当前档位直接写在按钮文字里，不必点开才知道选的是什么。 */
+  /* 思考强度（v0.175.0 加档位，v0.204.0 从「一颗循环按钮」改成输入区里的下拉栏）：
+     四档，`id` 空串 = 不带 reasoning_effort 字段。
+     为什么现在是下拉栏：四档是「一组只能选一个」的单选组，逐次循环点四下才能回到原档，
+     用户看不到还有哪几档。改成下拉栏后：
+       · 展开 / 收起走铁律七（0fr→1fr 连续插值 + 方向箭头旋转 + 收起置 inert，见 .aichat-effort-menu）；
+       · 选中高亮走铁律六，用宿主 tide.ui.selectionGlow 的滑动光（与快捷提问行同一套参数）；
+       · 浮层是 absolute 且向上展开（v0.205.0）：展开对布局的高度占用是 0，不再把上面的对话顶掉；
+         包含块是带 transform 的 .aichat，所以它落不进宿主 .view 安全区之外，不用自己补四条边；
+         test-plugin-safe-area 扫的那几个禁用字面量（贴视口定位的那类）一个都不出现。
+         （别在这条注释里把它们原样列出来：那个脚本按字面量扫，注释里写了同样会中招。） */
   const THINK_LEVELS = [
     { id: "", label: "自动", hint: "不指定思考强度，由模型自己决定（默认）" },
     { id: "low", label: "低", hint: "少想一点，回得更快、更省 token" },
@@ -52,9 +59,10 @@
   ];
   const thinkLevel = () => THINK_LEVELS.find((l) => l.id === thinkEffort) || THINK_LEVELS[0];
   const isThinkLevel = (id) => THINK_LEVELS.some((l) => l.id === id);
-  // 按钮 title 里的「点击依次切换：自动 → 低 → 中 → 高」是常量。它写在 paintThink() 里
-  // 会随每次重绘重新 map + join 一遍，提出来只算一次（本视图切走再回来就会重绘）。
+  // 档位串（「自动 → 低 → 中 → 高」）与下拉栏的选项 HTML 都只算一次：paintThink() 每次
+  // 切页回来都会跑，在重绘路径上重拼就是白算一遍（测试按「THINK_LEVELS.map 只准在常量区出现」钉住）。
   const THINK_CYCLE = THINK_LEVELS.map((l) => l.label).join(" → ");
+  const THINK_ITEMS = THINK_LEVELS.map((l) => `<button type="button" role="option" class="aichat-lv" data-think-lv="${l.id}" aria-selected="false"><b>${l.label}</b><small>${l.hint}</small></button>`).join("");
 
   let thread = [];
   let notices = [];         // 跨插件消息（新的在前），跨重启保留
@@ -69,6 +77,9 @@
   let thinkEffort = "";    // 思考强度档位（"" / low / medium / high），跨重启保留
   let ui = null;          // 当前渲染出来的 DOM（切走再回来会重建）
   let chipGlow = null;    // 快捷提问行的滑动选中光（宿主 tide.ui.selectionGlow 给的 {sync,dispose}）
+  let thinkGlow = null;   // 思考强度下拉栏的滑动选中光（同一套宿主光，另一个容器）
+  let thinkGlowTimer = 0; // 光块落位定时器：等展开过渡走完再量位置，理由见 setThinkMenu()
+  let thinkOpen = false;  // 下拉栏展开态（DOM 重建时一并重置）
   let activeChip = -1;    // 最近一次点的快捷提问；-1 = 还没点过（光块不出现）
   let disposeHooked = false;   // tide.ui.onDispose 只挂一次，避免每次重绘往宿主 Set 里塞新闭包
   let sessions = [];
@@ -103,6 +114,7 @@
       renderThread();
       ui.log.scrollTop = ui.log.scrollHeight;
       ui.closeSidebar();
+      ui.closeId?.();
       ui.input.focus();
     }
   }
@@ -229,6 +241,560 @@
     const box = document.createElement("div");
     box.innerHTML = html;
     return box;
+  }
+
+  /* ─────────────────── 生成式界面：dsh-ui 围栏（v0.201.0） ───────────────────
+
+     参考 dsh-genui：模型可以在正文里另起一个 ```dsh-ui 代码块，块里是一份 JSON 规格，
+     界面把它画成真组件（结论卡、对比表、清单、图表…），而不是丢一段等宽的 JSON 让用户自己读。
+
+     三条取舍，都是被沙箱逼出来的：
+       · 这里只有 tide.* 与 document，没有 React，也没有 echarts / mermaid / three；
+         所以只复刻「原生 DOM + CSS 就能画准」的组件，echart / mermaid / diagram /
+         scene3d / plot 一律降级成代码块（信息不丢，也不引任何外部依赖）。
+       · 规格先过白名单再画：未知 type 直接丢，节点数封顶 200、层级封顶 8，
+         字符串一律先 esc() 再内联排版 —— 模型吐 HTML 也执行不了。
+       · 交互只做本地的（切页签 / 展开 / 筛选 / 填值 / 判卷 / 复制），不为了一个按钮回头找模型；
+         要模型参与的按钮没有 action 就渲染成禁用态，不做「看着能点、点了没反应」的假按钮。
+     护栏在 scripts/test-ai-chat.mjs 的「生成式界面」一节逐条盯着。 */
+
+  const GENUI_LANGS = new Set(["dsh-ui", "genui"]);
+  const GENUI_MARK = "\u0001";     // 正文里的占位符：\u0001GUI0\u0001，渲染时换回组件
+  const GENUI_MAX_NODES = 200;     // 与 dsh-genui 同一个口径：再多也没人看得完
+  const GENUI_MAX_DEPTH = 8;
+  const GENUI_TONES = new Set(["info", "success", "warning", "error"]);
+  // 需要第三方库或外部媒体的组件：不假装能画，原样当代码块交给用户。
+  const GENUI_AS_CODE = new Set(["echart", "mermaid", "diagram", "scene3d", "plot", "image", "audio", "video"]);
+
+  const giText = (v) => (v == null ? "" : String(v));
+  const giTag = (tag, cls, inner, attrs = "") =>
+    `<${tag}${cls ? ` class="${cls}"` : ""}${attrs}>${inner}</${tag}>`;
+  const giOne = (v, key, fallback = "") => giText(v && typeof v === "object" ? v[key] : v) || fallback;
+  const giNum = (v) => {
+    const n = Number(String(v ?? "").trim());
+    return Number.isFinite(n) ? n : null;
+  };
+
+  /** 围栏里的小富文本：先转义，再补 ==高亮== / **加粗** / `行内码` / [文字](网址)。 */
+  function giInline(s) {
+    return esc(giText(s))
+      .replace(/==([^=]+)==/g, "<mark>$1</mark>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a class="gui-link" href="$2" target="_blank" rel="noreferrer noopener">$1</a>');
+  }
+
+  /**
+   * 从第一个 { 开始配平括号（跳过字符串里的括号），顺带容忍模型带上来的尾随文字。
+   * 返回配平出来的那一段 JSON 文本；配不平就返回空串。
+   */
+  function giBalanced(src, start) {
+    let depth = 0;
+    let quote = false;
+    let escape = false;
+    for (let i = start; i < src.length; i += 1) {
+      const ch = src[i];
+      if (quote) {
+        if (escape) escape = false;
+        else if (ch === "\\") escape = true;
+        else if (ch === '"') quote = false;
+        continue;
+      }
+      if (ch === '"') { quote = true; continue; }
+      if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) return src.slice(start, i + 1);
+      }
+    }
+    return "";
+  }
+
+  /** 规格白名单：只留认识的键，标题截断，items 必须是数组。坏规格返回 null（正文原样留着）。 */
+  function giSpec(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const items = Array.isArray(raw.items) ? raw.items
+      : Array.isArray(raw.children) ? raw.children : null;
+    if (!items || !items.length) return null;
+    return {
+      title: giText(raw.title).replace(/\s+/g, " ").trim().slice(0, 120),
+      gap: Math.max(4, Math.min(28, Math.round(giNum(raw.gap) ?? 12))),
+      items,
+    };
+  }
+
+  /** 围栏内容 → 规格；坏 JSON / 非对象根都返回 null。 */
+  function parseGenui(inner) {
+    const src = giText(inner).trim();
+    const start = src.indexOf("{");
+    if (start < 0) return null;
+    const cut = giBalanced(src, start);
+    if (!cut) return null;
+    let parsed = null;
+    try { parsed = JSON.parse(cut); } catch {
+      // 模型写 JSON 最常见的两处手滑：尾随逗号、末尾多一句解释。只修前者。
+      try { parsed = JSON.parse(cut.replace(/,(\s*[}\]])/g, "$1")); } catch { return null; }
+    }
+    return giSpec(parsed);
+  }
+
+  /**
+   * 把回复里的 dsh-ui 围栏摘出来，正文原地留一个占位符。
+   * 留占位符是为了**保住位置**：围栏可以出现在正文中间，抽走之后按顺序插回去，
+   * 而不是一律堆到气泡末尾。坏规格不摘（原样留在正文里给用户看，比凭空消失强）。
+   */
+  function splitGenui(raw) {
+    const blocks = [];
+    const body = giText(raw).replace(/```([A-Za-z0-9_-]*)[ \t]*\r?\n([\s\S]*?)```/g, (all, lang, inner) => {
+      if (!GENUI_LANGS.has(String(lang).toLowerCase())) return all;
+      const spec = parseGenui(inner);
+      if (!spec) return all;
+      blocks.push(spec);
+      return `${GENUI_MARK}GUI${blocks.length - 1}${GENUI_MARK}`;
+    });
+    return { body, blocks };
+  }
+
+  function giRender(node, depth, seen) {
+    if (typeof node === "string" || typeof node === "number") {
+      if (seen.n >= GENUI_MAX_NODES || depth > GENUI_MAX_DEPTH) return "";
+      seen.n += 1;
+      return giTag("p", "gui-text", giInline(node));
+    }
+    if (!node || typeof node !== "object" || Array.isArray(node)) return "";
+    if (seen.n >= GENUI_MAX_NODES || depth > GENUI_MAX_DEPTH) return "";
+    seen.n += 1;
+    const type = giText(node.type || "text").toLowerCase();
+    if (GENUI_AS_CODE.has(type)) return giCode(node.lang || type, node.code ?? node.content ?? JSON.stringify(node));
+    const draw = GENUI_DRAW[type];
+    return draw ? draw(node, depth, seen) : "";
+  }
+
+  /** 子节点：认 items 也认 children；带 span 的按网格跨列包一层。 */
+  function giKids(node, depth, seen) {
+    const list = Array.isArray(node.items) ? node.items
+      : Array.isArray(node.children) ? node.children : [];
+    return list.map((child) => {
+      const html = giRender(child, depth + 1, seen);
+      if (!html) return "";
+      const span = child && typeof child === "object" ? Math.round(giNum(child.span) ?? 0) : 0;
+      return span > 1 ? giTag("div", "gui-span", html, ` style="grid-column:span ${Math.max(1, Math.min(4, span))}"`) : html;
+    }).join("");
+  }
+
+  const giCode = (lang, code) => {
+    const label = giText(lang).slice(0, 24);
+    return `<pre class="gui-code"${label ? ` data-lang="${esc(label)}"` : ""}><code>${esc(giText(code))}</code></pre>`;
+  };
+
+  /** 偏差：正数绿、负数红、零灰。颜色语义照截图（绿=正常，红=不一致）。 */
+  function giDelta(v) {
+    const s = giText(v).trim();
+    const n = giNum(s);
+    const sign = /^[+-]/.test(s) ? s[0] : n == null ? "" : n > 0 ? "+" : n < 0 ? "-" : "";
+    const cls = sign === "+" ? "up" : sign === "-" ? "down" : "flat";
+    return `<span class="gui-delta ${cls}">${giInline(s)}</span>`;
+  }
+
+  /** 表单类组件：值存在消息自己身上（m.genuiState），重建气泡也不丢。 */
+  function giField(node, seen) {
+    const key = giText(node.id).replace(/[^\w-]/g, "").slice(0, 40) || `f${seen.fields.length}`;
+    seen.fields.push(key);
+    const t = giText(node.type).toLowerCase();
+    const raw = seen.state[key];
+    const val = raw == null ? giText(node.value ?? "") : giText(raw);
+    const ph = node.placeholder ? ` placeholder="${esc(node.placeholder)}"` : "";
+    const attrs = ` data-gui-field="${esc(key)}"`;
+    const label = node.label && t !== "checkbox" && t !== "switch"
+      ? giTag("span", "gui-field-l", giInline(node.label)) : "";
+
+    if (t === "textarea") return giTag("label", "gui-field", label + `<textarea class="gui-input" rows="${Math.max(2, Math.min(8, Math.round(giNum(node.rows) ?? 3)))}"${attrs}${ph}>${esc(val)}</textarea>`);
+    if (t === "select") {
+      const opts = (Array.isArray(node.options) ? node.options : []).map((o) => {
+        const v = giOne(o, "value", giOne(o, "label"));
+        return `<option value="${esc(v)}"${v === val ? " selected" : ""}>${esc(giOne(o, "label", v))}</option>`;
+      }).join("");
+      return giTag("label", "gui-field", label + `<select class="gui-input"${attrs}>${opts}</select>`);
+    }
+    if (t === "checkbox" || t === "switch") {
+      const on = raw == null ? node.checked === true : val === "true";
+      return `<label class="gui-check${t === "switch" ? " sw" : ""}">`
+        + `<input type="checkbox"${attrs}${on ? " checked" : ""}><span>${giInline(node.label ?? node.text ?? "")}</span></label>`;
+    }
+    if (t === "radio") {
+      const group = giText(node.group).replace(/[^\w-]/g, "").slice(0, 40) || key;
+      const cur = raw == null ? giText(node.value ?? "") : val;
+      const opts = (Array.isArray(node.options) ? node.options : []).map((o, i) => {
+        const v = giOne(o, "value", giOne(o, "label", String(i)));
+        return `<label class="gui-radio"><input type="radio" name="${esc(seen.uid + group)}" value="${esc(v)}"`
+          + ` data-gui-field="${esc(group)}"${v === cur ? " checked" : ""}><span>${giInline(giOne(o, "label", v))}</span></label>`;
+      }).join("");
+      return giTag("div", "gui-field", (node.label ? giTag("span", "gui-field-l", giInline(node.label)) : "") + opts);
+    }
+    return giTag("label", "gui-field", label
+      + `<input class="gui-input" type="${esc(giText(node.inputType || "text"))}"${attrs} value="${esc(val)}"${ph}>`);
+  }
+
+  /** 柱状 / 折线 / 环形都用内联 SVG 画：气泡宽度够摆 6–8 个点，够用且零依赖。 */
+  function giChart(node) {
+    const kind = giText(node.kind || "bars").toLowerCase();
+    const data = (Array.isArray(node.data) ? node.data : []).filter((d) => d && typeof d === "object").slice(0, 12);
+    if (!data.length) return "";
+    const vals = data.map((d) => giNum(d.value) ?? 0);
+    const max = Math.max(...vals, 1);
+    const W = 320;
+    const title = node.title ? giTag("div", "gui-chart-t", giInline(node.title)) : "";
+    const labels = (xs) => (Array.isArray(xs) && xs.length
+      ? `<div class="gui-chart-x">${data.map((d) => giTag("span", "", esc(giText(d.label).slice(0, 8)))).join("")}</div>` : "");
+    if (kind === "donut") {
+      const total = vals.reduce((a, b) => a + Math.max(0, b), 0) || 1;
+      let at = 0;
+      const segs = data.map((d, i) => {
+        const len = (Math.max(0, vals[i]) / total) * 100;
+        const seg = `<circle class="sg${i % 6}" cx="18" cy="18" r="15.9155" stroke-dasharray="${len.toFixed(2)} ${(100 - len).toFixed(2)}" stroke-dashoffset="${(-at).toFixed(2)}"></circle>`;
+        at += len;
+        return seg;
+      }).join("");
+      const legend = data.map((d, i) => `<span class="gui-lg"><i class="sg${i % 6}"></i>${giInline(d.label)} <b>${esc(giText(d.value))}</b></span>`).join("");
+      return giTag("div", "gui-chart", title
+        + `<div class="gui-donut"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="bg" cx="18" cy="18" r="15.9155"></circle>${segs}</svg>`
+        + giTag("div", "gui-legend", legend) + "</div>");
+    }
+    if (kind === "line") {
+      const step = data.length > 1 ? W / (data.length - 1) : W;
+      const pts = vals.map((v, i) => `${(i * step).toFixed(1)},${(78 - (v / max) * 70).toFixed(1)}`);
+      const dots = pts.map((p) => {
+        const [x, y] = p.split(",");
+        return `<circle cx="${x}" cy="${y}" r="2.4"></circle>`;
+      }).join("");
+      return giTag("div", "gui-chart", title
+        + `<svg viewBox="0 0 ${W} 96" class="gui-chart-svg" role="img" aria-label="${esc(giText(node.title || "折线图"))}">`
+        + `<polyline points="${pts.join(" ")}"></polyline>${dots}</svg>` + labels(data));
+    }
+    const bw = W / data.length;
+    const bars = data.map((d, i) => {
+      const h = Math.max(2, Math.round((Math.max(0, vals[i]) / max) * 70));
+      return `<rect x="${(i * bw + bw * 0.18).toFixed(1)}" y="${78 - h}" width="${(bw * 0.64).toFixed(1)}" height="${h}" rx="2"></rect>`;
+    }).join("");
+    const ticks = data.map((d, i) => `<text x="${(i * bw + bw / 2).toFixed(1)}" y="92" text-anchor="middle">${esc(giText(d.label).slice(0, 6))}</text>`).join("");
+    return giTag("div", "gui-chart", title
+      + `<svg viewBox="0 0 ${W} 96" class="gui-chart-svg" role="img" aria-label="${esc(giText(node.title || "柱状图"))}">${bars}${ticks}</svg>`);
+  }
+
+  const GENUI_DRAW = {
+    text: (n) => giTag("p", "gui-text", giInline(n.content ?? n.text ?? "")),
+    card: (n, d, s) => giTag("div", "gui-card",
+      (n.title ? giTag("div", "gui-card-t", giInline(n.title)) : "") + giKids(n, d, s)),
+    hero: (n, d, s) => giTag("div", "gui-hero",
+      (n.title ? giTag("b", "", giInline(n.title)) : "")
+      + (n.desc || n.subtitle ? giTag("span", "", giInline(n.desc ?? n.subtitle)) : "") + giKids(n, d, s)),
+    row: (n, d, s) => giTag("div", "gui-row", giKids(n, d, s)),
+    col: (n, d, s) => giTag("div", "gui-col", giKids(n, d, s)),
+    grid: (n, d, s) => giTag("div", "gui-grid", giKids(n, d, s),
+      ` style="--gui-cols:${Math.max(1, Math.min(4, Math.round(giNum(n.cols) ?? 2)))}"`),
+    divider: () => '<hr class="gui-hr">',
+    spacer: (n) => `<div class="gui-gap" style="height:${Math.max(2, Math.min(48, Math.round(giNum(n.size) ?? 10)))}px"></div>`,
+    callout: (n, d, s) => {
+      const tone = GENUI_TONES.has(giText(n.tone).toLowerCase()) ? giText(n.tone).toLowerCase() : "info";
+      const hasKids = Array.isArray(n.items) || Array.isArray(n.children);
+      const body = hasKids ? giKids(n, d, s) : giTag("div", "gui-callout-b", giInline(n.content ?? n.text ?? ""));
+      return giTag("div", `gui-callout ${tone}`,
+        (n.title ? giTag("b", "", giInline(n.title)) : "") + body);
+    },
+    badge: (n) => {
+      const tone = GENUI_TONES.has(giText(n.tone).toLowerCase()) ? ` ${giText(n.tone).toLowerCase()}` : "";
+      return `<span class="gui-badge${tone}">${giInline(n.text ?? n.label ?? n.value ?? "")}</span>`;
+    },
+    stat: (n) => giTag("div", `gui-stat${giText(n.size).toLowerCase() === "lg" ? " lg" : ""}`,
+      giTag("span", "gui-stat-v", giInline(n.value ?? ""))
+      + giTag("span", "gui-stat-l", giInline(n.label ?? ""))
+      + (n.delta == null ? "" : giDelta(n.delta))),
+    progress: (n) => {
+      const v = Math.max(0, Math.min(100, Math.round(giNum(n.value) ?? 0)));
+      if (giText(n.variant).toLowerCase() === "ring") {
+        return giTag("div", "gui-prog ring",
+          '<svg viewBox="0 0 36 36" class="gui-ring" aria-hidden="true">'
+          + '<circle class="bg" cx="18" cy="18" r="15.9155"></circle>'
+          + `<circle class="fg" cx="18" cy="18" r="15.9155" stroke-dasharray="${v} 100"></circle></svg>`
+          + giTag("span", "gui-prog-t", `${v}%${n.label ? ` · ${giInline(n.label)}` : ""}`));
+      }
+      return giTag("div", "gui-prog",
+        giTag("div", "gui-prog-bar", `<i style="width:${v}%"></i>`)
+        + giTag("div", "gui-prog-t", `${giInline(n.label ?? "")}${n.valueLabel ? ` · ${giInline(n.valueLabel)}` : ` · ${v}%`}`));
+    },
+    list: (n, d, s) => {
+      const items = Array.isArray(n.items) ? n.items : [];
+      const rows = items.map((it) => {
+        if (it && typeof it === "object" && it.type && (GENUI_DRAW[it.type] || GENUI_AS_CODE.has(giText(it.type).toLowerCase()))) {
+          return giTag("li", "gui-li block", giRender(it, d + 1, s));
+        }
+        const o = it && typeof it === "object" ? it : { title: it };
+        return giTag("li", "gui-li",
+          (o.icon ? giTag("span", "gui-li-i", giInline(o.icon)) : "")
+          + giTag("div", "gui-li-b",
+            (o.title ? giTag("b", "", giInline(o.title)) : "")
+            + (o.desc ?? o.text ? giTag("span", "", giInline(o.desc ?? o.text)) : "")));
+      }).join("");
+      return giTag("ul", `gui-list${n.rail === false ? "" : " rail"}`, rows);
+    },
+    table: (n) => {
+      const cols = (Array.isArray(n.columns) ? n.columns : []).map((c) => giOne(c, "title", giOne(c, "label", giOne(c, "key"))));
+      if (!cols.length) return "";
+      const types = (Array.isArray(n.types) ? n.types : []).map((t) => giText(t).toLowerCase());
+      const rows = (Array.isArray(n.rows) ? n.rows : []).map((r) => (Array.isArray(r) ? r : cols.map((c) => (r || {})[c])));
+      const cell = (v, i, ri) => {
+        switch (types[i]) {
+          case "index": return esc(String(ri + 1));
+          case "num": return esc(giText(v));
+          case "delta": return giDelta(v);
+          case "bar": return `<span class="gui-mini-bar"><i style="width:${Math.max(0, Math.min(100, Math.round(giNum(v) ?? 0)))}%"></i></span>`;
+          case "badge": return `<span class="gui-badge">${giInline(v)}</span>`;
+          case "group": return `<b>${giInline(v)}</b>`;
+          default: return giInline(v);
+        }
+      };
+      const head = cols.map((c) => `<th>${giInline(c)}</th>`).join("");
+      const body = rows.map((r, ri) => `<tr>${cols.map((c, i) => `<td>${cell(r[i], i, ri)}</td>`).join("")}</tr>`).join("");
+      const total = Array.isArray(n.total)
+        ? `<tfoot><tr>${cols.map((c, i) => `<td>${cell(n.total[i], i, rows.length)}</td>`).join("")}</tr></tfoot>` : "";
+      const filter = n.filter
+        ? `<div class="gui-filter"><input type="search" data-gui-filter placeholder="筛选这一张表…" aria-label="筛选表格"></div>` : "";
+      const copy = n.export
+        ? `<button type="button" class="gui-btn" data-gui-copy="${esc([cols.join("\t"), ...rows.map((r) => r.join("\t"))].join("\n"))}">复制表格</button>` : "";
+      return giTag("div", "gui-tablewrap", filter + copy
+        + `<table class="gui-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody>${total}</table>`);
+    },
+    keyvalue: (n) => {
+      const pairs = Array.isArray(n.pairs) ? n.pairs : Array.isArray(n.items) ? n.items : [];
+      return giTag("dl", "gui-kv", pairs.map((p) => {
+        const o = p && typeof p === "object" ? p : { key: "", value: p };
+        return `<dt>${giInline(o.key ?? o.label ?? "")}</dt><dd>${giInline(o.value ?? "")}</dd>`;
+      }).join(""));
+    },
+    steps: (n) => {
+      const items = Array.isArray(n.steps) ? n.steps : Array.isArray(n.items) ? n.items : [];
+      const cur = giNum(n.current);
+      return giTag("ol", "gui-steps", items.map((it, i) => {
+        const o = it && typeof it === "object" ? it : { title: it };
+        const cls = cur != null && i === cur ? " now" : cur != null && i < cur ? " done" : "";
+        return `<li class="gui-step${cls}">${giTag("b", "", giInline(o.title ?? ""))}`
+          + (o.desc ? giTag("span", "", giInline(o.desc)) : "") + "</li>";
+      }).join(""));
+    },
+    timeline: (n) => giTag("ul", "gui-tl", (Array.isArray(n.items) ? n.items : []).map((it) => {
+      const o = it && typeof it === "object" ? it : { title: it };
+      return giTag("li", "", (o.time ? giTag("span", "gui-tl-t", giInline(o.time)) : "")
+        + giTag("b", "", giInline(o.title ?? "")) + (o.desc ? giTag("span", "gui-tl-d", giInline(o.desc)) : ""));
+    }).join("")),
+    breadcrumb: (n) => giTag("nav", "gui-crumb",
+      (Array.isArray(n.items) ? n.items : []).map((it) => giTag("span", "", giInline(giOne(it, "text", giOne(it, "label")))))
+        .join('<i aria-hidden="true">/</i>')),
+    "file-tree": (n) => {
+      const walk = (items) => giTag("ul", "gui-tree", (Array.isArray(items) ? items : []).map((it) => {
+        const o = it && typeof it === "object" ? it : { name: it };
+        const dir = giText(o.type).toLowerCase() === "dir" || Array.isArray(o.children);
+        return giTag("li", dir ? "dir" : "file", giTag("b", "", giInline(o.name ?? "")) + (dir ? walk(o.children) : ""));
+      }).join(""));
+      return walk(n.items);
+    },
+    diff: (n) => giTag("div", "gui-diff", (Array.isArray(n.diffs) ? n.diffs : []).map((d) => {
+      const o = d && typeof d === "object" ? d : {};
+      const side = (text, cls) => giText(text).split("\n")
+        .map((line) => `<span class="gui-dl ${cls}">${esc(line) || "&nbsp;"}</span>`).join("");
+      return giTag("div", "gui-diff-one", (o.path ? giTag("div", "gui-diff-p", esc(o.path)) : "")
+        + side(o.oldText, "old") + side(o.newText, "new"));
+    }).join("")),
+    json: (n) => `<pre class="gui-code" data-lang="json"><code>${esc(JSON.stringify(n.value ?? n.data ?? {}, null, 2))}</code></pre>`,
+    code: (n) => giCode(n.lang || "", n.code ?? n.content ?? ""),
+    chart: (n) => giChart(n),
+    avatar: (n) => {
+      const src = giText(n.src);
+      if (/^data:image\//.test(src)) {
+        return `<span class="gui-avatar"><img src="${esc(src)}" alt="${esc(giText(n.alt ?? n.name ?? ""))}"></span>`;
+      }
+      return `<span class="gui-avatar">${esc(giText(n.name ?? n.text ?? "").trim().slice(0, 1) || "·")}</span>`;
+    },
+    button: (n) => {
+      const act = giText(n.action);
+      return `<button type="button" class="gui-btn${giText(n.variant) === "pri" ? " pri" : ""}"`
+        + (act ? ` data-gui-act="${esc(act)}"` : ' disabled title="这一版只认本地动作，需要模型参与的按钮先留空"')
+        + `>${giInline(n.label ?? n.text ?? "按钮")}</button>`;
+    },
+    link: (n) => `<a class="gui-link" href="${esc(giText(n.href) || "#")}" target="_blank" rel="noreferrer noopener">${giInline(n.text ?? n.label ?? n.href ?? "")}</a>`,
+    copy: (n) => {
+      const text = giText(n.text ?? n.value ?? "");
+      return `<button type="button" class="gui-btn" data-gui-copy="${esc(text)}">${giInline(n.label ?? "复制")}</button>`;
+    },
+    input: (n, d, s) => giField(n, s),
+    textarea: (n, d, s) => giField(n, s),
+    select: (n, d, s) => giField(n, s),
+    checkbox: (n, d, s) => giField(n, s),
+    switch: (n, d, s) => giField(n, s),
+    radio: (n, d, s) => giField(n, s),
+    tabs: (n, d, s) => {
+      const tabs = Array.isArray(n.tabs) ? n.tabs : Array.isArray(n.items) ? n.items : [];
+      if (!tabs.length) return "";
+      const id = `t${s.fields.length}`;
+      const bar = tabs.map((t, i) => `<button type="button" class="gui-tab${i === 0 ? " on" : ""}" role="tab"`
+        + ` aria-selected="${i === 0}" data-gui-tab="${esc(id)}" data-gui-panel="${esc(`${id}-${i}`)}">`
+        + `${giInline(t && typeof t === "object" ? t.label ?? t.title : t ?? "")}</button>`).join("");
+      const panels = tabs.map((t, i) => {
+        const o = t && typeof t === "object" ? t : { items: [t] };
+        return giTag("div", `gui-panel${i === 0 ? " on" : ""}`, giKids(o, d, s),
+          ` id="${esc(`${id}-${i}`)}" role="tabpanel"`);
+      }).join("");
+      return giTag("div", "gui-tabs", giTag("div", "gui-tabbar", bar, ' role="tablist"') + panels);
+    },
+    accordion: (n, d, s) => giTag("div", "gui-acc", (Array.isArray(n.items) ? n.items : []).map((it) => {
+      const o = it && typeof it === "object" ? it : { title: it };
+      const open = o.open === true;
+      return `<div class="gui-acc-one${open ? " open" : ""}">`
+        + `<button type="button" class="gui-acc-h" data-gui-acc aria-expanded="${open}">${giInline(o.title ?? "")}<i aria-hidden="true"></i></button>`
+        + giTag("div", "gui-acc-b", giTag("div", "gui-acc-in", giKids(o, d, s))) + "</div>";
+    }).join("")),
+    quiz: (n) => {
+      const qs = Array.isArray(n.questions) ? n.questions : Array.isArray(n.items) ? n.items : [];
+      if (!qs.length) return "";
+      const body = qs.map((q, qi) => {
+        const o = q && typeof q === "object" ? q : { q };
+        const key = `q${qi}`;
+        const opts = (Array.isArray(o.options) ? o.options : []).map((op, oi) => `<label class="gui-radio">`
+          + `<input type="radio" name="${esc(`${n.id || "quiz"}-${key}`)}" value="${oi}" data-gui-quiz="${esc(`${qi}:${oi}`)}">`
+          + `<span>${giInline(op)}</span></label>`).join("");
+        return giTag("div", `gui-q`, giTag("b", "", giInline(o.q ?? o.question ?? "")) + opts
+          + giTag("div", "gui-q-ex", giInline(o.explanation ?? ""), ` data-gui-answer="${Math.round(giNum(o.answer) ?? 0)}" hidden`));
+      }).join("");
+      return giTag("div", "gui-quiz", body
+        + `<button type="button" class="gui-btn pri" data-gui-grade>${giInline(n.submitLabel ?? "对答案")}</button>`);
+    },
+  };
+
+  /** 一份规格 → HTML 片段。state 用来存表单值（同一气泡重建后还在）。 */
+  function genuiHtml(spec, state = {}, uid = "g0") {
+    const seen = { n: 0, state, fields: [], uid };
+    const items = spec.items.map((it) => giRender(it, 1, seen)).filter(Boolean).join("");
+    const head = spec.title
+      ? `<div class="gui-bar"><span class="gui-bar-t">${giInline(spec.title)}</span><span class="gui-bar-dot">dsh-ui</span></div>`
+      : "";
+    return `<div class="aichat-gui" data-gui-block="${esc(uid)}" style="--gui-gap:${spec.gap}px">${head}<div class="gui-body">${items}</div></div>`;
+  }
+
+  /** 表单值挂在消息上：saveThread() 会一起落盘，重建气泡不丢。 */
+  function genuiState(m) {
+    if (!m.genuiState || typeof m.genuiState !== "object" || Array.isArray(m.genuiState)) m.genuiState = {};
+    return m.genuiState;
+  }
+
+  /** 正文：按占位符把文本段与组件段按原顺序拼起来。 */
+  function bodyHtml(m) {
+    const text = giText(m.text);
+    const blocks = Array.isArray(m.genui) ? m.genui : [];
+    if (!blocks.length) return md(text);
+    const rx = new RegExp(`${GENUI_MARK}GUI(\\d+)${GENUI_MARK}`, "g");
+    let out = "";
+    let last = 0;
+    let hit = rx.exec(text);
+    while (hit) {
+      out += md(text.slice(last, hit.index));
+      const spec = blocks[Number(hit[1])];
+      if (spec) out += genuiHtml(spec, genuiState(m), `g${hit[1]}`);
+      last = hit.index + hit[0].length;
+      hit = rx.exec(text);
+    }
+    return out + md(text.slice(last));
+  }
+
+  /** 复制：沙箱里 clipboard 可能没有权限，拿不到就明说，不静默失败。 */
+  function giCopy(text, btn) {
+    const done = () => {
+      if (!btn) return;
+      const old = btn.textContent;
+      btn.textContent = "已复制";
+      setTimeout(() => { btn.textContent = old; }, 1200);
+    };
+    try {
+      if (typeof navigator !== "undefined" && navigator?.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).then(done, () => tide.notify("复制没成功，选中文字手动复制吧"));
+        return;
+      }
+    } catch { /* 没有 clipboard 权限是常态，往下走提示 */ }
+    tide.notify("复制没成功，选中文字手动复制吧");
+  }
+
+  /** 判卷就地做，不回头找模型。 */
+  function giGrade(quiz, btn) {
+    if (!quiz) return;
+    let right = 0;
+    let total = 0;
+    let picked = false;
+    quiz.querySelectorAll(".gui-q").forEach((q) => {
+      total += 1;
+      const ex = q.querySelector("[data-gui-answer]");
+      const answer = Number(ex ? ex.dataset.guiAnswer : 0);
+      const hit = q.querySelector('input[type="radio"]:checked');
+      if (hit) picked = true;
+      const ok = !!hit && Number(hit.value) === answer;
+      if (ok) right += 1;
+      q.classList.toggle("ok", ok);
+      q.classList.toggle("no", !!hit && !ok);
+      if (ex) ex.hidden = false;
+    });
+    if (!picked) { tide.notify("先选一个答案，再对答案"); return; }
+    if (btn) btn.textContent = `答对 ${right} / ${total}`;
+  }
+
+  /** 组件里的交互全部本地完成：切页签 / 展开收起 / 筛选 / 填值 / 判卷 / 复制。 */
+  function wireGenui(box, m) {
+    const root = box.querySelector(".aichat-gui");
+    if (!root) return;
+    const state = genuiState(m);
+    root.querySelectorAll("[data-gui-tab]").forEach((btn) => {
+      btn.onclick = () => {
+        const wrap = btn.closest(".gui-tabs");
+        if (!wrap) return;
+        wrap.querySelectorAll("[data-gui-tab]").forEach((b) => {
+          const on = b === btn;
+          b.classList.toggle("on", on);
+          b.setAttribute("aria-selected", String(on));
+        });
+        wrap.querySelectorAll(".gui-panel").forEach((p) => p.classList.toggle("on", p.id === btn.dataset.guiPanel));
+      };
+    });
+    root.querySelectorAll("[data-gui-acc]").forEach((btn) => {
+      btn.onclick = () => {
+        const one = btn.closest(".gui-acc-one");
+        if (!one) return;
+        const open = !one.classList.contains("open");
+        one.classList.toggle("open", open);
+        btn.setAttribute("aria-expanded", String(open));
+      };
+    });
+    root.querySelectorAll("[data-gui-field]").forEach((el) => {
+      const key = el.dataset.guiField;
+      const sync = () => {
+        if (el.type === "radio") { if (el.checked) state[key] = el.value; return; }
+        state[key] = el.type === "checkbox" ? String(el.checked) : el.value;
+      };
+      sync();                       // 首次挂上时把渲染值记下来，重渲染才接得住
+      el.oninput = sync;
+      el.onchange = sync;
+    });
+    root.querySelectorAll("[data-gui-filter]").forEach((input) => {
+      const wrap = input.closest(".gui-tablewrap");
+      if (!wrap) return;
+      const rows = Array.from(wrap.querySelectorAll("tbody tr"));
+      input.oninput = () => {
+        const q = input.value.trim().toLowerCase();
+        rows.forEach((tr) => { tr.hidden = !!q && !String(tr.textContent || "").toLowerCase().includes(q); });
+      };
+    });
+    root.querySelectorAll("[data-gui-copy]").forEach((btn) => {
+      btn.onclick = () => giCopy(btn.dataset.guiCopy || "", btn);
+    });
+    root.querySelectorAll("[data-gui-grade]").forEach((btn) => {
+      btn.onclick = () => giGrade(btn.closest(".gui-quiz"), btn);
+    });
+    // data-gui-act 是留给「要模型参与」的按钮的位子：这一版不接活，规格里写了也还是禁用态。
   }
 
   /* ───────────────────────── 头像与名称 ───────────────────────── */
@@ -427,9 +993,19 @@
       + "说明那部分没列出来，只能报「至少 X 条，另有 N 条未列出」，不许把没看到的算进去。"
       + "「作业」「复习」这类按字面归类的问题，要顺带说一句你是按标题字样认的。",
       "⑥ 小标题只用「一、」这种中文序号，不要用 # 号；链接直接写文字，不要写 [文字](网址)；"
-      + "不要 Markdown 标题、表格、emoji、加粗和斜体。",
+      + "不要 Markdown 标题、表格、emoji、加粗和斜体（真要摆表格就改用下面第 ⑧ 条的围栏，别在正文里画）。",
       "⑦ 数据不够回答时**只写一句**：查不到什么、缺的是哪一项、下一步做哪一件最省事的事。"
       + "不要为此硬凑「现状 / 建议 / 操作」三块，也不要把时间块的原样格式（几点起多少分钟什么分类）抄进正文。",
+      "⑧ 遇到这四种情况，除了正文，在正文**之后**、json 建议块之前另起一个 ```dsh-ui 代码块，里面只放一份 JSON 规格，"
+      + "界面会把它画成真组件：①要横向对比两组以上数字（几个方案、几项指标）；②有结论或风险要单独框出来；"
+      + "③清单超过 6 条；④有趋势或占比要看。规格写法：根节点 {\"title\":\"一句标题\",\"items\":[ … ]}，"
+      + "item 的 type 只能取 callout（tone 取 info|success|warning|error，content 写一句话）、"
+      + "table（columns + rows，数值列在 types 里标 delta 让界面按正负染色、标 bar 画进度条）、"
+      + "list（items 每项 {title, desc}）、keyvalue（pairs 每项 {key, value}）、stat（label + value + delta）、"
+      + "progress（label + value 取 0–100）、badge、steps、timeline、card、grid、row、col、text、code、"
+      + "chart（kind 取 bars|line|donut，data 每项 {label, value}）。"
+      + "最外层最多 8 个组件、整套不超过 200 个节点；字符串里不要出现半角双引号；围栏外不要再把同一批数据讲一遍。"
+      + "这些都不合适时就用普通正文，不要硬凑。",
     ].join("\n");
     if (!withContext) {
       return `${head}\n\n${fmt}\n\n（用户已关闭「带本机数据」，本轮没有任何本机数据，只能回答通用问题。）`;
@@ -452,23 +1028,29 @@
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
   const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-  /** 取回复里最后一个 json 代码块当建议，其余算正文。 */
+  /**
+   * 拆回复：dsh-ui 围栏先摘走（正文留占位符），剩下最后一个能解析成建议的 json 块算建议。
+   *
+   * 顺序很要紧：先摘生成式界面再找建议块。否则一份以数组为根的 dsh-ui 规格会被
+   * 建议解析认成「建议列表」（Array.isArray 那条分支），凭空长出一堆写不进去的条目。
+   */
   function parseReply(text) {
-    const raw = String(text || "");
-    const blocks = [...raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
-    for (let i = blocks.length - 1; i >= 0; i -= 1) {
+    const { body: stripped, blocks } = splitGenui(text);
+    const chunks = [...stripped.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+    for (let i = chunks.length - 1; i >= 0; i -= 1) {
       let parsed = null;
-      try { parsed = JSON.parse(blocks[i][1]); } catch { continue; }
+      try { parsed = JSON.parse(chunks[i][1]); } catch { continue; }
       const list = Array.isArray(parsed?.suggestions) ? parsed.suggestions
         : Array.isArray(parsed) ? parsed : null;
       if (!list) continue;
-      const cut = blocks[i].index;
+      const cut = chunks[i].index;
       return {
-        body: raw.slice(0, cut).trimEnd(),
+        body: stripped.slice(0, cut).trimEnd(),
         suggestions: list.map(normalizeSuggestion).filter(Boolean),
+        genui: blocks,
       };
     }
-    return { body: raw.trim(), suggestions: [] };
+    return { body: stripped.trim(), suggestions: [], genui: blocks };
   }
 
   function normalizeSuggestion(raw) {
@@ -601,7 +1183,9 @@
     const history = thread
       .filter((m) => m.role === "user" || m.role === "assistant")
       .slice(-SEND_TURNS)
-      .map((m) => ({ role: m.role, content: m.text }));
+      // 正文里的 dsh-ui 占位符（\u0001GUI0\u0001）是给渲染器看的，不是给模型看的 ——
+      // 原样发回去等于每轮多塞一串控制字符，模型还会照着抄。
+      .map((m) => ({ role: m.role, content: giText(m.text).replace(/\u0001GUI\d+\u0001/g, "").trim() }));
     return [{ role: "system", content: systemPrompt() }].concat(history);
   }
 
@@ -617,7 +1201,12 @@
       // reasoningEffort 为 ""（自动档）时，宿主与 Rust 都不往请求体里塞 reasoning_effort 字段。
       const reply = await tide.ai.chat(buildMessages(), { temperature: 0.3, reasoningEffort: thinkEffort });
       const parsed = parseReply(reply);
-      thread.push({ role: "assistant", text: parsed.body, at: Date.now(), suggestions: parsed.suggestions });
+      thread.push({
+        role: "assistant", text: parsed.body, at: Date.now(),
+        suggestions: parsed.suggestions,
+        // 规格跟着消息落盘：下次打开这条记录，表格和结论卡还在。
+        genui: parsed.genui && parsed.genui.length ? parsed.genui : undefined,
+      });
     } catch (e) {
       thread.push({ role: "error", text: String((e && e.message) || e), at: Date.now() });
     } finally {
@@ -713,9 +1302,34 @@
 .aichat-model{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);border:1px solid var(--line,#E4DFD6);border-radius:999px;padding:3px 10px;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .aichat-chip{font-size:calc(11.5px * var(--ui-text-scale));border:1px solid var(--line,#E4DFD6);background:var(--panel,#fff);color:var(--ink-2,#7E8B94);border-radius:999px;padding:4px 11px;cursor:pointer;flex:none}
 .aichat-chip.on{background:var(--deep,#0F4C5C);border-color:var(--deep,#0F4C5C);color:var(--on-deep,#fff);font-weight:600}
-/* 思考强度按钮（v0.175.0）自己的钩子。别让它复挂 .aichat-think —— 那个类是「正在思考…」
-   三个跳动圆点（见下方 .aichat-think i 的 animation），复用后按钮里将来塞个 <i> 就会冒点。 */
-.aichat-effort{display:inline-flex;gap:5px;align-items:center}
+/* 思考强度下拉栏（v0.175.0 加档位，v0.204.0 改成下拉）自己的钩子。别让它复挂
+   .aichat-think —— 那个类是「正在思考…」三个跳动圆点（见下方 .aichat-think i 的
+   animation），复用后下拉里一旦出现 <i> 就会冒出三个点。 */
+.aichat-effort{display:inline-flex;gap:6px;align-items:center}
+.aichat-effort-lab{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 方向箭头：展开 / 收起是同一支箭头连续旋转，不是换字符（铁律七）。 */
+.aichat-effort-arrow{flex:none;width:7px;height:7px;margin-top:-3px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(45deg);transition:transform 240ms cubic-bezier(.22,1,.36,1)}
+.aichat-effort[aria-expanded="true"] .aichat-effort-arrow{margin-top:2px;transform:rotate(-135deg)}
+/* 档位栏的展开与收起（铁律七）：容器高度 0fr → 1fr 连续插值，内容始终留在 DOM 里，
+   收起时才置 inert（里面的选项既点不到也 Tab 不到），不用 display:none / hidden 闪没。
+   v0.205.0 起它从「输入区里 in-flow 的折叠块」改成**向上展开的浮层**：以前展开那一瞬要在
+   布局里长高 139px，正好把上面的对话顶掉（用户原话：「让对话拥有更大的空间…不然看不到
+   上面的对话」）。现在定位祖先是 .aichat-bar（见那条 position:relative），bottom:100%
+   朝消息流方向长，展开对布局的高度占用是 0，对话区一行都不让。
+   浮层不自己去碰安全区四条边：包含块是 .aichat 的 padding box（.aichat 带 transform），
+   边距由宿主 .view 负责 —— 与 .aichat-id 弹窗同一口径（铁律四）。 */
+.aichat-effort-menu{position:absolute;z-index:9;left:0;right:0;bottom:calc(100% + 6px);isolation:isolate;display:grid;grid-template-rows:0fr;opacity:0;pointer-events:none;transform:translateY(6px);border:1px solid #bc9acd4d;border-radius:14px;background:#30273ef2;box-shadow:0 12px 32px #1c132866;backdrop-filter:blur(14px);transition:grid-template-rows 260ms cubic-bezier(.22,1,.36,1),opacity 220ms ease,transform 260ms cubic-bezier(.22,1,.36,1)}
+.aichat-effort-menu.open{grid-template-rows:1fr;opacity:1;pointer-events:auto;transform:none}
+.aichat-effort-in{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:4px;padding:0 8px;transition:padding 260ms cubic-bezier(.22,1,.36,1)}
+.aichat-effort-menu.open .aichat-effort-in{padding:8px}
+/* 选项：一行「档位 + 它是什么意思」，选中高亮交给宿主的滑动光块（铁律六）。 */
+.aichat-lv{position:relative;z-index:1;display:flex;align-items:baseline;gap:10px;width:100%;text-align:left;border:1px solid transparent;border-radius:10px;background:transparent;color:inherit;font:inherit;font-size:calc(12px * var(--ui-text-scale,1));line-height:1.5;padding:7px 10px;cursor:pointer}
+.aichat-lv small{margin-left:auto;flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-3,#A9B2BA)}
+/* 光块长相与「光块在场时选中项不再画第二层底」——与 .aichat-shortcuts 同一口径。 */
+.aichat-effort-menu .selection-glow{border-radius:10px;background:#c9a6d445;border:1px solid #d6b8e199;box-shadow:0 0 14px #cfaae459,0 0 3px #e6d0f22e}
+.aichat-effort-menu.has-selection-glow .aichat-lv.on{background:transparent;border-color:transparent;color:#fff}
+/* 老宿主没有 tide.ui.selectionGlow 时退回瞬变底色：选中项不能没有反馈。 */
+.aichat-effort-menu:not(.has-selection-glow) .aichat-lv.on{background:#bf9ecd33;border-color:#c5a5d34d}
 .aichat-log{flex:1;min-height:120px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding:2px 2px 0}
 /* 消息流那一块（可伸缩）+ 它和输入区之间的分区。类名刻意不叫 .aichat-body —— 那个名字早被
    「单条消息的气泡容器」（.aichat-row > .aichat-body）占了，同名会把 gap/column 一并套到气泡上。 */
@@ -771,10 +1385,16 @@
 .aichat-btn:disabled{opacity:.45;cursor:default}
 /* 输入区的长相只在下面「深色外壳」那一段定一次（那边一条规则写全）。这里不再留第二份
    .aichat-bar —— 两份同特异性的定义谁后谁赢，改一份忘了另一份就是「改了没反应」的经典坑。 */
-.aichat-input{flex:1;min-width:0;resize:none;max-height:130px;min-height:40px;border:1px solid var(--line,#E4DFD6);border-radius:12px;padding:10px 12px;background:var(--paper,#F7F6F2);color:var(--ink,#22303A);font:inherit;font-size:calc(12.5px * var(--ui-text-scale));line-height:1.5}
+.aichat-input{flex:1;min-width:0;resize:none;max-height:96px;min-height:34px;border:1px solid var(--line,#E4DFD6);border-radius:12px;padding:10px 12px;background:var(--paper,#F7F6F2);color:var(--ink,#22303A);font:inherit;font-size:calc(12.5px * var(--ui-text-scale));line-height:1.5}
 .aichat-input:focus{outline:none;border-color:var(--deep,#0F4C5C)}
 .aichat-input:disabled{opacity:.6;cursor:default}
-.aichat-id{flex:none;border:1px solid var(--line,#E4DFD6);border-radius:14px;background:var(--panel,#fff);padding:12px 13px;display:flex;flex-direction:column;gap:10px}
+/* 头像与名称（v0.200.0）：这里只管长相，定位 / 开合动画写在下面「深色外壳」那一段。
+   拆开是为了避免两份同特异性规则互抢 —— 跟 .aichat-bar 一样的分工。 */
+.aichat-id{border:1px solid var(--line,#E4DFD6);border-radius:16px;background:var(--panel,#fff);padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.aichat-id-head{display:flex;align-items:center;gap:8px;font-size:calc(13.5px * var(--ui-text-scale))}
+.aichat-id-head b{flex:1;font-weight:600}
+.aichat-id-close{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--ink-2,#7E8B94);font:inherit;font-size:calc(20px * var(--ui-text-scale));line-height:1;cursor:pointer}
+.aichat-id-close:hover{background:color-mix(in srgb,var(--deep,#0F4C5C) 12%,transparent);color:var(--ink,#22303A)}
 .aichat-id-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .aichat-id-name{flex:1 1 150px;min-width:0;display:flex;align-items:center;gap:8px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
 .aichat-id-name input{flex:1;min-width:0;height:30px;border:1px solid var(--line,#E4DFD6);border-radius:9px;padding:0 10px;background:var(--paper,#F7F6F2);color:var(--ink,#22303A);font:inherit;font-size:calc(12.5px * var(--ui-text-scale))}
@@ -805,8 +1425,12 @@ button.aichat-avatar{padding:0;cursor:pointer}
 .sidebar-open .aichat-menu span:first-child{left:4px;width:24px;transform:rotate(45deg)}
 .sidebar-open .aichat-menu span:nth-child(2){opacity:0;transform:scaleX(0)}
 .sidebar-open .aichat-menu span:last-child{left:4px;width:24px;transform:rotate(-45deg)}
-.aichat-backdrop{position:absolute;inset:0;z-index:4;visibility:hidden;pointer-events:none;transition:visibility 0s 220ms}
-.sidebar-open .aichat-backdrop{visibility:visible;pointer-events:auto;transition-delay:0s}
+/* 蒙版（v0.200.0）：以前它只是个「点得到」的空层，没有任何视觉。现在它得真的暗下去 ——
+   头像与名称弹窗弹出时，背后的对话界面必须被压暗，否则这块弹窗看着仍像页面里的一张卡。 */
+.aichat-backdrop{position:absolute;inset:0;z-index:4;background:#1c13286b;backdrop-filter:blur(3px);opacity:0;visibility:hidden;pointer-events:none;transition:opacity 200ms ease,visibility 0s 220ms}
+.sidebar-open .aichat-backdrop,.id-open .aichat-backdrop{opacity:1;visibility:visible;pointer-events:auto;transition:opacity 220ms ease,visibility 0s}
+/* 弹窗（头像与名称）要盖过 z-index:6 的汉堡按钮：弹出期间背后那层不该还点得着 */
+.id-open .aichat-backdrop{z-index:7}
 .aichat-sidebar{position:absolute;z-index:5;left:clamp(22px,9%,100px);top:70px;width:min(320px,calc(100% - 44px));max-height:min(520px,calc(100% - 94px));display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid #bc9acd4d;border-radius:16px;background:#30273eee;box-shadow:0 8px 28px #1c132866;backdrop-filter:blur(16px);transform-origin:top left;opacity:0;transform:scale(.92);visibility:hidden;pointer-events:none;transition:opacity 180ms ease-in,transform 220ms ease-in,visibility 0s 220ms}
 .sidebar-open .aichat-sidebar{opacity:1;transform:scale(1);visibility:visible;pointer-events:auto;transition:opacity 220ms cubic-bezier(.22,1,.36,1),transform 320ms cubic-bezier(.34,1.4,.64,1),visibility 0s}
 .aichat-sidebar-heading{display:flex;align-items:center;gap:8px;font-size:calc(16px * var(--ui-text-scale,1))}
@@ -821,7 +1445,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
 .aichat-session span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .aichat-session small{display:block;margin-top:5px;color:#c1afd0;font-size:calc(10.5px * var(--ui-text-scale,1))}
 .aichat-history-empty{margin:22px 0;text-align:center;color:#bba8cf;font-size:calc(12px * var(--ui-text-scale,1))}
-.aichat-chip{background:#ffffff0a;border-color:#c9acd329;color:#e1d2ef;padding:6px 12px}
+.aichat-chip{background:#ffffff0a;border-color:#c9acd329;color:#e1d2ef;padding:5px 10px}
 .aichat-chip.on{background:#c9a6d438;border-color:#d6b8e16b;color:#fff}
 .aichat-log{padding:8px 2px 0;min-height:0;scrollbar-width:thin;scrollbar-color:#ae8cbb66 transparent}
 .aichat.is-empty .aichat-log{justify-content:safe flex-end;overflow:auto;padding-bottom:0}
@@ -835,12 +1459,14 @@ button.aichat-avatar{padding:0;cursor:pointer}
    不留第二层圆角边界，只用一条内嵌发丝线把「说」的区域从消息流里分出来；聚焦时那条线亮起并
    按 Nephele SettingChipGroup 的 pulse（0.62↔0.38、1500ms InOutSine）呼吸。
    .aichat-bar 这个类名与 :focus-within 的写法是宿主测试（scripts/test-ai-chat.mjs）认的钩子，
-   改名要同步改测试，所以长相换了、名字保留。 */
-.aichat-bar{display:flex;flex-direction:column;align-items:stretch;gap:12px;flex:none;padding:16px 2px 2px;border:0;border-radius:0;border-top:1px solid #c9acd32e;background:transparent;box-shadow:none;transition:border-color .3s}
+   改名要同步改测试，所以长相换了、名字保留。
+   v0.205.0：垂直方向的 padding 与 gap 一起收紧（16px/12px → 8px/6px），并把档位浮层的定位
+   祖先交给它（position:relative）—— 省下的每一像素都还给上面的消息流。 */
+.aichat-bar{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:6px;flex:none;padding:8px 2px 0;border:0;border-radius:0;border-top:1px solid #c9acd32e;background:transparent;box-shadow:none;transition:border-color .3s}
 .aichat-bar:focus-within{border-color:#b99cc7;animation:aichat-bar-glow 3s ease-in-out infinite alternate}
 @keyframes aichat-bar-glow{from{border-color:#b99cc7;box-shadow:0 0 0 1px #b99cc729,0 0 16px #cfa8dd33}to{border-color:#cdb0d8;box-shadow:0 0 0 1px #cdb0d847,0 0 28px #d9b6ea59}}
-.aichat-input{width:100%;box-sizing:border-box;flex:none;border:0;border-radius:0;padding:3px 0;min-height:42px;background:transparent;font-size:calc(15px * var(--ui-text-scale,1));color:#f5eaff;line-height:1.6}
-.aichat-input::placeholder{color:#bca9cf;opacity:1}
+.aichat-input{width:100%;box-sizing:border-box;flex:none;border:0;border-radius:0;padding:3px 0;min-height:34px;background:transparent;font-size:calc(15px * var(--ui-text-scale,1));color:#f5eaff;line-height:1.6}
+.aichat-input::placeholder{color:#bca9cf;opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 为什么这里要写一长串 :not() —— 宿主 src/styles.css 有一条全局 !important 规则
    （input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea
    {background:var(--control-bg)!important;border-radius:8px!important}，特异性 (0,3,1)），
@@ -858,17 +1484,31 @@ button.aichat-avatar{padding:0;cursor:pointer}
   box-shadow:none !important;
   outline:none !important;
 }
-.aichat-compose-tools{display:flex;align-items:center;gap:12px;min-width:0}
+/* 能力开关行（v0.204.0）：以前这两颗胶囊挂在顶栏，用户的原话是「这 2 个按钮弄成到对话框
+   那里去」—— 能改本轮行为的东西贴着「说」的地方，顶栏只留对话历史与只读状态。
+   能力开关行与工具行并排（v0.205.0）：以前一颗胶囊在输入框上面、一颗在下面，各占一整行 ——
+   输入区的一半高度花在「两行小控件」上。现在输入框在最上、这两行合成一行摆在它下面，
+   窄屏放不下时 .aichat-compose-row 仍然自己换行，不顶出横向滚动。
+   但 chips 必须 flex:1 1 auto、tools 必须 flex:none：不这么写的话 tools 里那颗模型按钮会把
+   行宽撑爆，flex-wrap 就把两行拆开（真应用探针实测 row_children_same_line=0），白忙一场。 */
+.aichat-compose-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.aichat-compose-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1 1 auto;min-width:0}
+.aichat-compose-chips .aichat-chip{padding:4px 10px}
+.aichat-lv{color:#e6d8f4}
+.aichat-lv:hover{background:#bf9ecd33;border-color:#c5a5d34d}
+.aichat-lv small{color:#bba8cf}
+.aichat-lv b{font-weight:600}
+.aichat-compose-tools{display:flex;align-items:center;gap:8px;flex:none;min-width:0;margin-left:auto}
 .aichat-personalize{display:grid;place-items:center;flex:none;width:30px;height:30px;border:1px solid #a588b03d;border-radius:9px;color:#c8b2d8;background:transparent;cursor:pointer}
 .aichat-personalize svg{width:18px;height:18px}
-.aichat-model{margin-left:auto;max-width:65%;font:inherit;font-size:calc(12px * var(--ui-text-scale,1));padding:6px 16px;border:1px solid #dac0e485;color:#fff;background:linear-gradient(120deg,#b492c1aa,#856794aa);box-shadow:0 0 18px #d6b3e043;border-radius:12px;cursor:pointer}
+.aichat-model{margin-left:auto;max-width:65%;font:inherit;font-size:calc(12px * var(--ui-text-scale,1));padding:6px 16px;border:1px solid #dac0e485;color:#fff;background:linear-gradient(120deg,#b492c1aa,#856794aa);box-shadow:0 0 18px #d6b3e043;border-radius:12px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .aichat-send{display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:50%;padding:0;background:#cfa8dd;color:#fff;flex:none;cursor:pointer}
 .aichat-send svg{width:21px;height:21px}
 .aichat-send:disabled{opacity:.45;cursor:default}
 .aichat-send.is-blocked{background:#8d7b97}
 .aichat-send.is-blocked:hover{background:#a28fae}
-.aichat-shortcuts{position:relative;isolation:isolate;display:flex;flex:none;gap:3px;padding:3px;background:#c1a8ca15;border:1px solid #c6acd51f;border-radius:13px;overflow-x:auto;scrollbar-width:none;box-shadow:inset 0 1px 4px #1c132833}
-.aichat-shortcuts button{position:relative;z-index:1;flex:1 0 auto;font:inherit;font-size:calc(11.5px * var(--ui-text-scale,1));padding:6px 12px;color:#ddd0ef;border:1px solid transparent;border-radius:10px;background:transparent;cursor:pointer;transition:color .3s,background .25s,border-color .25s,box-shadow .25s}
+.aichat-shortcuts{position:relative;isolation:isolate;display:flex;flex:0 1 auto;min-width:0;gap:3px;padding:3px;background:#c1a8ca15;border:1px solid #c6acd51f;border-radius:13px;overflow-x:auto;scrollbar-width:none;box-shadow:inset 0 1px 4px #1c132833}
+.aichat-shortcuts button{position:relative;z-index:1;flex:1 0 auto;font:inherit;font-size:calc(11.5px * var(--ui-text-scale,1));padding:5px 10px;color:#ddd0ef;border:1px solid transparent;border-radius:10px;background:transparent;cursor:pointer;transition:color .3s,background .25s,border-color .25s,box-shadow .25s}
 .aichat-shortcuts button:hover{background:#bf9ecd4d;border-color:#c5a5d366;box-shadow:0 0 12px #cfaae42e;color:#fff}
 /* 选中光块 = Nephele SettingChipGroup 的 glider：α0.35 强调色底 + 1px 描边 + 一圈外发光
    （它那边是 1.1× 的模糊矩形，CSS 里用低 α 的大模糊 box-shadow 等价）。
@@ -882,16 +1522,201 @@ button.aichat-avatar{padding:0;cursor:pointer}
 .aichat-menu:focus-visible{outline:2px solid #ead3f4;outline-offset:3px;border-radius:8px}
 .aichat-msg.ai{background:#2b243bd9}
 .aichat-msg.me{background:#856294;color:#fff}
-.aichat-id{max-height:40%;overflow:auto}
-@media (max-width:640px){.aichat-row.me{max-width:90%}.aichat{gap:8px;padding:16px 18px 14px;border-radius:14px}.aichat-empty b{font-size:calc(26px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(13px * var(--ui-text-scale,1))}.aichat-empty{padding:16px 16px}.aichat-bar{padding:12px 0 0}.aichat-head{gap:6px}.aichat-chip{font-size:calc(10px * var(--ui-text-scale,1));padding:5px 8px}.aichat-feed{display:none}.aichat-tools{width:100%}.aichat-model{max-width:68%;padding:6px 10px}}
+/* 居中弹窗（v0.200.0，用户原话：「这个窗口弹出放在中间背后界面蒙版」）。三条口径：
+   ① 用 absolute 而不是 fixed —— 包含块是 .aichat 的 padding box（.aichat 带 transform），
+      天然落在宿主 .view 的安全区里；fixed 会跳出那四条边、得自己补 --sat/--sab（铁律四）。
+   ② 展开与收起都要有动画（同侧栏一套时长曲线），收起时保留可见直到过渡结束，不许 hidden 闪没。
+   ③ 宽度 min(520px, 100% - 44px)：窄屏只剩左右 18px 边距，不会顶到屏幕边。 */
+.aichat-id{position:absolute;z-index:8;left:50%;top:50%;width:min(520px,calc(100% - 44px));max-height:min(78%,560px);overflow:auto;background:#2b243bfa;box-shadow:0 18px 48px #1c132866,0 0 0 1px #bc9acd3d,0 0 34px #cfa8dd26;transform:translate(-50%,-50%) scale(.92);opacity:0;visibility:hidden;pointer-events:none;transition:opacity 180ms ease-in,transform 220ms ease-in,visibility 0s 220ms}
+.id-open .aichat-id{opacity:1;transform:translate(-50%,-50%) scale(1);visibility:visible;pointer-events:auto;transition:opacity 220ms cubic-bezier(.22,1,.36,1),transform 320ms cubic-bezier(.34,1.4,.64,1),visibility 0s}
+.aichat-id:focus{outline:none}
+@media (max-width:640px){.aichat-id{width:calc(100% - 36px);padding:12px 13px}}
+@media (max-height:480px){.aichat-id{max-height:calc(100% - 32px);gap:8px;padding:12px 13px}}
+@media (max-width:640px){.aichat-row.me{max-width:90%}.aichat{gap:8px;padding:16px 18px 14px;border-radius:14px}.aichat-empty b{font-size:calc(26px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(13px * var(--ui-text-scale,1))}.aichat-empty{padding:16px 16px}.aichat-bar{padding:6px 0 0}.aichat-head{gap:6px}.aichat-chip{font-size:calc(10px * var(--ui-text-scale,1));padding:5px 8px}.aichat-feed{display:none}.aichat-tools{width:100%}.aichat-model{max-width:68%;padding:6px 10px}}
 @media (max-height:480px){.aichat{padding-top:12px;padding-bottom:10px}.aichat-empty b{font-size:calc(23px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(12px * var(--ui-text-scale,1))}.aichat-feed{display:none}.aichat-empty{padding:12px 14px}}
 @media (max-width:640px){.aichat-sidebar{left:18px;top:60px;width:min(320px,calc(100% - 36px));max-height:calc(100% - 84px)}}
 @media (max-height:480px){.aichat-sidebar{top:56px;max-height:calc(100% - 72px);gap:8px;padding:12px}}
-@media (prefers-reduced-motion:reduce){.aichat-bar,.aichat-menu,.aichat-menu span,.aichat-sidebar,.aichat-backdrop,.aichat-session,.aichat-shortcuts button,.aichat-shortcuts .selection-glow{transition:none}.aichat,.aichat-menu,.aichat-bar,.aichat-think i{animation:none}}
+@media (prefers-reduced-motion:reduce){.aichat-bar,.aichat-menu,.aichat-menu span,.aichat-sidebar,.aichat-id,.aichat-backdrop,.aichat-session,.aichat-effort-arrow,.aichat-effort-menu,.aichat-effort-in,.aichat-shortcuts button,.aichat-shortcuts .selection-glow{transition:none}.aichat,.aichat-menu,.aichat-bar,.aichat-think i{animation:none}}
 /* 应用内「减少动效」开关（data-ui-motion=reduced）与系统开关同级：入场、呼吸光都要停。
-   光块的位置换算本身不看动效开关 —— selectionGlow 在 reducedMotion() 下直接跳到终态。 */
+   光块的位置换算本身不看动效开关 —— selectionGlow 在 reducedMotion() 下直接跳到终态。
+   下拉栏也在这里瞬切：减动效时收起 / 展开不再插值，方向箭头直接到位。 */
 :root[data-ui-motion="reduced"] .aichat,:root[data-ui-motion="reduced"] .aichat-menu,:root[data-ui-motion="reduced"] .aichat-bar{animation:none}
 :root[data-ui-motion="reduced"] .aichat-shortcuts .selection-glow{transition:none}
+:root[data-ui-motion="reduced"] .aichat-effort-arrow,:root[data-ui-motion="reduced"] .aichat-effort-menu,:root[data-ui-motion="reduced"] .aichat-effort-in{transition:none}
+/* 窄屏：档位名与说明挤不进一行 —— 只留档位名，说明仍写在每一项的 title 上（读屏与悬停都还在）。 */
+@media (max-width:640px){.aichat-compose-row{gap:6px}.aichat-compose-chips{gap:4px}.aichat-compose-tools{gap:6px}.aichat-shortcuts{mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}.aichat-lv{padding:7px 8px}.aichat-lv small{display:none}}
+
+/* ─── 生成式界面（dsh-ui 围栏，v0.201.0）───
+   参考 dsh-genui 的长相：结论卡（callout）+ 对比表（table）+ 清单（list）三段式。
+   配色全走宿主主题变量，宽度跟着气泡走 —— 这里不做任何视口定位（安全区由宿主 .view 负责）。 */
+/* 气泡本来就是深底（这个视图自带深色外壳，跟宿主明暗无关），所以色板与语义色一律用亮版：
+   挂到 [data-theme-mode="dark"] 上，浅色宿主下就会拿到一套压在深底上读不出来的颜色。 */
+.aichat-gui{display:flex;flex-direction:column;gap:var(--gui-gap,12px);margin:9px 0 2px;--gui-1:#8FD0E0;--gui-2:#7FD3A8;--gui-3:#E9BE72;--gui-4:#C4B5FD;--gui-5:#F09C93;--gui-6:#9EC5EA}
+.aichat-gui:first-child{margin-top:0}
+.gui-bar{display:flex;align-items:center;gap:8px;font-size:calc(10.5px * var(--ui-text-scale))}
+.gui-bar-t{flex:1;min-width:0;font-weight:600;color:var(--ink-2,#7E8B94);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gui-bar-dot{flex:none;letter-spacing:.06em;border:1px solid var(--line,#E4DFD6);border-radius:999px;padding:1px 7px;color:var(--ink-3,#A9B2BA)}
+.gui-body{display:flex;flex-direction:column;gap:var(--gui-gap,12px)}
+.gui-text{margin:0;font-size:calc(12.5px * var(--ui-text-scale));line-height:1.75}
+.gui-text code,.gui-li code,.gui-table code{font-size:.92em;background:color-mix(in srgb,var(--deep,#0F4C5C) 11%,transparent);border-radius:5px;padding:1px 5px}
+.gui-text mark,.gui-li mark{background:color-mix(in srgb,var(--deep,#0F4C5C) 24%,transparent);color:inherit;border-radius:4px;padding:0 3px}
+.gui-link{color:var(--deep,#0F4C5C);text-decoration:underline;text-underline-offset:2px}
+.gui-card{border:1px solid var(--line,#E4DFD6);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:9px;background:var(--paper,#F7F6F2)}
+.gui-card-t{font-size:calc(12.5px * var(--ui-text-scale));font-weight:700}
+.gui-hero{display:flex;flex-direction:column;gap:6px}
+.gui-hero b{font-size:calc(17px * var(--ui-text-scale))}
+.gui-hero span{font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+.gui-row{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.gui-col{display:flex;flex-direction:column;gap:10px}
+.gui-grid{display:grid;grid-template-columns:repeat(var(--gui-cols,2),minmax(0,1fr));gap:10px}
+.gui-span{min-width:0}
+.gui-hr{border:0;border-top:1px solid var(--line,#E4DFD6);margin:2px 0}
+/* 结论卡：四种语气只改左侧色条、标题色与 7% 底色 —— 真正压住可读性的是那个色条 */
+.gui-callout{border:1px solid var(--line,#E4DFD6);border-left:3px solid var(--deep,#0F4C5C);border-radius:12px;padding:11px 13px;display:flex;flex-direction:column;gap:8px;font-size:calc(12.5px * var(--ui-text-scale));line-height:1.7;background:color-mix(in srgb,var(--deep,#0F4C5C) 6%,var(--panel,#fff))}
+.gui-callout>b{font-size:calc(12.5px * var(--ui-text-scale))}
+.gui-callout-b{font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+/* 语义色也一律亮版：深底气泡上 #C0392B 这类深色只有 3:1 上下，糊成一团 */
+.gui-callout.success{border-color:#7FD3A866;border-left-color:#7FD3A8;background:color-mix(in srgb,#2E7D5B 14%,var(--panel,#fff))}
+.gui-callout.success>b{color:#7FD3A8}
+.gui-callout.warning{border-color:#E9BE7266;border-left-color:#E9BE72;background:color-mix(in srgb,#B8862B 15%,var(--panel,#fff))}
+.gui-callout.warning>b{color:#E9BE72}
+.gui-callout.error{border-color:#F09C9366;border-left-color:#F09C93;background:color-mix(in srgb,#C0392B 16%,var(--panel,#fff))}
+.gui-callout.error>b{color:#F09C93}
+.gui-badge{display:inline-block;border:1px solid var(--line,#E4DFD6);border-radius:999px;padding:1px 8px;font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+.gui-badge.success{border-color:#7FD3A866;color:#7FD3A8}
+.gui-badge.warning{border-color:#E9BE7266;color:#E9BE72}
+.gui-badge.error{border-color:#F09C9366;color:#F09C93}
+.gui-stat{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--line,#E4DFD6);border-radius:12px;background:var(--paper,#F7F6F2)}
+.gui-stat.lg .gui-stat-v{font-size:calc(24px * var(--ui-text-scale))}
+.gui-stat-v{font-size:calc(17px * var(--ui-text-scale));font-weight:700;font-variant-numeric:tabular-nums}
+.gui-stat-l{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+.gui-delta{font-weight:600;font-variant-numeric:tabular-nums}
+.gui-delta.up{color:#7FD3A8}
+.gui-delta.down{color:#F09C93}
+.gui-delta.flat{color:var(--ink-2,#7E8B94)}
+.gui-prog{display:flex;flex-direction:column;gap:5px}
+.gui-prog-bar{height:8px;border-radius:99px;background:var(--line,#E4DFD6);overflow:hidden}
+.gui-prog-bar i{display:block;height:100%;border-radius:99px;background:var(--deep,#0F4C5C)}
+.gui-prog-t{font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+.gui-prog.ring{flex-direction:row;align-items:center;gap:10px}
+.gui-ring{width:44px;height:44px;flex:none;transform:rotate(-90deg)}
+.gui-ring circle{fill:none;stroke-width:3.4}
+.gui-ring .bg{stroke:var(--line,#E4DFD6)}
+.gui-ring .fg{stroke:var(--deep,#0F4C5C)}
+/* 清单：左侧一条竖线把条目串起来（参考长相），标题主色、说明次级 */
+.gui-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.gui-list.rail{position:relative;padding-left:20px}
+.gui-list.rail::before{content:"";position:absolute;left:7px;top:7px;bottom:7px;width:1px;background:var(--line,#E4DFD6)}
+.gui-li{display:flex;gap:8px;align-items:flex-start;position:relative;font-size:calc(12px * var(--ui-text-scale));line-height:1.65}
+.gui-list.rail>.gui-li::before{content:"";position:absolute;left:-17px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--panel,#fff);border:1px solid var(--deep,#0F4C5C)}
+.gui-li-i{flex:none}
+.gui-li-b{display:flex;flex-direction:column;gap:2px;min-width:0}
+.gui-li-b b{font-weight:600}
+.gui-li-b span{color:var(--ink-2,#7E8B94);font-size:calc(11.5px * var(--ui-text-scale))}
+.gui-li.block{display:block}
+/* 对比表：外层横向滚动，窄屏也不撑破气泡；数值列右对齐、等宽数字 */
+.gui-tablewrap{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line,#E4DFD6);border-radius:13px;padding:9px 11px;background:color-mix(in srgb,var(--deep,#0F4C5C) 4%,var(--panel,#fff));overflow-x:auto}
+.gui-filter input{width:100%;box-sizing:border-box;border:1px solid var(--line,#E4DFD6);border-radius:8px;padding:5px 9px;background:var(--paper,#F7F6F2);color:var(--ink,#22303A);font:inherit;font-size:calc(11.5px * var(--ui-text-scale))}
+.gui-table{width:100%;border-collapse:collapse;font-size:calc(11.5px * var(--ui-text-scale))}
+.gui-table th,.gui-table td{padding:6px 8px;text-align:left;white-space:nowrap;border-bottom:1px solid color-mix(in srgb,var(--line,#E4DFD6) 55%,transparent)}
+.gui-table th{color:var(--ink-3,#A9B2BA);font-weight:600;font-size:calc(11px * var(--ui-text-scale))}
+.gui-table td{font-variant-numeric:tabular-nums}
+.gui-table tbody tr:last-child td{border-bottom:0}
+.gui-table tfoot td{border-bottom:0;border-top:1px solid var(--line,#E4DFD6);font-weight:600}
+.gui-mini-bar{display:inline-block;width:56px;height:6px;border-radius:99px;background:var(--line,#E4DFD6);vertical-align:middle}
+.gui-mini-bar i{display:block;height:100%;border-radius:99px;background:var(--deep,#0F4C5C)}
+.gui-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 12px;margin:0;font-size:calc(11.5px * var(--ui-text-scale))}
+.gui-kv dt{color:var(--ink-2,#7E8B94)}
+.gui-kv dd{margin:0;font-variant-numeric:tabular-nums}
+.gui-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:9px;counter-reset:gs}
+.gui-step{display:flex;flex-direction:column;gap:2px;padding-left:26px;position:relative;font-size:calc(12px * var(--ui-text-scale))}
+.gui-step::before{counter-increment:gs;content:counter(gs);position:absolute;left:0;top:1px;width:18px;height:18px;border-radius:50%;border:1px solid var(--line,#E4DFD6);display:grid;place-items:center;font-size:calc(10px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+.gui-step.now::before{background:var(--deep,#0F4C5C);border-color:var(--deep,#0F4C5C);color:var(--on-deep,#fff)}
+.gui-step.done::before{background:color-mix(in srgb,#7FD3A8 22%,transparent);border-color:transparent;color:#7FD3A8}
+.gui-step span{color:var(--ink-2,#7E8B94);font-size:calc(11.5px * var(--ui-text-scale))}
+.gui-tl{list-style:none;margin:0;padding:0 0 0 16px;display:flex;flex-direction:column;gap:10px;position:relative}
+.gui-tl::before{content:"";position:absolute;left:4px;top:6px;bottom:6px;width:1px;background:var(--line,#E4DFD6)}
+.gui-tl li{position:relative;display:flex;flex-direction:column;gap:2px;font-size:calc(12px * var(--ui-text-scale))}
+.gui-tl li::before{content:"";position:absolute;left:-15px;top:6px;width:7px;height:7px;border-radius:50%;background:var(--deep,#0F4C5C)}
+.gui-tl-t{color:var(--ink-3,#A9B2BA);font-size:calc(10.5px * var(--ui-text-scale))}
+.gui-tl-d{color:var(--ink-2,#7E8B94);font-size:calc(11.5px * var(--ui-text-scale))}
+.gui-crumb{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+.gui-crumb i{font-style:normal;color:var(--ink-3,#A9B2BA)}
+.gui-tree{list-style:none;margin:0;padding:0 0 0 14px;display:flex;flex-direction:column;gap:4px;font-size:calc(11.5px * var(--ui-text-scale))}
+.gui-tree li{position:relative}
+.gui-tree li::before{content:"";position:absolute;left:-9px;top:9px;width:6px;height:1px;background:var(--line,#E4DFD6)}
+.gui-tree b{font-weight:500}
+.gui-tree li.dir>b{font-weight:700}
+.gui-diff{display:flex;flex-direction:column;gap:8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:calc(11px * var(--ui-text-scale))}
+.gui-diff-one{border:1px solid var(--line,#E4DFD6);border-radius:11px;overflow:hidden}
+.gui-diff-p{padding:5px 10px;background:color-mix(in srgb,var(--deep,#0F4C5C) 9%,transparent);color:var(--ink-2,#7E8B94)}
+.gui-dl{display:block;padding:1px 10px;white-space:pre-wrap;word-break:break-word}
+.gui-dl.old{background:color-mix(in srgb,#C0392B 22%,transparent);color:#F5B7AE}
+.gui-dl.new{background:color-mix(in srgb,#2E7D5B 24%,transparent);color:#A6E3C4}
+.gui-code{margin:0;border:1px solid var(--line,#E4DFD6);border-radius:11px;padding:10px 12px;background:var(--paper,#F7F6F2);overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:calc(11px * var(--ui-text-scale));line-height:1.65;color:var(--ink,#22303A)}
+.gui-code[data-lang]::before{content:attr(data-lang);display:block;margin-bottom:6px;color:var(--ink-3,#A9B2BA);font-size:calc(10px * var(--ui-text-scale));letter-spacing:.06em}
+.gui-code code{white-space:pre}
+.gui-chart{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line,#E4DFD6);border-radius:13px;padding:10px 12px;background:var(--paper,#F7F6F2)}
+.gui-chart-t{font-size:calc(11.5px * var(--ui-text-scale));font-weight:600;color:var(--ink-2,#7E8B94)}
+.gui-chart-svg{width:100%;height:auto}
+.gui-chart-svg rect{fill:var(--gui-1)}
+.gui-chart-svg polyline{fill:none;stroke:var(--gui-1);stroke-width:2;stroke-linejoin:round}
+.gui-chart-svg circle{fill:var(--gui-1)}
+.gui-chart-svg text{fill:var(--ink-3,#A9B2BA);font-size:9px}
+.gui-chart-x{display:flex;justify-content:space-between;gap:6px;font-size:calc(10px * var(--ui-text-scale));color:var(--ink-3,#A9B2BA)}
+.gui-donut{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.gui-donut svg{width:64px;height:64px;flex:none;transform:rotate(-90deg)}
+.gui-donut circle{fill:none;stroke-width:3.4}
+.gui-donut circle.bg{stroke:var(--line,#E4DFD6)}
+.gui-donut .sg0{stroke:var(--gui-1)}
+.gui-donut .sg1{stroke:var(--gui-2)}
+.gui-donut .sg2{stroke:var(--gui-3)}
+.gui-donut .sg3{stroke:var(--gui-4)}
+.gui-donut .sg4{stroke:var(--gui-5)}
+.gui-donut .sg5{stroke:var(--gui-6)}
+.gui-legend{display:flex;flex-direction:column;gap:4px;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+.gui-legend b{font-variant-numeric:tabular-nums;color:var(--ink,#22303A)}
+.gui-legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.gui-legend i.sg0{background:var(--gui-1)}
+.gui-legend i.sg1{background:var(--gui-2)}
+.gui-legend i.sg2{background:var(--gui-3)}
+.gui-legend i.sg3{background:var(--gui-4)}
+.gui-legend i.sg4{background:var(--gui-5)}
+.gui-legend i.sg5{background:var(--gui-6)}
+.gui-tabs{display:flex;flex-direction:column;gap:9px}
+.gui-tabbar{display:flex;gap:6px;flex-wrap:wrap;padding-bottom:6px;border-bottom:1px solid var(--line,#E4DFD6)}
+.gui-tab{border:1px solid transparent;border-radius:9px;padding:5px 11px;background:transparent;color:var(--ink-2,#7E8B94);font:inherit;font-size:calc(11.5px * var(--ui-text-scale));cursor:pointer;transition:background 180ms ease,color 180ms ease,border-color 180ms ease}
+.gui-tab.on{background:color-mix(in srgb,var(--deep,#0F4C5C) 14%,transparent);border-color:color-mix(in srgb,var(--deep,#0F4C5C) 34%,transparent);color:var(--ink,#22303A);font-weight:600}
+.gui-panel{display:none;flex-direction:column;gap:10px}
+.gui-panel.on{display:flex}
+/* 折叠：用 grid-template-rows 0fr→1fr 连续插值，展开与收起都是动画（铁律七） */
+.gui-acc{display:flex;flex-direction:column;gap:8px}
+.gui-acc-one{border:1px solid var(--line,#E4DFD6);border-radius:12px;overflow:hidden;background:var(--paper,#F7F6F2)}
+.gui-acc-h{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:0;background:transparent;color:inherit;font:inherit;font-size:calc(12px * var(--ui-text-scale));text-align:left;cursor:pointer}
+.gui-acc-h i{flex:none;margin-left:auto;width:8px;height:8px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(45deg);transition:transform 240ms ease}
+.gui-acc-one.open .gui-acc-h i{transform:rotate(-135deg)}
+.gui-acc-b{display:grid;grid-template-rows:0fr;transition:grid-template-rows 260ms cubic-bezier(.22,1,.36,1)}
+.gui-acc-one.open .gui-acc-b{grid-template-rows:1fr}
+.gui-acc-in{overflow:hidden;min-height:0;padding:0 12px;transition:padding 260ms cubic-bezier(.22,1,.36,1)}
+.gui-acc-one.open .gui-acc-in{padding-bottom:12px}
+.gui-field{display:flex;flex-direction:column;gap:6px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+.gui-field-l{font-weight:600;color:var(--ink,#22303A)}
+.gui-input{width:100%;box-sizing:border-box;border:1px solid var(--line,#E4DFD6);border-radius:9px;padding:7px 10px;background:var(--paper,#F7F6F2);color:var(--ink,#22303A);font:inherit;font-size:calc(12px * var(--ui-text-scale))}
+.gui-input:focus{outline:none;border-color:var(--deep,#0F4C5C)}
+.gui-check,.gui-radio{display:flex;align-items:center;gap:7px;font-size:calc(12px * var(--ui-text-scale));color:var(--ink,#22303A);cursor:pointer}
+.gui-check input,.gui-radio input{flex:none;accent-color:var(--deep,#0F4C5C)}
+.gui-btn{border:1px solid var(--line,#E4DFD6);border-radius:9px;padding:6px 12px;background:var(--panel,#fff);color:var(--ink,#22303A);font:inherit;font-size:calc(11.5px * var(--ui-text-scale));cursor:pointer;transition:border-color 180ms ease,background 180ms ease}
+.gui-btn:hover:not(:disabled){border-color:var(--deep,#0F4C5C)}
+.gui-btn.pri{background:var(--deep,#0F4C5C);border-color:var(--deep,#0F4C5C);color:var(--on-deep,#fff);font-weight:600}
+.gui-btn:disabled{opacity:.5;cursor:default}
+.gui-quiz{display:flex;flex-direction:column;gap:11px;border:1px solid var(--line,#E4DFD6);border-radius:13px;padding:11px 13px;background:var(--paper,#F7F6F2)}
+.gui-q{display:flex;flex-direction:column;gap:6px;font-size:calc(12px * var(--ui-text-scale))}
+.gui-q-ex{border-left:2px solid var(--line,#E4DFD6);padding-left:9px;color:var(--ink-2,#7E8B94);font-size:calc(11.5px * var(--ui-text-scale))}
+.gui-q.ok .gui-q-ex{border-left-color:#7FD3A8}
+.gui-q.no .gui-q-ex{border-left-color:#F09C93}
+@media (max-width:640px){.gui-table th,.gui-table td{padding:5px 6px;font-size:calc(10.5px * var(--ui-text-scale))}.gui-grid{grid-template-columns:minmax(0,1fr)}.gui-callout{padding:10px 11px}}
+@media (prefers-reduced-motion:reduce){.gui-acc-h i,.gui-acc-b,.gui-acc-in,.gui-tab,.gui-btn{transition:none}}
+:root[data-ui-motion="reduced"] .gui-acc-h i,:root[data-ui-motion="reduced"] .gui-acc-b,:root[data-ui-motion="reduced"] .gui-acc-in,:root[data-ui-motion="reduced"] .gui-tab{transition:none}
 `;
     document.head.append(st);
   }
@@ -947,7 +1772,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
     const when = new Date(m.at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
     const body = m.role === "error"
       ? `<p>这次没成功：${esc(m.text)}</p><div class="aichat-sug-act"><button class="aichat-btn" data-retry="${idx}">重试这一条</button></div>`
-      : md(m.text);
+      : bodyHtml(m);
     const sug = (!m.suggestions || !m.suggestions.length || m.role !== "assistant") ? "" : `
       <div class="aichat-sug">
         <div class="aichat-sug-t">整理出的改动 · 勾选后才写入</div>
@@ -974,6 +1799,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
   }
 
   function wireMessage(box, m) {
+    wireGenui(box, m);
     const retry = box.querySelector("[data-retry]");
     if (retry) {
       retry.onclick = () => {
@@ -1025,23 +1851,53 @@ button.aichat-avatar{padding:0;cursor:pointer}
     renderThread();
   }
 
-  /** 把当前思考强度画到按钮上：文字里直接写出档位，「自动」不点亮（= 没额外要求）。 */
+  /* 思考强度下拉栏（v0.204.0）：四档是「一组只能选一个」，所以选中高亮交给宿主的滑动光块
+     （与快捷提问行 CHIP_ON 同一套参数，铁律六），开合两向都走连续过渡（铁律七）。
+     它同时是输入区里 in-flow 的折叠容器，不是浮层 —— 不碰安全区四条边。 */
+  const THINK_ON = "button.aichat-lv.on";
+
+  /** 把当前档位画到胶囊按钮、下拉栏选项与光块上。开合状态统一由 aria-expanded 表达。 */
   function paintThink() {
     if (!ui?.think) return;
     const level = thinkLevel();
-    ui.think.textContent = `思考强度 ${level.label}`;
+    const lab = ui.think.querySelector(".aichat-effort-lab");
+    if (lab) lab.textContent = `思考强度 ${level.label}`;
     ui.think.classList.toggle("on", level.id !== "");
-    ui.think.setAttribute("aria-label", `思考强度：${level.label}，点击切换下一档`);
-    ui.think.title = `${level.hint}。点击依次切换：${THINK_CYCLE}`;
+    ui.think.setAttribute("aria-label", `思考强度：${level.label}，展开可选档位`);
+    ui.think.title = `${level.hint}。可选：${THINK_CYCLE}`;
+    [...(ui.thinkMenu?.querySelectorAll("[data-think-lv]") || [])].forEach((btn) => {
+      const on = btn.dataset.thinkLv === level.id;
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-selected", String(on));
+    });
+    thinkGlow?.sync();
   }
 
-  /** 档位在按钮上就地轮换，不动别的状态 —— 下一句话就按新档发出。 */
-  function cycleThink() {
-    const index = THINK_LEVELS.findIndex((l) => l.id === thinkEffort);
-    const next = THINK_LEVELS[(index + 1) % THINK_LEVELS.length];
-    thinkEffort = next.id;
-    tide.storage.set(THINK_KEY, thinkEffort);
+  /* 收起：内容留在 DOM 里直到过渡跑完（铁律七），同时立刻 inert —— 收起后里面的选项既点不到、
+     也 Tab 不到，而视觉上高度还在往下收。展开时先解除 inert，再让高度插值。 */
+  function setThinkMenu(open, restoreFocus = false) {
+    if (!ui?.thinkMenu || open === thinkOpen) return;
+    thinkOpen = open;
+    ui.thinkMenu.classList.toggle("open", open);
+    ui.thinkMenu.setAttribute("aria-hidden", String(!open));
+    ui.think.setAttribute("aria-expanded", String(open));
+    ui.thinkMenu.inert = !open;
+    /* 光块落位要等布局定下来再量：展开的那一帧容器还是 0 高、内边距也还在从 0 长到 8px，
+       真应用探针实测这一帧量到的 offsetTop 比终态少 8px（换档后重新展开，高亮会贴着选项上沿偏出去）。
+       所以等最长的那条过渡（行高与内边距都是 260ms）走完再同步一次。
+       用定时器而不是 transitionend：开了减少动效时过渡被砍掉，transitionend 根本不触发。 */
+    clearTimeout(thinkGlowTimer);
+    if (open) thinkGlowTimer = setTimeout(() => thinkGlow?.sync(), 300);
+    if (restoreFocus) ui.think.focus();
+  }
+
+  /** 选一档：就地写入并收起，焦点回到胶囊按钮。发送路径只看 thinkEffort，下一句话就按新档发出。 */
+  function pickThink(id) {
+    if (!isThinkLevel(id)) return;
+    thinkEffort = id;
+    tide.storage.set(THINK_KEY, id);
     paintThink();
+    setThinkMenu(false, true);
   }
 
   async function loadOnce() {
@@ -1107,17 +1963,16 @@ button.aichat-avatar{padding:0;cursor:pointer}
       <div class="aichat-head">
         <button type="button" class="aichat-menu" data-menu aria-label="展开对话历史" title="对话历史" aria-controls="aichat-history" aria-expanded="false"><span></span><span></span><span></span></button>
         <div class="aichat-feed"></div>
-        <button class="aichat-chip" data-ctx>带本机数据</button>
-        <button type="button" class="aichat-chip aichat-effort" data-think></button>
       </div>
       <div class="aichat-backdrop" aria-hidden="true"></div>
       <aside class="aichat-sidebar" id="aichat-history" aria-label="对话历史" aria-hidden="true" inert>
         <div class="aichat-sidebar-heading"><b>对话历史</b><button type="button" class="aichat-sidebar-close" aria-label="收起对话历史">×</button></div>
         <button type="button" class="aichat-btn pri" data-clear>＋ 新对话</button>
         <div class="aichat-session-list"></div>
-        <button type="button" class="aichat-btn" data-id>头像与名称</button>
+        <button type="button" class="aichat-btn" data-id aria-controls="aichat-id-panel" aria-expanded="false">头像与名称</button>
       </aside>
-      <div class="aichat-id" hidden>
+      <div class="aichat-id" id="aichat-id-panel" role="dialog" aria-modal="true" aria-label="头像与名称" aria-hidden="true" tabindex="-1" inert>
+        <div class="aichat-id-head"><b>头像与名称</b><button type="button" class="aichat-id-close" data-id-close aria-label="关闭头像与名称">×</button></div>
         ${["me", "ai"].map((role) => `
           <div class="aichat-id-row">
             <button type="button" class="aichat-avatar ${role}" data-pick="${role}"></button>
@@ -1135,10 +1990,19 @@ button.aichat-avatar{padding:0;cursor:pointer}
       </div>
       <div class="aichat-bar">
         <textarea class="aichat-input" rows="1" aria-label="对话内容" placeholder="帮我把这周的事理一遍"></textarea>
-        <div class="aichat-compose-tools">
-          <button type="button" class="aichat-personalize" data-personalize aria-label="头像与名称" title="头像与名称"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 21v-3a7 7 0 0 1 14 0v3"/></svg></button>
-          <button type="button" class="aichat-model" title="打开模型设置"></button>
-          <button type="button" class="aichat-send" data-send aria-label="发送" title="发送 · Enter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m21 3-6 18-4-8-8-4 18-6Z"/><path d="m11 13 10-10"/></svg></button>
+        <div class="aichat-compose-row">
+          <div class="aichat-compose-chips">
+            <button type="button" class="aichat-chip" data-ctx aria-pressed="true">带本机数据</button>
+            <button type="button" class="aichat-chip aichat-effort" data-think aria-haspopup="listbox" aria-expanded="false" aria-controls="aichat-effort-menu" title="展开可选档位：自动 → 低 → 中 → 高"><span class="aichat-effort-lab"></span><i class="aichat-effort-arrow" aria-hidden="true"></i></button>
+          </div>
+          <div class="aichat-compose-tools">
+            <button type="button" class="aichat-personalize" data-personalize aria-label="头像与名称" title="头像与名称"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="8" r="3"/><path d="M5 21v-3a7 7 0 0 1 14 0v3"/></svg></button>
+            <button type="button" class="aichat-model" title="打开模型设置"></button>
+            <button type="button" class="aichat-send" data-send aria-label="发送" title="发送 · Enter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="m21 3-6 18-4-8-8-4 18-6Z"/><path d="m11 13 10-10"/></svg></button>
+          </div>
+        </div>
+        <div class="aichat-effort-menu" id="aichat-effort-menu" role="listbox" aria-label="思考强度" aria-hidden="true" inert>
+          <div class="aichat-effort-in">${THINK_ITEMS}</div>
         </div>
       </div>
       <div class="aichat-shortcuts" aria-label="快捷提问"></div>
@@ -1157,6 +2021,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
       feed: root.querySelector(".aichat-feed"),
       ctx: root.querySelector("[data-ctx]"),
       think: root.querySelector("[data-think]"),
+      thinkMenu: root.querySelector(".aichat-effort-menu"),
       clear: root.querySelector("[data-clear]"),
       jump: root.querySelector(".aichat-jump"),
       idBtn: root.querySelector("[data-id]"),
@@ -1166,7 +2031,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
     // 每次重绘都挂一次的话，反复切页面会把同一个收尾动作塞进一堆新闭包里。
     if (!disposeHooked) {
       disposeHooked = true;
-      tide.ui.onDispose?.(() => { chipGlow?.dispose(); chipGlow = null; });
+      tide.ui.onDispose?.(() => { clearTimeout(thinkGlowTimer); chipGlow?.dispose(); chipGlow = null; thinkGlow?.dispose(); thinkGlow = null; });
     }
     ui.model.textContent = configured ? (modelLabel || "已配置模型") : "未配置模型";
     paintPlaceholder();
@@ -1174,12 +2039,58 @@ button.aichat-avatar{padding:0;cursor:pointer}
     ui.ctx.setAttribute("aria-pressed", String(withContext));
     ui.ctx.title = withContext ? "每次提问都会把本机任务、近三天时间块与插件消息一起发给模型" : "已关闭：只问通用问题，不上传本机数据";
     ui.ctx.onclick = () => setContext(!withContext);
+    // 重建的 DOM 天生是收起态：把标志位拉回来，否则第一次点按钮会被当成「收起」而没反应。
+    thinkOpen = false;
+    // 光块每次都要重挂：root 是整棵重建的 —— 留着上一次的光块，它量的是已经不在文档里的旧选项。
+    clearTimeout(thinkGlowTimer);
+    thinkGlowTimer = 0;
+    thinkGlow?.dispose();
+    thinkGlow = tide.ui.selectionGlow?.(ui.thinkMenu, { selector: THINK_ON }) || null;
     paintThink();
-    ui.think.onclick = cycleThink;
+    ui.think.onclick = () => setThinkMenu(!thinkOpen);
+    /* 选项点击走委托：选项 HTML 是一次拼好的静态串，而「收起后不响应」要靠状态判断，
+       绑在容器上比给每个选项挂监听更省，也不会在重建时漏摘。 */
+    ui.thinkMenu.onclick = (event) => {
+      const btn = event.target?.closest?.("[data-think-lv]");
+      if (!btn || !ui.thinkMenu.contains(btn)) return;
+      pickThink(btn.dataset.thinkLv);
+    };
+    // 下拉栏里的上下键：展开后不用鼠标也能换档（Enter / Space 选，Esc 收起）。
+    ui.thinkMenu.addEventListener("keydown", (event) => {
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      const opts = [...ui.thinkMenu.querySelectorAll("[data-think-lv]")];
+      if (!opts.length) return;
+      const at = opts.indexOf(document.activeElement);
+      event.preventDefault();
+      const to = event.key === "Home" ? 0
+        : event.key === "End" ? opts.length - 1
+          : event.key === "ArrowDown" ? (at + 1) % opts.length
+            : (at <= 0 ? opts.length - 1 : at - 1);
+      opts[to]?.focus();
+    });
+    /* 点别处（输入框、发送、模型行、页面空白）就收起：它不是浮层，没有「点外面还留着」的理由。 */
+    root.addEventListener("click", (event) => {
+      if (!thinkOpen) return;
+      if (ui.think.contains(event.target) || ui.thinkMenu.contains(event.target)) return;
+      setThinkMenu(false);
+    });
     ui.model.onclick = () => window.dispatchEvent(new CustomEvent("tide:open-settings", { detail: { section: "ai" } }));
     const menu = root.querySelector("[data-menu]");
     const sidebar = root.querySelector(".aichat-sidebar");
+    const backdrop = root.querySelector(".aichat-backdrop");
+    const idPanel = ui.idPanel;
     let sidebarOpen = false;
+    let idOpen = false;
+    /* 弹窗（头像与名称）开着时，背后那层不接受点击与 Tab。蒙版自己不算 —— 它是「点一下关掉」
+       的落点，inert 掉就没人接这一下；侧栏关着的时候本来就该是 inert，恢复时要按它自己的
+       状态写回，别一把清成 false（那会让收起的侧栏重新变成 Tab 得到、却看不见的幽灵）。 */
+    const setBehindInert = (on) => {
+      [...root.children].forEach((child) => {
+        if (child === idPanel || child === backdrop) return;
+        if (on) child.inert = true;
+        else child.inert = child === sidebar ? !sidebarOpen : false;
+      });
+    };
     const setSidebar = (open, restoreFocus = false) => {
       sidebarOpen = open;
       root.classList.toggle("sidebar-open", open);
@@ -1193,15 +2104,46 @@ button.aichat-avatar{padding:0;cursor:pointer}
     ui.closeSidebar = () => setSidebar(false);
     menu.onclick = () => setSidebar(!sidebarOpen);
     root.querySelector(".aichat-sidebar-close").onclick = () => setSidebar(false, true);
-    root.querySelector(".aichat-backdrop").onclick = () => setSidebar(false, true);
+    backdrop.onclick = () => { if (idOpen) setIdOpen(false); else setSidebar(false, true); };
+    /* 「头像与名称」= 居中弹窗 + 背后蒙版（v0.200.0）。开合两向都由 root 上的 .id-open 驱动，
+       收起时内容留在 DOM 里直到过渡结束，不许 hidden 闪没（铁律七）。 */
+    let idReturnTo = null;
+    const setIdOpen = (open) => {
+      if (open === idOpen) return;
+      idOpen = open;
+      if (open && sidebarOpen) setSidebar(false);   // 一次只开一个浮层：蒙版只有一块，两个一起开会打架
+      if (open && thinkOpen) setThinkMenu(false);   // 弹窗一起，输入区里那份下拉先收起，不然两层焦点打架
+      root.classList.toggle("id-open", open);
+      idPanel.inert = !open;
+      idPanel.setAttribute("aria-hidden", String(!open));
+      ui.idBtn.classList.toggle("on", open);
+      ui.idBtn.setAttribute("aria-expanded", String(open));
+      setBehindInert(open);
+      if (open) idPanel.focus();
+      else if (idReturnTo?.isConnected) { idReturnTo.focus(); idReturnTo = null; }
+    };
+    const closeId = () => setIdOpen(false);
+    ui.closeId = closeId;
+    const toggleId = (from) => {
+      if (idOpen) { setIdOpen(false); return; }
+      // 从侧栏里点开的，侧栏会随弹窗一起收起：焦点回汉堡键，回已经藏起来的按钮等于丢失焦点
+      idReturnTo = from === ui.idBtn ? menu : from;
+      setIdOpen(true);
+    };
+    ui.idBtn.onclick = () => toggleId(ui.idBtn);
+    idPanel.querySelector("[data-id-close]").onclick = closeId;
     root.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && sidebarOpen) {
-        event.preventDefault();
-        event.stopPropagation();
-        setSidebar(false, true);
-      }
+      if (event.key !== "Escape") return;
+      // 下拉栏最轻、弹窗在上、侧栏在下，Esc 一次只关最上面那一层
+      const top = thinkOpen ? () => setThinkMenu(false, true)
+        : idOpen ? closeId : sidebarOpen ? () => setSidebar(false, true) : null;
+      if (!top) return;
+      event.preventDefault();
+      event.stopPropagation();
+      top();
     });
-    root.querySelector("[data-personalize]").onclick = () => ui.idBtn.onclick();
+    const personalize = root.querySelector("[data-personalize]");
+    personalize.onclick = () => toggleId(personalize);
     ui.jump.onclick = () => {
       ui.log.scrollTop = ui.log.scrollHeight;
       ui.jump.hidden = true;
@@ -1210,11 +2152,6 @@ button.aichat-avatar{padding:0;cursor:pointer}
       if (busy) return;
       startSession();
       tide.notify("已开新对话，之前的记录保留在对话历史中");
-    };
-    ui.idBtn.onclick = () => {
-      setSidebar(false);
-      ui.idPanel.hidden = !ui.idPanel.hidden;
-      ui.idBtn.classList.toggle("on", !ui.idPanel.hidden);
     };
     // 一次只挑一个头像：文件框是共用的，点哪个按钮先记下角色。
     let picking = "";

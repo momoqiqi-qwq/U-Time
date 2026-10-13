@@ -75,8 +75,17 @@ function cleanText(value) {
     .replace(/&#39;|&apos;/gi, "'").replace(/\s+/g, " ").trim();
 }
 
+/* 属性取值正则缓存：解析一篇文章会对同一堆标签反复取 property/name/content…，
+ * 名字集合是封闭的（不到十个），缓存住编译结果即可；同样不做淘汰，满了清空。 */
+const ATTR_RE_CACHE = new Map();
+const ATTR_RE_CACHE_MAX = 32;
 function attr(tag, name) {
-  const re = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i");
+  let re = ATTR_RE_CACHE.get(name);
+  if (!re) {
+    if (ATTR_RE_CACHE.size >= ATTR_RE_CACHE_MAX) ATTR_RE_CACHE.clear();
+    re = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i");
+    ATTR_RE_CACHE.set(name, re);
+  }
   const m = String(tag || "").match(re);
   return m ? (m[1] ?? m[2] ?? m[3] ?? "") : "";
 }

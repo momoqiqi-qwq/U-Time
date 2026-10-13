@@ -1,7 +1,7 @@
 {
   "id": "wechat-push",
   "name": "微信提醒推送",
-  "version": "1.10.0",
+  "version": "1.12.0",
   "author": "U-Time内置",
   "icon": "comment-dots",
   "faIcon": "comment-dots",

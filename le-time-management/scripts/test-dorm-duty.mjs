@@ -190,7 +190,7 @@ function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = 
       + '    cycleStartOf, assigneeFor, assigneesFor, cycleIndexAt, overrideHit, overrideHits, normalAssignees,\n'
       + '    isCycleStartDay, reminderDue, periodOf, perRoundOf, locationAt, locationsHtml,\n'
       + '    nextBigText, render, heroHtml, rowsHtml, groupChipsHtml, swapHtml, rulesHtml, setActiveGroup, addGroup, removeGroup, renameGroup,\n'
-      + '    duplicateGroup, importMembers, tabMenuHtml,\n'
+      + '    duplicateGroup, importMembers, tabMenuHtml, clampTabMenu, placeTabMenu, paint,\n'
       + '    roomHtml, roomBeds, roomBunks, roomDims, roomBunkCount, roomScene, roomBounds, roomProjectAll, roomProjectPoint, roomView,\n'
       + '    normalizeSeats, normalizeBedNames, normalizeLinks, seatsOf, bedNamesOf, roomLinks, moveSeat, toggleLink, bedSlotAtPoint, roomBedLabel,\n'
       + '    ROOM_BED_MAX, BED_NAME_MAX, ROOM_LINK_MAX, ROOM_BED_HIT,\n'
@@ -1262,6 +1262,57 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
   assert.ok(!/data-import-from=/.test(oneSub), '没有别的组时二级菜单不该列出任何源');
 }
 
+/* 8.6b 菜单落点：宿主 `.view { will-change: opacity, transform }` 把 fixed 的包含块劫持成 .view 的
+   padding box —— 写进 left/top 的视口坐标会整体平移一段（真外壳实测 +234/+61），靠右的标签还会被
+   .view 的 overflow 一起裁掉，表现就是「右键没反应」。所以落点必须按**实测残差**回修。 */
+{
+  const A = GROUP({ id: 'gA', name: '公区值日', remindEnabled: false });
+  const B = GROUP({ id: 'gB', name: '宿舍值日', remindEnabled: false });
+  const { fx, ctx } = bootPlugin({ seed: { groups: [A, B], activeId: 'gA' }, today: '2026-09-17' });
+  await settle();
+  await fx.load();
+  const host = fakeEl('div');
+  fx.render(host);
+  // 安全区：底部导航栏 48、右侧挖孔 24（桌面上是 0，这里钉的是夹取算式本身）
+  ctx.getComputedStyle = () => ({ getPropertyValue: (v) => ({ '--sab': '48px', '--sar': '24px' }[v] || '') });
+  ctx.document.documentElement = fakeEl('html');
+  // 假菜单：被祖先平移了 (237,62) —— 即 style.left=L 时真实落点是 L+237
+  const OX = 237, OY = 62, W = 180, H = 240;
+  const menu = fakeEl('div');
+  menu.className = 'dd-tabmenu';
+  menu.getBoundingClientRect = () => ({
+    left: (parseFloat(menu.style.left) || 0) + OX, top: (parseFloat(menu.style.top) || 0) + OY,
+    width: W, height: H, right: 0, bottom: 0,
+  });
+  host.querySelector = (sel) => (sel === '.dd-tabmenu' ? menu : null);
+
+  // 右下角：非浏览器环境没有 innerWidth → 兜底 1024×768，再让开 --sar / --sab
+  fx.tabMenu = { id: 'gB', x: 1000, y: 700, ax: 1000, ay: 700, step: '' };
+  fx.paint();   // 走真实路径：paint() 收尾必须自己调 placeTabMenu()
+  const wantX = 1024 - 24 - W;
+  const wantY = 768 - 48 - H;
+  const r1 = menu.getBoundingClientRect();
+  assert.ok(Math.abs(r1.left - wantX) < 0.5 && Math.abs(r1.top - wantY) < 0.5,
+    `菜单必须真的落在夹取后的点 (${wantX},${wantY})，实测 (${r1.left},${r1.top})`);
+  assert.notEqual(menu.style.left, `${wantX}px`,
+    '包含块被宿主祖先平移时 left 必须抵掉，不能再假设 left 就等于视口坐标（这就是原来偏移 +234 的根因）');
+
+  // 左上角：夹取不动它，但那层平移照样要抵掉
+  fx.tabMenu = { id: 'gB', x: 300, y: 200, ax: 300, ay: 200, step: '' };
+  fx.placeTabMenu();
+  assert.equal(menu.style.left, `${300 - OX}px`, '横向平移必须抵掉');
+  assert.equal(menu.style.top, `${200 - OY}px`, '纵向平移必须抵掉');
+  fx.placeTabMenu();
+  assert.equal(menu.style.left, `${300 - OX}px`, 'placeTabMenu 必须幂等：残差收敛后不能再抖');
+
+  // 布局测不出来（无头 / 隐藏容器）：保持首帧坐标，绝不能算出 NaN 把菜单扔到屏幕外
+  menu.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 });
+  menu.style.left = '';
+  menu.style.top = '';
+  fx.placeTabMenu();
+  assert.equal(menu.style.left, '', '测不出布局时不许写坐标');
+}
+
 /* 8.7 菜单的源码不变量：定位、收起、长按 */
 assert.match(PLUGIN_SRC, /addEventListener\("contextmenu"/, '标签必须接 contextmenu');
 assert.match(PLUGIN_SRC, /e\.preventDefault\(\)/, '右键要压掉浏览器原生菜单');
@@ -1282,6 +1333,13 @@ assert.match(PLUGIN_SRC, /if \(longPressed\) \{ longPressed = false; return; \}[
   '菜单开着时点标签要把浮层一起收起 —— 只切组会留下一个指向旧组的菜单（document 上的收起监听刻意放过标签点击）');
 assert.match(PLUGIN_SRC, /\.dd-tabmenu\{[^}]*position:fixed/, '菜单是 fixed 浮层');
 assert.match(PLUGIN_SRC, /const promptFn = \(/, '重命名走 promptFn 兜底，不能裸调 window.prompt');
+assert.match(PLUGIN_SRC, /function clampTabMenu\(/, '夹取算式要独立成具名函数：首帧用估算尺寸、落点用实测尺寸，同一份算式');
+assert.match(PLUGIN_SRC, /function placeTabMenu\(\)/, '必须有 placeTabMenu()：fixed 的包含块可能被宿主祖先劫持');
+assert.match(PLUGIN_SRC, /bind\(\);\n    placeTabMenu\(\);/, 'paint() 渲染完菜单必须调 placeTabMenu()，否则偏移修复永远不会生效');
+assert.match(PLUGIN_SRC, /getBoundingClientRect/, '落点必须**实测**（量出菜单真实落在哪），不能假设 left/top 就是视口坐标');
+assert.match(PLUGIN_SRC, /tabMenu\.ax \?\? tabMenu\.x/, '放锚点要用未夹取的 ax/ay：夹过的 x 会把右边界吃小一截');
+assert.match(PLUGIN_SRC, /tabMenu = \{ id, x: at\.x, y: at\.y, ax: x, ay: y, step: "" \}/, 'openTabMenu 要同时记住原始锚点与首帧坐标');
+assert.match(PLUGIN_SRC, /item\("duplicate", "复制到后面"\)/, '「复制」的文案要照实说落点（就是在原组后面插一套）');
 
 /* 8.8 小程序端同语义实现 + 「⋯」入口 */
 assert.match(miniRuntime, /function ddDuplicateGroup\(/, '小程序要有同语义的 ddDuplicateGroup');

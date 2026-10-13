@@ -4420,7 +4420,13 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   padding: 4px 4px 10px;
   border-bottom: 1px solid var(--line-soft);
   justify-content: flex-start;
+  /* v0.206.1：头部条兼作拖动把手。touch-action 必须在，否则手机上按着头部拖动会变成滚动页面
+     （pointermove 仍会来，但浏览器同时把手势当滚动，拖不动）；user-select 免得拖动时选中标题文字。 */
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
 }
+.quick-dock.dragging .quick-dock-head { cursor: grabbing; }
 .quick-dock-title {
   min-width: 0;
   display: flex;

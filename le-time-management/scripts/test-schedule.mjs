@@ -498,28 +498,49 @@ console.log('PASS: 切周动画 —— 动画层独立于滚动容器，方向�
 
 /* ── v0.42.0 三、总学期视图 ──
    用户需求原文：「做一个总学期视图，可以看到所有周」。
-   它同时顶替了旧的「选择周次」纯按钮页（20 个按钮既占地方又看不出分布）。 */
+   它同时顶替了旧的「选择周次」纯按钮页（20 个按钮既占地方又看不出分布）。
+   v0.198.0 起它改画「周视图的等比缩略图」：位置由 courseCell() 统一给出，
+   所以断言从「有 7 列迷你网格 / 百分比 top」改成「与 course-block 同格 + 无节次列留白误差」。 */
 assert.match(ui, /function semesterOverview|function weekPickerContent\(\)\{[\s\S]*?semester-wrap/,
   '总学期视图要渲染 .semester-wrap');
-assert.match(ui, /function semCard\(w,sem\)/, '每周一张 semCard');
-assert.match(ui, /function semBar\(c,sem\)/, '周卡内用 semBar 画课程条');
-assert.match(ui, /function semBounds\(\)/, '要有 semBounds() 把全天时间轴压进卡片高度');
-assert.match(ui, /class="sem-card \$\{isCur\?'on':''\} \$\{isNow\?'is-now':''\}/,
-  '周卡要同时带「当前查看 on」与「本周 is-now」两个独立标记');
-assert.match(ui, /const isNow=r===w,isCur=w===week;/, '两个标记分别比对真实本周与当前查看周');
-// 纵向映射用百分比，才能让不同周的同一节课位置一致、可横向比对
-assert.match(ui, /const top=\(\(sem\.minM-M\.minutes\(c\.start\)\)\/\(sem\.spanM\|\|1\)\)\*100/,
-  '课程条的 top 要用百分比（跨周可比对）');
-assert.match(ui, /const height=Math\.max\(5,h-1\.4\);/, '课程条要保底高度，否则半节课看不见');
-assert.match(ui, /\.sg \.sem-mini\{position:relative;display:grid;grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/,
-  '迷你周条是 7 列网格（周一到周日）');
+assert.match(ui, /function semCard\(w\)/, '每周一张 semCard');
+assert.match(ui, /function semBar\(c,slotMap\)/, '周卡内用 semBar 画课程条');
+/* v0.198.0 的核心：格子坐标只算一次，周视图与迷你图共用 ——
+   两边各写一份正是 v0.45.x「迷你条按真实分钟算 top、还把 minM-start 写反」的根因。 */
+assert.match(ui, /function courseCell\(c,slotMap\)\{/, '列/行/跨行必须由 courseCell() 统一给出');
+assert.match(ui, /function gridCourse\(c,overlap,slotMap\)\{\s*\n\s*const \{col,row,span\}=courseCell\(c,slotMap\);/,
+  'course-block 的格子坐标要取自 courseCell()');
+assert.match(ui, /const \{col,row,span\}=courseCell\(c,slotMap\);\s*\n\s*return `<span class="sem-bar/,
+  'sem-bar 的格子坐标也要取自 courseCell()');
+assert.match(ui, /function weekOrder\(\)\{return table\.config\.firstDayOfWeek===7\?\[6,0,1,2,3,4,5\]:\[0,1,2,3,4,5,6\];\}/,
+  '列序由 firstDayOfWeek 决定（周日开头时周日排在第一位）');
+assert.match(ui, /function slotMapOf\(\)\{return new Map\(table\.timeSlots\.map\(\(s,i\)=>\[s\.number,i\]\)\);\}/,
+  '节次序号到行号的映射同样只写一份');
+assert.doesNotMatch(ui, /semBounds|sem-col/, '按分钟压轴的旧迷你图与 .sem-col 包装必须彻底移除');
+assert.doesNotMatch(ui, /<span class="sem-bar[^>]*style="top:/, '迷你条不能再按百分比 top 定位');
+assert.match(ui, /grid-column:\$\{col\};grid-row:\$\{row\}\/span \$\{span\}/, '迷你条与课程块同格');
+assert.match(ui, /const dow=order\.map\(\(dayIndex,visualIndex\)=>`<span style="grid-column:\$\{visualIndex\+2\}">\$\{days\[dayIndex\]\.slice\(1\)\}<\/span>`\)/,
+  '星期小标签要跟着 firstDayOfWeek 走，不能硬编码「一二三四五六日」');
+/* 等比缩略图的留白必须与周视图一致，否则同一节课在两处相对坐标对不上。
+   两侧比例由 JS 实测写入 CSS 变量；gap / padding 必须为 0 —— 它们会先吃掉宽度再右移内容盒。 */
+assert.match(ui, /function semRatios\(\)\{[\s\S]*?\n \}/, '要有 semRatios() 把节次列与表头带的占比算出来');
+assert.match(ui, /function measureGrid\(\)\{/, '要实测周视图网格几何并缓存（迷你视图里没有网格可量）');
+assert.match(ui, /gridGeom=\{hw:host\.clientWidth\|\|0,label:Math\.max\(0,Math\.min\(40,\(lw\/gw\)\*100\)\),head:Math\.max\(0,Math\.min\(30,\(hh\/gh\)\*100\)\)\};/,
+  '缓存的是节次列宽比与表头带高比');
+assert.match(ui, /const vars=`--sg-slot-count:\$\{table\.timeSlots\.length\};--sg-sem-label:[\s\S]{0,80}\$\{ratios\.head\.toFixed\(3\)\}`/,
+  '每张周卡要带上节次数与两个留白比例');
+assert.match(ui, /\.sg \.sem-mini\{[^}]*grid-template-columns:calc\(var\(--sg-sem-label,0\) \* 1%\) repeat\(7,minmax\(0,1fr\)\)[^}]*grid-template-rows:calc\(var\(--sg-sem-head,0\) \* 1%\) repeat\(var\(--sg-slot-count,10\),minmax\(0,1fr\)\)/,
+  '.sem-mini 必须复刻周视图的 8 列 × (1+N) 行网格模板');
+assert.match(ui, /\.sg \.sem-mini\{[^}]*height:96px;padding:0;/, '.sem-mini 的 padding 必须为 0（内边距会整体右移内容盒）');
 assert.match(ui, /\.sg \.sem-mini\{[^}]*overflow:hidden\}/,
-  '.sem-mini 必须 overflow:hidden，否则超出 100% 的条会画到卡片外');
+  '.sem-mini 必须 overflow:hidden，否则跨行条会画到卡片外');
+assert.match(ui, /\.sg \.sem-dow\{[^}]*grid-template-columns:calc\(var\(--sg-sem-label,0\) \* 1%\) repeat\(7,minmax\(0,1fr\)\);gap:0;padding:0/,
+  '.sem-dow 要用与迷你图相同的列模板，标签才对得上色块');
 assert.match(ui, /data-action="pick-week" data-week="\$\{w\}"/, '点周卡即跳转到该周');
 assert.match(ui, /<div class="sem-legend">/, '总学期视图要有图例解释两种描边');
 // 学期外不该假装有本周
 assert.match(ui, /当前日期不在本学期范围内/, '日期在学期外时要如实说明没有本周标记');
-console.log('PASS: 总学期视图 —— 20 周总览、迷你课条、本周/当前双标记与图例');
+console.log('PASS: 总学期视图 —— 20 周总览、与周视图同格的迷你缩略图、本周/当前双标记与图例');
 
 /* ── v0.50.0 个性化配置：滑杆写了 NaN + 开关类名被宿主全局样式连坐 ──
    两个都是「界面上看着有、实际没生效」的 bug，静态断言一律**锚整行**：

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { normalizeWebUrl, resolveWebUrl, parseSiteMeta, inferSiteIconName, extractNoticeLinks, extractPager, noticeKind, extractArticleText, screenNotice, formEncode,
   charsetFromContentType, charsetFromMeta, looksLikeMarkup, decodeWebBody,
   detectSpaShell, matchJsonSiteAdapter, buildJsonSiteListUrl, parseJsonSiteList,
@@ -281,5 +282,13 @@ assert.equal(extractPager('<a href="/tzgg/2026.htm">2026</a><a href="../xwzx/ind
 assert.equal(extractPager('<ul><li><a href="/tzgg/2026/0911/c1a2.htm">关于放假的通知</a></li></ul>', PKU_TZGG).total, 1);
 assert.deepEqual(extractPager('', PKU_TZGG).pages, []);
 assert.equal(extractPager(PKU_PAGER, '不是网址').total, 1, 'baseUrl 非法时不能抛');
+
+/* 属性正则缓存（v0.206.0）：attr(tag, name) 原本每次调用都 new RegExp，解析一篇页面要
+   编译几十次同一个模式。缓存后冷热结果一致（实测 3000 次 parseSiteMeta 20.8ms）。 */
+const webSrc = readFileSync(new URL('../src/webContent.js', import.meta.url), 'utf8');
+assert.match(webSrc, /const ATTR_RE_CACHE = new Map\(\)/, '属性正则要有模块级缓存');
+assert.match(webSrc, /ATTR_RE_CACHE\.get\(name\)/, '取属性正则要先查缓存');
+assert.equal((webSrc.match(/new RegExp\(/g) || []).length, 1,
+  'webContent.js 里只应剩缓存构造函数里那一处 new RegExp（别处出现就是绕过了缓存）');
 
 console.log('PASS: web URL normalization, site metadata, favicon, FA icon inference, generic notice extraction (nav/footer/listing-page screening), notice classification, article body extraction, form encoding, charset decoding, JSON-API site adapters, embedded JSON/API discovery and pager page-number synthesis');

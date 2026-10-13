@@ -44,11 +44,6 @@ export function resolveTheme(id, mode = getThemeMode()) {
   return { id: requested, dark, mode: dark ? "dark" : "light" };
 }
 
-/** @deprecated 用 resolveTheme 拿完整信息；这里仅为兼容旧调用点。 */
-function effectiveThemeId(id, mode = getThemeMode()) {
-  return resolveTheme(id, mode).id;
-}
-
 /* ── 切换动画（v0.50.0 批次）──
    旧实现的问题：animate 的门槛是「主题 id 变了」，而浅色↔深色只是模式变化、
    id 不变 → 全屏配色瞬间跳变，比有动画还突兀；就算走了动画，

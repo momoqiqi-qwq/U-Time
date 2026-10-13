@@ -95,3 +95,10 @@ cloudflare-pages/plugin-guide/.wrangler/
 /le-time-management/.playwright-cli/
 # Windows 保留设备名，误建出来的幽灵条目，git 在 Windows 上无法正常 stat
 /le-time-management/nul
+
+# v0.196.0 代码优化期的只读勘查脚本与报告（一次性分析产物，不入库）
+/.audit/
+/audit-*.md
+
+# web-grab 的抓取产物（接口返回数据可随时重跑生成，只入库工具源码）
+/web-grab/out/

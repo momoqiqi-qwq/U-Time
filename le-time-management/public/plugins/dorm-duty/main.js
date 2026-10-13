@@ -884,7 +884,7 @@
     return state.groups.map((g) => {
       const names = assigneesFor(g, tide.util.today()).map((m) => m.name).join("、");
       const on = g.id === state.activeId;
-      return `<button class="dd-gchip${on ? " on" : ""}" data-group="${esc(g.id)}" type="button" aria-pressed="${on ? "true" : "false"}" title="切到「${esc(g.name)}」（右键或长按可重命名 / 复制 / 导入成员）">
+      return `<button class="dd-gchip${on ? " on" : ""}" data-group="${esc(g.id)}" type="button" aria-pressed="${on ? "true" : "false"}" title="切到「${esc(g.name)}」（右键或长按可重命名 / 复制到后面 / 删除）">
         <span>${esc(g.name)}</span><em class="dd-gwho">${esc(pausedAt(g, tide.util.today()) ? "暂停中" : names || "未排班")}</em>
       </button>`;
     }).join("");
@@ -2052,6 +2052,7 @@
       </section>
     </div>`;
     bind();
+    placeTabMenu();   // 菜单刚进 DOM：按实测尺寸 + 实测残差把落点收准（见 placeTabMenu 注释）
   }
 
   /* ── 轮换组的增删改（抽成具名函数：绑定时只负责调用，逻辑才能在 Node 里真跑） ── */
@@ -2161,25 +2162,59 @@
   }
 
   /* ── 标签右键菜单 ── */
-  /** 弹菜单。只定位、**不切组** —— 一级菜单里「切到这一组」才是切组动作，
-      右键时偷偷切走会让用户以为菜单操作的是原来那套。 */
-  function openTabMenu(id, x, y) {
-    if (!state.groups.some((g) => g.id === id)) return;
-    // ⚠️ 视口坐标是从屏幕角量起的，而安全区那四条边落在屏幕边上：fixed 的包含块是宿主
-    // .view 的 padding box，.view 垫掉的安全区拦不住 fixed 后代 —— 夹取必须自己减掉。
+  /** 视口坐标是从屏幕角量起的，而安全区那四条边正好落在屏幕边上：fixed 的包含块是宿主
+      .view 的 padding box，.view 垫掉的安全区拦不住 fixed 后代 —— 夹取只能自己减掉。
+      w/h 传菜单的估算或实测尺寸（高度随项数变化）。 */
+  function clampTabMenu(x, y, w, h) {
     const px = (v) => {
       try { return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(v)) || 0; } catch { return 0; }
     };
     const [sat, sab, sal, sar] = [px("--sat"), px("--sab"), px("--sal"), px("--sar")];
-    tabMenu = {
-      id,
-      x: Math.max(8 + sal, Math.min(x, (window.innerWidth || 1024) - sar - MENU_W)),
-      y: Math.max(8 + sat, Math.min(y, (window.innerHeight || 768) - sab - MENU_H)),
-      step: "",
+    return {
+      x: Math.max(8 + sal, Math.min(x, (window.innerWidth || 1024) - sar - w)),
+      y: Math.max(8 + sat, Math.min(y, (window.innerHeight || 768) - sab - h)),
     };
+  }
+
+  /** 弹菜单。只定位、**不切组** —— 一级菜单里「切到这一组」才是切组动作，
+      右键时偷偷切走会让用户以为菜单操作的是原来那套。先用估算尺寸夹一次写进 markup（首帧
+      就不出屏），ax/ay 存**未夹取的原始锚点**，等菜单真渲染出来再由 placeTabMenu() 收精确落点。 */
+  function openTabMenu(id, x, y) {
+    if (!state.groups.some((g) => g.id === id)) return;
+    const at = clampTabMenu(x, y, MENU_W, MENU_H);
+    tabMenu = { id, x: at.x, y: at.y, ax: x, ay: y, step: "" };
     paint();
   }
   function closeTabMenu() { if (!tabMenu) return; tabMenu = null; paint(); }
+
+  /** 把菜单钉在光标上。宿主 `src/styles.css` 的 `.view { will-change: opacity, transform }`
+      （直接跳转补间用）会让 .view 的 padding box 成为 fixed 后代的**包含块** —— 于是写进
+      left/top 的视口坐标会被整体平移一段（真外壳实测 offset +234/+61：菜单跑到侧栏右边，
+      靠右标签的还会被 .view 的 overflow 一起裁掉，看起来就像「右键没反应」）。所以落点分两步：
+      先按**实测**尺寸重夹一次（MENU_H 只是估算，项数不同高度差很多），再按实测残差把那层平移
+      抵掉。宿主给哪个祖先加过 transform / zoom / filter 都能被这一步收掉 —— 判断依据是
+      「菜单实际落在哪」，不再假设 left/top 就等于视口坐标。测不出布局（Node 沙箱、隐藏容器）
+      就保持第一次的坐标不动。 */
+  function placeTabMenu() {
+    if (!tabMenu || !root || typeof root.querySelector !== "function") return;
+    const el = root.querySelector(".dd-tabmenu");
+    if (!el || !el.style || typeof el.getBoundingClientRect !== "function") return;
+    let first = null;
+    try { first = el.getBoundingClientRect(); } catch { return; }
+    if (!first || (!first.width && !first.height)) return;   // 还没有布局
+    const at = clampTabMenu(tabMenu.ax ?? tabMenu.x, tabMenu.ay ?? tabMenu.y, first.width || MENU_W, first.height || MENU_H);
+    let x = at.x, y = at.y;
+    for (let i = 0; i < 3; i++) {
+      el.style.left = `${x}px`;
+      el.style.top = `${y}px`;
+      let now = null;
+      try { now = el.getBoundingClientRect(); } catch { return; }
+      const dx = at.x - now.left, dy = at.y - now.top;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+      x += dx;
+      y += dy;
+    }
+  }
 
   /** 菜单项统一 data-tab-act，不复用标签的 data-group、也不复用卡片的 data-group-del ——
       事件委托里那两个分支会先把点击抢走（与 school-notice 同一条规矩）。 */
@@ -2204,7 +2239,7 @@
     return head
       + item("switch", "切到这一组")
       + item("rename", "重命名")
-      + item("duplicate", "再添加一个")
+      + item("duplicate", "复制到后面")   // 语义 = 整组复制并紧跟原组插入，文案照实说
       + item("import", "导入成员")
       + `<span class="dd-tabmenu-sep"></span>`
       + item("remove", "删除这一组", { danger: true, disabled: lastOne })
@@ -2236,7 +2271,7 @@
       const next = promptFn("给复制出来的这套改个名字", created.name);
       if (next != null && next.trim()) await renameGroup(created.id, next);
       await paint();
-      tide.notify(`已复制出「${(state.groups.find((g) => g.id === created.id) || created).name}」，成员和规则都带过来了`);
+      tide.notify(`已把「${(state.groups.find((g) => g.id === created.id) || created).name}」复制到它后面，成员和规则都带过来了`);
       return;
     }
     if (act === "remove") {

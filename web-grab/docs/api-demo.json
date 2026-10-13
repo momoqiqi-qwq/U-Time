@@ -1,0 +1,11 @@
+{
+  "code": 1,
+  "msg": "ok",
+  "data": {
+    "data": [
+      { "id": 1, "title": "嗅探自检 A", "created_time": 1761000000 },
+      { "id": 2, "title": "嗅探自检 B", "created_time": 1761100000 }
+    ],
+    "total": 2
+  }
+}

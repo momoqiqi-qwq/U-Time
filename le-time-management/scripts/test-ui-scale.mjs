@@ -733,4 +733,21 @@ assert.match(appearanceAnimCode, /dragStableScale/, "滑杆拖动必须走 dragS
 assert.match(appearanceAnimCode, /pointerdown/, "拖动会话从 pointerdown 冻结轨道 rect 开始");
 assert.match(appearanceAnimCode, /pointercancel/, "pointercancel 也要结束会话（触摸被滚动接管时不许残留旧基准）");
 
+// 3f-5. 拖动会话的 window 监听必须真能摘下来（v0.206.0）。设置页每次重渲染都新建一张
+//       卡片，而这三个监听挂在 window 上、会活过卡片本身 —— 实测「三张卡都不摘」时
+//       window 上就攒下 3×3=9 个永久监听（每次 pointermove 白跑 N 遍旧会话）。
+//       既要「挂得上」，也要「摘得掉」，而且摘用的必须是同一对函数引用：
+//       引用不一致时 removeEventListener 静默空转，测试全绿而监听照漏。
+const dragBlock = appearanceAnimCode.slice(appearanceAnimCode.indexOf("let dragSession = null;"));
+assert.ok(dragBlock.length > 200, "找不到拖动会话片段，锚点漂了");
+assert.match(dragBlock, /window\.addEventListener\("pointermove", onDragMove\)/, "pointermove 必须用具名回调（匿名函数事后摘不掉）");
+assert.match(dragBlock, /window\.addEventListener\("pointerup", endDragSession\)/);
+assert.match(dragBlock, /window\.addEventListener\("pointercancel", endDragSession\)/);
+assert.match(dragBlock, /const disposeDragSession = \(\) => \{[\s\S]*?window\.removeEventListener\("pointermove", onDragMove\);[\s\S]*?window\.removeEventListener\("pointerup", endDragSession\);[\s\S]*?window\.removeEventListener\("pointercancel", endDragSession\);[\s\S]*?\};/,
+  "disposeDragSession 要用同一对函数引用摘掉三个监听，一个都不能少");
+assert.match(appearanceAnimCode, /card\._dispose = disposeDragSession;/, "卡片要把 disposeDragSession 挂到 _dispose，否则没人调它");
+const settingsSrc = readSrc("src/views/settings.js");
+assert.match(settingsSrc, /\.set-card/, "settings.js 的 disposeContents 必须认领 .set-card，否则卡片上的 _dispose 永远不会被调用");
+assert.match(settingsSrc, /_dispose\?\.\(\)/, "disposeContents 要真的调用 _dispose");
+
 console.log("PASS: UI scale normalization, custom-input parsing, zoom/vw-vh emission, animation interpolation and zoom-safety guards");

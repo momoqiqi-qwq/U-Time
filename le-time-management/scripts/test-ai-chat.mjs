@@ -126,6 +126,9 @@ const sandbox = {
   Set,
   encodeURIComponent,
   setTimeout,
+  clearTimeout,
+  // 下拉栏展开后要等过渡跑完再让光块量落点（真环境都有 rAF，vm 里补一个同步版）
+  requestAnimationFrame: (fn) => fn(),
   document: {
     getElementById: () => null,
     head: { append() {} },
@@ -197,9 +200,13 @@ vm.runInContext(
     + "    get draft() { return draft; }, set draft(v) { draft = v; },\n"
     + "    set loaded(v) { loaded = v; },\n"
     + "    get withContext() { return withContext; }, set withContext(v) { withContext = v; },\n"
-    + "    THINK_LEVELS, cycleThink, paintThink,\n"
+    + "    THINK_LEVELS, paintThink, setThinkMenu, pickThink, THINK_ON,\n"
     + "    get thinkEffort() { return thinkEffort; }, set thinkEffort(v) { thinkEffort = v; },\n"
+    + "    get thinkOpen() { return thinkOpen; },\n"
+    + "    get thinkGlow() { return thinkGlow; }, set thinkGlow(v) { thinkGlow = v; },\n"
     + "    paintChips, paintChipSelection, attachChipGlow, CHIP_ON,\n"
+    + "    parseGenui, splitGenui, genuiHtml, bodyHtml, giInline, giText, giRender, wireGenui,\n"
+    + "    GENUI_LANGS, GENUI_AS_CODE, GENUI_MAX_NODES, GENUI_MAX_DEPTH, GENUI_MARK,\n"
     + "    get ui() { return ui; }, set ui(v) { ui = v; },\n"
     + "    get activeChip() { return activeChip; }, set activeChip(v) { activeChip = v; },\n"
     + "    get chipGlow() { return chipGlow; },\n"
@@ -616,7 +623,8 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
      复挂它的话，今天只是白蹭了 display/gap，哪天往按钮里塞个 <i> 就会当场冒出三个点。
      所以钉死两件事：按钮用 .aichat-effort，圆点继续用 .aichat-think。 */
   // 按钮按类名清单来判（而不是钉一整串 class="..."）：类顺序换了也照样判得出来。
-  const thinkBtn = mainSrc.match(/<button[^>]*\bdata-think\b[^>]*>/);
+  // 注意 (?![-\w])：下拉栏里的选项带 data-think-lv，别把选项当成按钮抓进来。
+  const thinkBtn = mainSrc.match(/<button[^>]*\bdata-think(?![-\w])[^>]*>/);
   assert.ok(thinkBtn, "模板里要有思考强度按钮（data-think 是渲染与测试的共同抓手）");
   const thinkCls = ((thinkBtn[0].match(/class="([^"]*)"/) || [])[1] || "").trim().split(/\s+/);
   assert.ok(thinkCls.includes("aichat-effort"), "思考强度按钮要用自己的类名 .aichat-effort");
@@ -626,12 +634,88 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
   assert.match(mainSrc, /<span class="aichat-think"><i><\/i><i><\/i><i><\/i> 正在思考…<\/span>/,
     "圆点指示器仍要挂在 .aichat-think 上（改名的只是按钮，别把指示器一起改了）");
 
-  // 按钮 title 的「点击依次切换：…」提成常量只算一次；paintThink() 每次重绘都跑，别再 map + join。
+  // 档位串与下拉栏的选项 HTML 都在常量区一次算好；paintThink() 每次重绘都跑，别再 map + join。
   assert.match(mainSrc, /const THINK_CYCLE = THINK_LEVELS\.map\(\(l\) => l\.label\)\.join\(" → "\)/,
-    "切换提示串要提成模块级常量");
-  assert.match(mainSrc, /点击依次切换：\$\{THINK_CYCLE\}/, "paintThink() 要复用这个常量");
-  assert.equal((mainSrc.match(/THINK_LEVELS\.map\(/g) || []).length, 1,
-    "THINK_LEVELS.map 只准出现在常量定义处 —— 出现在重绘路径上就是每次重绘重新拼一遍");
+    "档位串要提成模块级常量");
+  assert.ok(mainSrc.includes("。可选：${THINK_CYCLE}`"), "paintThink() 的 title 要复用这个常量，别再 map + join");
+  assert.match(mainSrc, /const THINK_ITEMS = THINK_LEVELS\.map\(/, "四档的选项 HTML 也要在常量区一次拼好");
+  assert.ok(mainSrc.includes('role="option" class="aichat-lv" data-think-lv="${l.id}"'), "每个选项都要带档位标识（渲染与测试的共同抓手）");
+  assert.equal((mainSrc.match(/THINK_LEVELS\.map\(/g) || []).length, 2,
+    "THINK_LEVELS.map 只准出现在两条常量定义处 —— 出现在重绘路径上就是每次重绘重新拼一遍");
+
+  /* 两颗按钮从顶栏搬进输入区（v0.204.0）。用户原话：「这2个按钮弄成到对话框那里去」——
+     改本轮行为的东西要贴着「说」的地方；顶栏只留对话历史与只读状态（已收集 N 条）。
+     v0.205.0 又把输入区收了一轮（用户原话：「让对话拥有更大的空间…不然看不到上面的对话」）：
+     输入框升到最上，两颗胶囊与工具按钮并成一行摆在它下面，档位栏移到最后（它现在是浮层）。 */
+  {
+    const head = mainSrc.slice(mainSrc.indexOf('<div class="aichat-head">'), mainSrc.indexOf('<div class="aichat-backdrop"'));
+    assert.ok(!head.includes("data-ctx") && !head.includes("data-think"), "顶栏里不许再留这两颗按钮");
+    const barAt = mainSrc.indexOf('<div class="aichat-bar">');
+    const taAt = mainSrc.indexOf('<textarea class="aichat-input"');
+    const chipsAt = mainSrc.indexOf('<div class="aichat-compose-chips">');
+    const toolsAt = mainSrc.indexOf('<div class="aichat-compose-tools">');
+    const menuAt = mainSrc.indexOf('<div class="aichat-effort-menu"');
+    assert.ok(barAt > 0 && taAt > barAt && chipsAt > taAt && toolsAt > chipsAt && menuAt > toolsAt,
+      "输入区里的顺序必须是 输入框 → 两颗按钮 + 工具按钮（同一行） → 档位栏");
+    assert.ok(mainSrc.includes('<div class="aichat-compose-row">') && mainSrc.includes(".aichat-compose-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}"),
+      "两颗胶囊与工具按钮要装进同一个 .aichat-compose-row：整行并排、窄屏能换行，否则输入区白占两行高度");
+    assert.ok(mainSrc.includes(".aichat-compose-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex:1 1 auto;min-width:0}"),
+      "按钮行要能换行（窄屏别把输入区撑出横向滚动），并吃掉左半边剩余宽度好让工具按钮靠右");
+    assert.ok(mainSrc.includes('class="aichat-chip aichat-effort" data-think aria-haspopup="listbox" aria-expanded="false" aria-controls="aichat-effort-menu"'),
+      "胶囊按钮要声明自己是 listbox 的开关，并且初始收起");
+    assert.ok(mainSrc.includes('<div class="aichat-effort-menu" id="aichat-effort-menu" role="listbox" aria-label="思考强度" aria-hidden="true" inert>'),
+      "档位栏初始是收起的（inert + aria-hidden），收起时内部选项点不到也 Tab 不到");
+    // 说明文字在窄屏要收起来（只留档位名），否则一行挤不下
+    assert.ok(mainSrc.includes("@media (max-width:640px){.aichat-compose-row{gap:6px}.aichat-compose-chips{gap:4px}.aichat-compose-tools{gap:6px}.aichat-shortcuts{mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}.aichat-lv{padding:7px 8px}.aichat-lv small{display:none}}"),
+      "窄屏要收紧按钮行间距、给快捷条一个右缘渐隐（横滚才有提示）、并收掉档位说明");
+  }
+
+  /* 铁律七：下拉栏必须有展开与收起动画，而且是连续插值 —— 不许「打开淡入、关闭 display:none」。 */
+  {
+    assert.ok(mainSrc.includes(".aichat-effort-menu{position:absolute;z-index:9;left:0;right:0;bottom:calc(100% + 6px);isolation:isolate;display:grid;grid-template-rows:0fr;opacity:0;pointer-events:none;transform:translateY(6px);"),
+      "档位栏要做成向上展开的浮层（bottom:100% 朝消息流方向长），收起态仍是 0fr + 透明：它一旦回到 in-flow，展开那一瞬就会吃掉 139px 把上面对话顶掉");
+    assert.ok(mainSrc.includes(".aichat-effort-menu.open{grid-template-rows:1fr;opacity:1;pointer-events:auto;transform:none}"), "展开态是 1fr，中间过程由浏览器插值");
+    assert.ok(mainSrc.includes(".aichat-bar{position:relative;"),
+      "浮层的定位祖先必须是 .aichat-bar（相对它向上长），bar 得是 positioned —— 包含块落在 .aichat 里才不出安全区");
+    assert.ok(mainSrc.includes("pointer-events:none"), "透明期间不能收点击");
+    assert.ok(mainSrc.includes(".aichat-effort-in{overflow:hidden;min-height:0"), "内层要 overflow:hidden + min-height:0，否则 0fr 压不出 0 高（经典坑）");
+    assert.ok(mainSrc.includes("transition:transform 240ms"), "方向箭头要连续旋转（同一支箭头），不是换字符");
+    assert.ok(mainSrc.includes("transform:rotate(-135deg)"), "展开时箭头要转过去，收起时转回来");
+    assert.ok(mainSrc.includes(".aichat-effort-menu .selection-glow{"), "光块长相要在插件样式里定（基础规则只管定位）");
+    assert.ok(mainSrc.includes(".aichat-effort-menu.has-selection-glow .aichat-lv.on{background:transparent"),
+      "光块在场时选中项不能再画第二层底，否则叠成实心块");
+    assert.ok(mainSrc.includes(".aichat-effort-menu:not(.has-selection-glow) .aichat-lv.on{"),
+      "老宿主没有滑动光时要退回瞬变底色，选中项不能没有反馈");
+    assert.ok(mainSrc.includes(':root[data-ui-motion="reduced"] .aichat-effort-arrow,:root[data-ui-motion="reduced"] .aichat-effort-menu,:root[data-ui-motion="reduced"] .aichat-effort-in{transition:none}'),
+      "应用内的「减少动效」开关也要能停掉下拉栏的过渡");
+    assert.ok(mainSrc.includes(".aichat-effort-arrow,.aichat-effort-menu,.aichat-effort-in,.aichat-shortcuts button"),
+      "prefers-reduced-motion 白名单要包含下拉栏");
+  }
+
+  /* 铁律六 + 交互接线：选中高亮走宿主滑动光；Esc / 点别处 / 选完一档都要收起。 */
+  {
+    assert.match(mainSrc, /tide\.ui\.selectionGlow\?\.\(ui\.thinkMenu, \{ selector: THINK_ON \}\)/,
+      "下拉栏的选中高亮必须走宿主的滑动选中光（与快捷提问行同一套）");
+    assert.ok(mainSrc.includes('const THINK_ON = "button.aichat-lv.on"'), "光块的定位口径是选中项的 .on");
+    assert.ok(mainSrc.includes("ui.thinkMenu.inert = !open;"), "开合都要同步 inert —— 收起后里面点不到也 Tab 不到");
+    assert.ok(mainSrc.includes('ui.thinkMenu.setAttribute("aria-hidden", String(!open))'), "aria-hidden 要跟着状态走");
+    assert.ok(mainSrc.includes('ui.think.setAttribute("aria-expanded", String(open))'), "aria-expanded 要跟着状态走");
+    assert.ok(mainSrc.includes("const top = thinkOpen ? () => setThinkMenu(false, true)"), "Esc 先关下拉栏，再轮到弹窗与侧栏");
+    assert.match(mainSrc, /if \(ui\.think\.contains\(event\.target\) \|\| ui\.thinkMenu\.contains\(event\.target\)\) return;[\s\S]{0,40}setThinkMenu\(false\);/,
+      "点别处要收起：它不是浮层，没有「点外面还留着」的理由");
+    assert.match(mainSrc, /ArrowDown.*ArrowUp.*Home.*End/, "下拉栏要能用方向键换档（键盘可操作）");
+    assert.ok(mainSrc.includes("if (open && thinkOpen) setThinkMenu(false);"), "弹窗打开时输入区那份下拉先收起，两层焦点不打架");
+    assert.match(mainSrc, /thinkOpen = false;/, "DOM 重建后要把展开标志位拉回收起态，否则第一次点按钮没反应");
+    assert.ok(mainSrc.includes("thinkGlow?.dispose();\n    thinkGlow = tide.ui.selectionGlow?.("), "光块每次重建都要重挂（旧光块量的是已经不在文档里的旧选项）");
+    assert.ok(mainSrc.includes("thinkGlow?.dispose(); thinkGlow = null; }"), "卸载时要把光块一起撤掉");
+    /* 光块落位的时机是这条改动的要害：展开的那一帧容器还是 0 高、内边距也还在从 0 长到 8px，
+       真应用探针实测这一帧量到的 offsetTop 比终态少 8px（换档后重新展开，高亮会贴着选项上沿偏出去）。
+       所以必须等最长那条过渡走完再量，别退回「下一帧就同步」。 */
+    assert.ok(mainSrc.includes("clearTimeout(thinkGlowTimer);\n    if (open) thinkGlowTimer = setTimeout(() => thinkGlow?.sync(), 300);"),
+      "展开后要等过渡跑完（约 300ms）再让光块落位，不能在容器还塌着的那一帧量位置");
+    assert.ok(!mainSrc.includes("requestAnimationFrame(() => thinkGlow?.sync())"),
+      "rAF 那一帧量到的是过渡中的偏移位置（实测差 8px），这条路径要拆掉");
+  }
 
   assert.match(mainSrc, /tide\.ai\.chat\(buildMessages\(\), \{ temperature: 0\.3, reasoningEffort: thinkEffort \}\)/,
     "档位必须真的跟着请求发出去，只画在界面上等于没接");
@@ -649,10 +733,100 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
   fx.loaded = false;
   await fx.loadOnce();
   assert.equal(fx.thinkEffort, "", "新装默认是自动档");
-  const seen = [];
-  for (let i = 0; i < 4; i++) { fx.cycleThink(); seen.push(fx.thinkEffort); }
-  assert.equal(seen.join(","), "low,medium,high,", "点四下要转回自动，不能停在末尾或跳档");
-  assert.equal(storage.get("thinkEffort"), "", "每次切换都要落盘（最后一档是空串也要存）");
+  /* 下拉栏真跑（铁律七 + 铁律六）：假 DOM 只记账 classList / 属性 / inert，
+     但「展开 → 换档 → 收起 → 快速连点」这一整条链是真的走插件自己的函数。 */
+  {
+    const mkOpt = (id) => {
+      const cls = new Set();
+      return {
+        dataset: { thinkLv: id },
+        has: (c) => cls.has(c),
+        classList: { toggle: (c, on) => { if (on) cls.add(c); else cls.delete(c); }, contains: (c) => cls.has(c) },
+        setAttribute() {},
+        focus() {},
+      };
+    };
+    const opts = fx.THINK_LEVELS.map((l) => mkOpt(l.id));
+    const lab = { textContent: "" };
+    const menuCls = new Set();
+    const menuAttr = {};
+    const menu = {
+      inert: true,
+      classList: { toggle: (c, on) => { if (on) menuCls.add(c); else menuCls.delete(c); }, contains: (c) => menuCls.has(c) },
+      setAttribute: (k, v) => { menuAttr[k] = v; },
+      querySelectorAll: (sel) => (sel === "[data-think-lv]" ? opts : []),
+      contains: () => false,
+      addEventListener() {},
+      onclick: null,
+    };
+    const btnCls = new Set();
+    const btnAttr = {};
+    const btn = {
+      focused: false,
+      classList: { toggle: (c, on) => { if (on) btnCls.add(c); else btnCls.delete(c); }, contains: (c) => btnCls.has(c) },
+      setAttribute: (k, v) => { btnAttr[k] = v; },
+      querySelector: (sel) => (sel === ".aichat-effort-lab" ? lab : null),
+      contains: () => false,
+      focus() { btn.focused = true; },
+      onclick: null,
+    };
+    fx.ui = { think: btn, thinkMenu: menu };
+    fx.paintThink();
+    assert.equal(lab.textContent, "思考强度 自动", "胶囊按钮上要写出当前档位，不能只有个名字");
+    assert.equal(btnCls.has("on"), false, "「自动」档不点亮（= 没额外要求）");
+
+    fx.setThinkMenu(true);
+    assert.equal(fx.thinkOpen, true, "点一下要展开");
+    assert.equal(menuCls.has("open"), true, "展开要有 .open —— 它就是 0fr→1fr 的开关（铁律七）");
+    assert.equal(menuAttr["aria-hidden"], "false", "展开时内部选项要能被读屏与 Tab 触达");
+    assert.equal(menu.inert, false, "展开要解除 inert");
+    assert.equal(btnAttr["aria-expanded"], "true", "aria-expanded 要跟着状态走");
+
+    // 快速连点：从当前画面接续，不许残留中间态、也不许叠加
+    fx.setThinkMenu(false);
+    fx.setThinkMenu(true);
+    fx.setThinkMenu(true);
+    assert.equal(fx.thinkOpen, true, "连点之后状态就是最后一次的意图");
+    assert.equal(menuCls.has("open"), true);
+    assert.equal(menu.inert, false, "连点不许把 inert 留在错误的一侧");
+
+    fx.pickThink("high");
+    assert.equal(fx.thinkEffort, "high", "选一档要就地生效");
+    assert.equal(storage.get("thinkEffort"), "high", "换档要落盘（下一句话与重启都要用）");
+    assert.equal(fx.thinkOpen, false, "选完要收起");
+    assert.equal(menuCls.has("open"), false);
+    assert.equal(menu.inert, true, "收起后内部选项既点不到也 Tab 不到");
+    assert.equal(menuAttr["aria-hidden"], "true");
+    assert.equal(btnAttr["aria-expanded"], "false");
+    assert.equal(btn.focused, true, "收起后焦点要回胶囊按钮，别掉到 body 上");
+    assert.equal(lab.textContent, "思考强度 高", "按钮上的档位要跟着换");
+    assert.equal(btnCls.has("on"), true, "非自动档要点亮");
+    assert.equal(opts.filter((o) => o.has("on")).length, 1, "选中态只能有一个");
+    assert.equal(opts[3].has("on"), true, "亮的是「高」那一项");
+
+    fx.pickThink("不存在的档");
+    assert.equal(fx.thinkEffort, "high", "认不出来的档位直接丢掉，别递给 Rust（它会报错）");
+
+    /* 光块落位的时序真跑：展开当帧不许量位置（容器还塌着），过渡走完补一次；
+       连点之后只留最后一次，不许叠加 timeout 造成多次 sync。 */
+    const glow = { syncs: 0, sync() { this.syncs += 1; } };
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    fx.thinkGlow = glow;
+    fx.setThinkMenu(true);
+    assert.equal(glow.syncs, 0, "展开的同一帧不许 sync —— 那时容器还是 0 高，量出来的落点是假的");
+    await sleep(340);
+    assert.equal(glow.syncs, 1, "过渡走完要补一次 sync，否则光块永久停在这个假位置上");
+    fx.setThinkMenu(false);
+    await sleep(340);
+    assert.equal(glow.syncs, 1, "收起不必再 sync —— 光块随容器一起收下去，没有落位可量");
+    fx.setThinkMenu(true);
+    fx.setThinkMenu(false);
+    fx.setThinkMenu(true);
+    await sleep(340);
+    assert.equal(glow.syncs, 2, "连点只留最后一次展开的 sync，旧的 timer 必须被 clearTimeout 掉");
+    fx.thinkGlow = null;
+    fx.ui = null;
+  }
 
   fx.thinkEffort = "high";
   calls.chat.length = 0;
@@ -718,8 +892,8 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
   }
 
   /* 输入区不许再画第二层框（自己的边框 + 独立底色 + 独立圆角），否则又回到「框里套小框」 */
-  assert.match(mainSrc, /\.aichat-bar\{display:flex;flex-direction:column;align-items:stretch;gap:12px;flex:none;padding:16px 2px 2px;border:0;border-radius:0;border-top:1px solid #c9acd32e;background:transparent;box-shadow:none;transition:border-color \.3s\}/,
-    "输入区要跟对话框同一块面：只留一条顶部分隔线，不要自己的边框/底色/圆角");
+  assert.match(mainSrc, /\.aichat-bar\{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:6px;flex:none;padding:8px 2px 0;border:0;border-radius:0;border-top:1px solid #c9acd32e;background:transparent;box-shadow:none;transition:border-color \.3s\}/,
+    "输入区要跟对话框同一块面：只留一条顶部分隔线，不要自己的边框/底色/圆角；垂直 padding 与 gap 收紧到 8px/6px（省下的高度还给上面的消息流），并兼作档位浮层的定位祖先");
 
   /* 宿主 src/styles.css 那条通用输入框规则（input/select/textarea，带 !important、特异性 (0,3,1)）
      会把 textarea 刷成 --control-bg 实底 + 8px 圆角，插件样式注入在 <head> 末尾也压不住 ——
@@ -849,4 +1023,210 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
   fx.ui = null;
 }
 
-console.log("PASS: AI 对话插件 —— 权限 / 快照 / 建议写入撤销 / 一轮问答 / 历史迁移 / 会话与草稿隔离 / 思考强度 / 请求保护 / 滑动选中光");
+/* ───────── 「头像与名称」是一块居中弹窗 + 背后蒙版（v0.200.0）───────── */
+
+/* 用户原话：「这个窗口弹出放在中间背后界面蒙版」。改前它是对话面里一张 in-flow 的卡
+   （.aichat-id{flex:none;…} 直接排在消息流后面），而那块 .aichat-backdrop 是「空气蒙版」——
+   只有 visibility/pointer-events，没有任何底色，所以打开它也看不出「有东西浮起来了」。 */
+{
+  // ① 弹窗本体：居中定位 + 开合两向动画 + 收起时留在 DOM 里
+  const idCss = mainSrc.slice(mainSrc.indexOf(".aichat-id{position:absolute"), mainSrc.indexOf(".aichat-id:focus"));
+  assert.ok(idCss.length > 0, "弹窗要有一条「居中 + 开合」的规则（.aichat-id{position:absolute…）");
+  assert.match(idCss, /left:50%;top:50%;/, "必须真的居中：left/top 各 50%");
+  assert.match(idCss, /transform:translate\(-50%,-50%\) scale\(\.92\)/, "收起态是「缩到 92% 且保持居中偏移」，跟侧栏同一套手感");
+  assert.match(idCss, /\.id-open \.aichat-id\{[^}]*transform:translate\(-50%,-50%\) scale\(1\)/, "展开态回到 100% —— 居中偏移不能丢，丢了它就跑到右下角去");
+  assert.match(idCss, /\.id-open \.aichat-id\{[^}]*visibility:visible;pointer-events:auto/, "展开才可见可点");
+  assert.match(idCss, /transition:opacity 180ms ease-in,transform 220ms ease-in,visibility 0s 220ms/, "收起：先播透明/缩放，过渡走完才真正隐藏");
+  assert.match(idCss, /\.id-open \.aichat-id\{[^}]*transition:opacity 220ms[^}]*transform 320ms cubic-bezier\(\.34,1\.4,\.64,1\),visibility 0s\}/, "展开要有回弹，且立刻可见（可见性不能有延迟）");
+  assert.doesNotMatch(idCss, /display:none/, "不许用 display:none 收 —— 那样收起动画根本播不出来（铁律七）");
+
+  // ② 位置口径：absolute 而不是 fixed。fixed 会跳出宿主 .view 的安全区（铁律四）
+  assert.match(idCss, /\.aichat-id\{position:absolute;/, "用 absolute：包含块是 .aichat 的 padding box，天然落在宿主安全区里");
+  assert.doesNotMatch(idCss, /\.aichat-id\{position:fixed/, "别换 fixed：那会跳出 .view 的四条安全边，得自己补 --sat/--sab");
+
+  // ③ 蒙版：必须真的暗下去，而且盖得住 z-index:6 的汉堡键
+  assert.match(mainSrc, /\.aichat-backdrop\{position:absolute;inset:0;z-index:4;background:#1c13286b;backdrop-filter:blur\(3px\)/,
+    "蒙版要有底色和轻微模糊 —— 只有 pointer-events 的是一层看不见的空气");
+  assert.match(mainSrc, /\.sidebar-open \.aichat-backdrop,\.id-open \.aichat-backdrop\{opacity:1;visibility:visible;pointer-events:auto/,
+    "侧栏与弹窗共用同一块蒙版，两种状态都要亮起来");
+  assert.match(mainSrc, /\.id-open \.aichat-backdrop\{z-index:7\}/,
+    "弹窗开着时蒙版要压过 z-index:6 的汉堡键，否则背后那颗还点得着");
+  assert.doesNotMatch(mainSrc, /\.aichat-backdrop\{[^}]*transition:visibility 0s 220ms\}/,
+    "别退回「只切 visibility」的老写法：那样蒙版不会淡入，弹出瞬间背景直接跳黑");
+
+  // ④ 结构：dialog 语义 + 自己的关闭键 + 收起的弹窗进不了 Tab 序
+  assert.match(mainSrc, /<div class="aichat-id" id="aichat-id-panel" role="dialog" aria-modal="true" aria-label="头像与名称" aria-hidden="true" tabindex="-1" inert>/,
+    "弹窗要有 dialog 语义 + inert 兜底（脚本没跑起来时也不该能 Tab 进去）");
+  assert.match(mainSrc, /class="aichat-id-close" data-id-close aria-label="关闭头像与名称"/,
+    "弹窗要有自己的关闭键 —— 蒙版和 Esc 都是隐式出口，不能只有隐式的");
+  assert.match(mainSrc, /<div class="aichat-id-head"><b>头像与名称<\/b>/,
+    "弹窗要有标题，否则用户不知道这块浮层是什么");
+  assert.doesNotMatch(mainSrc, /<div class="aichat-id" hidden>/,
+    "不能再靠 hidden 开合：hidden 会顺手把过渡一起砍掉，也把「收起留内容」搞没");
+  assert.doesNotMatch(mainSrc, /\.aichat-id\{flex:none;/, "它已经不是对话流里的一张卡了，flex:none 得去掉");
+
+  // ⑤ 交互：Esc 只关最上面那层、背后那层 inert、焦点要还回触发按钮
+  assert.match(mainSrc, /const top = thinkOpen \? \(\) => setThinkMenu\(false, true\)\s*\n\s*: idOpen \? closeId : sidebarOpen \? \(\) => setSidebar\(false, true\) : null;/,
+    "Esc 一次只关最上面那一层：下拉栏最轻、弹窗在上、侧栏在下");
+  assert.match(mainSrc, /const setBehindInert = \(on\) => \{[\s\S]{0,420}child\.inert = child === sidebar \? !sidebarOpen : false;/,
+    "恢复 inert 时要看侧栏自己的状态 —— 一把清成 false 会让收起的侧栏变成 Tab 得到却看不见的幽灵");
+  assert.match(mainSrc, /if \(child === idPanel \|\| child === backdrop\) return;/,
+    "蒙版不能一起 inert 掉：它是「点一下关掉」的落点");
+  assert.match(mainSrc, /idReturnTo = from === ui\.idBtn \? menu : from;/,
+    "从侧栏点开的，焦点要回汉堡键（侧栏已随弹窗一起收起）");
+  assert.match(mainSrc, /backdrop\.onclick = \(\) => \{ if \(idOpen\) setIdOpen\(false\); else setSidebar\(false, true\); \}/,
+    "点蒙版 = 关掉最上面那层");
+  assert.match(mainSrc, /if \(open && sidebarOpen\) setSidebar\(false\);/, "一次只开一个浮层：蒙版只有一块，两个一起开会打架");
+  assert.match(mainSrc, /ui\.idBtn\.setAttribute\("aria-expanded", String\(open\)\);/, "触发按钮要维护 aria-expanded");
+  assert.match(mainSrc, /personalize\.onclick = \(\) => toggleId\(personalize\);/,
+    "输入区那颗 👤 走同一套开合 —— 别一处弹窗、一处又切回显示/隐藏");
+  assert.match(mainSrc, /ui\.closeId = closeId;/, "换会话时要把弹窗一起收掉（startSession 里调）");
+  assert.match(mainSrc, /\.aichat-sidebar,\.aichat-id,\.aichat-backdrop,[\s\S]{0,240}\{transition:none\}/,
+    "减少动效时开合要变成瞬切（白名单后面又接了新控件，所以容差放到 240 —— 关键是被列的类与 {transition:none} 之间不能夹别的规则）");
+}
+
+/* ───────── 生成式界面：模型能在正文里画组件（dsh-ui 围栏，v0.201.0）───────── */
+
+/* 参考 dsh-genui：模型另起一个 ```dsh-ui 代码块，块里是一份 JSON 规格，界面把它画成真组件
+   （截图里那张深色验收报告就是三段式：红框结论卡 + 对比表 + ✅ 清单）。
+   沙箱里只有 tide.* 与 document，没有 React / echarts / mermaid / three，所以只复刻
+   「原生 DOM + CSS 画得准」的那些，其余降级成代码块 —— 信息不丢，也不引任何外部依赖。 */
+{
+  // ① 围栏摘除：位置要保住。摘完不是堆到气泡末尾，而是原地换一个占位符
+  const raw = "先说结论。\n```dsh-ui\n"
+    + '{"title":"三处不一致","gap":16,"items":[{"type":"callout","tone":"error","title":"硬伤","content":"公式写反了"}]}'
+    + "\n```\n后面还有一句依据。";
+  const one = fx.splitGenui(raw);
+  assert.equal(one.blocks.length, 1, "一个 dsh-ui 围栏要摘出一份规格");
+  assert.equal(one.blocks[0].title, "三处不一致");
+  assert.equal(one.blocks[0].gap, 16, "gap 用规格里的值（4–28 之外会被夹回来）");
+  const mark = `${fx.GENUI_MARK}GUI0${fx.GENUI_MARK}`;
+  assert.ok(one.body.includes(mark), "正文里要留占位符 —— 位置才算保住");
+  assert.ok(one.body.startsWith("先说结论。"), "围栏前面的正文不动");
+  assert.equal(one.body.indexOf("后面还有一句依据"), one.body.length - 9, "围栏后面的正文要留在围栏后面");
+
+  // ② 容错：模型写 JSON 的两处手滑（尾随逗号、围栏外多一句）都容忍；真坏的不硬修
+  assert.ok(fx.parseGenui('{"title":"t","items":[{"type":"text","content":"a"}],}\n上面是规格'), "尾随逗号 + 围栏外多一句解释要容忍");
+  assert.equal(fx.parseGenui('{"title":"t","items":[]}'), null, "items 空 = 没东西可画，算坏规格");
+  assert.equal(fx.parseGenui('[{"type":"text","content":"a"}]'), null, "根必须是对象，数组根不认");
+  assert.equal(fx.parseGenui("{items: [}"), null, "坏 JSON 不抛异常，安静返回 null");
+  assert.equal(fx.parseGenui('{"title":"t"}'), null, "没有 items / children 就不是规格");
+  const bad = "结论。\n```dsh-ui\n{items: [}\n```";
+  const kept = fx.splitGenui(bad);
+  assert.equal(kept.blocks.length, 0, "坏规格不摘");
+  assert.equal(kept.body, bad, "摘不掉就原样留着 —— 一段读不懂的围栏也比凭空消失强");
+
+  // ③ 与建议块共存：先摘围栏，再在剩余正文里从后往前找建议块
+  const both = fx.parseReply("结论在这。\n```dsh-ui\n"
+    + '{"title":"对比","items":[{"type":"table","columns":["A"],"rows":[["1"]]}]}'
+    + "\n```\n说明。\n```json\n"
+    + '{"suggestions":[{"action":"create-task","title":"复盘"}]}'
+    + "\n```");
+  assert.equal(both.genui.length, 1, "围栏照摘");
+  assert.equal(both.suggestions.length, 1, "建议块照认");
+  assert.equal(both.suggestions[0].title, "复盘");
+  assert.ok(both.body.includes(mark), "围栏在同一位置留占位符");
+  assert.ok(both.body.includes("说明。"), "围栏与建议块之间的正文要保留");
+  assert.ok(!both.body.includes("```"), "建议块连它后面的内容一起切掉");
+  assert.ok(!both.body.includes('"columns"'), "规格不能以 JSON 原文再出现在正文里");
+  const specOnly = fx.parseReply('```dsh-ui\n{"title":"t","items":[{"type":"list","items":[{"title":"a"}]}]}\n```');
+  assert.equal(specOnly.suggestions.length, 0, "规格不能被当成建议列表");
+  assert.equal(specOnly.genui.length, 1, "但它本身要留住");
+
+  // ④ 占位符只是位置标记：发给模型的正文里不能带它
+  fx.thread = [{ role: "assistant", text: `结论。\n${mark}\n尾注。`, genui: [{ title: "t", gap: 12, items: [{ type: "text", content: "x" }] }] }];
+  const sent = fx.buildMessages();
+  assert.ok(!sent.some((m) => String(m.content).includes(fx.GENUI_MARK)), "占位符不能发给模型");
+  assert.ok(sent.some((m) => String(m.content).includes("结论。")), "正文照旧要带上去");
+  fx.thread = [];
+
+  // ⑤ 三段式渲染：结论卡 + 对比表 + 清单（对着截图那张验收报告）
+  const spec3 = {
+    title: "老实话 3 处不一致",
+    gap: 14,
+    items: [
+      { type: "callout", tone: "error", title: "前两个是硬伤", content: "①纵向公式符号写反 ②迷你图按真实分钟压 ③列序全错" },
+      {
+        type: "table",
+        columns: ["视口(inner)", "断点", "最大 Δx", "最大 Δy"],
+        types: ["text", "text", "delta", "delta"],
+        rows: [["500×749", "≤620", "-0.0001", "-0.0002"], ["1184×805", ">900", "+0.0001", "-0.0001"]],
+      },
+      {
+        type: "list",
+        items: [
+          { title: "格子坐标只算一份", desc: "courseCell(c,slotMap) 统一输出 col/row/span" },
+          { title: "星期标签跟随列序", desc: ".sem-dow 由 weekOrder() 生成" },
+        ],
+      },
+    ],
+  };
+  const html = fx.genuiHtml(spec3, {}, "g0");
+  assert.match(html, /^<div class="aichat-gui" data-gui-block="g0" style="--gui-gap:14px">/, "外壳带 uid 与间距变量");
+  assert.match(html, /<span class="gui-bar-dot">dsh-ui<\/span>/, "有标题就带一枚 dsh-ui 角标");
+  assert.match(html, /class="gui-callout error"/, "error 语气 = 红边框结论卡（截图里那张红框卡）");
+  assert.match(html, /<b>前两个是硬伤<\/b>/, "结论卡要有自己的标题");
+  assert.match(html, /<thead><tr><th>视口\(inner\)<\/th>/, "表头按 columns 出");
+  assert.match(html, /<span class="gui-delta down">-0\.0001<\/span>/, "负偏差标红（down）");
+  assert.match(html, /<span class="gui-delta up">\+0\.0001<\/span>/, "正偏差标绿（up）");
+  assert.match(html, /<ul class="gui-list rail">/, "清单默认带左侧竖线（rail）");
+  assert.match(html, /<b>格子坐标只算一份<\/b><span>courseCell\(c,slotMap\) 统一输出 col\/row\/span<\/span>/, "清单每条 = 标题 + 说明");
+  assert.match(fx.genuiHtml({ items: [{ type: "list", items: [{ icon: "✅", title: "已通过" }] }] }, {}, "g2"),
+    /<li class="gui-li"><span class="gui-li-i">✅<\/span><div class="gui-li-b"><b>已通过<\/b><\/div><\/li>/, "清单条目可以带图标（截图里的 ✅）");
+  assert.equal(fx.genuiHtml({ title: "", gap: 12, items: [{ type: "list", rail: false, items: [{ title: "a" }] }] }, {}, "g1").includes("rail"),
+    false, "rail:false 时不画竖线");
+
+  // ⑥ 白名单：未知 type 丢、要外部库的降级成代码块、层级封顶、字符串先转义
+  const unknown = fx.genuiHtml({ title: "", gap: 12, items: [{ type: "unknown-widget", content: "不该透出来的内容" }] }, {}, "g2");
+  assert.ok(!unknown.includes("不该透出来的内容"), "不认识的 type 直接丢，内容也不透出来");
+  const heavy = fx.genuiHtml({ title: "", gap: 12, items: [{ type: "mermaid", code: "graph TD; A-->B" }] }, {}, "g3");
+  assert.match(heavy, /<pre class="gui-code" data-lang="mermaid"><code>graph TD; A--&gt;B<\/code><\/pre>/, "mermaid / echarts 这类降级成代码块");
+  const evil = fx.genuiHtml({ title: "", gap: 12, items: [{ type: "text", content: '<img src=x onerror="alert(1)">' }] }, {}, "g4");
+  assert.ok(!evil.includes("<img"), "模型吐 HTML 也执行不了");
+  assert.ok(evil.includes("&lt;img"), "先转义再内联排版");
+  assert.equal(fx.GENUI_MAX_NODES, 200, "节点封顶 200（与 dsh-genui 同口径）");
+  assert.equal(fx.GENUI_MAX_DEPTH, 8, "层级封顶 8");
+  let deep = { type: "text", content: "最深处那句话" };
+  for (let i = 0; i < 10; i += 1) deep = { type: "col", items: [deep] };
+  assert.ok(!fx.genuiHtml({ title: "", gap: 12, items: [deep] }, {}, "g5").includes("最深处那句话"),
+    "超过 8 层的节点要被截断，不许无限展开");
+
+  // ⑦ 围栏里的小富文本与图表：链接只认 http(s)，图表是内联 SVG（不引库）
+  const inline = fx.giInline("**粗** ==亮== `码` [文档](https://example.com/a) [坏](javascript:alert(1))");
+  assert.match(inline, /<strong>粗<\/strong>/);
+  assert.match(inline, /<mark>亮<\/mark>/);
+  assert.match(inline, /<code>码<\/code>/);
+  assert.match(inline, /<a class="gui-link" href="https:\/\/example\.com\/a" target="_blank" rel="noreferrer noopener">文档<\/a>/);
+  assert.doesNotMatch(inline, /<a [^>]*href="javascript/, "只认 http(s)，javascript: 原样当文字");
+  const donut = fx.genuiHtml({ title: "", gap: 12, items: [{ type: "chart", kind: "donut", data: [{ label: "完成", value: 3 }, { label: "未完成", value: 1 }] }] }, {}, "g6");
+  assert.match(donut, /<div class="gui-donut">/);
+  assert.match(donut, /<svg viewBox="0 0 36 36"/, "环形图是内联 SVG");
+  assert.match(donut, /class="sg0"/, "扇区按调色板取色（与图例一一对应）");
+  assert.match(donut, /<div class="gui-legend">/, "环形图要配图例");
+  const bars = fx.genuiHtml({ title: "", gap: 12, items: [{ type: "chart", data: [{ label: "一", value: 1 }, { label: "二", value: 2 }] }] }, {}, "g7");
+  assert.match(bars, /<svg viewBox="0 0 320 96"/, "柱状/折线也是内联 SVG，不引 echarts");
+
+  // ⑧ 接线（静态）：正文走 bodyHtml、交互挂 wireGenui、占位符不进请求、提示词有第 ⑧ 条
+  assert.match(mainSrc, /: bodyHtml\(m\);/, "气泡正文走 bodyHtml（文本段与组件段按原顺序拼）");
+  assert.match(mainSrc, /wireGenui\(box, m\);/, "每条消息渲染完都要挂上组件交互");
+  assert.match(mainSrc, /replace\(\/\\u0001GUI\\d\+\\u0001\/g, ""\)/, "发给模型前要抹掉占位符");
+  assert.match(mainSrc, /const \{ body: stripped, blocks \} = splitGenui\(text\);/, "parseReply 必须先摘围栏");
+  assert.match(mainSrc, /genui: parsed\.genui && parsed\.genui\.length \? parsed\.genui : undefined/, "规格跟着助手消息落盘");
+  assert.match(mainSrc, /"⑧ 遇到这四种情况/, "提示词要教模型什么时候改用围栏");
+  assert.match(mainSrc, /dsh-ui 代码块/, "提示词要写出围栏的语言名");
+
+  // ⑨ 样式：结论卡语气、间距变量、深色适配、宽表横向滚动、折叠两向动画（铁律七）
+  assert.match(mainSrc, /\.gui-callout\.error\{border-color:#F09C9366;border-left-color:#F09C93/, "error 语气 = 红边框 + 红左条");
+  assert.match(mainSrc, /\.aichat-gui\{display:flex;flex-direction:column;gap:var\(--gui-gap,12px\)/, "组件之间用规格里的间距");
+  assert.match(mainSrc, /\.aichat-gui\{[^}]*--gui-1:#8FD0E0/, "图表色板用亮版");
+  assert.doesNotMatch(mainSrc, /\[data-theme-mode="dark"\] \.gui-/, "组件色板不许挂在 data-theme-mode 上：这个视图的外壳恒为深底，浅色宿主下会拿到一套压不住深底的颜色");
+  assert.doesNotMatch(mainSrc, /\[data-theme="night"\]/, "深色分支只认 data-theme-mode，不许按主题名写（铁律二）");
+  assert.match(mainSrc, /\.gui-tablewrap\{[^}]*overflow-x:auto/, "宽表横向滚动，别撑破气泡");
+  assert.match(mainSrc, /\.gui-acc-b\{display:grid;grid-template-rows:0fr;transition:grid-template-rows 260ms/, "折叠容器要能连续插值");
+  assert.match(mainSrc, /\.gui-acc-one\.open \.gui-acc-b\{grid-template-rows:1fr\}/, "展开到 1fr —— 收起也有中间帧");
+  assert.doesNotMatch(mainSrc, /\.gui-acc[a-z-]*\{[^}]*display:none/, "折叠不能靠 display:none（铁律七）");
+  assert.match(mainSrc, /@media \(prefers-reduced-motion:reduce\)\{\.gui-acc-h i,\.gui-acc-b,\.gui-acc-in/, "减少动效时折叠变瞬切");
+  assert.match(mainSrc, /@media \(max-width:640px\)\{\.gui-table th,\.gui-table td\{padding:5px 6px/, "窄屏收窄表格内边距");
+}
+
+console.log("PASS: AI 对话插件 —— 权限 / 快照 / 建议写入撤销 / 一轮问答 / 历史迁移 / 会话与草稿隔离 / 思考强度 / 请求保护 / 滑动选中光 / 头像与名称弹窗 / 生成式界面（dsh-ui 围栏）");

@@ -166,16 +166,26 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
       v0: null, // 等第一次 input：浏览器在 pointerdown 后把值跳到点击位置（点轨道跳转语义）
     };
   });
-  window.addEventListener("pointermove", (e) => {
+  const onDragMove = (e) => {
     // range input 拖动有隐式指针捕获，move 会冒泡到 window；只认同一个 pointerId，
     // 第二根手指 / 别的指针不干扰会话。
     if (dragSession && e.pointerId === dragSession.pointerId) dragSession.lastX = e.clientX;
-  });
+  };
   const endDragSession = (e) => {
     if (dragSession && e.pointerId === dragSession.pointerId) dragSession = null;
   };
+  window.addEventListener("pointermove", onDragMove);
   window.addEventListener("pointerup", endDragSession);
   window.addEventListener("pointercancel", endDragSession);
+  /* 这三个监听挂在 window 上，会活过卡片本身：设置页每次重渲染都新建一张卡片，
+   * 不摘就是「开一次设置页多三份永久监听」。settings.js 的 disposeContents 会认领
+   * .set-card 上的 _dispose，走的就是这里。 */
+  const disposeDragSession = () => {
+    dragSession = null;
+    window.removeEventListener("pointermove", onDragMove);
+    window.removeEventListener("pointerup", endDragSession);
+    window.removeEventListener("pointercancel", endDragSession);
+  };
 
   // 拖动时实时预览（persist:false），松手才落盘，避免拖动过程中每 5% 写一次盘。
   // 动画分工（v0.54.0）：input 拖动**直设不动画** —— 拖动本身就是连续输入，
@@ -455,7 +465,7 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     rerender();
   };
 
-  return el("div", { class: "card set-card" },
+  const card = el("div", { class: "card set-card" },
     el("h2", {}, "界面与交互"),
     el("div", { class: "pref-presets", "aria-label": "界面预设" },
       el("button", { class: "btn ghost sm", onclick: () => applyPreset("舒适", { ...DEFAULT_UI_PREFERENCES }) }, "舒适预设"),
@@ -517,6 +527,8 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
       } }, "恢复界面默认"),
     ),
   );
+  card._dispose = disposeDragSession;
+  return card;
 }
 
 function createSwatch(item, dark) {

@@ -28,12 +28,14 @@ let navUnsub = null;
 // 但每次「打开设置」都清空 —— 一进来先给一张分类目录，不预展开任何分区（v0.49.1）。
 const settingsNavState = { query: "", filter: "all", expanded: [] };
 
+// 自带清理钩子（`_dispose`）的卡片壳类。漏一个类名的后果不是「少清理一次」，
+// 而是「每重渲染一次就多挂一份永不摘掉的 window 监听」，所以这里是白名单 + 一处登记。
+const DISPOSABLE_SELECTORS = [".sync-card", ".ai-settings-card", ".update-panel", ".set-card"];
 function disposeContents(root) {
-  if (root.matches?.(".sync-card")) root._dispose?.();
-  for (const node of root.querySelectorAll(".sync-card")) node._dispose?.();
-  if (root.matches?.(".ai-settings-card")) root._dispose?.();
-  for (const node of root.querySelectorAll(".ai-settings-card")) node._dispose?.();
-  for (const node of root.querySelectorAll(".update-panel")) node._dispose?.();
+  for (const selector of DISPOSABLE_SELECTORS) {
+    if (root.matches?.(selector)) root._dispose?.();
+    for (const node of root.querySelectorAll(selector)) node._dispose?.();
+  }
   for (const node of root.querySelectorAll(".has-selection-glow")) node._disposeSelectionGlow?.();
 }
 

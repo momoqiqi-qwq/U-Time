@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>WG-CLICK-TEST</title>
+<style>
+  body{font:14px/1.7 system-ui;margin:24px}
+  #plain{display:block;width:320px;height:90px;font-size:18px;margin:18px 0;cursor:pointer}
+</style>
+</head>
+<body>
+<h1>WG-CLICK-TEST</h1>
+<p>两个候选按钮，点中哪个就把标签标题改掉：</p>
+<button id="plain">A 普通 body 里的按钮 → WG-BUTTON-OK</button>
+<p>下面这个是浮标的最小复现：宿主 div 挂在 documentElement 上、带 <code>all:initial</code>、内部 shadow 里放一个 position:fixed 的浮标。</p>
+
+<script>
+  document.getElementById('plain').onclick = function () {
+    document.title = 'WG-BUTTON-OK';
+  };
+
+  // ---- 复现：宿主 all:initial + 挂到 documentElement + shadow 里 fixed 浮标
+  var host = document.createElement('div');
+  host.id = 'wg-click-repro';
+  var sh = host.attachShadow({ mode: 'open' });
+  var st = document.createElement('style');
+  st.textContent = ':host{all:initial}\n' +
+    '.fab2{position:fixed;right:18px;bottom:110px;z-index:2147483647;display:flex;align-items:center;gap:6px;' +
+    'padding:8px 12px;border-radius:999px;background:#182830;color:#e8f2ff;font:13px system-ui;cursor:pointer}';
+  var fab2 = document.createElement('div');
+  fab2.className = 'fab2';
+  fab2.textContent = '复现浮标';
+  fab2.onclick = function () { document.title = 'WG-SHADOW-OK'; };
+  sh.append(st, fab2);
+  document.documentElement.appendChild(host);
+
+  // ---- 对照：同样的 fixed 浮标，但宿主挂在 body 上、不带 all:initial
+  var host2 = document.createElement('div');
+  host2.id = 'wg-click-control';
+  var sh2 = host2.attachShadow({ mode: 'open' });
+  var st2 = document.createElement('style');
+  st2.textContent = '.fab3{position:fixed;right:18px;bottom:60px;z-index:2147483647;display:flex;align-items:center;gap:6px;' +
+    'padding:8px 12px;border-radius:999px;background:#3a2a48;color:#f6eefc;font:13px system-ui;cursor:pointer}';
+  var fab3 = document.createElement('div');
+  fab3.className = 'fab3';
+  fab3.textContent = '对照浮标';
+  fab3.onclick = function () { document.title = 'WG-CONTROL-OK'; };
+  sh2.append(st2, fab3);
+  document.body.appendChild(host2);
+</script>
+</body>
+</html>

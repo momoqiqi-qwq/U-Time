@@ -76,7 +76,7 @@ module.exports = {
     const id = e.currentTarget.dataset.id;
     const groups = this.ddGroups();
     if (!groups.some((g) => g.id === id)) return;
-    const acts = ["切到这一组", "重命名", "再添加一个", "导入成员"];
+    const acts = ["切到这一组", "重命名", "复制到后面", "导入成员"];
     if (groups.length > 1) acts.push("删除这一组");   // 最后一套不可删，干脆不列出来
     wx.showActionSheet({
       itemList: acts,
@@ -84,7 +84,7 @@ module.exports = {
         const act = acts[res.tapIndex];
         if (act === "切到这一组") this.onDdGroup(e);
         else if (act === "重命名") this.ddGroupRename(id);
-        else if (act === "再添加一个") this.ddGroupDuplicate(id);
+        else if (act === "复制到后面") this.ddGroupDuplicate(id);
         else if (act === "导入成员") this.ddGroupImport(id);
         else if (act === "删除这一组") {
           const hit = this.ddGroups().filter((g) => g.id === id)[0];
@@ -107,7 +107,7 @@ module.exports = {
       },
     });
   },
-  /** 复制完立刻要名字 —— 与桌面端「再添加一个」同一流程。取消改名就沿用「XX 2」。 */
+  /** 复制完立刻要名字 —— 与桌面端「复制到后面」同一流程。取消改名就沿用「XX 2」。 */
   ddGroupDuplicate(id) {
     const out = runtime.ddDuplicateGroup(this.ddGroups(), id, store.todayStr());
     if (!out) { wx.showToast({ title: "最多 " + runtime.DD_GROUP_MAX + " 套轮换，先删掉不用的", icon: "none" }); return; }

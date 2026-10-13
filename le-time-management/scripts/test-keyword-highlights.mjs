@@ -68,4 +68,17 @@ for (const [name, source] of [["任务栏", quadrant], ["收件箱", inbox], ["�
 assert.match(css, /\.keyword-mark\.text\s*\{/);
 assert.match(css, /\.keyword-mark\.background\s*\{/);
 
-console.log("PASS: 关键词可按字体或背景标注，日期时间默认红色且安全渲染");
+/* 正则缓存（v0.206.0）：四象限每张卡都要跑一遍 highlightSegments，同一批关键词
+   不许每帧重新编译。A/B 实测（同函数只换取正则那一行，10 规则 × 3000 轮）：
+   每次编译 15.78µs/次 → 缓存 10.86µs/次。 */
+assert.match(helper, /const KEYWORD_RE_CACHE = new Map\(\)/, "关键词正则要有模块级缓存");
+assert.match(helper, /KEYWORD_RE_CACHE\.get\(key\)/, "取正则要先查缓存");
+assert.match(helper, /KEYWORD_RE_CACHE\.size >= KEYWORD_RE_CACHE_MAX\) KEYWORD_RE_CACHE\.clear\(\)/,
+  "缓存满了要整体清空（键很有限，不为此再写一层 LRU）");
+assert.match(helper, /re\.lastIndex = 0;/, "复用带 g 的实例前要把 lastIndex 归零");
+assert.ok(!/new RegExp\(escapeRegExp\(rule\.keyword\)/.test(helper),
+  "highlightSegments 不许再对每条规则就地 new RegExp —— 那就是缓存被绕过了");
+assert.equal((helper.match(/new RegExp\(escapeRegExp\(/g) || []).length, 1,
+  "new RegExp(escapeRegExp(...)) 只应出现在 keywordRegExp 里");
+
+console.log("PASS: 关键词可按字体或背景标注，日期时间默认红色且安全渲染，正则按关键词缓存复用");
