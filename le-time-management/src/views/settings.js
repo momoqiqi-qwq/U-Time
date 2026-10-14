@@ -127,7 +127,7 @@ export function renderSettings(container, opts = {}) {
 
     const settingEntries = [
       { id: "tasks", create: ({ render }) => createTaskSettingsCard(), label: "任务与排程", icon: "sliders", hint: "新建默认值 / 自动排程", keywords: "任务 象限 预估 时长 截止 提醒 自动排程 起始时间 空白时间块 分类 默认" },
-      { id: "ui", create: ({ render }) => createInterfaceCard({ rerender: render }), label: "界面与交互", icon: "sliders", hint: "密度 / 字号 / 缩放 / 动效 / 窗口", keywords: "密度 文字 字号 缩放 界面大小 整体缩放 放大 缩小 太大 太小 看不清 动效 手势 滑动 启动页 窗口 大小 尺寸 最大化 分辨率 顶部统计 副标题 托盘 关闭 退出 最小化" },
+      { id: "ui", create: ({ render }) => createInterfaceCard({ rerender: render }), label: "界面与交互", icon: "layout-panel", hint: "密度 / 字号 / 缩放 / 动效 / 窗口", keywords: "密度 文字 字号 缩放 界面大小 整体缩放 放大 缩小 太大 太小 看不清 动效 手势 滑动 启动页 窗口 大小 尺寸 最大化 分辨率 顶部统计 副标题 托盘 关闭 退出 最小化" },
       { id: "theme", create: ({ render }) => createThemeCard(), label: "主题", icon: "palette", hint: "配色与阅读模式", keywords: "颜色 夜间 深海 樱花 松林 暮光 极简" },
       { id: "highlights", create: ({ render }) => createKeywordHighlightsCard(), label: "关键词标注", icon: "highlighter", hint: "时间标红 / 字体 / 背景", keywords: "关键词 重点 标注 高亮 时间 日期 红色 字体 背景 颜色" },
       { id: "reminders", create: ({ render }) => createReminderCard({ settings: S.getState().settings, info, render }), label: "任务提醒", icon: "bell", hint: "预警时间与提示音", keywords: "提醒 预警 音量 提示音 音频 截止" },

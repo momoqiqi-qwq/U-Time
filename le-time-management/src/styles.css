@@ -3181,7 +3181,9 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   color: var(--ink-2);
   transition: .18s ease;
 }
-.settings-nav-ico .fa-ic { width: 13px; height: 13px; fill: currentColor; display: block; }
+/* 线性图标本体：描边几何见 src/settingsNavIcons.js，颜色一律 currentColor
+   —— 选中态靠 .settings-nav-item.on 改文字色自动跟随，不用再写一条 ico 规则。 */
+.settings-nav-ico .settings-nav-glyph { width: 16px; height: 16px; display: block; }
 .settings-nav-item:hover .settings-nav-ico { color: var(--ink); }
 .settings-nav-item.on .settings-nav-ico {
   color: var(--on-deep);
@@ -3761,7 +3763,7 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
     color: var(--ink-2);
     transition: color .18s ease, background .18s ease;
   }
-  .settings-acc-ico .fa-ic { width: 13px; height: 13px; fill: currentColor; display: block; }
+  .settings-acc-ico .settings-nav-glyph { width: 16px; height: 16px; display: block; }
   .settings-acc-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .settings-acc-copy b { font-size: calc(13px * var(--ui-text-scale)); }
   .settings-acc-copy small { color: var(--ink-3); font-size: calc(11px * var(--ui-text-scale)); }

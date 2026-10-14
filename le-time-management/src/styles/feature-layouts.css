@@ -383,7 +383,7 @@
   background: var(--panel); color: var(--ink); text-align: left; cursor: pointer;
 }
 .settings-pages .settings-acc-ico { flex: 0 0 auto; width: 28px; height: 28px; display: grid; place-items: center; }
-.settings-pages .settings-acc-ico .fa-ic { width: 13px; height: 13px; fill: currentColor; }
+.settings-pages .settings-acc-ico .settings-nav-glyph { width: 16px; height: 16px; display: block; }
 .settings-pages .settings-acc-copy { flex: 1; display: flex; flex-direction: column; gap: 2px; }
 .settings-pages .settings-acc-copy small { color: var(--ink-3); }
 .settings-pages .settings-acc-arrow { flex: 0 0 auto; width: 24px; height: 24px; display: grid; place-items: center; }

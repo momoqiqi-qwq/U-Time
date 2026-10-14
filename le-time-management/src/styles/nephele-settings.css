@@ -250,10 +250,28 @@
 :root[data-nephele-settings="on"] .settings-nav-item[hidden],
 :root[data-nephele-settings="on"] .settings-catalog[hidden] { display: none !important; }
 :root[data-nephele-settings="on"] .settings-nav-item-copy small,
-:root[data-nephele-settings="on"] .settings-nav-ico,
 :root[data-nephele-settings="on"] .settings-nav-chevron,
 :root[data-nephele-settings="on"] .settings-acc-head,
 :root[data-nephele-settings="on"] .settings-acc-collapse { display: none; }
+/* 分类图标（v0.193.0）：此前上面那条规则把 .settings-nav-ico 一并隐藏，
+   于是分类栏（横排 chip 与左侧竖排列表都算）只剩光秃秃的文字 —— 用户看到的就是这样。
+   现在放出来，并按 Nephele 的观感收掉 30px 的底板块：图标直接落在侧栏底色上，
+   细描边、颜色继承文字，`.settings-nav-item.on` 的 --nephele-accent 会自动跟上去。 */
+:root[data-nephele-settings="on"] .settings-nav-ico {
+  width: 20px;
+  height: 20px;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+}
+:root[data-nephele-settings="on"] .settings-nav-ico .settings-nav-glyph { width: 18px; height: 18px; }
+/* 上面这条 color:inherit 会盖掉 styles.css 的选中态底色（--deep 实心块），
+   那是给默认皮肤的；Nephele 下选中色由 .settings-nav-item.on 的文字色统一负责。 */
+:root[data-nephele-settings="on"] .settings-nav-item.on .settings-nav-ico,
+:root[data-nephele-settings="on"] .settings-nav-item:hover .settings-nav-ico {
+  color: inherit;
+  background: none;
+}
 :root[data-nephele-settings="on"] .settings-nav-item:hover,
 :root[data-nephele-settings="on"] .settings-nav-item.on {
   color: var(--nephele-accent);

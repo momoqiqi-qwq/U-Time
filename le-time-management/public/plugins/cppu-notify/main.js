@@ -43,6 +43,15 @@
   const AWARD_YEARS = 3;          // 默认回溯到「今年往前数 3 个自然年」（2025 年 ⇒ 翻到 2023 年为止）
   const AWARD_NOTICE_MAX = 60;    // 单轮最多读多少条候选正文（每条一次详情请求）；未读的留到下一轮
   const AWARD_CACHE_MAX = 200;    // 奖项记录落盘上限（正文留缓存里，这里只存解析结果）
+  // 获奖名单附件：名单常挂在 .docx / .xlsx / .pdf 上而不是写在正文里。三条口径：
+  //  ① 只有「附件名像名单」或「正文说了名单在附件」的附件才下载（award-attach.js 判定）；
+  //  ② 单轮最多读 AWARD_AFFIX_MAX 个附件，别把一次刷新变成几十个附件请求；
+  //  ③ 扫过的附件只留一个标记（awardAffixScanned），不留文本 —— 名单抽出来后附件内容即弃，
+  //     屏幕上的名单永远只是「谁得了什么奖」，附件本身不再回看（回看走「来源通知」）。
+  const AWARD_AFFIX_KEY = "awardAffixScanned";
+  const AWARD_AFFIX_MAX = 12;     // 单轮最多下载解析多少个附件
+  const AWARD_AFFIX_MARK_MAX = 400; // 「扫过」标记的落盘上限（按时间淘汰最旧的）
+  const AWARD_AFFIX_CHARS = 60000;  // 单个附件抽取文本的上限，防止一个巨型表格把解析拖住
 
   // ── 左侧校园服务栏 ──
   // 标题与图标不写死：进入插件时抓一次网页元信息（<title> / favicon / 图标名），
@@ -134,8 +143,10 @@
   let filterOutsideHandler = null; // 筛选下拉的「点外部收回」监听，重进插件时替换旧监听
   // 获奖名单视图的状态：与通知视图共用 state.notices / state.details（同一次登录、同一份正文缓存），
   // 但 DOM 引用、进度与解析结果独立 —— 两个视图会同时活着，不能让它们互相盖掉对方的 ui。
-  const awState = { el: null, loading: false, error: "", progress: "", records: [], board: null, syncedAt: 0, pages: AWARD_PAGES, pendingCands: 0 };
+  const awState = { el: null, loading: false, error: "", progress: "", records: [], board: null, syncedAt: 0, pages: AWARD_PAGES, pendingCands: 0, affixCount: 0, affixWait: 0 };
   let awardPanel = null, awardPanelLoading = null;
+  let attachMod = null, attachLoading = null;
+  let affixScanned = null;         // { "rid::附件名": 时间戳 } —— 扫过的附件不再扫
 
   function observeSentinel(node, cb) {
     sentinelCb = cb;
@@ -2988,12 +2999,15 @@
      那里说「认了多少」。 */
   function awStatusLine() {
     if (awState.progress) return awState.progress;
-    if (!awState.board) return `还没同步过：点「刷新名单」开始（往回翻通知到 ${AWARD_YEARS} 个自然年，再逐条读正文筛获奖名单）`;
+    if (!awState.board) return `还没同步过：点「刷新名单」开始（往回翻通知到 ${AWARD_YEARS} 个自然年，逐条读正文筛获奖名单；正文里说「名单见附件」的再去读那份附件）`;
     const s = awState.board.stats;
     const at = awState.syncedAt ? new Date(awState.syncedAt).toLocaleString("zh-CN", { hour12: false }) : "—";
     const cov = awCoverage();
     const pending = awState.pendingCands ? ` · 还有 ${awState.pendingCands} 条候选没读（再点一次刷新继续）` : "";
-    return `${state.username ? `学号 ${state.username} · ` : ""}已扫 ${state.notices.length} 条通知${cov ? `（覆盖 ${cov}）` : ""} · 命中获奖通知 ${s.notices} 条 · 奖项 ${s.awards} 人次${pending} · 同步于 ${at}`;
+    const affix = awState.affixCount
+      ? ` · 读到附件名单 ${awState.affixCount} 份${awState.affixWait ? `（还有 ${awState.affixWait} 份下一轮读）` : ""}`
+      : "";
+    return `${state.username ? `学号 ${state.username} · ` : ""}已扫 ${state.notices.length} 条通知${cov ? `（覆盖 ${cov}）` : ""} · 命中获奖通知 ${s.notices} 条 · 奖项 ${s.awards} 人次${pending}${affix} · 同步于 ${at}`;
   }
   function awPaint(el) {
     if (!el || el.isConnected === false) return;
@@ -3011,11 +3025,17 @@
   }
 
   /* 「来源通知」按钮：切回通知视图并把那条通知展开 —— 名单是从那句话里抽出来的，
-     能一眼看到原句才算可核对（这也是不做原文照搬的前提）。 */
+     能一眼看到原句才算可核对（这也是不做原文照搬的前提）。
+     个人 / 团体排名里的每一条获奖记录都挂这个按钮，所以点「个人项目里面那条通知」也能回原通知。 */
   function awOpenNotice(rid) {
+    if (!rid) return;
     if (state.notices.some((x) => itemKey(x) === rid)) {
       state.expanded.add(rid);
       setSeen(rid);
+    } else {
+      // 名单是从缓存恢复的、而这条通知还没被翻进列表（回溯页数不够）：说一句话，
+      // 别让点击看起来像没反应。
+      tide.notify("这条来源通知还没在列表里（点「刷新名单」或去通知页往前翻可以把它拉进来）", { ms: 6000 });
     }
     tide.util.navigate("plug:cppu-notify");
   }
@@ -3107,6 +3127,101 @@
     return state.details[rid];
   }
 
+  /* ── 获奖名单附件 ──
+     判定与字节解析全在 award-attach.js（纯函数，可单测）；这里只做三件事：
+     决定读哪些附件、下载、把抽出来的文本并进同一条通知的解析文本。 */
+  function ensureAttachMod() {
+    if (!attachLoading) {
+      attachLoading = import("/plugins/cppu-notify/award-attach.js")
+        .then((mod) => { attachMod = mod; return mod; })
+        .catch(() => { attachLoading = null; attachMod = null; throw new Error("附件名单模块加载失败"); });
+    }
+    return attachLoading;
+  }
+  // 键是「通知 + 附件名」：换一条通知的同名附件不算同一个，不会被旧标记挡住。
+  const affixKey = (rid, name) => `${rid}::${name}`;
+
+  async function loadAffixScanned() {
+    if (affixScanned) return affixScanned;
+    affixScanned = {};
+    try {
+      const saved = await tide.storage.get(AWARD_AFFIX_KEY, null);
+      if (saved && typeof saved === "object") affixScanned = saved;
+    } catch { /* 读不到就当作一个都没扫过 */ }
+    return affixScanned;
+  }
+  // 只记「扫过」，不存内容：名单已经进了 awardBoardCache，附件文本用完即弃。
+  async function markAffixScanned(rid, name) {
+    await loadAffixScanned();
+    affixScanned[affixKey(rid, name)] = Date.now();
+    const keys = Object.keys(affixScanned);
+    if (keys.length > AWARD_AFFIX_MARK_MAX) {
+      keys.sort((a, b) => Number(affixScanned[a]) - Number(affixScanned[b]));
+      for (const k of keys.slice(0, keys.length - AWARD_AFFIX_MARK_MAX)) delete affixScanned[k];
+    }
+    try { await tide.storage.set(AWARD_AFFIX_KEY, affixScanned); } catch { /* 标记写不进就下次再读一遍，不影响本轮结果 */ }
+  }
+
+  async function awAffixFetch(rid, att) {
+    const res = await tide.http.fetch(state.sid, "GET", att.url, {
+      headers: { "Referer": referer(), "Cookie": "tp_up=" + state.token },
+      binary: true,
+    });
+    if (res.status !== 200 || !res.body) throw new Error(`附件接口 HTTP ${res.status}`);
+    // 票据过期时附件链接会 200 返回一张登录页：当失败处理（不记标记，下次刷新再试）
+    if (/text\/html/i.test(res.contentType || "")) throw new Error("门户会话已过期");
+    const got = await attachMod.attachmentToNoticeText({
+      name: att.name,
+      base64: res.body,
+      mime: res.contentType,
+      spreadsheetText: (file) => tide.assets.spreadsheetText(file),
+    });
+    return String(got.text || "").slice(0, AWARD_AFFIX_CHARS);
+  }
+
+  /* 附件阶段：先算出「该读哪些」（纯判定，不产生请求），再逐个读。返回 rid → { text, names }。
+     names 只记附件名，用于在名单里标出「这条获奖名单读自哪个附件」。 */
+  async function awAffixPass(el, cands) {
+    const out = new Map();
+    await loadAffixScanned();
+    if (!attachMod) await ensureAttachMod();
+    const plan = [];
+    for (const it of cands) {
+      const rid = itemKey(it);
+      const det = state.details[rid];
+      const affixes = Array.isArray(det?.attachments) ? det.attachments : [];
+      if (!affixes.length) continue;
+      const body = String(det?.content || "");
+      for (const att of affixes) {
+        // 两条触发口径：附件名像名单，或正文说了名单在附件 —— 其余附件连请求都不发
+        if (!attachMod.looksLikeAwardAttachment(att.name, body)) continue;
+        if (affixScanned[affixKey(rid, att.name)]) continue;   // 扫过就不再扫
+        plan.push({ rid, att });
+      }
+    }
+    const batch = plan.slice(0, AWARD_AFFIX_MAX);
+    awState.affixWait = Math.max(0, plan.length - batch.length);
+    for (let i = 0; i < batch.length; i++) {
+      const { rid, att } = batch[i];
+      awState.progress = `正在读附件里的获奖名单 ${i + 1}/${batch.length}（${att.name}）`;
+      awPaint(el);
+      if (!el.isConnected) return out;
+      try {
+        const text = await awAffixFetch(rid, att);
+        if (text) {
+          const cur = out.get(rid) || { text: "", names: [] };
+          cur.text = [cur.text, text].filter(Boolean).join("\n");
+          if (!cur.names.includes(att.name)) cur.names.push(att.name);
+          out.set(rid, cur);
+          awState.affixCount += 1;
+        }
+        // 读过就记上（哪怕里面没名单）：同一份附件不在每轮刷新里反复下载
+        await markAffixScanned(rid, att.name);
+      } catch { /* 读失败不记标记，下一轮刷新会再试 */ }
+    }
+    return out;
+  }
+
   async function saveAwardCache() {
     try {
       await tide.storage.set(AWARD_CACHE_KEY, {
@@ -3154,14 +3269,33 @@
         if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
         try { await awDetailFetch(itemKey(batch[i])); } catch { failed += 1; }
       }
-      // 再对**全部**候选统一解析：已读的走内存缓存，不产生请求。
+      // 附件阶段：正文里没有名单的通知，名单多半在附件上。只读「该读的」（附件名像名单，
+      // 或正文说了名单在附件），扫过的跳过；抽到的文本并进同一条通知的解析文本，
+      // 解析完这段文本就丢 —— 落盘的只有名单本身（见 AWARD_AFFIX_KEY 的注释）。
+      let affixMap = new Map();
+      if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
+      awState.progress = "正在看有没有「名单在附件」的通知…";
+      awPaint(el);
+      try {
+        affixMap = await awAffixPass(el, cands);
+      } catch (e) {
+        // 附件模块不可用不该让整张名单失败：正文里读到的部分照常出结果
+        awState.error = `附件名单没读到：${String(e?.message || e)}`;
+      }
+      if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
+      // 再对**全部**候选统一解析：已读的走内存缓存，不产生请求；正文 + 附件文本一起解析。
       const records = [];
       for (const it of cands) {
-        const det = awDetailCached(itemKey(it));
-        const rec = det?.content
-          ? mod.parseAwardNotice({ rid: itemKey(it), title: titleOf(it), text: det.content, date: Number(it.CREATE_TIME || 0) })
+        const rid = itemKey(it);
+        const det = state.details[rid];
+        const affix = affixMap.get(rid);
+        const text = [det?.content, affix?.text].filter(Boolean).join("\n");
+        const rec = text
+          ? mod.parseAwardNotice({ rid, title: titleOf(it), text, date: Number(it.CREATE_TIME || 0) })
           : null;
-        if (rec) records.push(rec);
+        if (!rec) continue;
+        if (affix?.names.length) rec.affix = affix.names.slice(0, 4);
+        records.push(rec);
       }
       awState.records = records;
       awState.board = mod.buildAwardBoard(records);
@@ -3226,7 +3360,7 @@
       if (e.target.closest("[data-aw-relogin]")) {
         state.token = ""; state.notices = []; state.details = {}; state.pending = null; state.captcha = "";
         awState.board = null; awState.records = []; awState.error = ""; awState.syncedAt = 0;
-        awState.pages = AWARD_PAGES; awState.pendingCands = 0;
+        awState.pages = AWARD_PAGES; awState.pendingCands = 0; awState.affixCount = 0; awState.affixWait = 0;
         await openLogin();
         return;
       }

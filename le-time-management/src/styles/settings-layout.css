@@ -93,8 +93,9 @@
   :root[data-settings-nav-position="right"] .settings-layout { grid-template-columns: minmax(0, 1fr) minmax(0, 116px); gap: 10px; }
   :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-card { padding: 6px; }
   :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-sidebar-head { padding-inline: 0; }
+  /* 116px 宽的竖排分类栏里，「小字提示 / 结果数 / 方向箭头」三项确实放不下，继续隐藏；
+     但 .settings-nav-ico 要留着 —— 分类图标正是窄屏辨认分类的主要线索（图标 18px + 文字换行）。 */
   :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-result,
-  :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-ico,
   :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-item-copy small,
   :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-chevron { display: none; }
   :root:is([data-settings-nav-position="left"], [data-settings-nav-position="right"]) .settings-nav-item { padding: 8px 6px; }
