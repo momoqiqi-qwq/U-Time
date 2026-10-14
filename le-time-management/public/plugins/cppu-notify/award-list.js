@@ -83,11 +83,24 @@ const EXPLAIN_LINE = /的|了|是|和|与|及|并|且|将被|已|请|根据|按�
 const NOT_NAME = /^(?:学院|大学|学校|大队|中队|支队|班级|专业|年级|系|部|处|室|中心|委员会|办公室|教研室|实验室|协会|社团|小组|团队|团体|队伍|代表队|名单|通知|公告|公示|教师|老师|同学|学生|学员|干部|教官|单位|集体|个人|优秀|先进|组织|工作|活动|竞赛|大赛|比赛|项目|成果|论文|作品|奖项|奖励|荣誉|表彰|决定|附件|相关|全体|下列|以上|其中|荣获|获得|斩获|共计|合计|人数|名次|一等奖|二等奖|三等奖|特等奖|优秀奖|金奖|银奖|铜奖|冠军|亚军|季军|入围|晋级|国家级|省级|校级|全国|全省|全校|研究生|本科生|为了|按照)$/;
 const ROSTER_OPEN = /获奖名单(?:如下|公布|见附件)?[：:]?|名单如下|获奖(?:情况|人员|学生|集体)?如下|现将.{0,12}名单/;
 
-function isPersonName(s) {
+// 字体名与 Word 样式名：全是 2–4 字纯汉字，形状上和人名没区别，却比真人名还勤 ——
+// 每份附件都带一份字体表 / 样式表，而 .doc（OLE）是二进制粗扫，字体名与样式名会跟着正文
+// 一起被扫出来（「等线」「仿宋」「宋体」是字体，「无列表」是样式）。它们曾经直接上榜。
+const NOT_NAME_FONT = /^(?:等线|仿宋|宋体|黑体|楷体|行书|隶书|草书|幼圆|魏碑|雅黑|微软雅黑|苹方|华文|方正|标宋|小标宋|书宋|新宋|思源|汉仪|冬青|无列表|无间隔|列表段落|项目符号|正文|标题|副标题|小标题|题注|页眉|页脚|目录|摘要|附录|参考文献|致谢|超链接|批注|脚注|尾注|空白|未命名|新建|模板|网格|页码|缩进|居中|加粗|斜体|下划线|字号|行距|段落|编号|样式|字体)$/;
+// 机构简称与落款：通知末尾的发布单位、正文里提到的部门，去掉「学院 / 处室」这类尾字后就剩 2 个字。
+const NOT_NAME_ORG = /^(?:团委|党委|工会|教务|学工|后勤|财务|保卫|宣传|组织|人事|科研|办公|机关|教工|教务员|学生会)$/;
+// 机构尾字：3 字以上且以这些字收尾，基本是部门名（「教务处」「科研处」「训练部」）。
+// 2 字名不参与这条判定，所以「李科」这类短名不受影响。
+const ORG_TAIL = /[处务科所站馆局厅委办署司厂社部室系院校队组班级]$/;
+
+// 导出只为让测试与 award-attach.js 的人名判定对齐（attachment 的表格单元格也要走同一套口径）。
+export function isPersonName(s) {
   if (!/^[\u4e00-\u9fa5]{2,4}$/.test(s)) return false;
-  if (NOT_NAME.test(s)) return false;
+  if (NOT_NAME.test(s) || NOT_NAME_FONT.test(s) || NOT_NAME_ORG.test(s)) return false;
   // 含机构类字的 3–4 字串基本不是人名，例如「刑事科学」「侦查学院」。
   if (s.length > 2 && /[学院校系室部中心队伍组队班级年级]/.test(s)) return false;
+  // 以机构尾字收尾的 3–4 字串同理：「教务处」「科研处」「学生会」。
+  if (s.length > 2 && ORG_TAIL.test(s)) return false;
   return true;
 }
 function isTeamName(s) {
@@ -178,11 +191,21 @@ export function parseAwardNotice(notice = {}) {
     groups.push({ kind: item.kind, name: item.name, note: item.note, members: item.members || [], level: ctx.level, scope: ctx.scope });
   };
 
+  // 名单区：级别行或「获奖名单如下：」这类标签行开启，空行或明显的说明性长句关闭。
+  // 为什么要有它：原来「单行单名」只问 ctx.level 有没有被设过，而级别一旦设上就再不过期 ——
+  // 正文里出现过一次「一等奖」之后，任何 2–4 字短行（落款「教务处」、附件粗扫带出的字体名
+  // 「等线」、Word 样式名「无列表」）都被当成了获奖人。脱离名单区就没有证据说一个孤零零的
+  // 短行是获奖者，所以宁可漏。空行是通知里名单与正文之间最可靠的边界。
+  let rosterZone = false;
   for (const raw of String(notice.text || "").split("\n")) {
     const line = raw.replace(/\s+/g, " ").trim();
-    if (!line) continue;
+    if (!line) { rosterZone = false; continue; }
+    // 整句说明文字（「请获奖同学于6月1日前到教务处领取证书。」）后面不再是名单区。
+    // 只认「长句 + 句号 / 分号收尾」：名单行以顿号收尾，不会误伤一串名字。
+    if (line.length >= 12 && /[。；;]$/.test(line)) { rosterZone = false; continue; }
     if (isLevelLine(line)) {
       const lv = awardLevel(line), sc = awardScope(line);
+      rosterZone = true;
       // 「二等奖：星火代表队（成员：…）」「一等奖：张三、李四」这种级别与名单写在同一行的
       // 很常见（真实通知里比分行还多）。整行当级别吃掉会把人名一起丢掉，所以冒号后若是
       // 认得出的名单，就先把级别记下，再用同一套判定把名单读出来。
@@ -201,7 +224,7 @@ export function parseAwardNotice(notice = {}) {
       if (sc) ctx.scope = sc;
       continue;
     }
-    if (ROSTER_OPEN.test(line) && line.length < 40) { /* 名单区开始：下面继续按行读 */ }
+    if (ROSTER_OPEN.test(line) && line.length < 40) rosterZone = true;   // 名单区开始：下面继续按行读
     const colon = line.match(/^(.{2,14}?)\s*[:：]\s*(.+)$/);
     const label = colon ? colon[1] : "";
     const value = colon ? colon[2] : line;
@@ -215,8 +238,9 @@ export function parseAwardNotice(notice = {}) {
     const items = readRoster(value, { team: kind === "team" });
     if (!items.length) continue;
     if (value.length <= 8 && !label && items.length === 1 && items[0].kind === "person") {
-      // 单行单名（"张三"）几乎总是正文里的人名，不是名单；除非上一行是级别行或名单区。
-      if (!ctx.level) continue;
+      // 单行单名（"张三"）只有在名单区里才算获奖人：正文里的人名、末尾的落款「教务处」、
+      // 附件粗扫带出来的字体名都长这个样子，脱离名单区就没证据说它是获奖者。
+      if (!rosterZone) continue;
     }
     for (const item of items) add(item);
   }
@@ -255,20 +279,32 @@ export function sortAwardItems(items = [], order = "desc") {
 export function rankAwards(items = [], kind = "person") {
   const map = new Map();
   for (const item of items) {
-    const names = kind === "team" ? item.teams || [] : item.people || [];
-    for (const name of new Set(names)) {
-      const row = map.get(name) || { name, count: 0, hits: [], members: [] };
+    // 团体档只收「通知里按人列过成员」的队：只有这类条目才有人名可署名。
+    // 只写了队名、没列成员的队整条不进榜（口径：不用队名署名，没姓名就不署名）。
+    // 同一条通知里同名队合并成一行，成员取并集。
+    let picks;
+    if (kind === "team") {
+      const merged = new Map();
+      for (const t of item.teamMembers || []) {
+        if (!(t?.members || []).length) continue;
+        const cur = merged.get(t.name) || { name: t.name, members: new Set() };
+        for (const m of t.members) cur.members.add(m);
+        merged.set(t.name, cur);
+      }
+      picks = [...merged.values()].map((t) => ({ name: t.name, members: [...t.members] }));
+    } else {
+      picks = [...new Set(item.people || [])].map((name) => ({ name }));
+    }
+    for (const pick of picks) {
+      const row = map.get(pick.name) || { name: pick.name, count: 0, hits: [], members: [] };
       row.count += 1;
       row.hits.push({
         project: item.project, title: item.title, level: item.level, scope: item.scope,
         date: Number(item.date || 0), rid: item.rid,
         attach: !!(item.affix && item.affix.length),
       });
-      if (kind === "team") {
-        const team = (item.teamMembers || []).find((t) => t.name === name);
-        if (team) row.members = [...new Set([...row.members, ...(team.members || [])])];
-      }
-      map.set(name, row);
+      if (pick.members) row.members = [...new Set([...row.members, ...pick.members])];
+      map.set(pick.name, row);
     }
   }
   const rows = [...map.values()].sort((a, b) => b.count - a.count
@@ -294,7 +330,7 @@ export function rankNames(items = []) {
         if (g.kind === "team") row.fromTeams += 1;
         row.hits.push({
           project: item.project, title: item.title, level: item.level, scope: item.scope,
-          date: Number(item.date || 0), rid: item.rid, team: g.kind === "team" ? g.name : "",
+          date: Number(item.date || 0), rid: item.rid, fromTeam: g.kind === "team",
           attach: !!(item.affix && item.affix.length),
         });
         map.set(name, row);
@@ -320,7 +356,7 @@ export function rankTone(rank) {
 }
 
 // 团体获奖不用队名署名（口径：获奖的是人，不是队）：把团体条目的成员摊成姓名。
-// 通知只写了队名、没列成员时返回空——展示层这时候才退回队名（否则这一条会整条消失）。
+// 通知只写了队名、没列成员时返回空 —— 这种条目没有姓名可署名，榜单里整条略过，绝不用队名顶替。
 export function awardNamesOf(g = {}) {
   return (g.members || []).filter(Boolean);
 }
@@ -331,10 +367,10 @@ export function teamMemberNames(groups = []) {
 export function joinPeople(names = []) {
   return (names || []).filter(Boolean).join("、");
 }
-// 一条获奖记录挂到谁名下：团体条目挂成员，没成员时退回队名（宁可用旧署名，不留空白）。
+// 一条获奖记录挂到谁名下：团体条目挂成员；没列成员时返回空串（不用队名顶替）。
 export function awardBearer(g = {}) {
   if (g.kind !== "team") return g.name || "";
-  return joinPeople(awardNamesOf(g)) || g.name || "";
+  return joinPeople(awardNamesOf(g));
 }
 
 export function buildAwardBoard(records = []) {
@@ -374,6 +410,10 @@ export function buildAwardBoard(records = []) {
       teams: new Set(sorted.flatMap((i) => i.teams)).size,
       names: names.length,
        awards: sorted.reduce((sum, i) => sum + i.people.length + i.teams.length, 0),
+      // 通知只写了队名、没按人列成员的团体：没有姓名可署名，因此不进任何清单与排名。
+      // 这里只报个数（不报名字），免得用户以为人漏了。
+      unlisted: new Set(sorted.flatMap((i) => (i.teamMembers || [])
+        .filter((t) => !(t?.members || []).length).map((t) => t.name))).size,
       // 团体条目按成员署名（口径见 awardNamesOf）：这一列是「能点到人头上」的人数，
       // 所以团体成员与个人获奖者一起算，队名本身不进这个集合。
       awarded: new Set([
@@ -434,7 +474,7 @@ function styles() {
 .aw-name{flex:1 1 auto;min-width:0;font-size:calc(13px * var(--ui-text-scale));font-weight:600;overflow-wrap:anywhere}
 .aw-tag{flex:none;font-size:calc(10.5px * var(--ui-text-scale));padding:3px 8px;border-radius:999px;border:1px solid var(--line);background:color-mix(in srgb,var(--deep) 8%,var(--panel));color:var(--ink-2,#4A5A66);white-space:nowrap}
 .aw-tag.lvl{border-color:color-mix(in srgb,var(--sun,#D9A22B) 45%,var(--line));background:color-mix(in srgb,var(--sun,#D9A22B) 16%,var(--panel));color:var(--ink)}
-.aw-tag.team{border-color:color-mix(in srgb,var(--mint,#3E9C7A) 45%,var(--line));background:color-mix(in srgb,var(--mint,#3E9C7A) 15%,var(--panel));color:var(--ink)}
+.aw-tag.grp{border-color:color-mix(in srgb,var(--mint,#3E9C7A) 45%,var(--line));background:color-mix(in srgb,var(--mint,#3E9C7A) 15%,var(--panel));color:var(--ink)}
 .aw-tag.affix{border-color:color-mix(in srgb,var(--deep) 45%,var(--line));background:color-mix(in srgb,var(--deep) 12%,var(--panel));color:var(--ink)}
 .aw-arrow{flex:none;color:var(--deep);font-size:calc(11px * var(--ui-text-scale));transition:transform .3s cubic-bezier(.2,.78,.2,1)}
 .aw-item.open .aw-arrow{transform:rotate(90deg)}
@@ -468,7 +508,7 @@ function styles() {
 [data-theme-mode=dark] .aw-no.bad{color:color-mix(in srgb,var(--danger,#C0492F) 78%,#fff)}
 [data-theme-mode=dark] .aw-tag{background:color-mix(in srgb,var(--deep) 18%,var(--panel));color:color-mix(in srgb,var(--ink) 88%,var(--panel))}
 [data-theme-mode=dark] .aw-tag.lvl{background:color-mix(in srgb,var(--sun,#D9A22B) 22%,var(--panel));color:color-mix(in srgb,var(--sun,#D9A22B) 60%,var(--ink))}
-[data-theme-mode=dark] .aw-tag.team{background:color-mix(in srgb,var(--mint,#3E9C7A) 22%,var(--panel));color:color-mix(in srgb,var(--mint,#3E9C7A) 60%,var(--ink))}
+[data-theme-mode=dark] .aw-tag.grp{background:color-mix(in srgb,var(--mint,#3E9C7A) 22%,var(--panel));color:color-mix(in srgb,var(--mint,#3E9C7A) 60%,var(--ink))}
 [data-theme-mode=dark] .aw-tag.affix{background:color-mix(in srgb,var(--deep) 22%,var(--panel));color:color-mix(in srgb,var(--ink) 88%,var(--panel))}
 .aw-affix{color:inherit}
 @media(max-width:620px){.aw-panel{padding:12px}.aw-row{gap:7px;padding:10px}.aw-date{display:none}.aw-bar{flex-basis:80px}.aw-seg button{padding:8px 10px}}
@@ -478,8 +518,8 @@ function styles() {
 
 // 一行获奖项目：有 rid 就整行做成按钮（点回原通知核对），没有 rid 时退化成纯展示行。
 function hitHtml(h, kind) {
-  // 团体条目不署队名：这一行只标「团体」来源（挂了哪支队在「获奖排名 > 团体」那一档看，队名不丢只是不署名）。
-  const inner = `<span class="aw-name">${esc(h.project || h.title)}</span>${h.level ? `<span class="aw-tag lvl">${esc(h.level)}</span>` : ""}${kind === "names" && h.team ? `<span class="aw-tag team">团体</span>` : ""}${h.attach ? `<span class="aw-tag affix">附件名单</span>` : ""}<span class="aw-date">${esc(fmtDate(h.date))}</span>`;
+  // 团体来源只标「团体」两个字，**不写队名**（口径见 awardNamesOf）。
+  const inner = `<span class="aw-name">${esc(h.project || h.title)}</span>${h.level ? `<span class="aw-tag lvl">${esc(h.level)}</span>` : ""}${kind === "names" && h.fromTeam ? `<span class="aw-tag grp">团体</span>` : ""}${h.attach ? `<span class="aw-tag affix">附件名单</span>` : ""}<span class="aw-date">${esc(fmtDate(h.date))}</span>`;
   return h.rid
     ? `<li><button type="button" class="aw-hit" data-aw-source="${esc(h.rid)}" title="查看来源通知">${inner}</button></li>`
     : `<li>${inner}</li>`;
@@ -487,21 +527,17 @@ function hitHtml(h, kind) {
 
 function rowsHtml(rows, kind) {
   return rows.map((row) => {
-    // 团体档也不署队名：标题位放成员姓名（队名挪进悬停气泡，方便核对是哪支队），
-    // 通知没列成员的队仍以队名出现 —— 否则这一行只剩一个空名次。
-    const label = kind === "team" ? (row.members?.length ? joinPeople(row.members) : row.name) : row.name;
-    const title = kind === "team" && row.members?.length ? ` title="获奖成员（团体获奖按人署名）：原队名 ${esc(row.name)}"` : "";
+    // 团体档的行名就是成员姓名（rankAwards 已滤掉没列成员的队），不出现任何队名。
+    const label = kind === "team" ? joinPeople(row.members) : row.name;
     return `<li class="aw-item" data-aw-item="${esc(row.key)}">
   <button type="button" class="aw-row" data-aw-toggle="${esc(row.key)}" aria-expanded="false" aria-controls="aw-body-${esc(row.id)}">
-    <span class="aw-no ${rankTone(row.rank)}">${row.rank}</span><span class="aw-name"${title}>${esc(label)}</span>
+    <span class="aw-no ${rankTone(row.rank)}">${row.rank}</span><span class="aw-name">${esc(label)}</span>
     <span class="aw-bar" aria-hidden="true"><i style="width:${Math.max(6, Math.round(row.count / row.max * 100))}%"></i></span>
     <span class="aw-total">${row.count} 项</span><span class="aw-arrow" aria-hidden="true">▸</span>
   </button>
   <div class="aw-shell" id="aw-body-${esc(row.id)}" aria-hidden="true"><div class="aw-clip"><div class="aw-detail">
     <ul class="aw-hits">${(row.hits || []).map((h) => hitHtml(h, kind)).join("")}</ul>
-    ${kind === "team" && row.members?.length ? `<div class="aw-group"><b>获奖成员（团体获奖按人署名）</b><div class="aw-pills">${row.members.map((m) => `<span class="aw-pill">${esc(m)}</span>`).join("")}</div></div>` : ""}
-    ${kind === "team" && !row.members?.length ? `<div class="aw-group"><b>通知未列成员，署名仍用队名</b></div>` : ""}
-    ${kind === "names" && row.fromTeams ? `<div class="aw-group"><b>其中 ${row.fromTeams} 次来自团体成员名单</b></div>` : ""}
+    ${kind === "names" && row.fromTeams ? `<div class="aw-group"><b>其中 ${row.fromTeams} 次来自团体获奖成员</b></div>` : ""}
     <div class="aw-src">统计口径：同一奖项记 1 项，同名并列同一次数${kind === "names" ? "；团体成员计入本人" : ""}${kind === "names" ? "；带「附件名单」标的条目，名单读自该通知的附件" : ""}</div>
   </div></div></div>
 </li>`;
@@ -512,11 +548,11 @@ function itemsHtml(items) {
   return items.map((item) => {
     const people = item.groups.filter((g) => g.kind === "person");
     const teams = item.groups.filter((g) => g.kind === "team");
-    // 团体获奖不署队名（口径）：成员摊到人名册里一起展示；通知只写队名、没列成员时
-    // 才单独留一条（署名退回队名，否则这条获奖记录会整条看不见）——用 `队伍` 属性的条目标出来。
+    // 团体获奖不署队名（口径）：成员摊进同一份人员清单。通知只写队名、没列成员的团体
+    // 没有姓名可署名，因此不出现任何名字（只在尾部提示一句「未列成员姓名」）。
     const memberNames = teamMemberNames(teams);
     const shown = [...new Set([...people.map((g) => g.name), ...memberNames])];
-    const namedTeams = teams.filter((g) => !awardNamesOf(g).length);
+    const unlisted = teams.filter((g) => !awardNamesOf(g).length).length;
     const key = `n:${item.rid}`;
     return `<li class="aw-item" data-aw-item="${esc(key)}">
   <button type="button" class="aw-row" data-aw-toggle="${esc(key)}" aria-expanded="false" aria-controls="aw-body-${esc(item.rid)}">
@@ -524,7 +560,7 @@ function itemsHtml(items) {
     <span class="aw-name">${esc(item.project)}</span>
     ${item.level ? `<span class="aw-tag lvl">${esc(item.level)}</span>` : ""}
     ${item.scope ? `<span class="aw-tag">${esc(item.scope)}</span>` : ""}
-    <span class="aw-tag${item.teams.length ? " team" : ""}">${esc(KIND_LABEL[item.kind] || "个人")}${item.people.length + item.teams.length ? ` ${item.people.length + item.teams.length}` : ""}</span>
+    <span class="aw-tag${item.teams.length ? " grp" : ""}">${esc(KIND_LABEL[item.kind] || "个人")}${item.people.length + item.teams.length ? ` ${item.people.length + item.teams.length}` : ""}</span>
     <span class="aw-arrow" aria-hidden="true">▸</span>
   </button>
   <div class="aw-shell" id="aw-body-${esc(item.rid)}" aria-hidden="true"><div class="aw-clip"><div class="aw-detail">
@@ -533,7 +569,7 @@ function itemsHtml(items) {
       const inTeam = memberNames.includes(n);
       return `<span class="aw-pill"${inTeam ? ` title="团体获奖成员（团体获奖按人署名）"` : ""}>${esc(n)}${note ? `<span>${esc(note)}</span>` : ""}${inTeam ? `<span>团体</span>` : ""}</span>`;
     }).join("")}</div></div>` : ""}
-    ${namedTeams.length ? `<div class="aw-group"><b>团体获奖 ${namedTeams.length}（通知未列成员，署名仍用队名）</b><div class="aw-pills">${namedTeams.map((g) => `<span class="aw-pill">${esc(g.name)}${g.note ? `<span>${esc(g.note)}</span>` : ""}</span>`).join("")}</div></div>` : ""}
+    ${unlisted ? `<div class="aw-group"><b>${unlisted} 个团体获奖未列出成员姓名（无姓名可署名，不计入本页）</b></div>` : ""}
     ${item.mentors.length ? `<div class="aw-group"><b>指导教师 / 领队（不计入排名）</b><div class="aw-pills">${item.mentors.map((m) => `<span class="aw-pill">${esc(m)}</span>`).join("")}</div></div>` : ""}
     <div class="aw-src">来源通知：<button type="button" data-aw-source="${esc(item.rid)}">${esc(item.title)}</button>${item.affix?.length ? `<span class="aw-affix">（获奖名单来自附件：${esc(item.affix.join("、"))}）</span>` : ""}</div>
   </div></div></div>
@@ -587,7 +623,7 @@ export async function createAwardPanel(storage, options = {}) {
   <p class="aw-meta" data-aw-meta></p>
   <div class="aw-tools"><span class="aw-lab" data-aw-lab="order">时间</span>${segHtml("order")}<span class="aw-lab" data-aw-lab="kind">类别</span>${segHtml("kind")}<span style="flex:1"></span><span class="aw-total" data-aw-total></span></div>
   <div data-aw-body></div>
-  <p class="aw-note">名单来自通知正文里明确的获奖段落（「获奖名单如下」「获奖人员：」这类标签行，或整行只有姓名的名单行）；奖项项目名、级别与层级由通知文字归类，指导教师与领队只展示、不计入排名。团体获奖按获奖人里的每个人的姓名署名，不用队名；通知只写了队名、没列成员时，才退回用队名并注明。通知只说「取得佳绩」却没有逐字列人时不会有条目，也不代表无人获奖。</p>
+  <p class="aw-note">名单来自通知正文里明确的获奖段落（「获奖名单如下」「获奖人员：」这类标签行，或整行只有姓名的名单行）；奖项项目名、级别与层级由通知文字归类，指导教师与领队只展示、不计入排名。团体获奖一律按获奖人姓名署名，队名不出现在本页任何位置；通知只写了队名、没按人列成员的团体因为没有姓名可署名，不进人员清单也不进排名（会在条目里标出个数）。通知只说「取得佳绩」却没有逐字列人时不会有条目，也不代表无人获奖。</p>
   <p class="aw-status" role="status" aria-live="polite"></p>
 </section>`;
 
@@ -652,7 +688,7 @@ export async function createAwardPanel(storage, options = {}) {
     markGroup(root, "mode", mode);
     markGroup(root, "order", order, mode === "items");
     markGroup(root, "kind", kind, mode === "rank");
-    root.querySelector("[data-aw-meta]").innerHTML = `已识别 <b>${stats.notices}</b> 条获奖通知 · 奖项 <b>${stats.awards}</b> 人次 · 署名到人 <b>${stats.awarded ?? stats.people}</b> 位（团体获奖按成员署名）${stats.latest ? ` · 最近一条 ${esc(fmtDate(stats.latest))}` : ""}${meta.syncedAt ? ` · 同步于 ${esc(new Date(meta.syncedAt).toLocaleString("zh-CN", { hour12: false }))}` : ""}`;
+    root.querySelector("[data-aw-meta]").innerHTML = `已识别 <b>${stats.notices}</b> 条获奖通知 · 奖项 <b>${stats.awards}</b> 人次 · 署名到人 <b>${stats.awarded ?? stats.people}</b> 位${stats.unlisted ? ` · 另有 <b>${stats.unlisted}</b> 个团体获奖未列成员姓名` : ""}${stats.latest ? ` · 最近一条 ${esc(fmtDate(stats.latest))}` : ""}${meta.syncedAt ? ` · 同步于 ${esc(new Date(meta.syncedAt).toLocaleString("zh-CN", { hour12: false }))}` : ""}`;
 
     let list = [], rows = [], total = "", body;
     if (!stats.notices) {
@@ -665,14 +701,17 @@ export async function createAwardPanel(storage, options = {}) {
       rows = (board.names || []).map((row, i) => ({ ...row, id: `nm${i}`, key: `nm:${row.name}` }));
       total = `${rows.length} 位（含团体成员）${rows.length ? ` · 最高 ${rows[0].count} 项` : ""}`;
       body = rows.length ? `<ul class="aw-list" data-aw-list>${rowsHtml(rows, "names")}</ul>`
-        : `<div class="aw-empty">还没有出现过人名：通知正文里没有明确的获奖人姓名，或团体只写了队名、没列成员。</div>`;
+        : `<div class="aw-empty">还没有出现过人名：通知正文里没有明确的获奖人姓名，或团体没有按人列出成员。</div>`;
     } else {
+      // 团体档的 key 也只用成员姓名拼：队名不许以任何形式落到 HTML 源码里（连 data-* 都不行），
+      // 免得有人翻 DOM 又看见队名；同一组成员 → 同一个 key，展开态照样能复现。
       rows = (kind === "team" ? board.teams : board.people).map((row, i) => ({
-        ...row, rank: row.rank, id: `r${i}`, key: `${kind === "team" ? "t" : "p"}:${row.name}`,
+        ...row, rank: row.rank, id: `r${i}`,
+        key: kind === "team" ? `t:${joinPeople(row.members)}` : `p:${row.name}`,
       }));
-      total = `${rows.length} ${kind === "team" ? "个团体" : "位个人"}${rows.length ? ` · 最高 ${rows[0].count} 项` : ""}`;
+      total = `${rows.length} ${kind === "team" ? "组（按成员署名）" : "位个人"}${rows.length ? ` · 最高 ${rows[0].count} 项` : ""}`;
       body = rows.length ? `<ul class="aw-list" data-aw-list>${rowsHtml(rows, kind)}</ul>`
-        : `<div class="aw-empty">这类记录还没有：${kind === "team" ? "通知里没有出现代表队 / 学院等团体获奖主体" : "通知里没有出现个人获奖名单"}</div>`;
+        : `<div class="aw-empty">这类记录还没有：${kind === "team" ? "通知里的团体获奖都还没按人列出成员姓名（没有姓名可署名）" : "通知里没有出现个人获奖名单"}</div>`;
     }
     const totalEl = root.querySelector("[data-aw-total]");
     if (totalEl) totalEl.textContent = total;

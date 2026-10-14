@@ -8,9 +8,9 @@ import {
   affixNameSignal, saysListInAffix, looksLikeAwardAttachment,
   base64ToBytes, cjkCount, detectKind, decodeSmart,
   unzip, xmlToLines, colRole, rowsToNoticeText, docxToNoticeText, parseCsv, normalizeNameCell,
-  extractPdfStrings, pdfToNoticeText, oleToNoticeText, attachmentToNoticeText,
+  extractPdfStrings, pdfToNoticeText, oleToNoticeText, attachmentToNoticeText, looksLikePersonCell,
 } from "../public/plugins/cppu-notify/award-attach.js";
-import { parseAwardNotice } from "../public/plugins/cppu-notify/award-list.js";
+import { parseAwardNotice, isPersonName } from "../public/plugins/cppu-notify/award-list.js";
 
 /* ── 1. 该不该读这个附件：两条口径各自成立，都不成立才不读 ── */
 assert.equal(affixNameSignal("获奖名单.docx"), true);
@@ -207,10 +207,25 @@ const html = await attachmentToNoticeText({ name: "获奖名单.html", bytes: ne
 assert.match(html.text, /获奖人员：张三/);
 assert.equal((await attachmentToNoticeText({ name: "获奖名单.zip", bytes: zipBytes([["a.txt", "x"]]) })).reason, "压缩包里没有可读的文档");
 
-/* ── 10. 这一层不许有副作用：下载与落盘都在 main.js，解析只做纯变换 ── */
+/* ── 10. 人名判定：字体名 / Word 样式名 / 发布单位不是名字 ──
+   附件是 .doc 时只能按 UTF-16LE 粗扫，字体表与样式表会跟着正文一起被扫出来；
+   表格层的人名判定必须与 award-list.js 同一套口径，否则同一份名单两条路会走出两样结果
+   （用户截图里的「等线 / 仿宋 / 宋体 / 无列表 / 教务处」正是从这里漏进榜单的）。 */
+const NOT_NAMES = ["等线", "仿宋", "宋体", "无列表", "教务处", "团委", "科研处", "学生处"];
+const REAL_NAMES = ["张三", "周子衿"];
+for (const noise of NOT_NAMES) {
+  assert.equal(looksLikePersonCell(noise), false, `「${noise}」不是人名`);
+  assert.equal(isPersonName(noise), false, `两层口径要一致：「${noise}」`);
+}
+for (const name of REAL_NAMES) {
+  assert.equal(looksLikePersonCell(name), true, `「${name}」是人名`);
+  assert.equal(isPersonName(name), true, `两层口径要一致：「${name}」`);
+}
+
+/* ── 11. 这一层不许有副作用：下载与落盘都在 main.js，解析只做纯变换 ── */
 const src = fs.readFileSync(new URL("../public/plugins/cppu-notify/award-attach.js", import.meta.url), "utf8");
 const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");   // 注释里提到宿主 API 不算
 assert.doesNotMatch(code, /\btide\./, "解析层不能碰宿主 API（否则「不留附件缓存」就没法保证）");
 assert.doesNotMatch(code, /\bfetch\s*\(|localStorage/);
 
-console.log("PASS: 获奖名单附件（该不该读：附件名/正文两条口径 · 扫过的跳过 · docx 表格还原 · xlsx 走宿主库+退路 · PDF 压缩流与十六进制 · .doc 粗扫 · 列名不当人名 · 解析层零副作用）");
+console.log("PASS: 获奖名单附件（该不该读：附件名/正文两条口径 · 扫过的跳过 · docx 表格还原 · xlsx 走宿主库+退路 · PDF 压缩流与十六进制 · .doc 粗扫 · 列名/字体名/样式名/单位名不当人名（与 award-list 同口径）· 解析层零副作用）");

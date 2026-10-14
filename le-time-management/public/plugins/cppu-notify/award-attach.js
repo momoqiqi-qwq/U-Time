@@ -194,12 +194,20 @@ const HEADER_CELL = /^(?:序号|编号|序|姓名|名单|名册|人员|学生|�
 const NOT_PERSON = /^(?:学院|大学|学校|大队|中队|支队|班级|专业|年级|系|部|处|室|中心|委员会|办公室|教研室|实验室|协会|社团|小组|团队|团体|队伍|代表队|名单|名册|通知|公告|公示|教师|老师|同学|学生|学员|干部|教官|单位|集体|个人|优秀|先进|组织|工作|活动|竞赛|大赛|比赛|项目|成果|论文|作品|奖项|奖励|荣誉|表彰|决定|附件|相关|全体|下列|以上|其中|荣获|获得|斩获|共计|合计|人数|名次|获奖人员|获奖学生|获奖者|指导教师|领队|姓名|学号|工号|教工号|序号|编号|等级|级别|奖次|等次|队名|成员|队员|名字|选手|作者|获得者|备注|日期|时间|地点|电话|手机|邮箱)$/;
 const ORG_TAIL = /(?:代表队|团队|团体|小组|队伍|支队|大队|中队|学院|学部|班级|团支部|党支部|社团|协会|教研室|实验室|中心|委员会|队|组)$/;
 const NOT_SUBJECT_TAIL = /(?:比赛|竞赛|大赛|项目|作品|活动|论坛|会议|讲座|训练|演习|方案|计划|安排)$/;
+// 下面三条与 award-list.js 的 NOT_NAME_FONT / NOT_NAME_ORG / ORG_TAIL 是同一套口径，
+// 改一处必须改另一处（test-cppu-award-attach.mjs 里有一致性断言守着）。
+// 起因：.doc（OLE）只能按 UTF-16LE 粗扫，字体表与样式表会跟正文一起被扫出来 ——
+// 「等线」「仿宋」「宋体」是字体，「无列表」是 Word 样式，「教务处」是落款，它们全是纯汉字短串。
+const NOT_NAME_FONT = /^(?:等线|仿宋|宋体|黑体|楷体|行书|隶书|草书|幼圆|魏碑|雅黑|微软雅黑|苹方|华文|方正|标宋|小标宋|书宋|新宋|思源|汉仪|冬青|无列表|无间隔|列表段落|项目符号|正文|标题|副标题|小标题|题注|页眉|页脚|目录|摘要|附录|参考文献|致谢|超链接|批注|脚注|尾注|空白|未命名|新建|模板|网格|页码|缩进|居中|加粗|斜体|下划线|字号|行距|段落|编号|样式|字体)$/;
+const NOT_NAME_ORG = /^(?:团委|党委|工会|教务|学工|后勤|财务|保卫|宣传|组织|人事|科研|办公|机关|教工|教务员|学生会)$/;
+const ORG_TAIL_CHAR = /[处务科所站馆局厅委办署司厂社部室系院校队组班级]$/;
 
 export function looksLikePersonCell(v = "") {
   const t = String(v || "").trim();
   if (!/^[\u4e00-\u9fa5]{2,4}$/.test(t)) return false;
-  if (NOT_PERSON.test(t) || LEVELISH.test(t)) return false;
+  if (NOT_PERSON.test(t) || LEVELISH.test(t) || NOT_NAME_FONT.test(t) || NOT_NAME_ORG.test(t)) return false;
   if (t.length > 2 && /[学院校系室部中心队伍组队班级年级]/.test(t)) return false;
+  if (t.length > 2 && ORG_TAIL_CHAR.test(t)) return false;
   return true;
 }
 export function looksLikeTeamCell(v = "") {

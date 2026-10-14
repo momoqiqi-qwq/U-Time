@@ -34,6 +34,10 @@
   // 获奖名单视图（cppu-award）：获奖信息只在通知正文里，所以它得先把通知列表往回翻够页，
   // 再逐条读正文筛选。上限写死是为了别把一次刷新变成几百个详情请求。
   const AWARD_CACHE_KEY = "awardBoardCache";
+  // 解析口径版本：缓存里存的是**解析结果**（不是正文），口径一变旧结果就不能再拿来看 ——
+  // v2 之前「单行单名」只看「正文出现过级别行」，把落款与附件字体名 / 样式名（等线 / 仿宋 /
+  // 无列表 / 教务处）一起收进了名单。这里不做迁移，版本不符就整份丢掉重新同步（正文在门户上）。
+  const AWARD_CACHE_VER = 2;
   // 翻页策略：**按时间回溯，而不是固定页数**。门户通知一年几百条，写死 4 页只够看到今年，
   // 而获奖名单往往要看前两三年。所以首屏先翻 AWARD_PAGES 页，再一路往后翻到覆盖
   // AWARD_YEARS 个自然年为止（或翻到底、或撞上 AWARD_PAGES_MAX 的防呆上限）。
@@ -3225,6 +3229,7 @@
   async function saveAwardCache() {
     try {
       await tide.storage.set(AWARD_CACHE_KEY, {
+        ver: AWARD_CACHE_VER,
         username: state.username,
         syncedAt: awState.syncedAt,
         records: awState.records.slice(0, AWARD_CACHE_MAX),
@@ -3235,6 +3240,9 @@
     try {
       const cache = await tide.storage.get(AWARD_CACHE_KEY, null);
       if (!cache || cache.username !== state.username || !Array.isArray(cache.records) || !cache.records.length) return false;
+      // 旧口径（ver < AWARD_CACHE_VER）的解析结果里混着等线 / 仿宋 / 无列表 / 教务处，
+      // 直接作废：这一轮重新扫一遍正文，榜单才是干净的。
+      if (Number(cache.ver) !== AWARD_CACHE_VER) return false;
       const mod = await ensureAwardPanel();
       awState.records = cache.records;
       awState.board = mod.buildAwardBoard(cache.records);

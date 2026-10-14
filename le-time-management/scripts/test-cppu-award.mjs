@@ -3,7 +3,7 @@ import fs from "node:fs";
 import {
   awardLevel, awardScope, cleanAwardTitle, titleLooksAward, isAwardNotice,
   parseAwardNotice, sortAwardItems, rankAwards, rankNames, rankTone, buildAwardBoard, createAwardPanel,
-  awardNamesOf, awardBearer, teamMemberNames, joinPeople,
+  awardNamesOf, awardBearer, teamMemberNames, joinPeople, isPersonName,
 } from "../public/plugins/cppu-notify/award-list.js";
 
 /* ── 迷你 DOM ──────────────────────────────────────────────────────────────
@@ -165,6 +165,41 @@ assert.equal(parseAwardNotice({
   text: "本次活动我校学生表现优异，荣获佳绩，充分展现了良好风貌。",
 }), null);
 
+/* ── 3b. 落款、字体名、Word 样式名都不是获奖人 ──
+   真实误判（用户截图）：通知出现过一次级别行之后，后面任何孤零零的 2–4 字短行都被收进榜单 ——
+   附件带出的字体名「等线 / 仿宋 / 宋体」、Word 样式名「无列表」、以及通知末尾的发布单位
+   「教务处」全都上了榜。它们在形状上和人名完全一样，只能靠词表 + 名单区两道判定挡。 */
+const NOISE = ["教务处", "等线", "仿宋", "宋体", "无列表", "2026年10月14日"];
+const recNoise = parseAwardNotice({
+  rid: "1005", title: "关于公布2026年警体技能比武获奖名单的通知", date: 1,
+  text: ["获奖名单如下：", "一等奖：张三", ...NOISE].join("\n"),
+});
+assert.deepEqual(recNoise.people, ["张三"], "落款、字体名、样式名都不许成为获奖人");
+
+assert.equal(isPersonName("等线"), false);
+assert.equal(isPersonName("仿宋"), false);
+assert.equal(isPersonName("宋体"), false);
+assert.equal(isPersonName("无列表"), false);
+assert.equal(isPersonName("教务处"), false);
+assert.equal(isPersonName("团委"), false);
+assert.equal(isPersonName("科研处"), false);
+assert.equal(isPersonName("张三"), true);
+assert.equal(isPersonName("周子衿"), true);
+
+// 名单区不能被修得过头：级别行 + 纯姓名行（真实通知最常见的写法）仍要读到
+const plainZ = parseAwardNotice({
+  rid: "1006", title: "关于公布2026年数学建模竞赛获奖名单的通知", date: 1,
+  text: ["获奖名单如下：", "一等奖", "周子衿", "肖亦嫣", "二等奖", "李果"].join("\n"),
+});
+assert.deepEqual(plainZ.people, ["周子衿", "肖亦嫣", "李果"], "名单区里的纯姓名行仍要收");
+
+// 脱离名单区（空行 / 说明句之后）的孤立短行不算获奖人 —— 宁少不滥
+const strayZ = parseAwardNotice({
+  rid: "1007", title: "关于公布2026年英语演讲比赛获奖名单的通知", date: 1,
+  text: ["获奖名单如下：", "一等奖：张三", "", "教务处", "王五"].join("\n"),
+});
+assert.deepEqual(strayZ.people, ["张三"], "空行之后的孤立短行没有获奖证据");
+
 /* ── 4. 汇总与排名 ── */
 const NOTICE_B = {
   rid: "1002",
@@ -191,6 +226,10 @@ assert.equal(people.filter((p) => p.rank === 2).length, 3);
 assert.equal(people[3].rank, 2, "命中次数相同的人共享同一名次");
 const teams = board.teams;
 assert.equal(teams.filter((t) => t.name === "星火代表队").length, 1);
+// 团体档只收「按人列过成员」的队：只写队名、没列成员的队不进榜（口径：不用队名署名）。
+assert.ok(!teams.some((t) => t.name === "侦查学院代表队"), "没列成员的队不进团体榜");
+assert.equal(board.stats.unlisted, 1, "未列成员的团体只报个数");
+assert.deepEqual(teams[0].members, ["赵六", "钱七"], "团体榜行名靠成员姓名");
 assert.deepEqual(rankAwards([], "person"), []);
 assert.equal(buildAwardBoard([]).stats.notices, 0);
 
@@ -291,9 +330,10 @@ assert.equal(root.querySelector('[data-aw-seg="order"]').hidden, true, "排名�
 assert.equal(root.querySelector('[data-aw-seg="kind"]').hidden, false, "排名模式露出「类别」组");
 assert.match(bodyHtml(), /张三位|张三[\s\S]*2 项/);
 root.querySelectorAll("[data-aw-kind]").find((b) => b.dataset.awKind === "team").onclick();
-assert.match(bodyHtml(), /星火代表队/);
-assert.match(bodyHtml(), /获奖成员（团体获奖按人署名）/);
-assert.match(bodyHtml(), /赵六/);
+assert.match(bodyHtml(), /赵六、钱七/, "团体排名档的行名 = 成员姓名");
+assert.doesNotMatch(bodyHtml(), /星火代表队/, "团体排名档不出现队名（标题位、悬停气泡都不出现）");
+assert.doesNotMatch(bodyHtml(), /侦查学院代表队/, "没列成员的队整条不进榜");
+assert.match(root.querySelector("[data-aw-total]").textContent, /1 组（按成员署名）/, "总数不再按「个团体」说");
 // 切回奖项项目：列表要重画，但展开态按 key 复现（不打断阅读）
 root.querySelectorAll("[data-aw-mode]").find((b) => b.dataset.awMode === "items").onclick();
 assert.equal(root.querySelector('[data-aw-seg="kind"]').hidden, true, "奖项项目模式收起「类别」组");
@@ -322,14 +362,15 @@ namesBtn().onclick();
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(namesBtn().getAttribute("aria-pressed"), "true");
 assert.match(bodyHtml(), /张三/);
-assert.match(bodyHtml(), /其中 1 次来自团体成员名单/, "只从团体名单里出现的人要标出来源");
+assert.match(bodyHtml(), /其中 1 次来自团体获奖成员/, "只从团体名单里出现的人要标出来源");
 assert.match(bodyHtml(), /aw-no good/, "第 1 名用绿色");
 
-/* ── 5b2. 团体获奖不署队名：奖项项目里摊成人名，队名只在排名档与来源行出现 ──
-   口径：获奖的是人不是队。团体列了成员 → 按成员姓名署名；只写队名没列成员 → 才退回队名并注明。 */
+/* ── 5b2. 团体获奖只用成员姓名署名：队名在整页任何位置都不出现 ──
+   口径：获奖的是人不是队。团体列了成员 → 按成员姓名署名；只写队名、没列成员 → 没有姓名可署名，
+   该条目不进人员清单、不进排名，只在条目里报一个「未列成员」的个数。 */
 assert.deepEqual(awardNamesOf({ kind: "team", name: "星火代表队", members: ["赵六", "钱七"] }), ["赵六", "钱七"]);
 assert.equal(awardBearer({ kind: "team", name: "星火代表队", members: ["赵六"] }), "赵六");
-assert.equal(awardBearer({ kind: "team", name: "无成员代表队", members: [] }), "无成员代表队");
+assert.equal(awardBearer({ kind: "team", name: "无成员代表队", members: [] }), "", "没列成员时不许拿队名顶替");
 assert.equal(awardBearer({ kind: "person", name: "张三" }), "张三");
 assert.equal(board.stats.awarded, 6, "署名到人 = 个人获奖者 ∪ 团体成员");
 assert.equal(teamMemberNames(board.items[1].groups.filter((g) => g.kind === "team")).join("、"), "赵六、钱七");
@@ -349,22 +390,24 @@ const teamBody = () => teamRoot.querySelector("[data-aw-body]").innerHTML;
 const teamList = () => teamRoot.querySelector("[data-aw-list]");
 const teamToggle = (key) => teamRoot.querySelectorAll("[data-aw-toggle]").find((b) => b.dataset.awToggle === key);
 assert.match(teamRoot.querySelector("[data-aw-meta]").innerHTML, /署名到人 <b>2<\/b> 位/);
-teamList().onclick({ target: teamToggle("n:2001") });                        // 团体列了成员：正文里连队名都不出现
+assert.match(teamRoot.querySelector("[data-aw-meta]").innerHTML, /另有 <b>1<\/b> 个团体获奖未列成员姓名/,
+  "未列成员的团体只报个数，不报队名");
+teamList().onclick({ target: teamToggle("n:2001") });                       // 团体列了成员：整页连队名都不出现
 assert.match(teamBody(), /获奖人员 \/ 团体成员 2/);
 assert.match(teamBody(), /赵六/);
 assert.match(teamBody(), /钱七/);
-assert.doesNotMatch(teamBody(), /星火代表队/, "团体获奖不署队名：展开里不应再出现队名");
-teamList().onclick({ target: teamToggle("n:2002") });                        // 没列成员：退回队名，但要说清原因
-assert.match(teamBody(), /通知未列成员，署名仍用队名/);
-assert.match(teamBody(), /无成员代表队/);
+assert.doesNotMatch(teamBody(), /星火代表队/, "奖项项目里也不出现队名");
+teamList().onclick({ target: teamToggle("n:2002") });
+assert.doesNotMatch(teamBody(), /无成员代表队/, "没列成员的团体不署名（队名一个都不出现）");
+assert.doesNotMatch(teamBody(), /署名仍用队名/, "已经没有「退回队名」这种兜底了");
+assert.match(teamBody(), /1 个团体获奖未列出成员姓名（无姓名可署名，不计入本页）/, "只报个数，让人知道没漏");
 teamRoot.querySelectorAll("[data-aw-mode]").find((b) => b.dataset.awMode === "rank").onclick();
 teamRoot.querySelectorAll("[data-aw-kind]").find((b) => b.dataset.awKind === "team").onclick();
 assert.match(teamBody(), /赵六、钱七/, "团体排名档按成员署名");
-assert.doesNotMatch(teamBody(), /<span class="aw-name"[^>]*>星火代表队</, "团体排名档的标题位不放队名");
-assert.match(teamBody(), /原队名 星火代表队/, "队名挪进悬停气泡，仍可核对是哪支队");
-assert.match(teamBody(), /无成员代表队/, "没列成员的队仍以队名出现");
-assert.match(teamBody(), /通知未列成员，署名仍用队名/);
-assert.match(teamRoot.querySelector(".aw-note").textContent, /团体获奖按获奖人里的每个人的姓名署名，不用队名/);
+assert.doesNotMatch(teamBody(), /星火代表队/, "团体排名档不出现队名");
+assert.doesNotMatch(teamBody(), /无成员代表队/, "没列成员的队整条不进榜");
+assert.doesNotMatch(teamBody(), /原队名/, "队名不再进悬停气泡");
+assert.match(teamRoot.querySelector(".aw-note").textContent, /团体获奖一律按获奖人姓名署名，队名不出现在本页任何位置/);
 const namesRow = rankNames(teamBoard.items).find((r) => r.name === "赵六");
 assert.ok(namesRow, "团体成员进人名榜，来源仍记着是团体");
 assert.equal(joinPeople(teamMemberNames([{ kind: "team", members: ["赵六", "钱七"] }])), "赵六、钱七");
@@ -372,7 +415,7 @@ teamPanel.render(teamRoot, teamBoard, { syncedAt: Date.now() });
 await new Promise((resolve) => setTimeout(resolve, 0));
 teamRoot.querySelectorAll("[data-aw-mode]").find((b) => b.dataset.awMode === "names").onclick();
 teamRoot.querySelector("[data-aw-list]").onclick({ target: teamRoot.querySelector('[data-aw-toggle="nm:赵六"]') });
-assert.match(teamRoot.querySelector(".aw-hits").innerHTML, /aw-tag team">团体</, "人名榜里的团体来源标成「团体」而不是队名");
+assert.match(teamRoot.querySelector(".aw-hits").innerHTML, /aw-tag grp">团体</, "人名榜里的团体来源只标「团体」，不写队名");
 assert.doesNotMatch(teamRoot.querySelector(".aw-hits").innerHTML, /星火代表队/);
 
 /* ── 5c. 个人榜里的每一条记录也要能回原通知 ──
@@ -465,6 +508,11 @@ assert.match(source, /const text = \[det\?\.content, affix\?\.text\]\.filter\(Bo
 assert.match(source, /rec\.affix = affix\.names\.slice\(0, 4\)/);          // 记录里只带附件名
 assert.match(source, /affixScanned\[affixKey\(rid, name\)\] = Date\.now\(\)/);  // 「扫过」标记里只记时间，不存内容
 assert.match(source, /records: awState\.records\.slice\(0, AWARD_CACHE_MAX\)/);  // 落盘的只有名单本身
+// 缓存存的是「解析结果」，解析口径一变旧结果就不能再看：改口径必须升 AWARD_CACHE_VER，
+// 否则升级后旧榜（混着等线 / 仿宋 / 无列表 / 教务处）会继续被读出来渲染。
+assert.match(source, /const AWARD_CACHE_VER = \d+;/);
+assert.match(source, /ver: AWARD_CACHE_VER,/);
+assert.match(source, /if \(Number\(cache\.ver\) !== AWARD_CACHE_VER\) return false;/);
 assert.match(source, /tide\.notify\("这条来源通知还没在列表里/);
 const module = fs.readFileSync(new URL("../public/plugins/cppu-notify/award-list.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 assert.match(module, /\.aw-shell\{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows/);
