@@ -34,9 +34,50 @@ const PLUGIN_ICONS8 = {
   "plugin-guide": ["help", "question-mark"],
 };
 
-const ICONS8 = { ...NAV_ICONS8, ...PLUGIN_ICONS8 };
+// 插件内视图的独立图标（v0.216.0）：同一个插件的不同分类在侧栏各用各的图标。
+// 过去侧栏一律拿插件图标（shell.js 的 `PLUGIN_ICONS[pluginId] || v.icon`），于是 cppu-notify
+// 的七个分类在侧栏长得一模一样 —— 现在按视图 id 取图。
+// key = 视图 id（= registerView 的 id），随包 PNG 由 tools/gen-plugin-icons.py 的 VIEW_ICONS 生成，
+// 与插件图标同风格、同目录（public/icons/plugins/<视图 id>.png），这里是 CDN 回落候选。
+// 选定后每个视图的图标必须两两不同，且不与同侧栏的其它插件撞（比如 学生请假 不能与
+// 警大校历 同用 calendar、警大成绩 不能与周度报告 同用 statistics）。
+const VIEW_ICONS8 = {
+  "cppu-card": ["bank-cards", "credit-card", "card-in-hand"],
+  "cppu-award": ["prize", "trophy"],
+  "cppu-xk": ["todo-list", "checklist", "list"],
+  "cppu-qj": ["calendar-delete", "calendar-minus", "leave"],
+  "cppu-credit": ["line-chart", "combo-chart--v1", "statistics"],
+  "cppu-cx": ["medal", "medal2", "diploma"],
+  "cppu-calendar": ["calendar", "calendar--v1"],
+  "cppu-growth": ["sprout", "seedling", "plant-under-sun"],
+  "cppu-profile": ["contact-card", "id-card", "business-contact"],
+};
 
-const MANIFEST_ICON_KEYS = Object.fromEntries(BUILTIN_PLUGINS.map((plugin) => [plugin.id, plugin.icon || plugin.faIcon || "puzzle-piece"]));
+// 视图 id → 轮廓图标用的 FontAwesome 名（与 registerView 的 icon 一致）。
+// 注意这里是**两套名字空间**：轮廓走 FA solid sprite，彩色 PNG 走 Icons8 Color slug，别混。
+// 取值还有一条硬约束：**同一个侧栏里不许撞** —— 插件图标与其它分类都不能同名，
+// 所以 获奖名单 用 award（不是 trophy，那是「竞赛消息」的）、校历 用 calendar-week
+// （不是 calendar-days，那是「课程表」的、也不是 calendar-check，那是「考试日历」的）。
+const VIEW_FA_ICONS = {
+  "cppu-card": "credit-card",
+  "cppu-award": "award",
+  "cppu-xk": "list-check",
+  "cppu-qj": "calendar-xmark",
+  "cppu-credit": "chart-line",
+  "cppu-cx": "medal",
+  "cppu-calendar": "calendar-week",
+  "cppu-growth": "seedling",
+  // 个人信息 用 address-card（不是 id-card，那是本插件侧栏「学工」入口的图标）。
+  "cppu-profile": "address-card",
+};
+
+const ICONS8 = { ...NAV_ICONS8, ...PLUGIN_ICONS8, ...VIEW_ICONS8 };
+
+// 有随包 PNG 的 key：内置插件 id（manifest 的 icon/faIcon）＋ 插件内视图 id（VIEW_FA_ICONS）。
+const BUNDLED_ICON_KEYS = {
+  ...Object.fromEntries(BUILTIN_PLUGINS.map((plugin) => [plugin.id, plugin.icon || plugin.faIcon || "puzzle-piece"])),
+  ...VIEW_FA_ICONS,
+};
 
 const NAV_FA_ICONS = {
   quadrant: "table-cells-large",
@@ -53,7 +94,7 @@ function colorUrl(name) {
 }
 
 export function appIcon(key, title = "") {
-  const manifestIcon = MANIFEST_ICON_KEYS[key];
+  const manifestIcon = BUNDLED_ICON_KEYS[key];
   const isNav = Boolean(NAV_ICONS8[key]);
   // 随包目录：内置插件 → icons/plugins，主导航 → icons/nav；都没有（未知 key）→ 直接 CDN
   const bundledDir = manifestIcon ? "plugins" : isNav ? "nav" : null;
@@ -90,7 +131,7 @@ export function appIcon(key, title = "") {
 }
 
 export function outlineAppIcon(name, title = "") {
-  const iconName = NAV_FA_ICONS[name] || MANIFEST_ICON_KEYS[name] || name || "puzzle-piece";
+  const iconName = NAV_FA_ICONS[name] || BUNDLED_ICON_KEYS[name] || name || "puzzle-piece";
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "app-outline-icon fa-ic");
   svg.setAttribute("aria-hidden", "true");

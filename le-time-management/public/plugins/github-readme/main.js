@@ -584,6 +584,9 @@
   let rootEl = null;
   let renderEpoch = 0;
   const boundRoots = new WeakSet();
+  /* 卡片「翻起」的仓库 key。桌面端悬停也会翻（纯 CSS），这个集合负责触屏与键盘 ——
+     没有它，手机上的卡片就永远只能看到正面那一层。 */
+  const flipped = new Set();
   let timer = null;
 
   // 右键/长按是快捷入口；常用编辑操作也在卡片上直接提供。
@@ -700,8 +703,39 @@
       .gh-add{display:flex;gap:8px;margin:0 0 12px}
       .gh-add input{flex:1;min-width:0;font:inherit;font-size:calc(13px * var(--ui-text-scale));color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:0 12px;min-height:42px}
       .gh-auto{display:flex;align-items:center;gap:7px;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale));margin:12px 0 4px;cursor:pointer}
-      .gh-card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:12px 13px;margin:0 0 9px;cursor:pointer;transition:border-color .16s ease;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+      .gh-card{background:var(--panel);border:1px solid var(--line);border-radius:13px;margin:0 0 9px;position:relative;perspective:1000px;transform-style:preserve-3d;overflow:hidden;cursor:pointer;transition:border-color .16s ease;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
       .gh-card:hover{border-color:var(--deep)}
+      /* ── 卡片 3D 翻起详情层（来源：LabOrbit /resources 的卡片动画）──
+         .gh-front 是正面，.gh-detail 是从底边立起来的详情层。三条缺一不可：
+         perspective 写在**卡片本体**（写详情层上等于自己给自己透视，翻出来是平的）、
+         transform-origin:bottom（像合页从底边往上立）、backface-visibility:hidden
+         （转到 -90° 时背面朝外，不隐掉会透出反向镜像）。闭合态停在 -90deg 而不是 +90deg，
+         后者会从顶边垂下来，方向反了。visibility 与 transform 分开延迟：展开立刻可见、
+         收起等转完再隐藏，否则收起动画会被半途掐断。 */
+      .gh-front{padding:12px 13px;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),opacity .45s ease}
+      .gh-detail{position:absolute;inset:0;z-index:5;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:12px 13px;border-radius:inherit;background:var(--panel);overflow:hidden;transform:rotateX(-90deg);transform-origin:bottom;backface-visibility:hidden;visibility:hidden;pointer-events:none;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear .6s}
+      .gh-card.is-flipped .gh-front{transform:scale(.86);opacity:0}
+      /* 正面在翻开后**刻意保留可点**：卡片主体本来就整块是「阅读 README」按钮，
+         要是像网页收集那样把正面 pointer-events 关掉，鼠标一点就落进详情层的空白里，
+         「点卡片进阅读页」就变成了看运气。所以反过来：详情层容器不吃事件，
+         只让它自己的按钮吃（子元素 pointer-events:auto 在 none 的父元素里照常可点），
+         这样点哪儿都能进阅读页，点按钮才命中按钮。详情层内容很短，不需要滚动，
+         所以 overflow 用 hidden —— 没有滚动需求，穿透才不会吞掉滚轮。 */
+      .gh-card.is-flipped .gh-detail{transform:rotateX(0deg);visibility:visible;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
+      /* 鼠标能悬停时悬停即翻（这就是 LabOrbit 的触发方式）；触屏没有 hover，走「更多」按钮 */
+      @media (hover:hover) and (pointer:fine){
+        .gh-card:hover .gh-front{transform:scale(.86);opacity:0}
+        .gh-card:hover .gh-detail{transform:rotateX(0deg);visibility:visible;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
+      }
+      .gh-detail button{pointer-events:auto}
+      .gh-detail-head{display:flex;align-items:flex-start;gap:8px}
+      .gh-detail-head b{flex:1;min-width:0}
+      .gh-detail-head .gh-btn{flex:none;min-height:32px;padding:0 10px;font-size:calc(11.5px * var(--ui-text-scale))}
+      .gh-detail .gh-foot{margin-top:auto}
+      @media (prefers-reduced-motion:reduce){
+        .gh-front,.gh-detail{transition:none!important}
+        .gh-card.is-flipped .gh-front,.gh-card:hover .gh-front{transform:none}
+      }
       .gh-card b{display:block;color:var(--deep);font-size:calc(14.5px * var(--ui-text-scale));line-height:1.35;overflow-wrap:anywhere}
       .gh-card p{margin:5px 0 0;color:var(--ink);font-size:calc(12px * var(--ui-text-scale));line-height:1.55;overflow-wrap:anywhere}
       .gh-meta{margin-top:5px;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));overflow-wrap:anywhere}
@@ -783,15 +817,20 @@
   function repoCard(r) {
     const k = repoKey(r);
     const c = r.commit || {};
-    return `<article class="gh-card" data-gh-card="${esc(k)}"><button type="button" class="gh-card-read" data-gh-open="${esc(k)}" aria-label="阅读 ${esc(k)} 的 README">
-      <b>${r.icon ? `<i class="gh-ico">${esc(r.icon)}</i>` : ""}${esc(repoTitle(r))}${r.unread ? '<i class="gh-dot" aria-label="有未读更新"></i>' : ""}</b>
+    const on = flipped.has(k);
+    const title = `${r.icon ? `<i class="gh-ico">${esc(r.icon)}</i>` : ""}${esc(repoTitle(r))}${r.unread ? '<i class="gh-dot" aria-label="有未读更新"></i>' : ""}`;
+    const meta = `${esc(r.branch)} · ${esc(c.author || "作者未知")} · ${esc(fmtTime(c.time))} · README ${esc(kb(r.size))}`;
+    const more = `<button type="button" class="gh-btn" data-gh-more aria-expanded="${on ? "true" : "false"}" aria-controls="gh-detail-${esc(k)}">`;
+    return `<article class="gh-card${on ? " is-flipped" : ""}" data-gh-card="${esc(k)}"><div class="gh-front"><button type="button" class="gh-card-read" data-gh-open="${esc(k)}" aria-label="阅读 ${esc(k)} 的 README">
+      <b>${title}</b>
       ${r.alias ? `<div class="gh-sub">${esc(k)}</div>` : ""}
       ${r.note ? `<div class="gh-note">${esc(r.note)}</div>` : ""}
       <p>${esc(c.title || "（还没读到提交记录）")}</p>
-      <div class="gh-meta">${esc(r.branch)} · ${esc(c.author || "作者未知")} · ${esc(fmtTime(c.time))} · README ${esc(kb(r.size))}</div>
+      <div class="gh-meta">${meta}</div>
       <span class="gh-sub">阅读 README →</span></button>
       ${r.error ? `<div class="gh-err">${esc(r.error)}</div>` : ""}
-      <div class="gh-foot"><button type="button" class="gh-btn" data-gh-edit="${esc(k)}" aria-label="编辑 ${esc(k)}">编辑</button><button type="button" class="gh-del" data-gh-del="${esc(k)}" aria-label="从列表移除 ${esc(k)}">移除</button></div>
+      <div class="gh-foot">${more}更多</button></div></div>
+      <div class="gh-detail" id="gh-detail-${esc(k)}"><div class="gh-detail-head"><b>${title}</b>${more}收起</button></div><div class="gh-meta">${meta}</div>${r.error ? `<div class="gh-err">${esc(r.error)}</div>` : ""}<div class="gh-foot"><button type="button" class="gh-btn" data-gh-open="${esc(k)}">阅读 README</button><button type="button" class="gh-btn" data-gh-edit="${esc(k)}" aria-label="编辑 ${esc(k)}">编辑</button><button type="button" class="gh-del" data-gh-del="${esc(k)}" aria-label="从列表移除 ${esc(k)}">移除</button></div></div>
     </article>`;
   }
 
@@ -946,10 +985,24 @@
     finally { adding = false; startTimer(); paint(); }
   }
 
+  /** 「更多 / 收起」只切 class，不整页重绘 —— 重绘会把用户正在看的输入框内容和滚动位置一起抹掉。
+      repoCard() 会把当前状态重新写进 HTML，所以下一次重绘后卡片仍然保持翻开。 */
+  function toggleCardFlip(btn) {
+    const card = btn.closest?.("[data-gh-card]");
+    if (!card || !card.classList) return;
+    const k = card.dataset.ghCard;
+    const on = !flipped.has(k);
+    if (on) flipped.add(k); else flipped.delete(k);
+    card.classList.toggle("is-flipped", on);
+    for (const b of card.querySelectorAll("[data-gh-more]")) b.setAttribute("aria-expanded", String(on));
+  }
+
   function bind(el) {
     if (boundRoots.has(el)) return;
     boundRoots.add(el);
     el.addEventListener("click", async (e) => {
+      const more = e.target.closest("[data-gh-more]");
+      if (more) { toggleCardFlip(more); return; }
       if (e.target.closest("[data-gh-cancel]")) { closeEditor(); return; }
       if (e.target.closest("[data-gh-save]")) { await saveEditor(); return; }
       const editIcon = e.target.closest("[data-gh-edit-icon]");

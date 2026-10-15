@@ -1608,35 +1608,95 @@ fn is_chaoxing_host(host: &str) -> bool {
     })
 }
 
-fn cookie_domain_matches_host(domain: &str, host: &str) -> bool {
-    let domain = domain.trim_start_matches('.').trim_end_matches('.').to_ascii_lowercase();
-    is_chaoxing_host(&domain)
-        && (host.eq_ignore_ascii_case(&domain)
-            || host.to_ascii_lowercase().ends_with(&format!(".{domain}")))
+/// 警大邮箱（Coremail）只有一个域：mail.cppu.edu.cn。
+/// 统一身份认证（sso.cppu.edu.cn）的票据不在这条链路上 —— 邮箱登录成功后
+/// 会话落在 mail 域自己的 sid Cookie 上，所以白名单只放这一个 host。
+fn is_cppu_mail_host(host: &str) -> bool {
+    host.trim_end_matches('.').eq_ignore_ascii_case("mail.cppu.edu.cn")
+}
+
+/// 允许把插件 native 会话注入应用内网页窗口的两类站点。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WebviewSessionSite {
+    Chaoxing,
+    Mail,
+}
+
+impl WebviewSessionSite {
+    fn from_target(target: &Url) -> Result<Self, String> {
+        let host = target.host_str().ok_or("链接缺少主机名")?;
+        if target.scheme() != "https" {
+            return Err("登录态仅允许注入 HTTPS 站点".into());
+        }
+        if is_chaoxing_host(host) {
+            return Ok(Self::Chaoxing);
+        }
+        if is_cppu_mail_host(host) {
+            return Ok(Self::Mail);
+        }
+        Err("登录态注入仅对学习通与警大邮箱开放".into())
+    }
+
+    fn allows_host(self, host: &str) -> bool {
+        match self {
+            Self::Chaoxing => is_chaoxing_host(host),
+            Self::Mail => is_cppu_mail_host(host),
+        }
+    }
+
+    fn domain_matches(self, domain: &str, host: &str) -> bool {
+        let domain = domain.trim_start_matches('.').trim_end_matches('.').to_ascii_lowercase();
+        self.allows_host(&domain)
+            && (host.eq_ignore_ascii_case(&domain)
+                || host.to_ascii_lowercase().ends_with(&format!(".{domain}")))
+    }
+
+    /// 取 Cookie 用的地址清单：学习通要跨多个子域，邮箱只有 mail.cppu.edu.cn 自己。
+    fn cookie_urls(self, target: &Url) -> Vec<String> {
+        let mut urls: Vec<String> = match self {
+            Self::Chaoxing => [
+                "https://passport2.chaoxing.com/",
+                "https://i.chaoxing.com/",
+                "https://notice.chaoxing.com/",
+                "https://mooc2-ans.chaoxing.com/",
+                "https://mooc1.chaoxing.com/",
+                "https://study.chaoxing.com/",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+            Self::Mail => vec!["https://mail.cppu.edu.cn/".to_string()],
+        };
+        urls.push(target.as_str().to_string());
+        urls.sort();
+        urls.dedup();
+        urls
+    }
+
+    fn empty_cookie_error(self) -> &'static str {
+        match self {
+            Self::Chaoxing => "插件会话中没有可传给浏览器的有效学习通 Cookie，请先在插件刷新登录",
+            Self::Mail => "插件会话中没有可传给浏览器的有效警大邮箱 Cookie，请先在警大通知插件里登录一次邮箱",
+        }
+    }
+
+    fn invalid_cookie_error(self) -> &'static str {
+        match self {
+            Self::Chaoxing => "学习通 Cookie 格式无效，未打开浏览器",
+            Self::Mail => "警大邮箱 Cookie 格式无效，未打开浏览器",
+        }
+    }
 }
 
 /// 从 native reqwest Cookie Jar 取当前有效的会话，并保留响应中的安全属性。
-/// scope 只覆盖学习通域名；任意外站拿不到这批凭据。
-fn chaoxing_webview_cookies(
+/// scope 只覆盖学习通与警大邮箱域名；任意外站拿不到这批凭据。
+fn webview_session_cookies(
     session: &HttpSession,
     target: &Url,
 ) -> Result<Vec<(String, tauri::webview::Cookie<'static>)>, String> {
     use reqwest::cookie::CookieStore as _;
-    let target_host = target.host_str().ok_or("链接缺少主机名")?;
-    if target.scheme() != "https" || !is_chaoxing_host(target_host) {
-        return Err("学习通登录态仅允许注入 HTTPS 学习通域名".into());
-    }
-    let mut url_strings = vec![
-        "https://passport2.chaoxing.com/".to_string(),
-        "https://i.chaoxing.com/".to_string(),
-        "https://notice.chaoxing.com/".to_string(),
-        "https://mooc2-ans.chaoxing.com/".to_string(),
-        "https://mooc1.chaoxing.com/".to_string(),
-        "https://study.chaoxing.com/".to_string(),
-        target.as_str().to_string(),
-    ];
-    url_strings.sort();
-    url_strings.dedup();
+    let site = WebviewSessionSite::from_target(target)?;
+    let url_strings = site.cookie_urls(target);
     let captured = session.set_cookie_headers.lock().map_err(|_| "登录 Cookie 锁占用")?.clone();
     let mut out: Vec<(String, tauri::webview::Cookie<'static>)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
@@ -1658,11 +1718,11 @@ fn chaoxing_webview_cookies(
             for record in captured.iter().rev() {
                 let Ok(source_url) = record.url.parse::<Url>() else { continue };
                 let Some(source_host) = source_url.host_str() else { continue };
-                if !is_chaoxing_host(source_host) { continue; }
+                if !site.allows_host(source_host) { continue; }
                 let Ok(parsed) = tauri::webview::Cookie::parse(record.header.clone()) else { continue };
                 if parsed.name() != name || parsed.value() != value { continue; }
                 let domain = parsed.domain().unwrap_or(source_host);
-                if !cookie_domain_matches_host(domain, host) { continue; }
+                if !site.domain_matches(domain, host) { continue; }
                 let path = parsed.path().unwrap_or("/");
                 if !request_url.path().starts_with(path) { continue; }
                 let mut raw = record.header.clone();
@@ -1677,16 +1737,16 @@ fn chaoxing_webview_cookies(
                 format!("{name}={value}; Domain={host}; Path=/; Secure")
             });
             let cookie = tauri::webview::Cookie::parse(raw)
-                .map_err(|_| "学习通 Cookie 格式无效，未打开浏览器".to_string())?
+                .map_err(|_| site.invalid_cookie_error().to_string())?
                 .into_owned();
             let domain = cookie.domain().unwrap_or(host);
-            if !cookie_domain_matches_host(domain, host) { continue; }
+            if !site.domain_matches(domain, host) { continue; }
             let key = format!("{}\u{1f}{}\u{1f}{}\u{1f}{}", cookie.name(), cookie.value(), domain, cookie.path().unwrap_or("/"));
             if seen.insert(key) { out.push((url_string.clone(), cookie)); }
         }
     }
     if out.is_empty() {
-        return Err("插件会话中没有可传给浏览器的有效学习通 Cookie，请先在插件刷新登录".into());
+        return Err(site.empty_cookie_error().into());
     }
     Ok(out)
 }
@@ -1722,7 +1782,8 @@ fn set_android_webview_cookies(
         .map_err(|e| format!("等待 Android CookieManager 超时: {e}"))?
 }
 
-/// 学习通插件专用：native 写入会话 Cookie 后再导航；Cookie 不经过 URL 或页面 JS。
+/// 插件专用：native 写入会话 Cookie 后再导航；Cookie 不经过 URL 或页面 JS。
+/// 目前支持学习通与警大邮箱两个站点（见 WebviewSessionSite 白名单）。
 #[tauri::command]
 async fn open_internal_with_http_session(
     app: AppHandle,
@@ -1733,8 +1794,8 @@ async fn open_internal_with_http_session(
     let parsed: Url = url.parse().map_err(|e| format!("网页地址无效: {e}"))?;
     let cookies = {
         let sessions = state.0.lock().map_err(|_| "会话表被占用")?;
-        let session = sessions.get(&sid).ok_or("学习通会话不存在或已过期，请刷新插件登录")?;
-        chaoxing_webview_cookies(session, &parsed)?
+        let session = sessions.get(&sid).ok_or("插件登录会话不存在或已过期，请刷新插件登录")?;
+        webview_session_cookies(session, &parsed)?
     };
     #[cfg(target_os = "android")]
     let blank: Url = "about:blank".parse().map_err(|e| format!("空白页地址无效: {e}"))?;

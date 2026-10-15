@@ -1,6 +1,6 @@
 (function(){
   const groups=[
-    {name:"学习与校园",ids:["shiguang-schedule","school-notice","chaoxing-notify","cppu-notify","cppu-calendar","exam-calendar"]},
+    {name:"学习与校园",ids:["shiguang-schedule","school-notice","chaoxing-notify","cppu-notify","exam-calendar"]},
     {name:"效率与专注",ids:["pomodoro","weekly-report"]},
     {name:"信息与提醒",ids:["gx-news","cn-holiday","wechat-push"]},
     {name:"生活与工具",ids:["dorm-duty","web-collector","inbox-drop"]},
@@ -9,8 +9,7 @@
     "shiguang-schedule":["打开课程表，先设置学期与开学日期","可手动添加，或走“教务导入”：选学校登录教务，或改用文件 / 表格导入","确认预览后选择合并或替换"],
     "school-notice":["填写学校通知/公告网址并检测","公开网站可直接同步；需登录时填写登录信息","图片验证码需要本人查看后手动输入"],
     "chaoxing-notify":["使用账号密码或 Cookie 登录学习通","同步通知并查看完整正文","识别到截止时间后可转为 Le 提醒"],
-    "cppu-notify":["打开插件进入智慧警大登录流程","自动恢复会话或自动识别验证码登录，认不出时才手工核对","筛选通知并按需转成提醒"],
-    "cppu-calendar":["点击同步教务学期，或手动填写教学起始日与周数","按月查看教学周次","点选日期添加自己的考试、返校等事项"],
+    "cppu-notify":["打开插件进入智慧警大登录流程","自动恢复会话或自动识别验证码登录，认不出时才手工核对","筛选通知并按需转成提醒","左侧「校园服务 → 教务」可切到学生选课 / 学生请假 / 警大成绩 / 创新学分 / 警大校历（校历自 v0.216.0 起并入本插件，不再单独占一个插件）"],
     "exam-calendar":["选择考试类别或时间范围","查看考试节点和来源说明","把需要关注的日期加入计划"],
     "pomodoro":["选择预设时间或输入自定义倒计时","选择已有任务，或直接新建一个专注任务","开始计时；完成后自动累计专注统计"],
     "weekly-report":["打开后自动读取任务与时间块","查看每天投入、分类占比和完成情况","用周报复盘下一周安排"],
@@ -31,13 +30,59 @@
       if(r&&typeof r.catch==="function")r.catch(e=>tide.notify("打开失败："+(e&&e.message||e)));
     }catch(e){tide.notify("打开失败："+(e&&e.message||e));}
   }
+  const boundRoots=new WeakSet();
+  /* 卡片「翻起」的插件 id。桌面端悬停也会翻（纯 CSS），这个集合负责触屏与键盘 ——
+     没有它，手机上的卡片就永远只能看到正面那一层。 */
+  const flipped=new Set();
   function ensureStyle(){
     if(document.getElementById("pg-guide-style"))return;
     const st=document.createElement("style");st.id="pg-guide-style";
     st.textContent=`.pg-btn{transition:transform .12s ease,box-shadow .15s ease,filter .15s ease}
 .pg-btn:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(34,48,58,.14);filter:brightness(1.04)}
-.pg-btn:active{transform:translateY(0) scale(.97);box-shadow:none}`;
+.pg-btn:active{transform:translateY(0) scale(.97);box-shadow:none}
+/* ── 卡片 3D 翻起详情层（来源：LabOrbit /resources 的卡片动画）──
+   .pg-front 是正面（图标 / 名称 / 平台 / 简介），.pg-detail 是从底边立起来的步骤层。
+   三条缺一不可：perspective 写在**卡片本体**（写详情层上等于自己给自己透视，翻出来是平的）、
+   transform-origin:bottom（像合页从底边往上立）、backface-visibility:hidden（转到 -90° 时
+   背面朝外，不隐掉会透出反向镜像）。闭合态停在 -90deg 而不是 +90deg，后者会从顶边垂下来。
+   visibility 与 transform 分开延迟：展开立刻可见、收起等转完再隐藏，否则收起动画会被半途掐断。 */
+.pg-card{position:relative;perspective:1000px;transform-style:preserve-3d;overflow:hidden;background:var(--card,#fff);border:1px solid var(--border,#E4DFD6);border-radius:15px;box-shadow:0 2px 8px rgba(34,48,58,.04)}
+.pg-front{padding:16px;min-height:calc(158px * var(--ui-text-scale));display:flex;flex-direction:column;gap:9px;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),opacity .45s ease}
+.pg-detail{position:absolute;inset:0;z-index:5;box-sizing:border-box;display:flex;flex-direction:column;gap:9px;padding:16px;border-radius:inherit;background:var(--card,#fff);overflow:hidden;transform:rotateX(-90deg);transform-origin:bottom;backface-visibility:hidden;visibility:hidden;pointer-events:none;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear .6s}
+.pg-card.is-flipped .pg-front{transform:scale(.86);opacity:0;pointer-events:none}
+.pg-card.is-flipped .pg-detail{transform:rotateX(0deg);visibility:visible;pointer-events:auto;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
+.pg-head{display:flex;gap:10px;align-items:flex-start;flex:none}
+.pg-head img{width:30px;height:30px;border-radius:9px;flex:none;object-fit:contain}
+.pg-head-main{flex:1;min-width:0;display:flex;justify-content:space-between;gap:10px;align-items:start}
+.pg-name{font-size:calc(15px * var(--ui-text-scale))}
+.pg-badge{font-size:calc(10px * var(--ui-text-scale));padding:3px 7px;border-radius:10px;background:var(--soft,#F4F1EB);color:var(--muted,#7E8B94);flex:none}
+.pg-desc{font-size:calc(12px * var(--ui-text-scale));line-height:1.65;color:var(--muted,#687780);margin:0}
+.pg-desc-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.pg-steps{padding-left:19px;margin:0;flex:1 1 auto;min-height:0;overflow:auto;font-size:calc(12px * var(--ui-text-scale));line-height:1.8;color:var(--muted,#687780)}
+.pg-steps li{margin-bottom:6px}
+.pg-more{align-self:flex-end;margin-top:auto;font-family:inherit;border:1px solid var(--border,#E4DFD6);background:var(--soft,#F4F1EB);color:var(--ink,#22303A);border-radius:9px;padding:5px 10px;font-size:calc(11px * var(--ui-text-scale));cursor:pointer;transition:border-color .16s ease,background .16s ease}
+.pg-more:hover{border-color:var(--accent,#2F7C83)}
+.pg-detail .pg-more{margin-top:0;flex:none}
+/* 鼠标能悬停时悬停即翻（这就是 LabOrbit 的触发方式）；触屏没有 hover，走「查看 N 步」按钮 */
+@media (hover:hover) and (pointer:fine){
+  .pg-card:hover .pg-front{transform:scale(.86);opacity:0;pointer-events:none}
+  .pg-card:hover .pg-detail{transform:rotateX(0deg);visibility:visible;pointer-events:auto;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
+}
+@media (prefers-reduced-motion:reduce){
+  .pg-front,.pg-detail{transition:none!important}
+  .pg-card.is-flipped .pg-front,.pg-card:hover .pg-front{transform:none}
+}`;
     document.head.append(st);
+  }
+  /** 「查看 N 步 / 收起」只切 class，不重建 DOM —— 重建会把滚动位置和焦点一起抹掉。 */
+  function toggleCard(btn){
+    const card=btn.closest&&btn.closest(".pg-card");
+    if(!card||!card.classList)return;
+    const id=btn.getAttribute("data-pg-more");
+    const on=!flipped.has(id);
+    if(on)flipped.add(id);else flipped.delete(id);
+    card.classList.toggle("is-flipped",on);
+    card.querySelectorAll("[data-pg-more]").forEach(b=>b.setAttribute("aria-expanded",String(on)));
   }
   function button(label,fn,primary){const b=document.createElement("button");b.className="pg-btn";b.textContent=label;b.style.cssText=`border:1px solid var(--border,#E4DFD6);background:${primary?"var(--accent,#2F7C83)":"var(--card,#fff)"};color:${primary?"#fff":"var(--ink,#22303A)"};border-radius:10px;padding:8px 11px;cursor:pointer;font-size:calc(12px * var(--ui-text-scale))`;b.onclick=fn;return b;}
   async function downloadDevDoc(){
@@ -64,6 +109,14 @@
   }
   function render(root){
     ensureStyle();
+    if(!boundRoots.has(root)){
+      boundRoots.add(root);
+      // 委托在 root 上、并只挂一次：重挂会叠加处理器，切一次视图就切两次
+      root.addEventListener("click",e=>{
+        const btn=e.target&&e.target.closest&&e.target.closest("[data-pg-more]");
+        if(btn)toggleCard(btn);
+      });
+    }
     const links=tide.app&&tide.app.links?tide.app.links:{};
     const all=(tide.plugins&&tide.plugins.list?tide.plugins.list():[]).filter(x=>x.id!=="plugin-guide");
     const byId=Object.fromEntries(all.map(x=>[x.id,x]));
@@ -75,7 +128,25 @@
       button("下载插件开发文档",downloadDevDoc),
     );
     const host=root.querySelector("#guide-groups");
-    groups.forEach(g=>{const sec=document.createElement("section");sec.style.cssText="margin:0 0 26px";sec.innerHTML=`<h3 style="font-size:calc(16px * var(--ui-text-scale));margin:0 0 12px">${esc(g.name)}</h3><div class="guide-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px"></div>`;const grid=sec.querySelector(".guide-grid");g.ids.forEach(id=>{const p=byId[id]||{id,name:id,description:"插件清单中暂未找到此项。",platforms:{}};const steps=docs[id]||["打开插件","按页面提示完成配置","保存后即可使用"];const card=document.createElement("article");card.style.cssText="background:var(--card,#fff);border:1px solid var(--border,#E4DFD6);border-radius:15px;padding:16px;box-shadow:0 2px 8px rgba(34,48,58,.04)";card.innerHTML=`<div style="display:flex;gap:10px;align-items:flex-start"><img src="/icons/plugins/${encodeURIComponent(id)}.png" alt="" style="width:30px;height:30px;border-radius:9px;flex:none;object-fit:contain" onerror="this.style.display='none'"><div style="flex:1;min-width:0;display:flex;justify-content:space-between;gap:10px;align-items:start"><strong style="font-size:calc(15px * var(--ui-text-scale))">${esc(p.name)}</strong><span style="font-size:calc(10px * var(--ui-text-scale));padding:3px 7px;border-radius:10px;background:var(--soft,#F4F1EB);color:var(--muted,#7E8B94);flex:none">${esc(platformText(p.platforms||{}))}</span></div></div><p style="font-size:calc(12px * var(--ui-text-scale));line-height:1.65;color:var(--muted,#687780);margin:9px 0 10px">${esc(p.description)}</p><ol style="padding-left:19px;margin:0;font-size:calc(12px * var(--ui-text-scale));line-height:1.8">${steps.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>`;grid.append(card);});host.append(sec);});
+    groups.forEach(g=>{
+      const sec=document.createElement("section");sec.style.cssText="margin:0 0 26px";
+      sec.innerHTML=`<h3 style="font-size:calc(16px * var(--ui-text-scale));margin:0 0 12px">${esc(g.name)}</h3><div class="guide-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px"></div>`;
+      const grid=sec.querySelector(".guide-grid");
+      g.ids.forEach(id=>{
+        const p=byId[id]||{id,name:id,description:"插件清单中暂未找到此项。",platforms:{}};
+        const steps=docs[id]||["打开插件","按页面提示完成配置","保存后即可使用"];
+        const on=flipped.has(id);
+        // 正面只放「是什么」，步骤（「怎么做」）放到翻起来的详情层里 —— 这就是 LabOrbit 那张卡的
+        // 分工：封面朝前、内容朝后，翻起来才看到全部。两层的头部完全相同，翻过去不会觉得换了一张卡。
+        const head=`<div class="pg-head"><img src="/icons/plugins/${encodeURIComponent(id)}.png" alt="" onerror="this.style.display='none'"><div class="pg-head-main"><strong class="pg-name">${esc(p.name)}</strong><span class="pg-badge">${esc(platformText(p.platforms||{}))}</span></div></div>`;
+        const more=label=>`<button type="button" class="pg-more" data-pg-more="${esc(id)}" aria-expanded="${on?"true":"false"}" aria-controls="pg-detail-${esc(id)}">${label}</button>`;
+        const card=document.createElement("article");
+        card.className="pg-card"+(on?" is-flipped":"");
+        card.innerHTML=`<div class="pg-front">${head}<p class="pg-desc pg-desc-clamp">${esc(p.description)}</p>${more(`查看 ${steps.length} 步操作 ▾`)}</div><div class="pg-detail" id="pg-detail-${esc(id)}">${head}<ol class="pg-steps">${steps.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>${more("收起 ▴")}</div>`;
+        grid.append(card);
+      });
+      host.append(sec);
+    });
   }
   tide.ui.registerView({id:"plugin-guide",title:"插件使用说明",icon:"circle-question",render});
 })();

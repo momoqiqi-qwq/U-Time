@@ -1,6 +1,8 @@
-# public/icons/plugins 素材台账（内置插件图标）
+# public/icons/plugins 素材台账（内置插件图标 + 插件内视图图标）
 
-共 19 个图标：19 个来自 **Icons8 / iGoutu** 的 **Color 彩色风格**（`wechat-push` 用 `3d-fluency` 风格，因为 Color 风格没有微信标志）；0 个为印章式文字图标（`风格` 列为 `text`，由本脚本代码绘制，非 Icons8 素材、无需署名）。
+共 27 个图标：27 个来自 **Icons8 / iGoutu** 的 **Color 彩色风格**（`wechat-push` 用 `3d-fluency` 风格，因为 Color 风格没有微信标志）；0 个为印章式文字图标（`风格` 列为 `text`，由本脚本代码绘制，非 Icons8 素材、无需署名）。
+
+其中 9 个是**插件内视图图标**（说明里带「插件内视图」）：同一个插件的不同分类在侧栏各用各的图标（v0.216.0），key = 视图 id，与插件图标同目录、同风格 —— `src/icons.js` 的 `VIEW_ICONS8` / `VIEW_FA_ICONS` 是它们的消费口径。
 
 图标集入口：<https://igoutu.cn/icons/set/标志--style-color> ｜ CDN 直链格式：`https://img.icons8.com/<style>/96/<slug>.png`
 
@@ -11,7 +13,6 @@
 | `plugin-guide` | color | `help` | 插件使用说明 / 帮助 | `b45b6fcda0f60ca0…` |
 | `pomodoro` | color | `tomato` | 番茄专注 / 番茄 | `c803c064b51d6b32…` |
 | `cppu-notify` | color | `university` | 警大门户通知 / 大学建筑 | `9748e58bb1ab3556…` |
-| `cppu-calendar` | color | `calendar` | 警大校历 / 月历 | `3f9a3a3fb500fa6d…` |
 | `gx-news` | color | `trophy` | 竞赛消息雷达 / 奖杯 | `c95ce1bdbb0caa2a…` |
 | `mojinghub` | color | `medal` | 模竞竞赛平台 / 奖牌 | `da2c74375b0c0222…` |
 | `rss-reader` | color | `rss` | RSS 信息流 / RSS 信号波 | `d0cb8af12b2efed0…` |
@@ -27,6 +28,15 @@
 | `inbox-drop` | color | `downloading-updates` | 拖入消息收纳 / 箭头入托盘 | `b0a69a328dcf6b3e…` |
 | `ai-chat` | color | `artificial-intelligence` | AI 对话 / 智能大脑 | `548f46d8d4c146e1…` |
 | `github-readme` | 3d-fluency | `github` | GitHub 文档 / GitHub 猫标志 | `0d0027483c6df026…` |
+| `cppu-card` | color | `bank-cards` | 警大门户通知 · 警大一卡通（插件内视图） | `31e3126b67984d72…` |
+| `cppu-award` | color | `prize` | 警大门户通知 · 警大获奖名单（插件内视图） | `4f2405f79b613d34…` |
+| `cppu-xk` | color | `todo-list` | 警大门户通知 · 学生选课（插件内视图） | `4a0680aaea98e3f9…` |
+| `cppu-qj` | color | `calendar-delete` | 警大门户通知 · 学生请假（插件内视图） | `b8dd84c7d2f04f22…` |
+| `cppu-credit` | color | `line-chart` | 警大门户通知 · 警大成绩（插件内视图） | `36a5207d12a69bd9…` |
+| `cppu-cx` | color | `medal` | 警大门户通知 · 创新学分（插件内视图） | `da2c74375b0c0222…` |
+| `cppu-calendar` | color | `calendar` | 警大门户通知 · 警大校历（插件内视图） | `3f9a3a3fb500fa6d…` |
+| `cppu-growth` | color | `sprout` | 警大门户通知 · 学生成长（插件内视图） | `c255940f7520e582…` |
+| `cppu-profile` | color | `contact-card` | 警大门户通知 · 个人信息（插件内视图） | `e2269e1ff917229d…` |
 
 ## 许可
 

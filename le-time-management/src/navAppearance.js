@@ -29,9 +29,11 @@ export function navDisplayName(id, fallback) {
   return name || fallback || id;
 }
 
-/** 自定义图标直接换掉 <img> 的 src；随包 PNG 缺失时的 CDN 回落逻辑仍留在 icons.js 里 */
-export function navDisplayIcon(id, title = "") {
-  const icon = appIcon(id, title);
+/** 自定义图标直接换掉 <img> 的 src；随包 PNG 缺失时的 CDN 回落逻辑仍留在 icons.js 里。
+    iconKey：图标来源（默认 = 视图 id）。插件分类由 shell.js 传视图 id，v0.216.0 起
+    同一插件的不同分类在侧栏各用各的图标；自定义图标仍按视图 id 存，不会因分类不同而走丢。 */
+export function navDisplayIcon(id, title = "", iconKey = "") {
+  const icon = appIcon(iconKey || id, title);
   const custom = getNavOverride(id).icon;
   if (typeof custom === "string" && custom.startsWith("data:image/")) {
     icon.src = custom;
@@ -40,8 +42,8 @@ export function navDisplayIcon(id, title = "") {
   return icon;
 }
 
-export function navDisplayOutlineIcon(id, title = "") {
-  return outlineAppIcon(id, title);
+export function navDisplayOutlineIcon(id, title = "", iconKey = "") {
+  return outlineAppIcon(iconKey || id, title);
 }
 
 export function setNavOverride(id, patch) {

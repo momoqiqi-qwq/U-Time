@@ -20,8 +20,10 @@ export const TEXT_SCALE_LIMITS = Object.freeze({ min: 80, max: 150, step: 5 });
 export const NAV_WIDTH_LIMITS = Object.freeze({ min: 60, max: 100, step: 1 });
 export const NAV_TRANSPARENCY_LIMITS = Object.freeze({ min: 0, max: 100, step: 1 });
 /** 插件中心卡片尺寸的合法区间（拖动调整，见 src/marketCardResize.js）。
- *  宽 120–460；高 0–420，其中 **0 = 不设最小高度、卡片随内容自适应**（拖动前的既有行为，也是默认值）。 */
-export const MARKET_CARD_SIZE_LIMITS = Object.freeze({ minWidth: 120, maxWidth: 460, minHeight: 0, maxHeight: 420 });
+ *  宽 120–460；高 0–420，其中 **0 = 随内容自适应**（拖动前的既有行为，也是默认值），
+ *  其余是**精确高度**（`--market-card-h` 直接当 height 用，见 styles.css 的 .mcard）。
+ *  minHeight 76 是「再小就只剩图标行」的下限：拖动可以一路缩到它，但不会缩到 0 变没。 */
+export const MARKET_CARD_SIZE_LIMITS = Object.freeze({ minWidth: 120, maxWidth: 460, minHeight: 76, maxHeight: 420 });
 
 export const DEFAULT_UI_PREFERENCES = Object.freeze({
   // 默认紧凑：小屏与笔记本上信息密度优先；想要宽松的用户可在设置里切回「舒适」
@@ -177,8 +179,11 @@ export function normalizeUiPreferences(raw = {}) {
   next.startupWindowWidth = Math.round(clamp(next.startupWindowWidth, CUSTOM_SIZE_LIMITS.minWidth, CUSTOM_SIZE_LIMITS.maxWidth));
   next.startupWindowHeight = Math.round(clamp(next.startupWindowHeight, CUSTOM_SIZE_LIMITS.minHeight, CUSTOM_SIZE_LIMITS.maxHeight));
   // 卡片尺寸：非数值 / 越界一律收进区间 —— 拖动每帧都读它，必须始终有效。
+  // 高度 0 是「随内容自适应」的哨兵值，不能当越界值夹到 minHeight（否则默认高度会变成 76）。
   next.marketCardWidth = Math.round(clamp(next.marketCardWidth, MARKET_CARD_SIZE_LIMITS.minWidth, MARKET_CARD_SIZE_LIMITS.maxWidth));
-  next.marketCardHeight = Math.round(clamp(next.marketCardHeight, MARKET_CARD_SIZE_LIMITS.minHeight, MARKET_CARD_SIZE_LIMITS.maxHeight));
+  next.marketCardHeight = next.marketCardHeight > 0
+    ? Math.round(clamp(next.marketCardHeight, MARKET_CARD_SIZE_LIMITS.minHeight, MARKET_CARD_SIZE_LIMITS.maxHeight))
+    : 0;
   return next;
 }
 
@@ -222,10 +227,11 @@ export function applyUiPreferences(raw = null, { animate = false } = {}) {
   // dataset.notifyStack → data-notify-stack（写成 data-notifyStack 之类 CSS 匹配不上）
   root.dataset.notifyStack = cfg.notifyStack ? "on" : "off";
   root.style.setProperty("--ui-text-scale", String(cfg.textScale / 100));
-  // 插件中心卡片尺寸：网格列宽下限（--market-card-w）与卡片最小高度（--market-card-h）
-  // 都取这两个变量，所以拖动卡片时只改这里，全部卡片会一起变（src/marketCardResize.js）。
+  // 插件中心卡片尺寸：网格列宽（--market-card-w）与卡片高度（--market-card-h）都取这两个变量，
+  // 所以拖动卡片时只改这里，全部卡片会一起变（src/marketCardResize.js）。
+  // 高度 0 = 随内容自适应 → 写 auto（写成 0px 会把卡片压成一条线）。
   root.style.setProperty("--market-card-w", `${cfg.marketCardWidth}px`);
-  root.style.setProperty("--market-card-h", `${cfg.marketCardHeight}px`);
+  root.style.setProperty("--market-card-h", cfg.marketCardHeight > 0 ? `${cfg.marketCardHeight}px` : "auto");
   // 界面整体缩放走独立模块（挂 zoom + 注入 --ui-vw/--ui-vh，见 src/uiScale.js）。
   // 放在这里而不是 applyUiScale 的调用点，是为了「任何写入偏好的路径都会重算缩放」——
   // 否则恢复默认、预设切换这些入口会漏掉。

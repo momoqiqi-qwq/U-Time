@@ -261,6 +261,26 @@ export const api = {
     return { mode: "browser" };
   },
 
+  /** 警大邮箱（Coremail Sirius Web）固定站点的应用内窗口；不受普通链接打开偏好影响。
+   * 带 sid 时由 Rust 原生端注入该插件会话的邮箱 Cookie，登录态与插件同源；不带 sid 时
+   * 退化为普通内置窗口，由页面自己登录。不导出 Cookie、不代理/重写登录页。
+   */
+  async openMailPage(url, sid = "") {
+    let parsed;
+    try { parsed = new URL(url); } catch { throw new Error("警大邮箱网页地址无效"); }
+    const pathOk = parsed.pathname.startsWith("/static/sirius-web/") || parsed.pathname.startsWith("/coremail/");
+    if (parsed.origin !== "https://mail.cppu.edu.cn" || parsed.username || parsed.password || !pathOk) throw new Error("仅支持警大邮箱官方页面");
+    if (isTauri) {
+      if (sid) return invoke("open_internal_with_http_session", { sid, url: parsed.href });
+      try { await invoke("open_internal", { url: parsed.href }); } catch { throw new Error("应用内网页窗口打开失败，请重试"); }
+      return { mode: "native" };
+    }
+    const win = window.open(parsed.href, "_blank");
+    if (!win) throw new Error("请允许打开弹窗后重试");
+    win.opener = null;
+    return { mode: "browser" };
+  },
+
   /** 插件专用会话打开：Rust 原生端从指定 HTTP Cookie Jar 注入后再打开 WebView。 */
   async openUrlWithHttpSession(url, sid) {
     if (!isTauri) return api.openUrl(url);

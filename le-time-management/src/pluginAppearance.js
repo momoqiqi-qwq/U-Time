@@ -28,8 +28,10 @@ export function pluginDisplayName(id, fallback) {
   return name || fallback || id;
 }
 
-export function pluginDisplayIcon(id, title = "") {
-  const icon = appIcon(id, title);
+/** iconKey：图标来源，默认 = 插件 id。同一插件的多个分类要各用各的图标时由 shell.js 传视图 id
+    （v0.216.0）；自定义图标与 accent 色仍按插件 id —— 用户给插件换的图标要对它所有分类生效。 */
+export function pluginDisplayIcon(id, title = "", iconKey = "") {
+  const icon = appIcon(iconKey || id, title);
   const custom = getPluginOverride(id).icon;
   icon.classList.add("plugin-present-icon");
   icon.style.setProperty("--plugin-accent", pluginAccent(id));
@@ -40,8 +42,8 @@ export function pluginDisplayIcon(id, title = "") {
   return icon;
 }
 
-export function pluginDisplayOutlineIcon(id, title = "") {
-  const icon = outlineAppIcon(id, title);
+export function pluginDisplayOutlineIcon(id, title = "", iconKey = "") {
+  const icon = outlineAppIcon(iconKey || id, title);
   icon.classList.add("plugin-present-icon");
   icon.style.setProperty("--plugin-accent", pluginAccent(id));
   return icon;

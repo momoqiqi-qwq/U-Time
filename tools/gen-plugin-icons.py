@@ -54,7 +54,6 @@ ICONS = {
     "plugin-guide":      ("color",      "help",             "插件使用说明 / 帮助"),
     "pomodoro":          ("color",      "tomato",           "番茄专注 / 番茄"),
     "cppu-notify":       ("color",      "university",       "警大门户通知 / 大学建筑"),
-    "cppu-calendar":     ("color",      "calendar",         "警大校历 / 月历"),
     "gx-news":           ("color",      "trophy",           "竞赛消息雷达 / 奖杯"),
     "mojinghub":         ("color",      "medal",            "模竞竞赛平台 / 奖牌"),
     "rss-reader":        ("color",      "rss",              "RSS 信息流 / RSS 信号波"),
@@ -70,6 +69,23 @@ ICONS = {
     "inbox-drop":        ("color",      "downloading-updates", "拖入消息收纳 / 箭头入托盘"),
     "ai-chat":           ("color",      "artificial-intelligence", "AI 对话 / 智能大脑"),
     "github-readme":     ("3d-fluency", "github",           "GitHub 文档 / GitHub 猫标志"),
+}
+
+# 插件内视图图标（v0.216.0）：同一个插件的不同分类在侧栏各用各的图标，所以它们和插件图标
+# 一样要随包 —— key = 视图 id（= registerView 的 id），落到同一个目录
+# public/icons/plugins/<视图 id>.png。候选 slug 按序尝试：Icons8 的 slug 与 FontAwesome
+# 名字并不对齐（FA 的 calendar-days 在 Icons8 是 calendar），一个 slug 不保证存在。
+# 选定后要把生效 slug 同步进 src/icons.js 的 VIEW_ICONS8（做 CDN 回落与轮廓图标映射）。
+VIEW_ICONS = {
+    "cppu-card":     (["bank-cards", "credit-card", "card-in-hand"],   "警大门户通知 · 警大一卡通"),
+    "cppu-award":    (["prize", "trophy"],                             "警大门户通知 · 警大获奖名单"),
+    "cppu-xk":       (["todo-list", "checklist", "list"],              "警大门户通知 · 学生选课"),
+    "cppu-qj":       (["calendar-delete", "calendar-minus", "leave"],  "警大门户通知 · 学生请假"),
+    "cppu-credit":   (["line-chart", "combo-chart--v1", "statistics"], "警大门户通知 · 警大成绩"),
+    "cppu-cx":       (["medal", "medal2", "diploma"],                  "警大门户通知 · 创新学分"),
+    "cppu-calendar": (["calendar", "calendar--v1"],                    "警大门户通知 · 警大校历"),
+    "cppu-growth":   (["sprout", "seedling", "plant-under-sun"],       "警大门户通知 · 学生成长"),
+    "cppu-profile":  (["contact-card", "id-card", "business-contact"], "警大门户通知 · 个人信息"),
 }
 
 # 印章式文字图标：plugin-id -> (文字(至多 2 字，竖排堆叠), 说明)。
@@ -233,6 +249,25 @@ def main() -> int:
         rows.append((plugin_id, style, slug, note, digest))
         print(f"写入 {plugin_id:20} {style}/{slug:18} {len(data):6} B  sha256={digest[:12]}")
 
+    for view_id, (candidates, note) in VIEW_ICONS.items():
+        raw, slug = fetch_first("color", candidates, args.offline)
+        img = normalize(raw)
+        buf = io.BytesIO()
+        img.save(buf, "PNG", optimize=True)
+        data = buf.getvalue()
+        digest = hashlib.sha256(data).hexdigest()
+
+        existing = DESKTOP_OUT / f"{view_id}.png"
+        if args.check:
+            same = existing.exists() and hashlib.sha256(existing.read_bytes()).hexdigest() == digest
+            print(f"{'OK ' if same else 'DIFF'} [view] {view_id:20} color/{slug}")
+            continue
+
+        existing.write_bytes(data)
+        (MINI_OUT / f"{view_id}.png").write_bytes(data)
+        rows.append((view_id, "color", slug, f"{note}（插件内视图）", digest))
+        print(f"写入 [view] {view_id:20} color/{slug:18} {len(data):6} B  sha256={digest[:12]}")
+
     nav_rows = []
     for key, (candidates, note) in NAV_ICONS.items():
         raw, slug = fetch_first("color", candidates, args.offline)
@@ -255,12 +290,16 @@ def main() -> int:
     if not args.check:
         text_rows = [r for r in rows if r[1] == "text"]
         lines = [
-            "# public/icons/plugins 素材台账（内置插件图标）",
+            "# public/icons/plugins 素材台账（内置插件图标 + 插件内视图图标）",
             "",
             f"共 {len(rows)} 个图标：{len(rows) - len(text_rows)} 个来自 **Icons8 / iGoutu** 的 **Color 彩色风格**"
             "（`wechat-push` 用 `3d-fluency` 风格，因为 Color 风格没有微信标志）；"
             f"{len(text_rows)} 个为印章式文字图标（`风格` 列为 `text`，由本脚本代码绘制，"
             "非 Icons8 素材、无需署名）。",
+            "",
+            f"其中 {len(VIEW_ICONS)} 个是**插件内视图图标**（说明里带「插件内视图」）：同一个插件的不同分类"
+            "在侧栏各用各的图标（v0.216.0），key = 视图 id，与插件图标同目录、同风格 —— "
+            "`src/icons.js` 的 `VIEW_ICONS8` / `VIEW_FA_ICONS` 是它们的消费口径。",
             "",
             "图标集入口：<https://igoutu.cn/icons/set/标志--style-color> ｜ "
             "CDN 直链格式：`https://img.icons8.com/<style>/96/<slug>.png`",

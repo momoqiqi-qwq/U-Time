@@ -1,11 +1,11 @@
 {
   "id": "plugin-guide",
   "name": "插件使用说明",
-  "version": "1.4.4",
+  "version": "1.5.0",
   "author": "U-Time内置",
   "icon": "circle-question",
   "faIcon": "circle-question",
-  "description": "按学习、效率、信息、生活与工具分类，用卡片快速查看每个内置插件的用途、使用步骤、平台支持和注意事项。",
+  "description": "按学习、效率、信息、生活与工具分类，用卡片快速查看每个内置插件的用途、平台支持和注意事项。卡片从底边翻起看操作步骤：正面是「是什么」，翻起来是「怎么做」，鼠标悬停即翻，触屏点「查看 N 步操作」。",
   "permissions": [
     "ui",
     "notify",

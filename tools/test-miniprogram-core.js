@@ -168,8 +168,8 @@ ok("createFromCapture 有日期建块字段一致",
 console.log("[plugins]");
 const catalog = require("../miniprogram/core/pluginCatalog.js");
 const pluginRuntime = require("../miniprogram/core/pluginRuntime.js");
-/* 数量与 tools/sync-plugins.js 的输出对齐（v0.54.0 批次新增 rss-reader 后为 15 / 10） */
-ok("内置插件清单同步为 18 个", catalog.plugins.length, 18);
+/* 数量与 tools/sync-plugins.js 的输出对齐（v0.216.0 警大校历并入 cppu-notify 后为 17 / 13） */
+ok("内置插件清单同步为 17 个", catalog.plugins.length, 17);
 ok("小程序原生适配 13 个", catalog.plugins.filter((x) => x.platforms.miniprogram === "native").length, 13);
 ["plugin-guide", "wechat-push", "gx-news", "chaoxing-notify"].forEach((id) =>
   ok("新适配插件 " + id + " 标记 native", (catalog.byId[id].platforms || {}).miniprogram, "native"));

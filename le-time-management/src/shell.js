@@ -1,4 +1,5 @@
 import { attachPluginListDrag } from "./pluginListDrag.js";
+import { attachPluginSectionDrag } from "./pluginSectionDrag.js";
 // 应用外壳：侧栏导航 + 顶栏 + 视图切换
 import * as S from "./store.js";
 import { outlineAppIcon } from "./icons.js";
@@ -115,8 +116,11 @@ function viewDef(id) {
   if (id.startsWith("plug:")) {
     const v = pluginViews.find((x) => `plug:${x.id}` === id);
     // 插件视图副标题不放 manifest.description（长简介会把桌面标题卡撑爆、名称被裁），
-    // 顶栏只保留插件名称；核心视图的短文案副标题不受影响
-    return v ? { id, icon: PLUGIN_ICONS[v.pluginId] || v.icon || "puzzle-piece", title: pluginDisplayName(v.pluginId, v.title), sub: "", pluginView: v } : null;
+    // 顶栏只保留插件名称；核心视图的短文案副标题不受影响。
+    // iconKey = 视图 id：同一插件的不同分类在侧栏各用各的图标（v0.216.0）。
+    // 过去 icon 取 PLUGIN_ICONS[pluginId] || v.icon，而 navBtn 又用插件 id 取图，
+    // 于是 cppu-notify 的七个分类在侧栏长得一模一样。
+    return v ? { id, icon: PLUGIN_ICONS[v.pluginId] || v.icon || "puzzle-piece", iconKey: v.id, title: pluginDisplayName(v.pluginId, v.title), sub: "", pluginView: v } : null;
   }
   // v0.52.0：核心视图按平台裁剪 —— 移动端查不到时间块 / 收件箱（viewDef 返回 null），
   // 桌面端查不到时间线。switchTo 里有更早的重定向兜底（见下）。
@@ -1021,6 +1025,20 @@ export function renderShell(root) {
         ? plugGroupNode(color, views, { first: index === 0, last: index === runs.length - 1 })
         : plugSegNode(views));
     });
+    /* ── v0.215.0 颜色组整卡拖动 ────────────────────────────────────────────
+       拖动单位从「段里的一行插件」升到「整张颜色卡片」：抓手是组头（卡片里那些插件按钮
+       仍归段内拖动，两套互不抢）。落点几何 / 让位 / 跟手 / 键盘都在 src/pluginSectionDrag.js，
+       这里只管松手后写哪张表。置顶段不参与 —— 它由 pinnedPlugins 管，与 pluginOrder 正交。 */
+    if (desktopWindow) {
+      attachPluginSectionDrag(box, {
+        onCommit: () => saveSectionOrder(
+          [...box.querySelectorAll(":scope > .plug-group, :scope > .plug-seg:not(.plug-seg-pinned)")]
+            .flatMap(sectionPluginIds),
+        ),
+        // Alt+↑/↓：整组换位走 ↑/↓ 那条老路（换位后整段重绘，焦点也由它还回去）
+        onMove: (card, delta) => moveNavGroup(card.dataset.color, delta),
+      });
+    }
     nav.append(box);
     // 收尾落位：所有 renderNav 调用点（切界面 / 改名 / 分组重排 / 置顶…）都自动覆盖
     syncNavGlow();
@@ -1211,6 +1229,30 @@ export function renderShell(root) {
     toast("插件顺序已保存，并会随同步快照一起同步");
   }
 
+  /* ── v0.215.0 整卡拖动：整组换位后回填 pluginOrder ────────────────────────
+     只回填「非置顶插件」占着的那几个格子 —— 置顶顺序在 pinnedPlugins 里，与 pluginOrder
+     正交（取消置顶要能回原位），所以置顶段既不参与拖动、也不参与这次回填。
+     ⚠️ 收起的分组卡片里一个成员按钮都没有（plugGroupNode 的 collapsed 分支不渲染成员段），
+     只能从 group._views 取插件：去 DOM 里读按钮会把整组插件漏掉，回填时它们原地不动、
+     和别的插件交错，下一次重绘就跳。 */
+  const sectionPluginIds = (node) => (node._views
+    ? node._views.map((pv) => pv.pluginId)
+    : [...node.querySelectorAll(":scope > button[data-plugin-id]")].map((btn) => btn.dataset.pluginId));
+
+  function saveSectionOrder(domIds) {
+    const ids = [...new Set(domIds)];
+    if (!ids.length) return;
+    const full = currentPluginOrder();
+    const slots = new Set(ids);
+    let at = 0;
+    const next = full.map((id) => (slots.has(id) ? ids[at++] : id));
+    if (next.join(" ") === full.join(" ")) return;   // 拖回原位：不写库、不弹提示
+    S.getState().settings.pluginOrder = next;
+    S.persistSoon();
+    repaintMarket?.();
+    toast("分组顺序已保存，并会随同步快照一起同步");
+  }
+
   /* 一张颜色卡片 = 组头（折叠钮 + 整组 ↑/↓）+ 成员段。收起时成员段不渲染。
      收起 / 展开由 foldNavGroup 就地增删成员段并做高度动画，不整段重绘 —— 箭头的 CSS 过渡才接得上。 */
   function plugGroupNode(color, views, { first = false, last = false } = {}) {
@@ -1340,8 +1382,12 @@ export function renderShell(root) {
       const rec = pid && getRegistry().find((r) => r.id === pid);
       if (rec) pvLabel = rec.source === "builtin" ? "内置" : "导入";
     }
-    const imgIcon = isPlug ? pluginDisplayIcon(def.pluginView.pluginId, def.title) : navDisplayIcon(id, def.title);
-    const outlineIcon = isPlug ? pluginDisplayOutlineIcon(def.pluginView.pluginId, def.title) : navDisplayOutlineIcon(id, def.title);
+    // 每个分类各用各的图标（v0.216.0）：插件视图的图标来源是**视图 id**（cppu-card / cppu-award /
+    // cppu-calendar…），不再是插件 id。插件主视图的 id 就等于插件 id，仍落回插件图标；
+    // 自定义图标与 accent 也仍按插件 id 生效（见 pluginAppearance.js）。
+    const iconKey = isPlug ? (def.pluginView?.id || def.pluginView?.pluginId) : id;
+    const imgIcon = isPlug ? pluginDisplayIcon(def.pluginView.pluginId, def.title, iconKey) : navDisplayIcon(id, def.title);
+    const outlineIcon = isPlug ? pluginDisplayOutlineIcon(def.pluginView.pluginId, def.title, iconKey) : navDisplayOutlineIcon(id, def.title);
     const b = el("button", { class: on ? "on" : "", "data-view": id },
       el("span", { class: "ic", style: isPlug ? `--plugin-accent:${pluginAccent(def.pluginView?.pluginId)}` : null }, imgIcon, outlineIcon),
       el("span", { class: "lb" }, def.title),

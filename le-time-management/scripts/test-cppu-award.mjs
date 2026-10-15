@@ -479,7 +479,7 @@ assert.equal(root.querySelectorAll("[data-aw-mode]").find((b) => b.dataset.awMod
 /* ── 6. 静态接线：视图注册 / 入口 / 共用登录与正文缓存 ── */
 const source = fs.readFileSync(new URL("../public/plugins/cppu-notify/main.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 assert.match(source, /import\("\/plugins\/cppu-notify\/award-list\.js"\)/);
-assert.match(source, /registerView\(\{ id: "cppu-award", title: "警大获奖名单", icon: "trophy", render: mountAwardView \}\)/);
+assert.match(source, /registerView\(\{ id: "cppu-award", title: "警大获奖名单", icon: "award", render: mountAwardView \}\)/);
 assert.match(source, /\{ view: "cppu-award", label: "获奖名单", icon: "trophy" \}/);
 assert.match(source, /data-award>获奖名单<\/button>/);
 assert.match(source, /navigate\("plug:cppu-award"\)/);

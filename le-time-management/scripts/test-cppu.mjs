@@ -9,10 +9,10 @@ const context = vm.createContext({URL,Set,Map,Date,console,setTimeout,clearTimeo
   document:{createElement:()=>({set innerHTML(x){this.value=x;}}),querySelectorAll:()=>[]},
   // 解码不了的验证码图 = OCR 认不出来，用来把「换图重试」循环逼到次数上限
   Image:class{constructor(){this.naturalWidth=0;this.naturalHeight=0;}set src(v){this._src=v;}decode(){return Promise.reject(new Error('cannot decode'));}},
-  tide:{ui:{registerView:(def)=>{views.push(def);}},http:{session:async()=>'s1',restoreCookies:async(dump)=>{calls.push(['restore',dump]);return 'restored-sid';},fetch:async(...args)=>{calls.push(args);return typeof response==='function'?response(...args):response;}},storage:{set:async(k,v)=>{storageData[k]=v;},get:async(k,d)=>(k in storageData?storageData[k]:(d===undefined?null:d))},vault:{get:async(key)=>vaultData[key]||null,set:async(key,value)=>{vaultData[key]=value;},del:async(key)=>{delete vaultData[key];}},util:{openUrl:(url)=>opened.push(url),web:{formEncode:(fields)=>Object.entries(fields).map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&'),detectLoginForm:(html,base)=>html.includes('name="uid"')?{action:new URL('/coremail/index.jsp?cus=1',base).href,method:'POST',usernameField:'uid',passwordField:'password',captchaField:'',fields:[{name:'action',value:'login'}]}:null}},notify:(message,opts)=>{notices.push(message);noticeOpts.push(opts||{});},assets:{saveBase64:async(name,b64)=>{saved.push([name,b64]);return 'D:/Downloads/'+name;},revealSaved:async(p)=>{revealed.push(p);return {ok:true};}}}
+  tide:{ui:{registerView:(def)=>{views.push(def);}},http:{session:async()=>'s1',restoreCookies:async(dump)=>{calls.push(['restore',dump]);return 'restored-sid';},fetch:async(...args)=>{calls.push(args);return typeof response==='function'?response(...args):response;}},storage:{set:async(k,v)=>{storageData[k]=v;},get:async(k,d)=>(k in storageData?storageData[k]:(d===undefined?null:d))},vault:{get:async(key)=>vaultData[key]||null,set:async(key,value)=>{vaultData[key]=value;},del:async(key)=>{delete vaultData[key];}},util:{openUrl:(url)=>opened.push(url),openMailPage:(url,sid)=>opened.push(['mailPage',url,sid||'']),web:{formEncode:(fields)=>Object.entries(fields).map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&'),detectLoginForm:(html,base)=>html.includes('name="uid"')?{action:new URL('/coremail/index.jsp?cus=1',base).href,method:'POST',usernameField:'uid',passwordField:'password',captchaField:'',fields:[{name:'action',value:'login'}]}:null}},notify:(message,opts)=>{notices.push(message);noticeOpts.push(opts||{});},assets:{saveBase64:async(name,b64)=>{saved.push([name,b64]);return 'D:/Downloads/'+name;},revealSaved:async(p)=>{revealed.push(p);return {ok:true};}}}
 });
-vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,jwStateBlock,mountJwView,JW_VIEWS,cardIsExpense,bannerRefreshHtml,cardSetStatus};\n  tide.ui.registerView({'),context);
-const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailLink,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense,jwStateBlock,mountJwView,JW_VIEWS,bannerRefreshHtml,cardSetStatus}=context.testApi;
+vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailWeb,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,pdataRankCard,pdataRadarCard,pdataRadarSvg,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,jwStateBlock,mountJwView,JW_VIEWS,cardIsExpense,bannerRefreshHtml,cardSetStatus};\n  tide.ui.registerView({'),context);
+const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailWeb,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,pdataRankCard,pdataRadarCard,pdataRadarSvg,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense,jwStateBlock,mountJwView,JW_VIEWS,bannerRefreshHtml,cardSetStatus}=context.testApi;
 const item={RESOURCE_ID:'test',PIM_TITLE:'Test <notice>',CREATE_TIME:1};
 assert.match(cardHtml(item),/展开正文/);
 assert.match(cardHtml(item),/class="pp-detail-shell" aria-hidden="true"/);
@@ -352,7 +352,7 @@ assert.doesNotMatch(source, /自习室|评分信息/,
   '「自习室查询」「评分信息查询」按用户要求不做，不得出现在侧栏');
 
 assert.ok(source.includes('MAIL_ACCOUNT = "2025290058@cppu.edu.cn"'), '教育邮箱自动登录必须使用用户指定的完整邮箱账号');
-assert.match(source, /if \(url === MAIL\) \{ await openMailLink\(btn\); return; \}/,
+assert.match(source, /if \(url === MAIL_WEB\) \{ await openMailWeb\(btn\); return; \}/,
   '点击教育邮箱必须进入专用自动登录链路，而不是裸开 mail.cppu.edu.cn');
 assert.ok(source.includes('readSavedPassword') && source.includes('tide.vault.get("secret")'),
   '教育邮箱必须复用警大通知插件密钥库里保存的同一份密码');
@@ -360,7 +360,7 @@ assert.ok(source.includes('mailSessionUrlFromResponse') && source.includes('veri
   '教育邮箱提交后必须识别 sid 会话入口并二次校验，不能只 POST 一次就宣布成功');
 assert.doesNotMatch(source, /const direct = mailSessionUrlFromResponse[\s\S]{0,120}?openUrl\(direct\)/,
   '邮箱首页如果已经返回 sid，也要先校验该入口不是登录页再打开');
-const mailFn = source.slice(source.indexOf('async function openMailLink'));
+const mailFn = source.slice(source.indexOf('async function openMailWeb'));
 assert.doesNotMatch(mailFn, /data:text\/html|openUrl\([^)]*password/s,
   '邮箱自动登录不能把密码拼进 openUrl/data URL 这类可见地址');
 
@@ -378,13 +378,20 @@ response = (sid, method, url, opts = {}) => {
   }
   return { status: 404, body: '' };
 };
-await openMailLink(null);
-assert.equal(opened.at(-1), 'https://mail.cppu.edu.cn/coremail/XT5/index.jsp?sid=mail-sid');
+await openMailWeb(null);
+assert.match(source, /await tide\.util\.openMailPage\(MAIL_WEB, sid\)/,
+  '自动登录成功时必须把会话交给内置网页窗口（tide.util.openMailPage），而不是甩到系统浏览器');
+const mailCall = opened.find((item) => Array.isArray(item) && item[0] === 'mailPage');
+assert.ok(mailCall, '警大邮箱必须在应用内网页窗口里打开（tide.util.openMailPage）');
+assert.equal(mailCall[1], 'https://mail.cppu.edu.cn/static/sirius-web/?version=1791461395966#mailbox',
+  '内置窗口必须打开 Coremail 新版前端 Sirius Web 的邮箱首页');
+assert.equal(mailCall[2], 's1', '自动登录拿到的 native 会话（Cookie Jar 里已有 mail 域会话）必须交给内置窗口，窗口里不用再登一遍');
+assert.ok(!mailCall[1].includes('sid='), 'sid 不许出现在窗口 URL 里（否则会进浏览历史）');
 const mailPost = calls.find((c) => c[1] === 'POST' && c[2].includes('/coremail/index.jsp'));
 assert.ok(mailPost, '教育邮箱自动登录必须向邮箱登录表单提交 POST');
 assert.ok(mailPost[3].body.includes('uid=2025290058%40cppu.edu.cn'), '邮箱登录提交体必须带完整邮箱账号');
 assert.ok(mailPost[3].body.includes('password=mail-pass'), '邮箱登录提交体必须复用密钥库保存的警大通知密码');
-assert.ok(opened.every((url) => !url.includes('mail-pass')), '打开到系统浏览器的 URL 里不能泄露密码');
+assert.ok(opened.every((item) => !String(item).includes('mail-pass')), '交给窗口的地址里不能泄露密码');
 assert.ok(calls.some((c) => c[1] === 'GET' && c[2].includes('sid=mail-sid')), '打开邮箱前必须用同一 HTTP 会话校验 sid 入口可用');
 
 /* ── 校园服务栏可收起 / 展开：默认收起、有动画、自左上角往右下角展开、正文随之让位 ── */
@@ -676,17 +683,19 @@ assert.doesNotMatch(source, /\/je\/doAct|\/je\/develop\/funcInfo\/(save|add|upda
   '教务接入必须只读：写入类端点没实测过就不许出现在插件里');
 assert.ok(source.includes('const JW_LOAD = JWAPP + "/je/load"'), '教务取数端点必须挂在 jw 域，不能混进 sso-jw');
 
-/* 警大学分原入口成为警大成绩，避免教务菜单出现两张重复成绩页。 */
-assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-notify', 'cppu-qj', 'cppu-xk'],
-  '必须注册通知、获奖名单及五个教务/一卡通视图，登录设置属于应用设置');
+/* 警大学分原入口成为警大成绩，避免教务菜单出现两张重复成绩页；校历 v0.216.0 从独立插件并入；
+   学生个人成长中心（pdata）v0.217.0 并入；个人信息 v0.221.0 并入。 */
+assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-growth', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-xk'],
+  '必须注册通知、获奖名单、警大校历、学生成长、个人信息及五个教务/一卡通视图，登录设置属于应用设置');
 assert.ok(views.filter((v) => v.id !== 'cppu-notify').every((v) => typeof v.render === 'function'), '插件子视图必须有 render');
 assert.ok(views.some((v) => v.id === 'cppu-cx' && v.title === '警大创新学分'), '创新学分视图要有独立标题');
 assert.ok(views.some((v) => v.id === 'cppu-credit' && v.title === '警大成绩'), '原警大学分视图应以警大成绩注册');
+assert.ok(views.some((v) => v.id === 'cppu-profile' && v.title === '个人信息'), '个人信息视图要有独立标题');
 assert.match(source, /view: "cppu-credit", label: "警大成绩"/, '教务菜单应显示警大成绩');
-assert.match(source, /id: "cppu-credit", title: "警大成绩"[^\n]*keys: \["grade"\][^\n]*menu: JW_MENU\.grades,[\s\S]*?body: \(\) => jwGradesHtml\(\)/,
-  '原警大学分入口必须读取成绩接口并使用 cppu-helper 成绩页及导出功能');
+assert.match(source, /id: "cppu-credit", title: "警大成绩"[^\n]*keys: \["grade", "pdataStudy"\][^\n]*menu: JW_MENU\.grades,[\s\S]*?body: \(\) => jwGradesHtml\(\)/,
+  '警大成绩入口必须读取成绩接口，并同时拉个人成长中心的绩点排名 / 六维图');
 assert.doesNotMatch(source, /view: "cppu-grades"|id: "cppu-grades"/, '不能保留重复的成绩入口');
-for (const v of ['cppu-xk', 'cppu-qj', 'cppu-credit', 'cppu-cx', 'cppu-card', 'cppu-award']) assert.ok(source.includes(`view: "${v}"`), `校园服务栏必须有 ${v} 入口`);
+for (const v of ['cppu-xk', 'cppu-qj', 'cppu-credit', 'cppu-cx', 'cppu-card', 'cppu-award', 'cppu-calendar', 'cppu-growth', 'cppu-profile']) assert.ok(source.includes(`view: "${v}"`), `校园服务栏必须有 ${v} 入口`);
 assert.match(source, /url\.startsWith\("view:"\)\) \{ tide\.util\.navigate\("plug:" \+ url\.slice\(5\)\)/,
   'view: 入口必须在插件内切视图，而不是开系统浏览器（教务 SPA 没有 URL 深链）');
 assert.match(source, /data-goto="\$\{esc\("view:" \+ item\.view\)\}"/,
@@ -776,6 +785,34 @@ assert.ok(gradePage.includes('2025-2026 学年 · 春') && gradePage.includes('�
 assert.ok(gradePage.includes('共 5 门 · 总学分 9.0'), '成绩首页须汇总课程数和总学分');
 assert.ok(gradePage.includes('参考毕业学分') && gradePage.includes('170（仅供参考）'), '参考毕业学分口径与 APK 相同');
 assert.ok(gradePage.includes('data-grade-export'), '导出成绩单按钮应可点击');
+assert.ok(gradePage.includes('绩点排名情况') && gradePage.includes('六维图'), '警大成绩下面须有绩点排名情况与六维图两张卡');
+jwState.data.pdataStudy = { ok: true, auth: false, message: '', at: Date.now(),
+  rank: { QXPM: 145, XYPM: 30, ZYPM: 12, BJPM: 3 },
+  myPoint: { QXPM: 3.2, XYPM: 3.4, ZYPM: 3.5, BJPM: 3.8 },
+  topPoint: { QXPM: 4, XYPM: 4, ZYPM: 4, BJPM: 4 } };
+const rankPage = pdataRankCard();
+for (const t of ['全校排名', '学院排名', '专业排名', '班级排名', '数据来源'])
+  assert.ok(rankPage.includes(t), `绩点排名情况应包含 ${t}`);
+assert.ok(rankPage.includes('>145<') && rankPage.includes('>30<') && rankPage.includes('>12<') && rankPage.includes('>3<'),
+  '四档排名要取成长中心的 RANKING 值');
+const radarPage = pdataRadarCard();
+assert.ok(radarPage.includes('<svg') && radarPage.includes('jg-radar'), '六维图应画成内联 SVG 雷达图');
+assert.ok(radarPage.includes('本人绩点') && radarPage.includes('学霸绩点'), '六维图要有本人/学霸两组图例');
+for (const t of ['全校', '学院', '专业', '班级']) assert.ok(radarPage.includes(t), `六维图轴应包含 ${t}`);
+assert.equal(pdataRadarSvg({ QXPM: 2, XYPM: 0, ZYPM: 0, BJPM: 0 }, { QXPM: 4, XYPM: 0, ZYPM: 0, BJPM: 0 }).includes('NaN'), false,
+  '轴刻度为 0 时不能算出 NaN 坐标');
+jwState.data.pdataStudy = { ok: true, auth: false, message: '', at: Date.now(),
+  rank: { QXPM: 0, XYPM: 0, ZYPM: 0, BJPM: 0 },
+  myPoint: { QXPM: 0, XYPM: 0, ZYPM: 0, BJPM: 0 },
+  topPoint: { QXPM: 0, XYPM: 0, ZYPM: 0, BJPM: 0 } };
+assert.ok(pdataRankCard().includes('暂未算出') && pdataRadarCard().includes('暂未算出'),
+  '新生还没有排行数据时要给出占位而不是空白');
+jwState.data.pdataStudy = { ok: false, auth: true, message: '', at: Date.now(),
+  rank: { QXPM: 0, XYPM: 0, ZYPM: 0, BJPM: 0 }, myPoint: {}, topPoint: {} };
+assert.ok(pdataRankCard().includes('警大通知') && pdataRadarCard().includes('警大通知'),
+  '个人成长中心登录态缺失时应指路到警大通知登录');
+jwState.data.pdataStudy = null;
+assert.ok(jwGradesHtml().includes('还没有拉取过绩点排名'), '未拉取过时给出刷新提示');
 const drawn = [];
 context.document.createElement = () => ({
   getContext: () => ({ fillRect: () => {}, measureText: (s) => ({ width: s.length * 14 }), fillText: (s) => drawn.push(s) }),
@@ -813,6 +850,7 @@ jwState.data.grade.push({ KCMC: '<img src=x onerror=alert(1)>', XF: 1, JD: 2, ZP
 gradePage = jwGradesHtml();
 assert.ok(!gradePage.includes('<img src=x'), '成绩接口返回的课程名必须转义');
 jwState.data.grade.pop();
+assert.ok(!pdataRadarSvg({}, {}).includes('NaN'), '成长中心返回空对象时雷达图仍要画得出来');
 assert.equal(jwDict('KCMK', '28'), '军事教育课程', '模块名必须取教务字典 KCMKDM_1');
 assert.equal(jwDict('KCMK', '01'), '自然科学', '模块码与培养方案里的顺序无关，不能按界面次序排号');
 let academicCredit = jwAcademicCreditHtml();

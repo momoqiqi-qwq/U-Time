@@ -9,12 +9,20 @@
   const JW = "https://sso-jw.cppu.edu.cn";
   const PORTAL = "https://portal-jw.cppu.edu.cn";
   const JWAPP = "https://jw.cppu.edu.cn";          // 智慧教务（正方 JE），与上面的 sso-jw 不是一个域
+  // 学生个人成长中心（教师端同一套 pdata）：独立 SPA + 独立 CAS 客户端，
+  // 登录后不发会话 Cookie，而是发 `Authentication` 头里的 token —— 见 ensurePdataAuth。
+  const PDATA = "https://pdata.cppu.edu.cn";
+  const PDATA_HOME = "/stu/home/";
   const JW_INDEX = JWAPP + "/index.html";
   const SERVICE_JW = JW + "/tpass/bridge";
   const LOGIN_URL = SSO + "/tpass/login?service=" + encodeURIComponent(SERVICE_JW);
   const SERVICE_PORTAL = PORTAL + "/tp_up/view?m=up";
   const SILENT_LOGIN = JW + "/tpass/login?service=" + encodeURIComponent(SERVICE_PORTAL);
   const MAIL = "https://mail.cppu.edu.cn/";
+  // 警大邮箱新版前端（Coremail Sirius Web）是单页应用：`#mailbox` 只是它的前端路由，
+  // `version` 是官方静态资源指纹（取用户给的那串写死，避免 CDN 把新旧资源串起来）。
+  // 它认的是 mail 域的 sid Cookie —— 插件 native 会话登一次后把 Cookie 注入内置窗口即可免登。
+  const MAIL_WEB = "https://mail.cppu.edu.cn/static/sirius-web/?version=1791461395966#mailbox";
   const MAIL_ACCOUNT = "2025290058@cppu.edu.cn";
   const CARD_ORIGIN = "https://yktcard.cppu.edu.cn";
   const CARD_HOME = CARD_ORIGIN + "/campus-card/?appId=2&loginFrom=h5&type=app";
@@ -61,7 +69,10 @@
   // 标题与图标不写死：进入插件时抓一次网页元信息（<title> / favicon / 图标名），
   // 抓不到（内网、未登录、断网）就退回下面的 label 与 icon，因此离线也不会空着。
   const QUICK_LINKS = [
-    { url: "https://mail.cppu.edu.cn/", label: "教育邮箱", icon: "envelope" },
+    // 警大邮箱走应用内网页窗口（Sirius Web 单页前端）：点一下先用插件自己那份会话登一次，
+    // 再把该会话的 mail 域 Cookie 注入内置 WebView —— 登录态与插件同源，窗口里不用再登一遍。
+    // 没存密码 / 登录失败就退回不带会话的内置窗口，由页面自己登录。
+    { url: MAIL_WEB, label: "警大邮箱", icon: "envelope" },
     // 「教务」是唯一的父项：右侧箭头展开 / 收起，行本身仍是换票开教务（与升级前行为一致）。
     // 教务子项走 `view:`（在 U-Time 里开视图）而不是换票开浏览器：
     // 教务 SPA 完全没有 URL 深链（je-app/je-main/je-core 三个 bundle 都不解析
@@ -82,6 +93,13 @@
     // 否则入口点开必失败；这里只保留裸地址 + hash 路由。
     { url: "https://xg.cppu.edu.cn/XGPhone/Phone/index.html#/StuDailyLeaveList", label: "我的请假", icon: "calendar-check" },
     { url: "https://service.cppu.edu.cn/fe/site/service", label: "一网通办", icon: "clipboard-list" },
+    // 学生个人成长中心（pdata.cppu.edu.cn）与门户 / 教务不同源：独立 SPA、独立 CAS、
+    // 登录态是请求头里的 token 而不是 Cookie，所以做成 U-Time 内部视图，
+    // 由插件自己换票 + 续期（见 ensurePdataAuth / growthBridge）。
+    { view: "cppu-growth", label: "学生成长", icon: "seedling" },
+    // 个人信息：与成长中心同一个 pdata 站点、同一份 token。做成内部视图的关键理由
+    // 不是排版，而是网页做不到的事 —— 点任意字段直接复制到剪贴板（见 profile.js）。
+    { view: "cppu-profile", label: "个人信息", icon: "address-card" },
     // 一卡通平台（慧新易校 / 新中新）不是 sso-jw/门户体系里的子系统。
     // 直接打开 cardRecharge 这类受保护深链，平台还没建立自己的 H5 session 时会先报「未授权」；
     // 所以这里改成 U-Time 内部视图：先加载一卡通 H5 首页/登录壳，再由视图内按钮跳充值等子页。
@@ -556,6 +574,23 @@
       .jg-track .jg-good{background:#1B7F4B}.jg-track .jg-mid{background:#1B3A6B}.jg-track .jg-warn{background:#B06A00}.jg-track .jg-bad{background:#C8102E}
       [data-theme-mode="dark"] .jg-good{color:#4ADE80}[data-theme-mode="dark"] .jg-mid{color:#60A5FA}[data-theme-mode="dark"] .jg-warn{color:#FBBF24}[data-theme-mode="dark"] .jg-bad{color:#F87171}
       .jg-export{display:block;width:100%;min-height:42px;margin:8px 0 0}.jg-course{border-top:1px solid var(--line-soft);padding:4px 0}.jg-course:first-of-type{border:0}.jg-course span{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--ink)}.jg-course b{width:34px;font-size:calc(13px * var(--ui-text-scale));text-align:right}.jg-course small{width:30px;color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale));text-align:right}
+      /* 绩点排名情况 / 六维图（数据来自学生个人成长中心） */
+      .jg-rank-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:2px 0 6px}
+      .jg-rank-item{display:flex;flex-direction:column;gap:2px;min-width:0;background:var(--paper);border:1px solid var(--line-soft);border-radius:10px;padding:9px 11px}
+      .jg-rank-item small{color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale))}
+      .jg-rank-item b{font-size:calc(22px * var(--ui-text-scale));line-height:1.15}
+      .jg-rank-qx{color:var(--deep)}.jg-rank-xy{color:#2A7EFF}.jg-rank-zy{color:#B06A00}.jg-rank-bj{color:var(--campus-green)}
+      [data-theme-mode="dark"] .jg-rank-qx{color:#8FB6F0}[data-theme-mode="dark"] .jg-rank-xy{color:#7CB6FF}[data-theme-mode="dark"] .jg-rank-zy{color:#FBBF24}[data-theme-mode="dark"] .jg-rank-bj{color:#4ADE80}
+      .jg-legend{display:flex;gap:14px;flex-wrap:wrap;margin:2px 0 4px;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale))}
+      .jg-legend span{display:inline-flex;align-items:center;gap:5px}
+      .jg-legend i{width:9px;height:9px;border-radius:3px;display:inline-block}
+      .jg-legend i.mine{background:#FB951E}.jg-legend i.top{background:#2A7EFF}
+      .jg-radar{display:block;width:100%;max-width:290px;height:auto;margin:0 auto}
+      .jg-radar-grid polygon,.jg-radar-grid line{fill:none;stroke:var(--line);stroke-width:1}
+      .jg-radar-top{fill:rgba(42,126,255,.18);stroke:#2A7EFF;stroke-width:1.6}
+      .jg-radar-mine{fill:rgba(251,149,30,.2);stroke:#FB951E;stroke-width:1.6}
+      .jg-radar-label text{fill:var(--ink-3);font-size:calc(11px * var(--ui-text-scale))}
+      [data-theme-mode="dark"] .jg-radar-top{stroke:#7CB6FF}[data-theme-mode="dark"] .jg-radar-mine{stroke:#FBBF24}
       .yk-frame-shell{margin-top:10px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;min-height:620px;height:calc(100vh - 190px);box-shadow:0 1px 10px rgba(34,48,58,.05)}
       [data-card-web][hidden],[data-card-stats][hidden]{display:none!important}
       .yk-frame{display:block;width:100%;height:100%;border:0;background:var(--paper)}
@@ -694,7 +729,7 @@
   async function saveCookies() {
     if (typeof tide.vault?.set !== "function" || !state.sid) return;
     try {
-      const dump = await tide.http.exportCookies(state.sid, [SSO, JW, PORTAL, JWAPP]);
+      const dump = await tide.http.exportCookies(state.sid, [SSO, JW, PORTAL, JWAPP, PDATA]);
       if (dump.length) await tide.vault.set("cookies", JSON.stringify(dump));
     } catch { /* 密钥库不可用（浏览器调试）时静默跳过 */ }
   }
@@ -1747,7 +1782,7 @@
       + `<button type="button" class="pp-side-head-toggle" data-side-toggle aria-expanded="true" title="收起校园服务" aria-label="收起校园服务"><span aria-hidden="true">◂</span>校园服务</button>`
       + `</div>`
       + `<div class="pp-side-list">${rows}</div>`
-      + `<div class="pp-side-note">标题与图标自动识别<br>点一下用浏览器打开</div>`
+      + `<div class="pp-side-note">标题与图标自动识别<br>点一下打开对应服务</div>`
       + `</div>`;
   }
   // 收起/展开开关。做成 .pp-shell 的 flex 子项而不是浮层：永不压住正文，且收起时它天然落在左上角。
@@ -1819,7 +1854,7 @@
   async function openSideLink(url, btn) {
     // `view:` 入口不开浏览器，直接切到本插件注册的对应视图（宿主视图 id 统一带 `plug:` 前缀）
     if (url.startsWith("view:")) { tide.util.navigate("plug:" + url.slice(5)); return; }
-    if (url === MAIL) { await openMailLink(btn); return; }
+    if (url === MAIL_WEB) { await openMailWeb(btn); return; }
     const entry = TICKET_LINKS[url];
     if (!entry || !state.sid) { tide.util.openUrl(url); return; }
     if (btn && btn.setAttribute) btn.setAttribute("aria-busy", "1");
@@ -1830,6 +1865,129 @@
     tide.util.openUrl(url);
     tide.notify("没换到免登票据，已按普通方式打开，可能需要先登录一次");
   }
+
+  /* ── 学生个人成长中心（pdata.cppu.edu.cn）鉴权 ──
+     它和门户 / 教务不是一套东西：pdata 是独立 SPA，自带一份 CAS 客户端
+     （settings.js 里 casPrefixUrl = https://sso.cppu.edu.cn/tpass、casType=1），
+     登录成功后**不发会话 Cookie**，而是把 token 放进每个 /tsa/** 请求的
+     `Authentication` 头里（见站点 services 层）。
+
+     所以链路是两步，且两步都必须在本插件的会话里走（Rust 侧发起，不受 CORS 限制）：
+       ① 用主 SSO 的 CASTGC 换一张一次性 ticket
+          （service 就是裸开 /stu/home/ 时 302 里的那个，即 https://pdata.cppu.edu.cn/stu/home/）；
+          followRedirects:false —— 只看 Location，绝不把票消费掉；
+       ② 拿 ticket 打 /tsa/validateLogin?ticket=..&service=..（SPA 自己就是这么登的），
+          **这一步才消费 ticket**，回 {code:2000, data:{token, userId, ...}}。
+
+     token 只进 vault（和教务密码同一把锁），不进 storage、不进日志、不写进 DOM。
+     失效时由 pdataApi 自己清掉重走一遍 ①②，用户不需要做任何事。 */
+  const PDATA_VAULT_KEY = "pdataToken";
+  let pdataAuth = { token: "", userId: "", at: 0 };
+  let pdataAuthPending = null;
+
+  /** 学生端 CAS 要票：pdata 的 CAS 就是 sso.cppu.edu.cn，没有 sso-jw 那一跳。 */
+  function mintPdataTicket(entry) {
+    const url = SSO + "/tpass/login?service=" + encodeURIComponent(entry.service);
+    return getPage(url, false, { followRedirects: false })
+      .then((res) => redirectTarget(res, url, entry.origin, entry.path))
+      .catch(() => "");
+  }
+
+  async function loadPdataAuth() {
+    if (pdataAuth.token) return pdataAuth;
+    try {
+      const raw = await tide.vault?.get?.(PDATA_VAULT_KEY);
+      const saved = raw ? JSON.parse(raw) : null;
+      if (saved && saved.token) pdataAuth = { token: String(saved.token), userId: String(saved.userId || ""), at: Number(saved.at) || 0 };
+    } catch { /* 密钥库不可用（浏览器调试）时按无票据处理 */ }
+    return pdataAuth;
+  }
+
+  /** force=true：丢掉手上的 token 重新走一遍 ①②（用户点「重新登录」/ 服务端说 token 过期）。 */
+  async function ensurePdataAuth(force = false) {
+    if (force) {
+      pdataAuth = { token: "", userId: "", at: 0 };
+      try { await tide.vault?.del?.(PDATA_VAULT_KEY); } catch { /* ignore */ }
+    } else {
+      await loadPdataAuth();
+    }
+    if (pdataAuth.token) return pdataAuth;
+    // 同一时刻只允许有一次换票在飞：七个接口并发拉的时候不能各换一次。
+    if (pdataAuthPending) return pdataAuthPending;
+    pdataAuthPending = (async () => {
+      try {
+        await newSession();
+        const service = PDATA + PDATA_HOME;
+        const ticket = await mintPdataTicket({ service, origin: PDATA, path: PDATA_HOME });
+        // 换不到票 ⇒ 本插件的统一身份认证会话不在（没勾「5天内自动登录」，或已过期）。
+        if (!ticket) return pdataAuth;
+        let raw = "";
+        try { raw = new URL(ticket).searchParams.get("ticket") || ""; } catch { raw = ""; }
+        if (!raw) return pdataAuth;
+        const res = await getPage(PDATA + "/tsa/validateLogin?ticket=" + encodeURIComponent(raw) + "&service=" + encodeURIComponent(service));
+        const body = JSON.parse(String(res?.body || ""));
+        if (Number(body?.code) !== 2000 || !body?.data?.token) return pdataAuth;
+        pdataAuth = { token: String(body.data.token), userId: String(body.data.userId || ""), at: Date.now() };
+        try { await tide.vault?.set?.(PDATA_VAULT_KEY, JSON.stringify(pdataAuth)); } catch { /* ignore */ }
+        saveCookies();
+        return pdataAuth;
+      } catch {
+        return pdataAuth;
+      } finally {
+        pdataAuthPending = null;
+      }
+    })();
+    return pdataAuthPending;
+  }
+
+  /** pdata 统一取数。学生端 _USER 恒为空（服务端按 token 认人），但参数位必须留着。 */
+  async function pdataApi(path, retried = false) {
+    const auth = await ensurePdataAuth();
+    if (!auth.token) {
+      return { ok: false, code: 0, status: 0, auth: true, data: null,
+        message: "统一身份认证会话已失效，请先在「警大通知」里登录一次，再回到本页刷新" };
+    }
+    const url = PDATA + path + (path.includes("?") ? "&" : "?") + "_USER=" + encodeURIComponent(auth.userId || "");
+    let res = null;
+    try {
+      res = await getPage(url, false, { headers: { Authentication: auth.token, "Content-Type": "application/json;charset=utf-8" } });
+    } catch (e) {
+      return { ok: false, code: 0, status: 0, auth: false, data: null, message: String(e?.message || e) };
+    }
+    let body = null;
+    try { body = JSON.parse(String(res?.body || "")); } catch { body = null; }
+    if (body && Number(body.code) === 2000) return { ok: true, code: 2000, status: res.status, auth: false, message: "", data: body.data };
+    // 不是 2000、又没解析出 JSON：多半是 token 过期落回了登录页，清掉重换一次票再来。
+    if (!retried && (!body || [401, 1001, 4001].includes(Number(body?.code)))) {
+      await ensurePdataAuth(true);
+      return pdataApi(path, true);
+    }
+    const msg = String(body?.message || body?.msg || "").trim();
+    return { ok: false, code: Number(body?.code) || 0, status: Number(res?.status) || 0, auth: !body, data: null,
+      message: msg || `个人成长中心返回 ${res?.status || "未知响应"}` };
+  }
+
+  /* 开 pdata 的某个页面：**不换票**。pdata 的 SPA 必须自己在浏览器里跑 validateLogin，
+     把换来的票交给我们反而没人消费。只要 SSO 会话还在，裸开就会
+     /stu/xxx → 302 sso → 302 带票回来 → SPA 自证，一次跳转的事。 */
+  function openPdataLink(path) {
+    let url = PDATA + PDATA_HOME;
+    try { url = new URL(path || PDATA_HOME, PDATA + "/").href; } catch { /* 退回首页 */ }
+    tide.util.openUrl(url);
+    return Promise.resolve();
+  }
+
+  /* growth.js 只认这三件事：取数、开网页、重登。SSO 会话与 token 不出本文件。 */
+  const growthBridge = {
+    api: (path) => pdataApi(path),
+    open: (path) => openPdataLink(path),
+    // "ok"  = 换到票了，可以重新取数；
+    // "form" = 换不到票 ⇒ 本插件的统一身份认证会话不在，得先去「警大通知」登一次。
+    relogin: async () => {
+      await ensurePdataAuth(true);
+      return pdataAuth.token ? "ok" : "form";
+    },
+  };
 
   function mailSessionUrlFromResponse(res, base = MAIL) {
     const parts = [res?.finalUrl, res?.location, res?.body].filter(Boolean).map(String);
@@ -1897,56 +2055,64 @@
     return state.savedPassword;
   }
 
-  async function openMailLink(btn) {
+  /* ── 警大邮箱（Sirius Web）内置网页窗口 ──
+     登录链路与过去一致：用插件密钥库里的账号密码在 native 会话里走一遍 coremail 登录，
+     能拿到 sid 就说明这个会话的 Cookie Jar 里已经有 mail 域的有效会话。区别只在最后一步 ——
+     过去把带 sid 的地址交给浏览器（sid 因此出现在 URL 与浏览历史里），现在由 Rust 原生端
+     从 Cookie Jar 里取 Cookie 注入应用内 WebView，sid 不进 URL、也不进页面 JS。
+     会话建不起来（没存密码 / 要验证码 / 站点改版）就退回不带会话的内置窗口，由页面自己登录。 */
+  async function ensureMailSession() {
     const password = await readSavedPassword();
-    if (!password) {
-      tide.util.openUrl(MAIL);
-      tide.notify("还没有保存警大通知插件密码，已按普通方式打开教育邮箱");
-      return;
-    }
+    if (!password) return "";
+    const sid = await tide.http.session();
+    const first = await tide.http.fetch(sid, "GET", MAIL, { headers: { "Accept": "text/html,*/*" } });
+    const pageUrl = first?.finalUrl || MAIL;
+    const direct = mailSessionUrlFromResponse(first, pageUrl);
+    if (direct) { await verifyMailSession(sid, direct); return sid; }
+    let form = null;
+    try { form = tide.util.web.detectLoginForm(first?.body || "", pageUrl); } catch { form = null; }
+    const rt = form?.passwordField ? { form, pageUrl } : defaultMailForm(pageUrl);
+    if (rt.form.captchaField) return "";
+    const fields = {};
+    for (const f of rt.form.fields || []) if (f.name && f.value !== undefined) fields[f.name] = f.value;
+    fields[rt.form.usernameField || "uid"] = MAIL_ACCOUNT;
+    fields[rt.form.passwordField || "password"] = password;
+    const body = tide.util.web.formEncode(fields);
+    const action = rt.form.action || rt.pageUrl;
+    const method = (rt.form.method || "POST").toUpperCase();
+    const res = method === "GET"
+      ? await tide.http.fetch(sid, "GET", action + (action.includes("?") ? "&" : "?") + body, { headers: { "Referer": rt.pageUrl } })
+      : await tide.http.fetch(sid, "POST", action, {
+          headers: { "Content-Type": "application/x-www-form-urlencoded", "Referer": rt.pageUrl },
+          body,
+        });
+    if (res.status >= 400) return "";
+    if (mailLoginFailureText(res)) return "";
+    const target = mailSessionUrlFromResponse(res, res?.finalUrl || action);
+    if (!target) return "";
+    await verifyMailSession(sid, target);
+    return sid;
+  }
+
+  async function openMailWeb(btn) {
+    if (typeof tide.util?.openMailPage !== "function") { tide.util.openUrl(MAIL_WEB); return; }
     if (btn && btn.setAttribute) btn.setAttribute("aria-busy", "1");
     try {
-      const sid = await tide.http.session();
-      const first = await tide.http.fetch(sid, "GET", MAIL, { headers: { "Accept": "text/html,*/*" } });
-      let pageUrl = first?.finalUrl || MAIL;
-      const direct = mailSessionUrlFromResponse(first, pageUrl);
-      if (direct) {
-        const verified = await verifyMailSession(sid, direct);
-        tide.util.openUrl(verified);
-        return;
+      let sid = "";
+      try { sid = await ensureMailSession(); } catch { sid = ""; }
+      try {
+        await tide.util.openMailPage(MAIL_WEB, sid);
+        tide.notify(sid ? "已使用警大通知保存的账号密码打开警大邮箱" : "警大邮箱已在应用内打开，可直接登录");
+      } catch (e) {
+        // 会话过期 / 注入被拒时别让入口点了没反应：退回不带会话的内置窗口
+        if (!sid) { tide.notify(`警大邮箱窗口打开失败：${e?.message || e}`); return; }
+        try {
+          await tide.util.openMailPage(MAIL_WEB);
+          tide.notify(`邮箱登录态注入失败，已打开登录页：${e?.message || e}`);
+        } catch (e2) {
+          tide.notify(`警大邮箱窗口打开失败：${e2?.message || e2}`);
+        }
       }
-      let form = null;
-      try { form = tide.util.web.detectLoginForm(first?.body || "", pageUrl); } catch { form = null; }
-      const rt = form?.passwordField ? { form, pageUrl } : defaultMailForm(pageUrl);
-      if (rt.form.captchaField) {
-        tide.util.openUrl(MAIL);
-        tide.notify("教育邮箱当前登录页需要验证码，已按普通方式打开");
-        return;
-      }
-      const fields = {};
-      for (const f of rt.form.fields || []) if (f.name && f.value !== undefined) fields[f.name] = f.value;
-      fields[rt.form.usernameField || "uid"] = MAIL_ACCOUNT;
-      fields[rt.form.passwordField || "password"] = password;
-      const body = tide.util.web.formEncode(fields);
-      const action = rt.form.action || rt.pageUrl;
-      const method = (rt.form.method || "POST").toUpperCase();
-      const res = method === "GET"
-        ? await tide.http.fetch(sid, "GET", action + (action.includes("?") ? "&" : "?") + body, { headers: { "Referer": rt.pageUrl } })
-        : await tide.http.fetch(sid, "POST", action, {
-            headers: { "Content-Type": "application/x-www-form-urlencoded", "Referer": rt.pageUrl },
-            body,
-          });
-      if (res.status >= 400) throw new Error(`邮箱登录提交失败（HTTP ${res.status}）`);
-      const failed = mailLoginFailureText(res);
-      if (failed) throw new Error(failed);
-      const target = mailSessionUrlFromResponse(res, res?.finalUrl || action);
-      if (!target) throw new Error("邮箱登录已提交，但没有拿到可由浏览器直接打开的 sid 会话入口");
-      const verified = await verifyMailSession(sid, target);
-      tide.util.openUrl(verified);
-      tide.notify("已使用警大通知保存的账号密码打开教育邮箱");
-    } catch (e) {
-      tide.util.openUrl(MAIL);
-      tide.notify(`教育邮箱自动登录失败，已按普通方式打开：${e?.message || e}`);
     } finally {
       if (btn && btn.removeAttribute) btn.removeAttribute("aria-busy");
     }
@@ -2079,7 +2245,7 @@
   }
   const jwState = {
     term: null,
-    data: { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null },
+    data: { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null, pdataStudy: null },
     loading: {}, error: {}, at: {},
     courseScope: "week",            // today | week | term，默认本周（本学期是 200+ 行的紧凑列表）
     leaveCourseId: "",
@@ -2201,18 +2367,25 @@
         body: "",
       });
       const v = JSON.parse(String(res.body || ""))?.data?.values || {};
-      if (v.DM) jwState.term = { code: v.DM, name: String(v.MC || v.DM), jxStart: String(v.JXZQSRQ || ""), weeks: Number(v.XQZS) || 0 };
+      // 取数字段与 cppu-helper v15.0 的 XlFragment 完全一致（同一个 POST /je/system/getNowXnxq → data.values）：
+      // JXZQSRQ = 教学第 1 周起始日（第 1 周的周一，周次一律以它为基准）、JXZS = 教学周数、
+      // KSRQ = 学期开始日、JSRQ = 学期结束日。v0.216.0 起把 KSRQ / JSRQ 也留下来：
+      // 校历的学期起止是官方值，不再只有「起始日 + 周数」推算。
+      // 周数用 JXZS（教学周）而不是 XQZS（学期周，含军训/假期）—— 后者会把教学周次算偏。
+      if (v.DM) jwState.term = { code: v.DM, name: String(v.MC || v.DM), jxStart: String(v.JXZQSRQ || ""),
+        weeks: Number(v.JXZS) || Number(v.XQZS) || 0, termStart: String(v.KSRQ || ""), termEnd: String(v.JSRQ || "") };
     } catch { /* 学期拿不到不阻塞列表：课次视图退化成「不过滤学期」 */ }
     return jwState.term;
   }
 
-  // 校历插件只接收学期边界数据；统一身份认证和 Cookie 始终留在本插件。
+  // 校历视图只接收学期边界数据（含官方起止日 KSRQ / JSRQ）；统一身份认证和 Cookie 始终留在本插件。
   tide.events?.on?.("cppu:term-request", (request) => {
     if (!request || typeof request.id !== "string") return;
     const previous = jwState.term;
     loadJwTerm(true).then((term) => {
       tide.events.emit("cppu:term-response", { id: request.id,
-        term: term && term !== previous ? { name: term.name, jxStart: term.jxStart, weeks: term.weeks } : null,
+        term: term && term !== previous ? { name: term.name, jxStart: term.jxStart, weeks: term.weeks,
+          termStart: term.termStart || "", termEnd: term.termEnd || "" } : null,
         error: term === previous ? "本次未能刷新教务学期；请检查警大门户登录" : "教务暂未返回学期信息" });
     }).catch((error) => {
       tide.events.emit("cppu:term-response", { id: request.id, error: String(error?.message || "教务学期暂不可用") });
@@ -2222,6 +2395,7 @@
   async function jwSaveCache() {
     const keep = {};
     for (const k of ["xkTask", "xkResult", "qjRecord", "creditPlan", "creditModule", "grade", "cxCredit", "cxDetail"]) if (Array.isArray(jwState.data[k])) keep[k] = jwState.data[k];
+    if (jwState.data.pdataStudy) keep.pdataStudy = jwState.data.pdataStudy;
     try { await tide.storage.set("jwCache", { username: state.username, term: jwState.term, at: jwState.at, keep, prefs: { creditHideDone: jwState.creditHideDone } }); } catch { /* 忽略 */ }
   }
   async function jwRestoreCache() {
@@ -2231,8 +2405,54 @@
       if (c.term && !jwState.term) jwState.term = c.term;
       jwState.creditHideDone = c.prefs?.creditHideDone === true;
       for (const [k, rows] of Object.entries(c.keep || {})) if (Array.isArray(rows) && jwState.data[k] === null) jwState.data[k] = rows;
+      if (jwState.data.pdataStudy === null && c.keep?.pdataStudy && typeof c.keep.pdataStudy === "object") jwState.data.pdataStudy = c.keep.pdataStudy;
       for (const [k, at] of Object.entries(c.at || {})) if (!jwState.at[k]) jwState.at[k] = Number(at) || 0;
     } catch { /* 缓存坏了当没有 */ }
+  }
+
+  /* ── 个人成长中心（pdata）学情：绩点排名 + 本人/学霸绩点差距 ──
+     两个接口的学生端路径都带 shc 段（pdp 段是教师端，学生 token 打过去同样空）：
+       GET /tsa/shc/learnInfo/gradePointRanking → [{RANKTYPE, RANKING}]，RANKTYPE ∈ 全校/学院/专业/班级
+       GET /tsa/shc/learnInfo/learningGap      → [{RANKTYPE, MYPOINT, TOPPOINT}]
+     pdata 的排行只按学期批量算，2025 级新生（当前账号）两个接口都返回 data: []，
+     所以这里必须原样保留空数组 —— 渲染层靠它区分「暂无数据」和「还没拉过」。 */
+  const PDATA_RANK_TYPES = ["全校", "学院", "专业", "班级"];
+  const PDATA_RANK_KEYS = ["QXPM", "XYPM", "ZYPM", "BJPM"];
+
+  function pdataRankOf(list, key) {
+    const hit = (Array.isArray(list) ? list : []).find((r) => String(r?.RANKTYPE || "").trim() === key);
+    const n = Number(hit?.RANKING);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+  function pdataPointOf(list, key, field) {
+    const hit = (Array.isArray(list) ? list : []).find((r) => String(r?.RANKTYPE || "").trim() === key);
+    const n = Number(hit?.[field]);
+    return Number.isFinite(n) ? n : 0;
+  }
+  // 空数据也带 ok:true 落进缓存：否则每进一次页面都要重打两个接口，而结果永远是空。
+  const pdataEmptyStudy = () => ({
+    ok: true, at: Date.now(), auth: false, message: "",
+    rank: { QXPM: 0, XYPM: 0, ZYPM: 0, BJPM: 0 },
+    myPoint: { QXPM: 0, XYPM: 0, ZYPM: 0, BJPM: 0 },
+    topPoint: { QXPM: 0, XYPM: 0, ZYPM: 0, BJPM: 0 },
+  });
+
+  async function jeLoadPdataStudy() {
+    const [rankRes, gapRes] = await Promise.all([
+      pdataApi("/tsa/shc/learnInfo/gradePointRanking"),
+      pdataApi("/tsa/shc/learnInfo/learningGap"),
+    ]);
+    const rank = { QXPM: 0, XYPM: 0, ZYPM: 0, BJPM: 0 };
+    const myPoint = { QXPM: 0, XYPM: 0, ZYPM: 0, BJPM: 0 };
+    const topPoint = { QXPM: 0, XYPM: 0, ZYPM: 0, BJPM: 0 };
+    PDATA_RANK_TYPES.forEach((type, i) => {
+      rank[PDATA_RANK_KEYS[i]] = pdataRankOf(rankRes.data, type);
+      myPoint[PDATA_RANK_KEYS[i]] = pdataPointOf(gapRes.data, type, "MYPOINT");
+      topPoint[PDATA_RANK_KEYS[i]] = pdataPointOf(gapRes.data, type, "TOPPOINT");
+    });
+    return { ok: !!(rankRes.ok || gapRes.ok), at: Date.now(),
+      auth: !!(rankRes.auth || gapRes.auth), message: String(rankRes.message || gapRes.message || ""),
+      rank, myPoint, topPoint };
   }
 
   async function jwEnsureKeys(keys, force = false) {
@@ -2254,11 +2474,16 @@
       jwState.error[key] = "";
       jwPaint();
       try {
-        // 课次一次拉「整学期」（实测 222 节），今天/本周在渲染时切，避免每切一次打一次接口
-        const groups = key === "qjCourse" && jwState.term?.code
-          ? [{ type: "and", value: [{ code: "XNXQ_CODE", type: "=", value: jwState.term.code, cn: "and" }] }]
-          : [];
-        jwState.data[key] = await jeLoad(key, groups);
+        // pdata 学情走自己的 token（不经 jeLoad）；它没有数据也算拉成功，
+        // 失败只在卡片内部提示，不挂「拉取失败」横幅 —— 它不影响成绩本体。
+        if (key === "pdataStudy") jwState.data.pdataStudy = await jeLoadPdataStudy();
+        else {
+          // 课次一次拉「整学期」（实测 222 节），今天/本周在渲染时切，避免每切一次打一次接口
+          const groups = key === "qjCourse" && jwState.term?.code
+            ? [{ type: "and", value: [{ code: "XNXQ_CODE", type: "=", value: jwState.term.code, cn: "and" }] }]
+            : [];
+          jwState.data[key] = await jeLoad(key, groups);
+        }
         jwState.at[key] = Date.now();
       } catch (e) {
         jwState.error[key] = String(e?.message || e);
@@ -2711,7 +2936,83 @@
     const exportCard = gradeCard("📤 导出成绩单", `<p class="jg-note">生成本机图片（不含账号密码），可直接分享或保存</p><button type="button" class="pp-btn pri jg-export" data-grade-export>生成并分享成绩单图片</button>`);
     const semesters = [...semAsc].reverse().map(([sem, list]) => gradeCard(`${esc(gradeSemLabel(sem))}　${list.length} 门 · ${gradeSum(list, "XF").toFixed(1)} 学分 · GPA ${gradeGpa(list).toFixed(3)}`,
       [...list].sort((a, b) => gradeNum(b, "ZPCJ") - gradeNum(a, "ZPCJ")).map((r) => `<div class="jg-course"><span>${esc(r.KCMC || "")}</span><b class="jg-${gradeScoreTone(gradeNum(r, "ZPCJ"))}">${gradeNum(r, "ZPCJ").toFixed(0)}</b><small>${gradeNum(r, "XF").toFixed(1)}</small></div>`).join(""))).join("");
-    return `<div class="jg-status">${jwState.at.grade ? `更新于 ${esc(jwAt("grade").replace("更新于 ", ""))} · ` : ""}共 ${rows.length} 门 · 总学分 ${credits.toFixed(1)} · GPA ${gpa.toFixed(3)}</div>${gradeCard("", overview)}${trend}${progress}${distribution}${category}${exportCard}${semesters}`;
+    return `<div class="jg-status">${jwState.at.grade ? `更新于 ${esc(jwAt("grade").replace("更新于 ", ""))} · ` : ""}共 ${rows.length} 门 · 总学分 ${credits.toFixed(1)} · GPA ${gpa.toFixed(3)}</div>${gradeCard("", overview)}${pdataRankCard()}${pdataRadarCard()}${trend}${progress}${distribution}${category}${exportCard}${semesters}`;
+  }
+
+  /* ── 「绩点排名情况」与「六维图」（个人成长中心）──
+     与成绩总览同屏，数据来自 pdata，跟教务成绩是两条链路，所以单独一个 stateBlock：
+     教务成绩拉失败时它照样显示，pdata 挂了也只让这两张卡自己说话。 */
+  const PDATA_SOURCE_NOTE = "数据来源：教务系统（学生个人成长中心，按学期批量计算）";
+  // pdata 说 0 就画 0（跟成长中心前端一致），「还没算出来」用 noData 单独表达
+  const pdataRankValue = (n) => (n > 0 ? String(n) : "0");
+  const pdataRankHasData = (s) => PDATA_RANK_KEYS.some((k) => Number(s?.rank?.[k]) > 0);
+
+  function pdataRankCard() {
+    const state = jwState.data.pdataStudy;
+    const head = jwStateBlock("pdataStudy", "正在读取绩点排名…");
+    if (head) return gradeCard("🏅 绩点排名情况", head);
+    if (!state) return gradeCard("🏅 绩点排名情况", `<div class="pp-empty">还没有拉取过绩点排名，点上方「刷新」</div>`);
+    if (state.auth) return gradeCard("🏅 绩点排名情况", `<div class="pp-empty">个人成长中心的登录态不在：先到「警大通知」登录一次，再回本页点「刷新」</div>`);
+    if (!state.ok) return gradeCard("🏅 绩点排名情况", `<div class="pp-empty">${esc(state.message || "个人成长中心暂未返回绩点排名")}</div>`);
+    const items = [
+      ["全校排名", state.rank?.QXPM, "qx"],
+      ["学院排名", state.rank?.XYPM, "xy"],
+      ["专业排名", state.rank?.ZYPM, "zy"],
+      ["班级排名", state.rank?.BJPM, "bj"],
+    ].map(([label, value, tone]) => `<div class="jg-rank-item">
+        <small>${esc(label)}</small><b class="jg-rank-${tone}">${pdataRankValue(value)}</b></div>`).join("");
+    const noData = !pdataRankHasData(state)
+      ? `<div class="jg-note">成长中心暂未算出你的排名（排行按学期批量生成，新生入学首学期通常为空）</div>` : "";
+    return gradeCard("🏅 绩点排名情况", `<div class="jg-rank-grid">${items}</div>${noData}
+      <div class="jg-note">${esc(PDATA_SOURCE_NOTE)}</div>`);
+  }
+
+  /* 成长中心的「六维图」实为圆形雷达图：轴 = 全校 / 学院 / 专业 / 班级，
+     轴刻度 = 该档的学霸绩点（topPoint），两组数据分别是学霸绩点与本人绩点。
+     这里用内联 SVG 重画（插件里不引 echarts）：半径 65%、4 环、起点 -90°。 */
+  function pdataRadarSvg(myPoint, topPoint) {
+    const axes = PDATA_RANK_TYPES.map((label, i) => ({
+      label,
+      mine: Number(myPoint?.[PDATA_RANK_KEYS[i]]) || 0,
+      top: Number(topPoint?.[PDATA_RANK_KEYS[i]]) || 0,
+    }));
+    const size = 240, cx = size / 2, cy = size / 2, radius = size * 0.30;
+    const angle = (i) => (-90 + i * 360 / axes.length) * Math.PI / 180;
+    const at = (i, r) => [cx + Math.cos(angle(i)) * r, cy + Math.sin(angle(i)) * r];
+    const ring = (ratio) => axes.map((_, i) => at(i, radius * ratio).map((n) => n.toFixed(1)).join(",")).join(" ");
+    const path = (pick) => axes.map((a, i) => at(i, radius * Math.max(0, Math.min(1, a.top ? a[pick] / a.top : 0)))
+      .map((n) => n.toFixed(1)).join(",")).join(" ");
+    const spokes = axes.map((_, i) => {
+      const [x, y] = at(i, radius);
+      return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}"/>`;
+    }).join("");
+    const labels = axes.map((a, i) => {
+      const [x, y] = at(i, radius + 20);
+      const anchor = Math.abs(x - cx) < 1 ? "middle" : (x > cx ? "start" : "end");
+      return `<text x="${x.toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="${anchor}">${esc(a.label)}</text>`;
+    }).join("");
+    return `<svg class="jg-radar" viewBox="0 0 ${size} ${size}" role="img" aria-label="本人绩点与学霸绩点对比雷达图：${esc(axes.map((a) => `${a.label} 本人 ${a.mine} 学霸 ${a.top}`).join("，"))}">
+      <g class="jg-radar-grid">${[0.25, 0.5, 0.75, 1].map((r) => `<polygon points="${ring(r)}"/>`).join("")}${spokes}</g>
+      <polygon class="jg-radar-top" points="${path("top")}"/>
+      <polygon class="jg-radar-mine" points="${path("mine")}"/>
+      <g class="jg-radar-label">${labels}</g>
+    </svg>`;
+  }
+
+  function pdataRadarCard() {
+    const state = jwState.data.pdataStudy;
+    const head = jwStateBlock("pdataStudy", "正在读取绩点对比…");
+    if (head) return gradeCard("🕸 六维图", head);
+    if (!state) return gradeCard("🕸 六维图", `<div class="pp-empty">还没有拉取过学情数据，点上方「刷新」</div>`);
+    if (state.auth) return gradeCard("🕸 六维图", `<div class="pp-empty">个人成长中心的登录态不在：先到「警大通知」登录一次，再回本页点「刷新」</div>`);
+    if (!state.ok) return gradeCard("🕸 六维图", `<div class="pp-empty">${esc(state.message || "个人成长中心暂未返回学情数据")}</div>`);
+    const hasTop = PDATA_RANK_KEYS.some((k) => Number(state.topPoint?.[k]) > 0);
+    if (!hasTop) return gradeCard("🕸 六维图",
+      `<div class="pp-empty">成长中心暂未算出绩点对比（新生入学首学期通常为空）</div><div class="jg-note">${esc(PDATA_SOURCE_NOTE)}</div>`);
+    const legend = `<div class="jg-legend">
+      <span><i class="mine"></i>本人绩点</span><span><i class="top"></i>学霸绩点</span></div>`;
+    return gradeCard("🕸 六维图", `${legend}${pdataRadarSvg(state.myPoint, state.topPoint)}
+      <div class="jg-note">轴为全校 / 学院 / 专业 / 班级四档，外环刻度是各档的学霸绩点；${esc(PDATA_SOURCE_NOTE)}</div>`);
   }
 
   async function jwExportGrades() {
@@ -2788,7 +3089,7 @@
     },
     {
       // 保留旧视图 id：用户原先的导航入口与快捷键继续有效，内容切到 cppu-helper 成绩页。
-      id: "cppu-credit", title: "警大成绩", icon: "chart-line", keys: ["grade"], menu: JW_MENU.grades,
+      id: "cppu-credit", title: "警大成绩", icon: "chart-line", keys: ["grade", "pdataStudy"], menu: JW_MENU.grades,
       kicker: "教 务 · 成 绩",
       tip: "课程成绩、学分和 GPA 按教务原始记录汇总。参考毕业学分仅供参考；刷新可重新读取学校数据。",
       body: () => jwGradesHtml(),
@@ -3426,6 +3727,7 @@
     balance: null, balanceAt: 0, balanceError: "", billsPartial: false,
   };
   let cardAveragePanel = null, cardAverageLoading = null, cardAverageError = "";
+  let cardChartsPanel = null, cardChartsLoading = null, cardChartsError = "";
   function loadCardAveragePanel(root) {
     if (!cardAverageLoading) {
       cardAverageLoading = import("/plugins/cppu-notify/card-averages.js")
@@ -3434,6 +3736,17 @@
         .catch(() => { cardAverageError = "日均统计模块加载失败，请重新打开一卡通重试"; cardAverageLoading = null; });
     }
     cardAverageLoading.then(() => { if (root?.isConnected !== false) cardPaintStats(root); });
+  }
+  /* 图形统计（v0.221.0）：趋势折线 / 消费结构 / 地点排行 / 星期分布，画在本视图最下面。
+     平台口径复用 growthBridge（同一份 pdata 会话），模块只认「拿到 data / 没拿到」。 */
+  function loadCardChartsPanel(root) {
+    if (!cardChartsLoading) {
+      cardChartsLoading = import("/plugins/cppu-notify/card-charts.js")
+        .then(module => module.createCardCharts(tide, growthBridge))
+        .then(panel => { cardChartsPanel = panel; cardChartsError = ""; })
+        .catch(() => { cardChartsError = "图形统计模块加载失败，请重新打开一卡通重试"; cardChartsLoading = null; });
+    }
+    cardChartsLoading.then(() => { if (root?.isConnected !== false) cardPaintStats(root); });
   }
   const cardMoney = (n) => `¥${(Number(n) || 0).toFixed(2)}`;
   const cardPeriodKey = (date, mode) => {
@@ -3536,7 +3849,8 @@
     </div>
     <div data-card-averages><p>${esc(cardAverageError || "正在载入日均餐费统计…")}</p></div>
     <div class="yk-groups"><div class="yk-group-head"><b>流水统计</b><div class="pp-chips">${kindChips}</div><div class="pp-chips">${modeChips}</div></div><div class="yk-bars${cardState.kind === "out" ? " out" : ""}">${bars}</div></div>
-    <div class="yk-ledger">${rows}</div>`;
+    <div class="yk-ledger">${rows}</div>
+    <div data-card-charts><p class="yk-empty">${esc(cardChartsError || "正在载入图形统计…")}</p></div>`;
   }
   function cardPaintStats(root) {
     const box = root?.querySelector?.("[data-card-stats]");
@@ -3544,6 +3858,8 @@
       box.innerHTML = cardStatsHtml();
       try { cardAveragePanel?.render(box.querySelector("[data-card-averages]"), cardState.rows, { syncedAt: cardState.syncedAt, partial: cardState.billsPartial }); }
       catch { const panel=box.querySelector("[data-card-averages]"); if(panel)panel.textContent="日均统计暂不可用，不影响账单与流水统计"; }
+      try { cardChartsPanel?.render(box.querySelector("[data-card-charts]"), cardState.rows, { syncedAt: cardState.syncedAt, partial: cardState.billsPartial }); }
+      catch { const panel=box.querySelector("[data-card-charts]"); if(panel)panel.textContent="图形统计暂不可用，不影响账单与流水统计"; }
     }
   }
   function cardPaintLogin(root) {
@@ -3895,7 +4211,8 @@
     }).catch(()=>message('一卡通初始化未完成，请手动登录或重新打开本页',true));
     Promise.resolve().then(()=>{if(alive){bindSide(el);return loadLinkMeta(el);}}).catch(()=>{});
     Promise.resolve().then(()=>{if(alive)return loadCardAveragePanel(el);}).catch(()=>message('日均模块未能载入，账单与流水统计不受影响',true));
-    const dispose=()=>{alive=false;navSequence++;clearFrameTimer();el.removeEventListener('click',click);frame?.removeEventListener('load',onFrameLoad);frame?.removeEventListener('error',onFrameError);if(el._cardViewDispose===dispose)delete el._cardViewDispose;};
+    Promise.resolve().then(()=>{if(alive)return loadCardChartsPanel(el);}).catch(()=>message('图形统计模块未能载入，账单与流水统计不受影响',true));
+    const dispose=()=>{alive=false;navSequence++;clearFrameTimer();el.removeEventListener('click',click);frame?.removeEventListener('load',onFrameLoad);frame?.removeEventListener('error',onFrameError);try{cardChartsPanel?.dispose?.();}catch{}if(el._cardViewDispose===dispose)delete el._cardViewDispose;};
     el._cardViewDispose=dispose;return dispose;
   }
 
@@ -4224,10 +4541,110 @@
     return () => { disposed = true; stopAutoRefresh(); io?.disconnect(); };
   }
 
+  /* 警大校历（v0.216.0 从独立插件 cppu-calendar 并进来）：视图主体在 calendar.js，
+     与获奖名单 / 一卡通同一套边界 —— 只借宿主的能力（storage / events / ui），
+     登录态与 Cookie 一律不出本插件；学期边界仍走上面那条 cppu:term-request 事件。
+     外壳（校园服务侧栏）由本文件画，校历只画 [data-cc-host] 里那一块，
+     这样它和同插件的其它分类一样能就地切走、侧栏不用重画。
+     实例缓存住：calendar.js 在 createCalendarView() 里挂 schedule:changed 一类监听，
+     每次进入都新建会把监听叠起来（切三次就三份）。 */
+  let calendarModule = null, calendarView = null;
+  function mountCalendarView(el) {
+    let disposed = false, teardown = null;
+    ensureStyle();
+    el.innerHTML = `<div class="${sideShellClass()}"><aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}`
+      + `<div class="pp-main"><div data-cc-host><div style="padding:30px;text-align:center;color:#A9B2BA;font-size:calc(12.5px * var(--ui-text-scale))">正在载入警大校历…</div></div></div></div>`;
+    bindSide(el);
+    loadLinkMeta(el);
+    (calendarModule || (calendarModule = import("/plugins/cppu-notify/calendar.js")))
+      .then((mod) => {
+        if (disposed) return;
+        const host = el.querySelector("[data-cc-host]");
+        if (!host) return;
+        calendarView = calendarView || mod.createCalendarView(tide);
+        teardown = calendarView.render(host);
+      })
+      .catch(() => {
+        calendarModule = null;
+        const host = el.querySelector("[data-cc-host]");
+        if (host && !disposed) host.innerHTML = '<p class="pp-tip" style="padding:24px;text-align:center">警大校历模块加载失败，请重新打开本视图重试</p>';
+      });
+    return () => { disposed = true; if (typeof teardown === "function") teardown(); };
+  }
+
+  /* 学生个人成长中心（pdata.cppu.edu.cn/stu/home）：视图主体在 growth.js，
+     与校历 / 获奖名单同一套边界 —— 只借宿主的能力（storage / ui / notify），
+     取数与鉴权一律走 growthBridge，SSO 会话与 token 不出本文件。
+     外壳（校园服务侧栏）由本文件画，成长页只画 [data-pg-host] 里那一块。
+     实例缓存住：growth.js 在 createGrowthView() 里挂着宿主事件监听与选中光句柄，
+     每次进入都新建会把它们叠起来（切三次就三份）。 */
+  let growthModule = null, growthView = null;
+  function mountGrowthView(el) {
+    let disposed = false, teardown = null;
+    ensureStyle();
+    el.innerHTML = `<div class="${sideShellClass()}"><aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}`
+      + `<div class="pp-main"><div data-pg-host><div style="padding:30px;text-align:center;color:#A9B2BA;font-size:calc(12.5px * var(--ui-text-scale))">正在载入学生个人成长中心…</div></div></div></div>`;
+    bindSide(el);
+    loadLinkMeta(el);
+    (growthModule || (growthModule = import("/plugins/cppu-notify/growth.js")))
+      .then((mod) => {
+        if (disposed) return;
+        const host = el.querySelector("[data-pg-host]");
+        if (!host) return;
+        growthView = growthView || mod.createGrowthView(tide, growthBridge);
+        teardown = growthView.render(host);
+      })
+      .catch(() => {
+        growthModule = null;
+        const host = el.querySelector("[data-pg-host]");
+        if (host && !disposed) host.innerHTML = '<p class="pp-tip" style="padding:24px;text-align:center">个人成长中心模块加载失败，请重新打开本视图重试</p>';
+      });
+    return () => { disposed = true; if (typeof teardown === "function") teardown(); };
+  }
+
+  /* 个人信息（pdata.cppu.edu.cn/stu/dataReport/basicInfo）：视图主体在 profile.js，
+     与成长中心同一套边界 —— 只借宿主的能力（storage / notify），取数与鉴权一律走
+     growthBridge（同一站点、同一套 pdata token，桥对象本身不含状态，直接复用）。
+     这一页的卖点是网页没有的：**点任意字段即复制到剪贴板**。 */
+  let profileModule = null, profileView = null;
+  function mountProfileView(el) {
+    let disposed = false, teardown = null;
+    ensureStyle();
+    el.innerHTML = `<div class="${sideShellClass()}"><aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}`
+      + `<div class="pp-main"><div data-pf-host><div style="padding:30px;text-align:center;color:#A9B2BA;font-size:calc(12.5px * var(--ui-text-scale))">正在载入个人信息…</div></div></div></div>`;
+    bindSide(el);
+    loadLinkMeta(el);
+    (profileModule || (profileModule = import("/plugins/cppu-notify/profile.js")))
+      .then((mod) => {
+        if (disposed) return;
+        const host = el.querySelector("[data-pf-host]");
+        if (!host) return;
+        profileView = profileView || mod.createProfileView(tide, growthBridge);
+        teardown = profileView.render(host);
+      })
+      .catch(() => {
+        profileModule = null;
+        const host = el.querySelector("[data-pf-host]");
+        if (host && !disposed) host.innerHTML = '<p class="pp-tip" style="padding:24px;text-align:center">个人信息模块加载失败，请重新打开本视图重试</p>';
+      });
+    return () => { disposed = true; if (typeof teardown === "function") teardown(); };
+  }
+
   tide.ui.registerView({ id: "cppu-notify", title: "警大通知", icon: 'building-columns', render });
   tide.ui.registerView({ id: "cppu-card", title: "警大一卡通", icon: "credit-card", render: mountCardView });
   // 获奖名单：通知正文里的获奖段落抽出来单独看（个人/团体排名 + 按时间的奖项项目）
-  tide.ui.registerView({ id: "cppu-award", title: "警大获奖名单", icon: "trophy", render: mountAwardView });
+  // icon 用 award 不用 trophy：trophy 已是「竞赛消息」插件的侧栏图标，同一个侧栏里不能撞。
+  tide.ui.registerView({ id: "cppu-award", title: "警大获奖名单", icon: "award", render: mountAwardView });
+  // 警大校历：学期起止 / 教学周 / 个人事项 / 本周课次统计（v0.216.0 从独立插件并入）
+  // icon 用 calendar-week 不用 calendar-days：后者已是「课程表」插件的侧栏图标。
+  tide.ui.registerView({ id: "cppu-calendar", title: "警大校历", icon: "calendar-week", render: mountCalendarView });
+  // 学生个人成长中心（pdata.cppu.edu.cn/stu/home）：网页是整站 SPA，这里只留六块有信息量的，
+  // 按 U-Time 的卡片语言重排（见 growth.js 头部）。
+  // icon 用 seedling 不用 sprout：后者已是「成长/习惯」类插件的侧栏图标。
+  tide.ui.registerView({ id: "cppu-growth", title: "学生成长", icon: "seedling", render: mountGrowthView });
+  // 个人信息（pdata.cppu.edu.cn/stu/dataReport/basicInfo）：档案字段点一下就复制到剪贴板。
+  // icon 用 address-card 不用 id-card：id-card 已是本插件侧栏「学工」入口的图标。
+  tide.ui.registerView({ id: "cppu-profile", title: "个人信息", icon: "address-card", render: mountProfileView });
   // 教务只读视图：侧栏「校园服务」里的选课 / 请假 / 成绩 / 创新学分入口直接 navigate 过来
   for (const cfg of JW_VIEWS) {
     tide.ui.registerView({

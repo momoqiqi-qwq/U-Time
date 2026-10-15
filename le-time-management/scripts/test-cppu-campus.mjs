@@ -4,8 +4,13 @@ import vm from 'node:vm';
 import { bannerPalettes, channelDelta, colorMix, contrastRatio, mixHex, resolveToken, ruleDecls } from './lib/banner-contrast.mjs';
 const read = p => fs.readFileSync(new URL('../'+p, import.meta.url),'utf8');
 const portal = read('public/plugins/cppu-notify/main.js');
-const calendar = read('public/plugins/cppu-calendar/main.js');
+const calendar = read('public/plugins/cppu-notify/calendar.js');
 const schedule = read('public/plugins/shiguang-schedule/ui.js');
+// 校历 v0.216.0 并进 cppu-notify：calendar.js 变成 ES module 的工厂（不再自己 registerView），
+// 把 `export function createCalendarView(tide)` 换成全局赋值再在沙箱里调一次，即可拿到那套内部函数。
+const calendarHarness = (box) => vm.runInNewContext(
+  calendar.replace('export function createCalendarView(tide) {', 'globalThis.createCalendarView = function (tide) {')
+    + ';globalThis.test = createCalendarView(tide);', box);
 // Execute the actual retry policy with controlled transports; no live credentials.
 const policy = portal.slice(portal.indexOf('  const cleanLoginRetries ='),portal.indexOf('  function loginSettingsHtml()'));
 function authHarness({ retries=2, fail=()=>null, prepareFail=()=>false, storedRetries }={}) {
@@ -103,13 +108,31 @@ stats=await h.get('2026-09-07',new Date('2026-09-07T00:00:00'));assert.equal(sta
 // Calendar dates and real-current-week highlighting independent of selected day.
 class FixedDate extends Date {constructor(...args){super(...(args.length?args:['2026-10-01T12:00:00']));}}
 const events={},timeouts=[],box={Date:FixedDate,setTimeout:fn=>timeouts.push(fn),tide:{events:{on:(k,fn)=>events[k]=fn,emit:()=>{}},ui:{registerView:()=>{}}}};
-vm.runInNewContext(calendar.replace(/\}\)\(\);\s*$/, 'globalThis.test={state,cleanTerm,weekOf,calendarCells,paint,requestStats};})();'),box);
+calendarHarness(box);
 const C=box.test;C.state.term=C.cleanTerm({jxStart:'2026-08-31',weeks:20,name:'测试学期'},'手动');
 assert.equal(C.weekOf('2026-08-30'),0);assert.equal(C.weekOf('2026-08-31'),1);assert.equal(C.weekOf('2027-01-17'),20);assert.equal(C.weekOf('2027-01-18'),0);
 C.state.selected='2026-10-15';C.state.month='2026-10';
 let cells=C.calendarCells();assert.equal((cells.match(/current-week/g)||[]).length,7);assert.match(cells,/current-week[^>]*data-date="2026-10-01"/);assert.doesNotMatch(cells,/current-week[^>]*data-date="2026-10-15"/);
 const root={innerHTML:'',querySelector:()=>({}),querySelectorAll:()=>[]};C.state.root=root;C.paint();
 assert.match(root.innerHTML,/2027-01-17/);assert.match(root.innerHTML,/非官方放假日期/);assert.match(root.innerHTML,/暂无可用课表/);
+// 起始卡与结束卡合并成一张（v0.216.0）：结束日优先用教务真实 JSRQ，拿不到才退回推算并标明。
+{
+ assert.equal((root.innerHTML.match(/class="cc-term"/g)||[]).length,1,'摘要区里「当前学期」与「学期教学结束日」必须是同一张卡');
+ assert.equal((root.innerHTML.match(/class="cc-date"/g)||[]).length,2,'同一张卡里并排给出起始与结束');
+ const official=C.cleanTerm({name:'2026 秋',jxStart:'2026-08-31',weeks:20,termStart:'2026-08-24',termEnd:'2027-01-08'},'教务');
+ assert.equal(C.termEndOf(official).official,true,'有官方 JSRQ 就必须用官方值');
+ assert.equal(C.termEndOf(official).value,'2027-01-08');
+ const card=C.termCardHtml(official);
+ assert.match(card,/<div class="cc-dates">/);
+ assert.match(card,/起始<\/em><b>2026-08-24<\/b>/,'起始要显示官方 KSRQ（学期开始日），不是教学第 1 周起始日');
+ assert.match(card,/结束<\/em><b>2027-01-08<\/b>/);
+ assert.match(card,/官方校历学期起止日/);
+ assert.match(card,/教学第 1 周起始 2026-08-31/,'KSRQ 与 JXZQSRQ 不同时要补注教学周起始');
+ assert.doesNotMatch(card,/非官方放假日期/);
+ const guessed=C.cleanTerm({name:'2026 秋',jxStart:'2026-08-31',weeks:20},'手动');
+ assert.equal(C.termEndOf(guessed).official,false);assert.equal(C.termEndOf(guessed).value,'2027-01-17');
+ assert.match(C.termCardHtml(guessed),/非官方放假日期/,'没有官方值时必须标明是推算');
+}
 C.requestStats();const id=C.state.statsId;events['schedule:week-response']({id:'stale',available:true});assert.equal(C.state.statsLoading,true);
 events['schedule:week-response']({id,available:true,occurrences:12,periods:24,name:'测试',unknownPeriods:0,remainingOccurrences:3,remainingPeriods:5,remainingUnknownPeriods:0});assert.match(root.innerHTML,/本周共 24 节 · 12 次课/);assert.match(root.innerHTML,/还剩 5 节 · 3 次课/);
 C.requestStats();events['schedule:week-response']({id:C.state.statsId,available:true,occurrences:0,periods:0,unknownPeriods:0,remainingOccurrences:0,remainingPeriods:0,remainingUnknownPeriods:0});assert.match(root.innerHTML,/还剩 0 节 · 0 次课/);
@@ -131,6 +154,16 @@ assert.equal(fs.existsSync(new URL('../public/plugins/cppu-webvpn/manifest.json'
 assert.doesNotMatch(read('src/pluginCatalog.js'), /cppu-webvpn/);
 assert.doesNotMatch(read('../miniprogram/core/pluginCatalog.js'), /cppu-webvpn/);
 assert.doesNotMatch(portal, /cppu-webvpn|cppu-login-settings/);
+// 警大校历并入 cppu-notify（v0.216.0）：独立插件删掉，校历改成通知插件注册的视图，
+// 学期边界改成读教务真实字段（cppu-helper v15.0 的 XlFragment 走的同一个 getNowXnxq）。
+assert.equal(fs.existsSync(new URL('../public/plugins/cppu-calendar/manifest.json', import.meta.url)), false);
+assert.doesNotMatch(read('src/pluginCatalog.js'), /"cppu-calendar"/);
+assert.doesNotMatch(read('../miniprogram/core/pluginCatalog.js'), /"cppu-calendar"/);
+assert.match(portal, /tide\.ui\.registerView\(\{ id: "cppu-calendar", title: "警大校历", icon: "calendar-week", render: mountCalendarView \}\)/);
+assert.match(portal, /import\("\/plugins\/cppu-notify\/calendar\.js"\)/);
+assert.match(portal, /termStart: String\(v\.KSRQ \|\| ""\), termEnd: String\(v\.JSRQ \|\| ""\)/,'学期起止要读教务真实 KSRQ / JSRQ');
+assert.match(portal, /weeks: Number\(v\.JXZS\) \|\| Number\(v\.XQZS\) \|\| 0/,'教学周数优先 JXZS');
+assert.match(portal, /termStart: term\.termStart \|\| "", termEnd: term\.termEnd \|\| ""/,'cppu:term-response 要把官方起止日透传给校历视图');
 assert.match(portal, /tide\.util\.openSettings\("cppu-login"\)/);
 // 校历的失败横幅整条可点（v0.190.0）：失败状态行就是 <button data-action="retry">，点一下重跑失败的那一步。
 {
@@ -142,7 +175,7 @@ assert.match(portal, /tide\.util\.openSettings\("cppu-login"\)/);
   tide:{events:{on:(k,fn)=>{events2[k]=fn;},emit:(k,p)=>emits2.push([k,p])},
    storage:{get:async(k,d)=>{if(storageFail)throw new Error('磁盘读取失败');return k in store2?store2[k]:d;},set:async(k,v)=>{store2[k]=v;return true;}},
    ui:{registerView:()=>{}}}};
- vm.runInNewContext(calendar.replace(/\}\)\(\);\s*$/, 'globalThis.test={state,cleanTerm,statusHtml,retryFail,reload,syncTerm,paint,requestStats,render};})();'),box2);
+ calendarHarness(box2);
  const K=box2.test,flush=()=>new Promise(r=>setImmediate(r));K.state.root=root2;
  // 1) 没有失败时仍是普通状态行，只有失败那条才变成按钮
  K.state.retry=null;K.state.status='已同步警大教务当前学期';
@@ -217,6 +250,22 @@ assert.match(portal, /tide\.util\.openSettings\("cppu-login"\)/);
  assert.equal(hintMix.top,'--accent');assert.equal(hintMix.bottom,'--ink','提示色必须混 --ink，否则深色按下态过不了 AA');
  assert.ok(calendar.includes('@media(prefers-reduced-motion:reduce){.cc-banner,.cc-banner-hint::before{transition-duration:.01ms!important}}'));
  const palettes=bannerPalettes(p=>fs.readFileSync(new URL(p,import.meta.url),'utf8'));
+ // 日期是绿色大字（v0.216.0 用户要求）：24px / 800 字重，绿用 light-dark() 成对给值，
+ // 且每套主题的卡片底色上至少有一档绿过 AA（浅色主题取深绿、深色主题取亮绿）。
+ const dateDecl=ruleDecls(calendar,'.cc-date b');
+ assert.match(dateDecl['font-size'],/24px/,'日期要是大字');assert.match(dateDecl['font-weight'],/800/);
+ assert.match(dateDecl['font-variant-numeric'],/tabular-nums/,'日期数字要对齐');
+ const greenPair=/^light-dark\((#[0-9a-f]{6}),(#[0-9a-f]{6})\)$/i.exec(dateDecl.color);
+ assert.ok(greenPair,'日期绿色必须 light-dark() 成对给值，浅色/深色各一档');
+ let worstGreen={ratio:99,where:''};
+ for(const {label,tokens} of palettes){
+  const card=resolveToken(tokens,'--card');
+  assert.ok(/^#[0-9a-f]{6}$/i.test(card||''),`${label} 缺少 --card，绿色大字没有可核算的底色`);
+  const best=[greenPair[1],greenPair[2]].map(hex=>({hex,ratio:contrastRatio(hex,card)})).reduce((a,b)=>b.ratio>a.ratio?b:a);
+  if(best.ratio<worstGreen.ratio)worstGreen={ratio:best.ratio,where:`${label} ${best.hex}`};
+ }
+ assert.ok(worstGreen.ratio>=4.5,`绿色日期要在每套主题的卡片底色上过 AA：最低 ${worstGreen.ratio.toFixed(2)}:1（${worstGreen.where}）`);
+ console.log(`校历日期配色：${palettes.length} 张色板，绿色大字最低 ${worstGreen.ratio.toFixed(2)}:1（${worstGreen.where}）`);
  let worstBody={ratio:99,where:''},worstHint={ratio:99,where:''},worstSep={delta:999,where:''};
  for(const {label,tokens} of palettes){
   const accent=resolveToken(tokens,'--accent'),surface=resolveToken(tokens,'--bg'),ink=resolveToken(tokens,'--ink');

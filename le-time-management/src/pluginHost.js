@@ -457,6 +457,12 @@ function makeApi(man, source) {
         if (pid !== "cppu-notify") throw new Error("一卡通网页窗口仅对警大插件开放");
         return api.openCardPage(url);
       },
+      openMailPage: (url, sid = "") => {
+        requirePermission(man, pid, "openUrl");
+        if (sid) requirePermission(man, pid, "http");
+        if (pid !== "cppu-notify") throw new Error("警大邮箱网页窗口仅对警大插件开放");
+        return api.openMailPage(url, sid);
+      },
       openUrlWithSession: (url, sid) => {
         requirePermission(man, pid, "openUrl");
         requirePermission(man, pid, "http");

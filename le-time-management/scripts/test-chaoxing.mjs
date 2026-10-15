@@ -685,5 +685,5 @@ assert.ok(restoredCookieSets.at(-1).some((item) => item.url === 'https://notice.
 assert.ok(restoredCookieSets.at(-1).every((item) => item.cookie === '_uid=1; route=abc'), '同一插件 Cookie 要预置到学习通会话域名');
 assert.match(apiSource, /open_internal_with_http_session/);
 assert.match(pluginHostSource, /pid !== "chaoxing-notify"/);
-assert.match(nativeSource, /学习通登录态仅允许注入 HTTPS 学习通域名/);
+assert.match(nativeSource, /登录态仅允许注入 HTTPS 站点/);
 assert.match(nativeSource, /CookieManager/);
