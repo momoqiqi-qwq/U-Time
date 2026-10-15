@@ -258,6 +258,48 @@ ime listener 压 `bottomMargin`）、`onPageFinished` 得**补注入一次**（�
 
 ---
 
+## 🔴 铁律九：每次发版上传 GitHub 后，把最新便捷版钉到任务栏
+
+**构建 → 归档 → 上传 GitHub Release → 把本机任务栏上的便捷版换成新版本。** 一步都不能省。
+
+任务栏上那个 U-Time 图标必须始终是**最新便捷版**，否则用户点开的是旧版本，
+会拿着新版本号的截图去对旧界面。发布收尾时按下面两条命令做完：
+
+```powershell
+# ① 把最新便捷版覆盖到「固定运行路径」——pin 指向的是这个稳定路径，换版本不失效
+Copy-Item "releases/v<版本>/UTime-<版本>-x64-portable.exe" `
+          "E:\E-Apps\Time Manger\U-Time\UTime.exe" -Force
+
+# ② 幂等钉住（已固定时只报告，不会误取消）
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/pin-taskbar.ps1 `
+    -AppName 'U-Time' -AppPath "E:\E-Apps\Time Manger\U-Time\UTime.exe"
+```
+
+### 为什么是脚本而不是「手点一下」
+
+Win11 **没有**可用的代码接口来固定任务栏，三条直觉路都走不通：
+
+| 想法 | 实测结果 |
+|---|---|
+| 往 `User Pinned\TaskBar\` 放 .lnk | 只成为候选，**不产生任务栏按钮** |
+| 改 `HKCU\...\Explorer\Taskband\Favorites` | 未公开的 shell 序列化 BLOB（lnk 名 + 目标路径 + AUMID + PIDL），构造极易**打坏既有固定项** |
+| 调 Shell verb | Win11 已移除标准「固定到任务栏」verb，`Verbs()` 里找不到 |
+
+而 `tools/pin-taskbar.ps1` 走的是**纯键盘**通道，已验证可用：`Win+T` 聚焦任务栏 →
+UIA 找到目标按钮 → `SetFocus()` → 应用菜单键弹**跳转列表** → 按 `AutomationId`
+（`TaskbarPin` / `TaskbarUnpin`）精确命中并 `Invoke()`。用 ID 而不是中文名，
+免疫系统语言与编码差异；**全程不移动鼠标、不打开开始菜单**。
+
+- 脚本是**幂等**的：已经是固定状态时只打印「✓ 已经是固定状态」，不会误取消。
+- 任务栏上没有按钮说明应用没在跑，传 `-AppPath` 让脚本自己启动便携版再固定。
+- 该脚本必须保存为 **UTF-8 with BOM**；`write` / `edit` 工具会剥掉 BOM，
+  每次改完要重新写回 BOM，否则 PowerShell 5.1 按 GBK 解码中文会直接语法报错。
+
+> ⚠️ **不要**为了「重装 pin」去重建 `Taskband\Favorites`。
+> 用户的机器上通常有几十个固定项，改写这个二进制是纯风险零收益。
+
+---
+
 ## 一句话总结
 
 > **改代码 = 改版本号。** 改完 `package.json` → 跑 `sync-version.js` → 补 `package-lock.json`

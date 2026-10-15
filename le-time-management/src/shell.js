@@ -2065,6 +2065,9 @@ export function renderShell(root) {
       toast("卡片大小已恢复默认");
     });
     const cardRefreshers = new Map();
+    // 组头计数也要能跟着刷新：视图是异步陆续注册的（插件 main.js 逐个 registerView），
+    // 首帧建好的组头必须能被后面的注册推着更新，否则计数冻在首帧那个数字上。
+    const headRefreshers = new Map();
     let registrySnapshot = [], visibleIds = new Set();
     // 启停只同步现有节点；导入/删除或筛选成员变化才执行 FLIP 重排。
     refreshMarketState = () => {
@@ -2083,6 +2086,7 @@ export function renderShell(root) {
         }
       } else {
         cardRefreshers.forEach((refresh) => refresh());
+        headRefreshers.forEach((refresh) => refresh());
       }
       // 不重建筛选按钮，避免点击开关时重置焦点。
       [...filterBox.children].forEach((button, i) => {
@@ -2157,6 +2161,7 @@ export function renderShell(root) {
     };
     function fillCards(entrance) {
       cardRefreshers.clear();
+      headRefreshers.clear();
       registrySnapshot = getRegistry();
       visibleIds = new Set(registrySnapshot.filter(match).map((rec) => rec.id));
       const customOrder = pluginOrderState();
@@ -2177,14 +2182,20 @@ export function renderShell(root) {
       }
       // 分组色带：组头是一条横跨整个网格的行，卡片仍留在同一个网格里流式排布，
       // 这样响应式列数只在 .market-grid 一处定义，不必给每组再抄一遍。
+      /* v0.214.1：组头计数与侧栏同一口径 —— 侧栏一个视图一条行（plugGroupNode 传 views.length），
+         插件中心原本数的是「插件数」，于是同一个组两处会给出两个数：cppu-notify 注册了 7 个视图，
+         侧栏「绿色组 7」而插件中心「绿色组 1」，用户就成了「组里有许多插件，但插件组页面只显示一个」。
+         这里改成数条目（视图数）：卡片自己算首视图那一条，所以一个插件至少计 1。 */
+      const entryCount = (id) => Math.max(1, pluginViews.filter((v) => v.pluginId === id).length);
+      const countOf = (color) => rows.reduce((sum, rec) => (pluginColor(rec.id) === color ? sum + entryCount(rec.id) : sum), 0);
       const colorCount = new Map();
       for (const rec of rows) {
         const color = pluginColor(rec.id);
-        if (color) colorCount.set(color, (colorCount.get(color) || 0) + 1);
+        if (color && !colorCount.has(color)) colorCount.set(color, countOf(color));
       }
       const groupHead = (color) => {
         const collapsed = isGroupCollapsed(color);
-        return el("div", {
+        const node = el("div", {
           class: `market-group-head${collapsed ? " collapsed" : ""}`,
           "data-color": color,
           style: `--gc:${groupColorMeta(color).hex}`,
@@ -2193,6 +2204,17 @@ export function renderShell(root) {
           foldMarketGroup(color, next);
           foldNavGroup(nav.querySelector(`.plug-group[data-color="${color}"]`), color, next);
         }));
+        // v0.214.1：插件视图是插件启动后异步逐个注册的，onNavChanged → refreshMarketState 在成员没变时
+        // 只刷新卡片、不重排网格 —— 首帧建的组头会把计数冻在当时那个数字上。这里登记一个刷新器，
+        // 让它跟卡片一起被推着更新，不必为一次注册重排整个网格。
+        headRefreshers.set(color, () => {
+          const count = countOf(color);
+          if (count === colorCount.get(color)) return;
+          colorCount.set(color, count);
+          const badge = node.querySelector(".market-group-count");
+          if (badge) badge.textContent = String(count);
+        });
+        return node;
       };
       let sectionColor = null;
       let hiddenSection = false;
@@ -2215,8 +2237,10 @@ export function renderShell(root) {
         let enabled = S.pluginState(rec.id).enabled !== false;
         const cardViews = pluginViews.filter((v) => v.pluginId === rec.id);
         let pv = cardViews[0];
-        // APK 没有桌面插件侧栏，多视图插件必须在插件中心暴露全部入口。
-        let viewLinks = isAndroidRuntime() && cardViews.length > 1
+        // v0.214.1：多视图插件的全部入口在任何端都露出来（原先只有 APK 有，理由是「APK 没有桌面侧栏」）。
+        // 但一张卡 = 一个插件、侧栏一个视图一条行，只列首视图时「绿色组」在侧栏是 7 条、在插件中心只剩
+        // 一张卡 —— 用户报的「组里有许多插件却只显示一个」就是这个差。桌面端样式见 styles.css 的紧凑覆写。
+        let viewLinks = cardViews.length > 1
           ? el("div", { class: "market-view-links", "aria-label": `${pluginName} 功能入口` },
             cardViews.map((item) => el("button", {
               class: "btn ghost sm", type: "button", disabled: !enabled ? true : null,
@@ -2257,7 +2281,7 @@ export function renderShell(root) {
           toggle,
         );
         const card = el("div", {
-          class: `mcard market-manage-card${entrance ? " market-card-enter" : ""}${enabled ? "" : " disabled"}`,
+          class: `mcard market-manage-card${entrance ? " market-card-enter" : ""}${enabled ? "" : " disabled"}${cardViews.length > 1 ? " has-views" : ""}`,
           "data-card-id": rec.id,
           "data-color": recColor || null,
           style: `--market-enter-index:${Math.min(rowIndex, 8)}${recColor ? `;--gc:${groupColorMeta(recColor).hex}` : ""}`,
@@ -2302,7 +2326,7 @@ export function renderShell(root) {
           if (signature !== viewSignature) {
             viewSignature = signature;
             viewLinks?.remove();
-            viewLinks = isAndroidRuntime() && views.length > 1
+            viewLinks = views.length > 1
               ? el("div", { class: "market-view-links", "aria-label": `${pluginName} 功能入口` },
                 views.map((item) => el("button", {
                   class: "btn ghost sm", type: "button", "data-plugin-view": item.id,
@@ -2312,6 +2336,8 @@ export function renderShell(root) {
           }
           viewLinks?.querySelectorAll("button").forEach((button) => { button.disabled = busy || !enabled; });
           card.classList.toggle("disabled", !enabled);
+          // 视图入口数量变化会改变桌面端卡片要不要跨两列（见 feature-layouts.css 的 .mcard.has-views）。
+          card.classList.toggle("has-views", views.length > 1);
           card.classList.toggle("plugin-toggle-pending", busy);
           card.setAttribute("aria-busy", String(busy));
           // 卡片自己就是打开入口；停用态靠点击拦截与 .disabled 表达，

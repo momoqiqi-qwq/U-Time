@@ -555,4 +555,27 @@ assert.match(cardSource, /S\.pluginState\("cppu-notify"\)\.storage/);
 assert.match(cardSource, /role: "switch"/);
 assert.match(cardSource, /namesBoard/);
 
-console.log("PASS: 获奖名单解析（标题清洗/级别层级/名单行/团体成员）· 个人团体排名并列 · 人名榜（团体成员计入本人）与名次配色 · 时间正倒序 · 下拉展开收起 · 每条记录回原通知 · 附件名单标与来源附件名 · 偏好落盘 · 单选走宿主滑动选中光 · 设置开关接线 · 视图接线");
+/* ── 6b. 自动登录：恢复出来的票据必须先真验证一次，再谈续期与密码兜底 ──
+   回归的是「获奖名单从来不自动登录」：restoreCookies 恢复的 tp_up 可能早已过期，
+   旧写法 `if (state.token) return true;` 一道短路就把整条链路废了，用户看到 302 横幅后
+   只能手点「重新登录」再手填一次验证码 —— 通知视图有 autoLogin() 真验证，这里之前没有。 */
+assert.match(source, /function awSessionError\(e\) \{/);
+assert.match(source, /HTTP\\s\*\(\?:30\[0-9\]\|40\[13\]\)\|会话已过期\|登录可能已过期\|重新登录\|未建立/);
+assert.match(source, /async function awProbeSession\(\) \{\n    try \{ await awFetchList\(1\); return true; \}/);
+assert.match(source, /async function awEnsureSession\(force = false\) \{/);
+assert.doesNotMatch(source, /if \(state\.token\) return true;/);                    // 旧短路不许回来
+assert.match(source, /if \(force\) \{ awState\.sessionOk = false; state\.token = ""; \}/);
+assert.match(source, /if \(state\.token && await awProbeSession\(\)\) \{ awState\.sessionOk = true; return true; \}/);
+assert.match(source, /if \(await silentRenew\(\)\) \{[\s\S]{0,160}?if \(await awProbeSession\(\)\) \{ awState\.sessionOk = true; return true; \}/);
+assert.match(source, /if \(await passwordAutoLogin\(\)\) \{ awState\.sessionOk = true; return true; \}/);
+assert.match(source, /sessionOk: false \};/);
+// 长同步中途会话失效：续一次期 / 走一次密码兜底再重跑，成不了才把错误摆出来
+assert.match(source, /if \(!awSessionError\(e\) \|\| !await awEnsureSession\(true\)\) throw e;/);
+assert.match(source, /if \(awSessionError\(e\)\) awState\.sessionOk = false;/);
+assert.match(source, /if \(sessionLost\) awState\.sessionOk = false;/);
+// 传输抖动（断网 / DNS）不是登录态问题：显示缓存 + 真实原因，别把用户甩到人工登录表单
+assert.match(source, /awState\.error = explainHttpError\(e\);/);
+// 用户点「重新登录」时，缓存里的「会话已核验」也必须作废
+assert.match(source, /awState\.sessionOk = false;   \/\/ 用户明确要求重新登录/);
+
+console.log("PASS: 获奖名单解析（标题清洗/级别层级/名单行/团体成员）· 个人团体排名并列 · 人名榜（团体成员计入本人）与名次配色 · 时间正倒序 · 下拉展开收起 · 每条记录回原通知 · 附件名单标与来源附件名 · 偏好落盘 · 单选走宿主滑动选中光 · 设置开关接线 · 视图接线 · 自动登录（票据先验证 再续期 再密码兜底）");

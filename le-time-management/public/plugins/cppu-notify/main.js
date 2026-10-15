@@ -147,7 +147,7 @@
   let filterOutsideHandler = null; // 筛选下拉的「点外部收回」监听，重进插件时替换旧监听
   // 获奖名单视图的状态：与通知视图共用 state.notices / state.details（同一次登录、同一份正文缓存），
   // 但 DOM 引用、进度与解析结果独立 —— 两个视图会同时活着，不能让它们互相盖掉对方的 ui。
-  const awState = { el: null, loading: false, error: "", progress: "", records: [], board: null, syncedAt: 0, pages: AWARD_PAGES, pendingCands: 0, affixCount: 0, affixWait: 0 };
+  const awState = { el: null, loading: false, error: "", progress: "", records: [], board: null, syncedAt: 0, pages: AWARD_PAGES, pendingCands: 0, affixCount: 0, affixWait: 0, sessionOk: false };
   let awardPanel = null, awardPanelLoading = null;
   let attachMod = null, attachLoading = null;
   let affixScanned = null;         // { "rid::附件名": 时间戳 } —— 扫过的附件不再扫
@@ -3061,15 +3061,36 @@
     return awardPanelLoading;
   }
 
-  /* 登录：与通知视图同一套凭据（cookie → 静默续期 → 密钥库密码），任一成功即可继续。 */
-  async function awEnsureSession() {
-    if (state.token) return true;
+  /* 登录：与通知视图同一套凭据（cookie → 静默续期 → 密钥库密码），任一成功即可继续。
+     与通知视图 autoLogin() 对齐的关键一步是**验证**：恢复出来的票据先真打一次列表接口。
+     为什么（v0.214.2）：tp_up 只有几十分钟寿命，而它跟着 Cookie 一起存在密钥库里，
+     冷启动恢复出来的那个十有八九已经过期 —— 之前的写法见到 state.token 就返回 true，
+     于是「自动登录」在获奖视图里从来没跑过，用户看到的是「列表接口 HTTP 302」横幅，
+     得手点「重新登录」再手填一次验证码。 */
+  function awSessionError(e) {
+    // 只有「会话不认了」才值得重走登录链：断网、DNS 失败这类传输抖动换票据也没用，
+    // 原样抛给上层报错（分工与 explainHttpError 一致）。
+    return /HTTP\s*(?:30[0-9]|40[13])|会话已过期|登录可能已过期|重新登录|未建立/.test(String(e?.message || e || ""));
+  }
+  // 真打一次列表接口当作票据探针；顺带把第 1 页装进 state.notices（去重，不浪费这次请求）。
+  async function awProbeSession() {
+    try { await awFetchList(1); return true; }
+    catch (e) { if (awSessionError(e)) return false; throw e; }
+  }
+  async function awEnsureSession(force = false) {
+    if (force) { awState.sessionOk = false; state.token = ""; }
+    if (awState.sessionOk) return true;
+    const restored = await restoreCookies();     // 内部自带 catch，票据损坏按无票据处理
+    if (!restored) await newSession();
+    if (state.token && await awProbeSession()) { awState.sessionOk = true; return true; }
+    state.token = "";                            // 票据过期：清掉，免得 referer() 继续带着它
     try {
-      const restored = await restoreCookies();
-      if (!restored) await newSession();
-      if (state.token) return true;
-      if (await silentRenew()) { await saveCookies(); return true; }
-      if (await passwordAutoLogin()) return true;
+      if (await silentRenew()) {
+        await saveCookies();
+        if (await awProbeSession()) { awState.sessionOk = true; return true; }
+        state.token = "";
+      }
+      if (await passwordAutoLogin()) { awState.sessionOk = true; return true; }
     } catch { /* 落到人工登录表单 */ }
     return false;
   }
@@ -3262,7 +3283,15 @@
       const mod = await ensureAwardPanel();
       // 按时间回溯：翻到覆盖 AWARD_YEARS 个自然年为止（点过「再往前翻」则按累计页数继续往前）。
       const untilYear = new Date().getFullYear() - (AWARD_YEARS - 1);
-      await awFetchList(awState.pages, untilYear);
+      // 会话可能正好在这一刻死掉（tp_up 只有几十分钟）：续一次期 / 用密钥库密码重登一次再重跑，
+      // 成不了才把错误摆出来。这是「自动登录」在长同步里的那一半 —— 没有它，用户看到 302 横幅
+      // 只能自己去点人工登录。
+      try {
+        await awFetchList(awState.pages, untilYear);
+      } catch (e) {
+        if (!awSessionError(e) || !await awEnsureSession(true)) throw e;
+        await awFetchList(awState.pages, untilYear);
+      }
       // 先按标题筛「像获奖」的（这一步免费），再逐条读正文由 award-list.js 判定收不收。
       const cands = state.notices.filter((it) => mod.titleLooksAward(titleOf(it)));
       // 已读过正文的（上一轮读的、或用户在通知视图里点开过的）不重复请求；一轮读不完的留到下一轮，
@@ -3270,12 +3299,13 @@
       const unread = cands.filter((it) => !state.details[itemKey(it)]?.content);
       const batch = unread.slice(0, AWARD_NOTICE_MAX);
       awState.pendingCands = Math.max(0, unread.length - batch.length);
-      let failed = 0;
+      let failed = 0, sessionLost = false;
       for (let i = 0; i < batch.length; i++) {
         awState.progress = `正在读正文筛选获奖名单 ${i + 1}/${batch.length}（候选 ${cands.length} 条）`;
         awPaint(el);
         if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
-        try { await awDetailFetch(itemKey(batch[i])); } catch { failed += 1; }
+        // 会话型失败要记下来：下一轮「刷新」若还信 sessionOk，就只会在同一堵墙上再撞一次。
+        try { await awDetailFetch(itemKey(batch[i])); } catch (e) { failed += 1; if (awSessionError(e)) sessionLost = true; }
       }
       // 附件阶段：正文里没有名单的通知，名单多半在附件上。只读「该读的」（附件名像名单，
       // 或正文说了名单在附件），扫过的跳过；抽到的文本并进同一条通知的解析文本，
@@ -3309,9 +3339,11 @@
       awState.board = mod.buildAwardBoard(records);
       awState.syncedAt = Date.now();
       await saveAwardCache();
+      if (sessionLost) awState.sessionOk = false;   // 会话中途丢了：下一次刷新重新走登录链
       if (failed) awState.error = `${failed} 条通知的正文没读到（网络或会话中断），名单可能不全，点这条状态行可重试。`;
     } catch (e) {
       awState.error = String(e?.message || e);
+      if (awSessionError(e)) awState.sessionOk = false;
     }
     awState.loading = false;
     awState.progress = "";
@@ -3328,7 +3360,17 @@
     try { await ensureAwardPanel(); } catch { awPaint(el); return; }
     if (await restoreAwardCache()) awPaint(el);
     if (!state.token) { awState.progress = "正在恢复登录状态…"; awPaint(el); }
-    const ok = await awEnsureSession();
+    let ok = false;
+    try {
+      ok = await awEnsureSession();
+    } catch (e) {
+      // 断网 / DNS 这类传输抖动不是登录态问题：别把用户甩到人工登录表单 —— 有缓存就显示缓存，
+      // 顺手把真实原因写在横幅上（点状态行重试即可，不需要重新输验证码）。
+      awState.progress = "";
+      awState.error = explainHttpError(e);
+      awPaint(el);
+      return;
+    }
     if (!el.isConnected) return;
     if (!ok) {
       awState.progress = "";
@@ -3369,6 +3411,7 @@
         state.token = ""; state.notices = []; state.details = {}; state.pending = null; state.captcha = "";
         awState.board = null; awState.records = []; awState.error = ""; awState.syncedAt = 0;
         awState.pages = AWARD_PAGES; awState.pendingCands = 0; awState.affixCount = 0; awState.affixWait = 0;
+        awState.sessionOk = false;   // 用户明确要求重新登录：缓存里的「会话已核验」也必须作废
         await openLogin();
         return;
       }
