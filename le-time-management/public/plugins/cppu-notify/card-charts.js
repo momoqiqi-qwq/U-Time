@@ -229,8 +229,10 @@ function smoothPath(pts) {
 }
 
 let gradientSeq = 0;
-function trendChartHtml(trend) {
-  const W = 640, H = 210, padL = 46, padR = 16, padT = 16, padB = 30;
+/** 画布宽度取容器真实像素：viewBox 与渲染宽度一致，SVG 里的字才不会被等比缩小。 */
+function trendChartHtml(trend, width = 0) {
+  const W = Math.round(Math.min(1400, Math.max(300, width || 620)));
+  const H = 236, padL = 54, padR = 18, padT = 18, padB = 36;
   const innerW = W - padL - padR, innerH = H - padT - padB;
   const points = trend.points;
   const max = niceMaxCents(trend.maxCents);
@@ -253,9 +255,10 @@ function trendChartHtml(trend) {
     return `<circle class="cc-dot${on ? " on" : ""}" cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="${on ? 4.5 : 3}">`
       + `<title>${esc(`${p.label}：${money(p.cents)}`)}</title></circle>`;
   }).join("");
-  const step = points.length > 14 ? 2 : 1;
+  // 每个刻度大约要 30px：宽度不够就隔一个画一个，宁可少几个也不挤成一团。
+  const step = Math.max(1, Math.ceil((points.length * 30) / Math.max(120, innerW)));
   const labels = points.map((p, i) => (i % step === 0 || i === points.length - 1
-    ? `<text class="cc-axis" x="${x(i).toFixed(2)}" y="${H - 10}" text-anchor="middle">${esc(p.label)}</text>` : "")).join("");
+    ? `<text class="cc-axis" x="${x(i).toFixed(2)}" y="${H - 12}" text-anchor="middle">${esc(p.label)}</text>` : "")).join("");
   return `<div class="cc-plot"><svg class="cc-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${trend.months} 个月金额趋势`)}" preserveAspectRatio="xMidYMid meet">
 <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
 <stop offset="0%" stop-color="var(--cc-accent-2)" stop-opacity="0.92"/>
@@ -265,8 +268,10 @@ ${grid}${area ? `<path class="cc-area" d="${area}" fill="url(#${gid})"/>` : ""}
 ${line ? `<path class="cc-line" d="${line}"/>` : ""}${dots}${labels}</svg></div>`;
 }
 
-function donutChartHtml(cat) {
-  const size = 220, r = 74, cx = size / 2, cy = size / 2, width = 24;
+/** 环图按真实像素画（viewBox 与渲染尺寸一致），文字因此不缩水。 */
+function donutChartHtml(cat, size = 208) {
+  const s = Math.round(Math.min(248, Math.max(176, size)));
+  const r = Math.round(s * 0.336), cx = s / 2, cy = s / 2, width = Math.round(s * 0.109);
   const circumference = 2 * Math.PI * r;
   let offset = 0;
   const arcs = cat.slices.map((s, i) => {
@@ -279,11 +284,11 @@ function donutChartHtml(cat) {
   }).join("");
   const center = cat.totalCents
     ? `<text class="cc-donut-val" x="${cx}" y="${cy - 2}" text-anchor="middle">${esc(money(cat.totalCents))}</text>`
-      + `<text class="cc-donut-name" x="${cx}" y="${cy + 17}" text-anchor="middle">累计总消费</text>`
+      + `<text class="cc-donut-name" x="${cx}" y="${cy + 19}" text-anchor="middle">累计总消费</text>`
     : `<text class="cc-donut-name" x="${cx}" y="${cy + 4}" text-anchor="middle">暂无支出</text>`;
   const legend = cat.slices.map((s, i) => `<li><i style="background:${PIE_PALETTE[i % PIE_PALETTE.length]}"></i>`
     + `<span class="cc-lg-name">${esc(s.name)}</span><b>${s.percent.toFixed(1)}%</b><em>${esc(money(s.cents))}</em></li>`).join("");
-  return `<div class="cc-donut"><svg class="cc-donut-svg" viewBox="0 0 ${size} ${size}" role="img" aria-label="消费结构占比">`
+  return `<div class="cc-donut"><svg class="cc-donut-svg" viewBox="0 0 ${s} ${s}" style="width:${s}px;height:${s}px" role="img" aria-label="消费结构占比">`
     + `<circle class="cc-donut-track" cx="${cx}" cy="${cy}" r="${r}" stroke-width="${width}"/>${arcs}${center}</svg>`
     + `<ul class="cc-legend">${legend}</ul></div>`;
 }
@@ -313,81 +318,95 @@ function weekChartHtml(week) {
 }
 
 /* ── 面板 ─────────────────────────────────────────────────────────────── */
+
+/** 图形区可用宽度（扣掉 .cc-panel 16×2 + .cc-card 15×2 + 四道 1px 边框 = 66）。量不到就退回 620。 */
+export function plotWidth(root, fallback = 620) {
+  const panel = root?.querySelector?.(".cc-panel");
+  const raw = Number(panel?.clientWidth ?? root?.clientWidth);
+  return Number.isFinite(raw) && raw >= 280 ? Math.max(300, Math.round(raw) - 66) : fallback;
+}
+
+/** 环图跟着图形区宽度走，窄屏也不缩到看不清。 */
+export const donutWidth = (plot) => Math.round(Math.min(248, Math.max(176, plot * 0.42)));
+
 function styles() {
   if (typeof document === "undefined" || document.getElementById("card-chart-style")) return;
   const node = document.createElement("style");
   node.id = "card-chart-style";
-  node.textContent = `.cc-panel{--cc-accent:#2B7BFF;--cc-accent-2:#ABCCFF;--cc-grid:#E3E6F0;--cc-axis:#7E7E7E;--cc-track:#F5F6F6;--cc-dot:#D5E5FF;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin:10px 0}
+  node.textContent = `.cc-panel{--cc-accent:#2B7BFF;--cc-accent-2:#ABCCFF;--cc-grid:#E3E6F0;--cc-axis:#7E7E7E;--cc-track:#F5F6F6;--cc-dot:#D5E5FF;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0}
 [data-theme-mode="dark"] .cc-panel{--cc-accent:#7CB6FF;--cc-accent-2:#5B9BFF;--cc-grid:color-mix(in srgb,var(--ink) 16%,transparent);--cc-axis:var(--ink-3);--cc-track:color-mix(in srgb,var(--ink) 15%,transparent);--cc-dot:color-mix(in srgb,#7CB6FF 45%,transparent)}
-.cc-panel h4{margin:0;font-size:calc(13px * var(--ui-text-scale));color:var(--deep)}
-.cc-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.cc-panel h4{margin:0;font-size:calc(15px * var(--ui-text-scale));color:var(--deep)}
+.cc-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
 .cc-head h4{margin-right:auto}
 .cc-chips{display:inline-flex;position:relative;isolation:isolate;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
 .cc-chips .selection-glow{position:absolute;left:0;top:0;width:0;height:0;opacity:0;pointer-events:none;z-index:0;transition:opacity .2s linear;border-radius:9px;background:var(--deep)}
 .cc-chips .selection-glow.on{opacity:1}
 .cc-chips.has-selection-glow button{position:relative;z-index:1}
 .cc-chips.has-selection-glow button[aria-pressed="true"]{background:transparent}
-.cc-chips button{font:inherit;font-size:calc(11.5px * var(--ui-text-scale));color:inherit;background:transparent;border:0;padding:6px 12px;min-height:34px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .18s ease,color .18s ease}
+.cc-chips button{font:inherit;font-size:calc(12.5px * var(--ui-text-scale));color:inherit;background:transparent;border:0;padding:7px 14px;min-height:38px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .18s ease,color .18s ease}
 .cc-chips button+button{border-left:1px solid var(--line)}
 .cc-chips button[aria-pressed="true"]{background:var(--deep);color:var(--on-accent,#fff)}
-.cc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.cc-card{border:1px solid var(--line-soft,var(--line));border-radius:12px;padding:11px 12px;background:color-mix(in srgb,var(--deep) 3%,var(--panel));min-width:0}
+/* 默认单列：每张图都吃满面板宽度。只有窗口真的够宽（≥1080px）才并排，
+   否则两张图各占一半，折线的刻度与环图都会缩到看不清。 */
+.cc-grid{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:1080px){.cc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.cc-card{border:1px solid var(--line-soft,var(--line));border-radius:14px;padding:14px 15px;background:color-mix(in srgb,var(--deep) 3%,var(--panel));min-width:0}
 .cc-card.cc-wide{grid-column:1/-1}
-.cc-card>header{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-.cc-card>header b{font-size:calc(12px * var(--ui-text-scale))}
-.cc-card>header small{margin-left:auto;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale))}
-.cc-svg,.cc-donut-svg{display:block;width:100%;height:auto}
+.cc-card>header{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:10px}
+.cc-card>header b{font-size:calc(13.5px * var(--ui-text-scale))}
+.cc-card>header small{margin-left:auto;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale))}
+.cc-svg{display:block;width:100%;height:auto}
+.cc-donut-svg{display:block;flex:0 0 auto;margin:0 auto}
 .cc-grid line.cc-grid{stroke:var(--cc-grid);stroke-width:1}
-.cc-axis{fill:var(--cc-axis);font-size:11px}
-.cc-line{fill:none;stroke:var(--cc-accent);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.cc-dot{fill:var(--cc-dot);stroke:var(--cc-accent);stroke-width:1.6}
+.cc-axis{fill:var(--cc-axis);font-size:calc(12.5px * var(--ui-text-scale))}
+.cc-line{fill:none;stroke:var(--cc-accent);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.cc-dot{fill:var(--cc-dot);stroke:var(--cc-accent);stroke-width:1.8}
 .cc-dot.on{fill:#FF9F1C;stroke:#FF9F1C}
-.cc-donut{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.cc-donut-svg{flex:1 1 168px;max-width:220px;margin:0 auto}
+.cc-donut{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .cc-arc{fill:none;stroke-linecap:butt}
 .cc-donut-track{fill:none;stroke:var(--cc-track)}
-.cc-donut-val{fill:var(--cc-accent);font-size:15px;font-weight:650}
-.cc-donut-name{fill:var(--cc-axis);font-size:10px}
-.cc-legend{flex:1 1 150px;list-style:none;margin:0;padding:0;display:grid;gap:6px;min-width:0}
-.cc-legend li{display:flex;align-items:center;gap:7px;font-size:calc(11.5px * var(--ui-text-scale));min-width:0}
-.cc-legend i{flex:none;width:9px;height:9px;border-radius:50%}
+.cc-donut-val{fill:var(--cc-accent);font-size:19px;font-weight:650}
+.cc-donut-name{fill:var(--cc-axis);font-size:12px}
+.cc-legend{flex:1 1 170px;list-style:none;margin:0;padding:0;display:grid;gap:8px;min-width:0}
+.cc-legend li{display:flex;align-items:center;gap:8px;font-size:calc(12.5px * var(--ui-text-scale));min-width:0}
+.cc-legend i{flex:none;width:10px;height:10px;border-radius:50%}
 .cc-legend .cc-lg-name{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 .cc-legend b{font-variant-numeric:tabular-nums}
-.cc-legend em{font-style:normal;color:var(--ink-3);font-variant-numeric:tabular-nums;font-size:calc(10.5px * var(--ui-text-scale))}
-.cc-rank{list-style:none;margin:0;padding:0;display:grid;gap:7px}
-.cc-rank li{display:grid;grid-template-columns:96px 1fr 62px;align-items:center;gap:8px;font-size:calc(11.5px * var(--ui-text-scale))}
+.cc-legend em{font-style:normal;color:var(--ink-3);font-variant-numeric:tabular-nums;font-size:calc(11.5px * var(--ui-text-scale))}
+.cc-rank{list-style:none;margin:0;padding:0;display:grid;gap:9px}
+.cc-rank li{display:grid;grid-template-columns:112px 1fr 74px;align-items:center;gap:10px;font-size:calc(12.5px * var(--ui-text-scale))}
 .cc-rank-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)}
-.cc-rank-track{position:relative;display:block;height:14px;border-radius:3px;background:var(--cc-track);overflow:hidden}
-.cc-rank-track i{display:block;height:100%;border-radius:3px;min-width:3px;background:repeating-linear-gradient(90deg,var(--cc-bar) 0 3px,color-mix(in srgb,var(--cc-bar) 55%,transparent) 3px 5px)}
+.cc-rank-track{position:relative;display:block;height:18px;border-radius:4px;background:var(--cc-track);overflow:hidden}
+.cc-rank-track i{display:block;height:100%;border-radius:4px;min-width:3px;background:repeating-linear-gradient(90deg,var(--cc-bar) 0 3px,color-mix(in srgb,var(--cc-bar) 55%,transparent) 3px 5px)}
 .cc-rank-val{text-align:right;font-weight:650;color:var(--deep);font-variant-numeric:tabular-nums}
-.cc-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;align-items:end}
-.cc-week-col{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}
-.cc-week-col b{font-size:calc(10px * var(--ui-text-scale));color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.cc-week-track{display:flex;align-items:flex-end;width:100%;height:84px;background:var(--cc-track);border-radius:4px;overflow:hidden}
-.cc-week-track i{display:block;width:100%;background:var(--cc-accent);border-radius:4px 4px 0 0}
+.cc-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;align-items:end}
+.cc-week-col{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0}
+.cc-week-col b{font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.cc-week-track{display:flex;align-items:flex-end;width:100%;height:112px;background:var(--cc-track);border-radius:5px;overflow:hidden}
+.cc-week-track i{display:block;width:100%;background:var(--cc-accent);border-radius:5px 5px 0 0}
 .cc-week-track i.peak{background:#FF9F1C}
-.cc-week-lab{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3);white-space:nowrap}
-.cc-empty{border:1px dashed var(--line);border-radius:10px;padding:14px;text-align:center;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.8}
-.cc-note{margin:10px 0 0;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));line-height:1.8}
-.cc-plat{margin-top:12px;padding-top:12px;border-top:1px solid var(--line-soft,var(--line))}
-.cc-plat-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:8px}
-.cc-plat-head b{font-size:calc(12px * var(--ui-text-scale))}
-.cc-plat-head button{margin-left:auto;font:inherit;font-size:calc(11.5px * var(--ui-text-scale));color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:6px 12px;min-height:34px;cursor:pointer;touch-action:manipulation}
+.cc-week-lab{font-size:calc(12px * var(--ui-text-scale));color:var(--ink-3);white-space:nowrap}
+.cc-empty{border:1px dashed var(--line);border-radius:10px;padding:18px;text-align:center;color:var(--ink-3);font-size:calc(12.5px * var(--ui-text-scale));line-height:1.8}
+.cc-note{margin:12px 0 0;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.8}
+.cc-plat{margin-top:14px;padding-top:14px;border-top:1px solid var(--line-soft,var(--line))}
+.cc-plat-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.cc-plat-head b{font-size:calc(13.5px * var(--ui-text-scale))}
+.cc-plat-head button{margin-left:auto;font:inherit;font-size:calc(12.5px * var(--ui-text-scale));color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 14px;min-height:38px;cursor:pointer;touch-action:manipulation}
 .cc-plat-head button:disabled{opacity:.5;cursor:default}
-.cc-plat-stats{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px}
-.cc-plat-stats small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale))}
-.cc-plat-stats b{font-size:calc(17px * var(--ui-text-scale));color:var(--deep);font-variant-numeric:tabular-nums}
-.cc-status{min-height:18px;margin:8px 0 0;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));line-height:1.8}
+.cc-plat-stats{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px}
+.cc-plat-stats small{display:block;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale))}
+.cc-plat-stats b{font-size:calc(19px * var(--ui-text-scale));color:var(--deep);font-variant-numeric:tabular-nums}
+.cc-status{min-height:20px;margin:9px 0 0;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.8}
 .cc-status.warn{color:color-mix(in srgb,var(--danger,#B03535) 78%,var(--ink))}
-@media(max-width:720px){.cc-grid{grid-template-columns:1fr}.cc-rank li{grid-template-columns:76px 1fr 56px}.cc-panel{padding:12px}}
-@media(max-width:520px){.cc-week-col b{display:none}.cc-rank li{grid-template-columns:66px 1fr 52px}}
+@media(max-width:720px){.cc-rank li{grid-template-columns:88px 1fr 62px}.cc-panel{padding:13px}.cc-card{padding:12px 13px}}
+@media(max-width:520px){.cc-week-col b{display:none}.cc-rank li{grid-template-columns:74px 1fr 56px}.cc-week-track{height:88px}}
 @media(prefers-reduced-motion:reduce){.cc-chips button{transition-duration:.01ms!important}}`;
   document.head.append(node);
 }
 
 export async function createCardCharts(tide, bridge) {
   let prefs = { kind: 'out', months: 12 };
-  let last = null, status = '', saving = false;
+  let last = null, status = '', saving = false, lastWidth = 0;
   let platform = null, platformLoading = false, platformError = '';
   const glowHandles = [];
   try {
@@ -447,7 +466,7 @@ export async function createCardCharts(tide, bridge) {
     return Number.isFinite(n) ? `¥${n.toFixed(2)}` : s;
   };
 
-  function platformHtml() {
+  function platformHtml(plot) {
     if (!bridge?.api) return "";
     let body;
     if (platformLoading) body = `<div class="cc-empty">正在读取平台数据…</div>`;
@@ -461,7 +480,7 @@ export async function createCardCharts(tide, bridge) {
         clean(info.WEEKCONSUME) ? `<div><small>本周消费</small><b>${esc(platformStat(info.WEEKCONSUME))}</b></div>` : "",
       ].filter(Boolean).join("");
       body = `${stats ? `<div class="cc-plat-stats">${stats}</div>` : ""}<div class="cc-grid">
-${trendCard("平台月度消费趋势", platform.trend, "按月 · 网页同源")}
+${trendCard("平台月度消费趋势", platform.trend, "按月 · 网页同源", plot)}
 ${rankCard("平台消费地点排行", platform.rank, "按次数 · 网页同源")}
 </div>`;
     }
@@ -469,9 +488,9 @@ ${rankCard("平台消费地点排行", platform.rank, "按次数 · 网页同源
 <button type="button" data-cc-platform ${platformLoading ? "disabled" : ""}>${platformLoading ? "正在读取…" : platform ? "重新读取" : "读取平台数据"}</button></div>${body}</div>`;
   }
 
-  function trendCard(title, trend, sub) {
+  function trendCard(title, trend, sub, plot) {
     if (!trend || !trend.points.length) return `<article class="cc-card cc-wide"><header><b>${esc(title)}</b></header><div class="cc-empty">还没有可画的月度数据。</div></article>`;
-    return `<article class="cc-card cc-wide"><header><b>${esc(title)}</b><small>${esc(sub || `${trend.activeMonths} 个月有记录 · 合计 ${money(trend.totalCents)}`)}</small></header>${trendChartHtml(trend)}</article>`;
+    return `<article class="cc-card cc-wide"><header><b>${esc(title)}</b><small>${esc(sub || `${trend.activeMonths} 个月有记录 · 合计 ${money(trend.totalCents)}`)}</small></header>${trendChartHtml(trend, plot)}</article>`;
   }
 
   function rankCard(title, rank, sub) {
@@ -485,6 +504,8 @@ ${rankCard("平台消费地点排行", platform.rank, "按次数 · 网页同源
     styles();
     for (const h of glowHandles.splice(0)) { try { h?.dispose?.(); } catch { /* ignore */ } }
     const rows = last.rows;
+    const plot = plotWidth(root);
+    lastWidth = plot;
     const kindLabel = prefs.kind === "out" ? "消费" : "充值";
     const trend = chartTrend(rows, { kind: prefs.kind, months: prefs.months });
     const places = chartPlaces(rows, { kind: prefs.kind, limit: 6 });
@@ -502,13 +523,13 @@ ${rankCard("平台消费地点排行", platform.rank, "按次数 · 网页同源
 <div class="cc-chips" data-cc-kindbox>${kindChips}</div>
 <div class="cc-chips" data-cc-monthbox>${monthChips}</div></div>
 ${empty || `<div class="cc-grid">
-${trendCard(`${kindLabel}金额趋势`, trend)}
-<article class="cc-card"><header><b>消费结构</b><small>${cat.count} 笔支出${cat.excludedCount ? ` · ${cat.excludedCount} 笔退款冲正未计入` : ""}</small></header>${cat.slices.length ? donutChartHtml(cat) : `<div class="cc-empty">所选流水里没有可分类的支出。</div>`}</article>
+${trendCard(`${kindLabel}金额趋势`, trend, "", plot)}
+<article class="cc-card"><header><b>消费结构</b><small>${cat.count} 笔支出${cat.excludedCount ? ` · ${cat.excludedCount} 笔退款冲正未计入` : ""}</small></header>${cat.slices.length ? donutChartHtml(cat, donutWidth(plot)) : `<div class="cc-empty">所选流水里没有可分类的支出。</div>`}</article>
 ${rankCard(`${kindLabel}地点排行`, places, `共 ${places.totalCount} 笔 · 金额 ${money(places.totalCents)}`)}
-<article class="cc-card"><header><b>星期分布</b><small>${week.peak ? `最高 ${week.peak} · ${money(week.totalCents)}` : "暂无"}</small></header>${week.totalCents ? weekChartHtml(week) : `<div class="cc-empty">还没有可统计的${esc(kindLabel)}记录。</div>`}</article>
+<article class="cc-card cc-wide"><header><b>星期分布</b><small>${week.peak ? `最高 ${week.peak} · ${money(week.totalCents)}` : "暂无"}</small></header>${week.totalCents ? weekChartHtml(week) : `<div class="cc-empty">还没有可统计的${esc(kindLabel)}记录。</div>`}</article>
 </div>
 <p class="cc-note">全部基于本机已同步的一卡通流水；一卡通接口单次最多回 5000 笔，更早的历史可能不完整。<br>消费结构按商户与摘要关键词识别，商超、洗浴等不计入餐饮；金额为支出口径，不冲抵退款。</p>`}
-${platformHtml()}
+${platformHtml(plot)}
 <p class="cc-status${status && /失败/.test(status) ? " warn" : ""}" role="status">${esc(status)}</p>
 </section>`;
     bind(root);
@@ -549,6 +570,18 @@ ${platformHtml()}
     attachGlow(root);
   }
 
+  /* 窗口尺寸一变就得按新宽度重画：viewBox 是按上一次的宽度定的，
+     不重画就会把画布横向拉扁，字也跟着变形。 */
+  const onResize = () => {
+    const root = last?.root;
+    if (!root || root.isConnected === false) return;
+    if (Math.abs(plotWidth(root) - lastWidth) < 24) return;
+    paint();
+  };
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("resize", onResize);
+  }
+
   return {
     render(root, rows, meta = {}) {
       if (!root) return;
@@ -557,6 +590,9 @@ ${platformHtml()}
     },
     dispose() {
       last = null;
+      if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+        window.removeEventListener("resize", onResize);
+      }
       for (const h of glowHandles.splice(0)) { try { h?.dispose?.(); } catch { /* ignore */ } }
     },
   };

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import {
   CHART_PALETTE, PIE_PALETTE, chartMonthShift, chartTrend, chartPlaces, placeName,
   chartCategories, chartWeekday, platformTrend, platformPlaces, niceMaxCents, createCardCharts,
+  plotWidth, donutWidth,
 } from '../public/plugins/cppu-notify/card-charts.js';
 
 // ── 月份位移：跨年、越界都要准 ──────────────────────────────────────────
@@ -204,6 +205,28 @@ assert.doesNotMatch(root.innerHTML, /data-cc-platform/);
 assert.match(root.innerHTML, /data-cc-kind="in" aria-pressed="true"/);
 assert.match(root.innerHTML, /data-cc-months="6" aria-pressed="true"/);
 assert.ok(glowCalls.some((c) => c.options?.selector === 'button[aria-pressed="true"]'), '单选组必须挂滑动光');
+
+// ── 尺寸：不许「按 viewBox 等比缩」，否则窄窗口下字会缩到看不清 ──────────
+// 折线画布宽度跟着容器走（量不到退回 620），环图按真实像素画并写死 width/height。
+assert.match(root.innerHTML, /class="cc-svg" viewBox="0 0 620 236"/, '折线画布宽度要按容器量出来');
+assert.match(root.innerHTML, /class="cc-donut-svg" viewBox="0 0 248 248" style="width:248px;height:248px"/);
+// 星期分布与折线一样吃满整行，不会孤零零占半行、另一半空着
+assert.equal((root.innerHTML.match(/class="cc-card cc-wide"/g) || []).length, 2);
+const css = styles.get('card-chart-style').textContent;
+assert.match(css, /\.cc-grid\{display:grid;grid-template-columns:1fr;gap:12px\}/, '默认单列');
+assert.match(css, /@media\(min-width:1080px\)\{\.cc-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}\}/);
+assert.match(css, /\.cc-axis\{fill:var\(--cc-axis\);font-size:calc\(12\.5px \* var\(--ui-text-scale\)\)\}/, 'SVG 轴文字要跟界面字号走');
+assert.match(css, /\.cc-week-track\{[^}]*height:112px/, '星期柱要够高');
+assert.doesNotMatch(css, /\.cc-donut-svg\{flex:1 1 168px/, '环图不能再被 flex 压缩');
+
+// 尺寸助手：宽度扣掉内外边距（16×2 + 15×2 + 4 道边框 = 66），环图夹在 176–248
+assert.equal(plotWidth({ clientWidth: 766 }), 700);
+assert.equal(plotWidth({ querySelector: () => ({ clientWidth: 486 }) }), 420, '优先量 .cc-panel');
+assert.equal(plotWidth({ clientWidth: 200 }), 620, '太窄就退回默认宽度，不画一条挤成一团的线');
+assert.equal(plotWidth(undefined), 620);
+assert.equal(donutWidth(700), 248);
+assert.equal(donutWidth(400), 176);
+assert.equal(donutWidth(1000), 248);
 
 // 切口径 → 重画 + 落盘
 const kindButtons = root.querySelectorAll('[data-cc-kind]');

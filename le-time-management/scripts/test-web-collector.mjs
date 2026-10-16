@@ -134,7 +134,7 @@ const manifest = JSON.parse(fs.readFileSync(new URL('../public/plugins/web-colle
 // 1.6.0 → 卡片编辑区展开收起（长标题与备注在卡片内可读）；
 // 1.7.0 → 卡片改成从底边翻起的抽屉（正面看网站，翻起来改名称 / 备注 / 图标）。
 // 这条断言的作用是「改了行为就必须动版本号」，所以每加一批行为就往上抬一格，别删。
-assert.equal(manifest.version, '1.7.0', '改了网页收集的行为必须升 manifest 版本号');
+assert.equal(manifest.version, '1.8.0', '改了网页收集的行为必须升 manifest 版本号');
 assert.equal(manifest.platforms.miniprogram, 'native', '原生收藏管理已实现，任意网站内嵌不在适配范围');
 
 /* ── 七之二、明文 http 站点在「应用内显示」里不许挂空 iframe（v1.2.4）──

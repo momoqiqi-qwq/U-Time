@@ -469,6 +469,12 @@ function makeApi(man, source) {
         if (pid !== "chaoxing-notify") throw new Error("网页登录态转交仅对学习通插件开放");
         return api.openUrlWithHttpSession(url, sid);
       },
+      openPdataPage: (url, sid = "") => {
+        requirePermission(man, pid, "openUrl");
+        if (sid) requirePermission(man, pid, "http");
+        if (pid !== "cppu-notify") throw new Error("个人成长中心网页窗口仅对警大插件开放");
+        return api.openPdataPage(url, sid);
+      },
       parseWhen: (...args) => { requirePermission(man, pid, "timeParse"); return parseWhen(...args); },
       guessCategory: (...args) => { requirePermission(man, pid, "timeParse"); return guessCategory(...args); },
       guessQuad: (...args) => { requirePermission(man, pid, "timeParse"); return guessQuad(...args); },

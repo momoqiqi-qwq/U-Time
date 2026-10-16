@@ -1615,11 +1615,29 @@ fn is_cppu_mail_host(host: &str) -> bool {
     host.trim_end_matches('.').eq_ignore_ascii_case("mail.cppu.edu.cn")
 }
 
-/// 允许把插件 native 会话注入应用内网页窗口的两类站点。
+/// 学生个人成长中心（pdata.cppu.edu.cn）：独立 SPA，靠统一身份认证的票据换自己的 token。
+fn is_cppu_pdata_host(host: &str) -> bool {
+    host.trim_end_matches('.').eq_ignore_ascii_case("pdata.cppu.edu.cn")
+}
+
+/// 统一身份认证（sso.cppu.edu.cn）：pdata 的 CASTGC 就落在这个域上。
+/// 只注入 pdata 自己的域不够 —— 窗口里的 SPA 会跳到这里要票，没有 CASTGC 就只能显示登录页。
+fn is_cppu_sso_host(host: &str) -> bool {
+    host.trim_end_matches('.').eq_ignore_ascii_case("sso.cppu.edu.cn")
+}
+
+/// 校内共享域的根：CASTGC 这类 Cookie 常以 `Domain=.cppu.edu.cn` 下发，
+/// 根域不放行就会被 domain_matches 判掉，免登随即失效（票换不出来）。
+fn is_cppu_root_domain(host: &str) -> bool {
+    host.trim_end_matches('.').eq_ignore_ascii_case("cppu.edu.cn")
+}
+
+/// 允许把插件 native 会话注入应用内网页窗口的站点。
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum WebviewSessionSite {
     Chaoxing,
     Mail,
+    Pdata,
 }
 
 impl WebviewSessionSite {
@@ -1634,13 +1652,18 @@ impl WebviewSessionSite {
         if is_cppu_mail_host(host) {
             return Ok(Self::Mail);
         }
-        Err("登录态注入仅对学习通与警大邮箱开放".into())
+        if is_cppu_pdata_host(host) {
+            return Ok(Self::Pdata);
+        }
+        Err("登录态注入仅对学习通、警大邮箱与个人成长中心开放".into())
     }
 
     fn allows_host(self, host: &str) -> bool {
         match self {
             Self::Chaoxing => is_chaoxing_host(host),
             Self::Mail => is_cppu_mail_host(host),
+            // pdata 一跳是 sso 要票、一跳是 pdata 自证，两个域都要；根域见 is_cppu_root_domain。
+            Self::Pdata => is_cppu_pdata_host(host) || is_cppu_sso_host(host) || is_cppu_root_domain(host),
         }
     }
 
@@ -1666,6 +1689,11 @@ impl WebviewSessionSite {
             .map(|s| s.to_string())
             .collect(),
             Self::Mail => vec!["https://mail.cppu.edu.cn/".to_string()],
+            // sso 在前：窗口先跳到它换票，CASTGC 必须在导航前就位。
+            Self::Pdata => vec![
+                "https://sso.cppu.edu.cn/".to_string(),
+                "https://pdata.cppu.edu.cn/".to_string(),
+            ],
         };
         urls.push(target.as_str().to_string());
         urls.sort();
@@ -1677,6 +1705,7 @@ impl WebviewSessionSite {
         match self {
             Self::Chaoxing => "插件会话中没有可传给浏览器的有效学习通 Cookie，请先在插件刷新登录",
             Self::Mail => "插件会话中没有可传给浏览器的有效警大邮箱 Cookie，请先在警大通知插件里登录一次邮箱",
+            Self::Pdata => "插件会话中没有可传给浏览器的有效统一身份认证 Cookie，请先在警大通知插件里登录一次",
         }
     }
 
@@ -1684,12 +1713,13 @@ impl WebviewSessionSite {
         match self {
             Self::Chaoxing => "学习通 Cookie 格式无效，未打开浏览器",
             Self::Mail => "警大邮箱 Cookie 格式无效，未打开浏览器",
+            Self::Pdata => "统一身份认证 Cookie 格式无效，未打开浏览器",
         }
     }
 }
 
 /// 从 native reqwest Cookie Jar 取当前有效的会话，并保留响应中的安全属性。
-/// scope 只覆盖学习通与警大邮箱域名；任意外站拿不到这批凭据。
+/// scope 只覆盖学习通、警大邮箱与个人成长中心（含其统一身份认证）域名；任意外站拿不到这批凭据。
 fn webview_session_cookies(
     session: &HttpSession,
     target: &Url,
@@ -1704,7 +1734,9 @@ fn webview_session_cookies(
     for url_string in url_strings {
         let request_url: Url = url_string.parse().map_err(|e| format!("Cookie URL 无效: {e}"))?;
         let Some(host) = request_url.host_str() else { continue };
-        if !is_chaoxing_host(host) { continue; }
+        // 这里必须问当前站点自己的白名单。写死学习通会让邮箱与个人成长中心
+        // 一个 Cookie 都收不到，调用方只会看到「没有可传的 Cookie」而看不出原因。
+        if !site.allows_host(host) { continue; }
         let Some(header) = session.jar.cookies(&request_url) else { continue };
         let Ok(header) = header.to_str() else { continue };
         for pair in header.split(';').map(str::trim).filter(|s| !s.is_empty()) {
@@ -1783,7 +1815,7 @@ fn set_android_webview_cookies(
 }
 
 /// 插件专用：native 写入会话 Cookie 后再导航；Cookie 不经过 URL 或页面 JS。
-/// 目前支持学习通与警大邮箱两个站点（见 WebviewSessionSite 白名单）。
+/// 目前支持学习通、警大邮箱与个人成长中心三个站点（见 WebviewSessionSite 白名单）。
 #[tauri::command]
 async fn open_internal_with_http_session(
     app: AppHandle,

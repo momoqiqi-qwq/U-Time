@@ -287,6 +287,26 @@ export const api = {
     return invoke("open_internal_with_http_session", { sid, url });
   },
 
+  /** 学生个人成长中心（pdata.cppu.edu.cn）固定站点的应用内窗口。带 sid 时由 Rust 原生端
+   * 注入该插件会话的统一身份认证 Cookie（sso 与 pdata 两个域一起注入，否则窗口里的 SPA
+   * 换不到票、只会显示登录页），SPA 自己在窗口里跑一次 validateLogin 即完成免登；
+   * 不带 sid 时退化为普通内置窗口，由页面自己登录。不导出 Cookie、不代理登录页。
+   */
+  async openPdataPage(url, sid = "") {
+    let parsed;
+    try { parsed = new URL(url); } catch { throw new Error("个人成长中心网页地址无效"); }
+    if (parsed.origin !== "https://pdata.cppu.edu.cn" || parsed.username || parsed.password || !parsed.pathname.startsWith("/stu/")) throw new Error("仅支持个人成长中心官方页面");
+    if (isTauri) {
+      if (sid) return invoke("open_internal_with_http_session", { sid, url: parsed.href });
+      try { await invoke("open_internal", { url: parsed.href }); } catch { throw new Error("应用内网页窗口打开失败，请重试"); }
+      return { mode: "native" };
+    }
+    const win = window.open(parsed.href, "_blank");
+    if (!win) throw new Error("请允许打开弹窗后重试");
+    win.opener = null;
+    return { mode: "browser" };
+  },
+
   async schoolImportOpen(url, adapterScript, title) {
     if (isTauri) return invoke("school_import_open", { url, adapterScript, title });
     window.open(url, "_blank");

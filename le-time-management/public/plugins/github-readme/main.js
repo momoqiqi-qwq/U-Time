@@ -712,20 +712,21 @@
          （转到 -90° 时背面朝外，不隐掉会透出反向镜像）。闭合态停在 -90deg 而不是 +90deg，
          后者会从顶边垂下来，方向反了。visibility 与 transform 分开延迟：展开立刻可见、
          收起等转完再隐藏，否则收起动画会被半途掐断。 */
-      .gh-front{padding:12px 13px;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),opacity .45s ease}
-      .gh-detail{position:absolute;inset:0;z-index:5;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:12px 13px;border-radius:inherit;background:var(--panel);overflow:hidden;transform:rotateX(-90deg);transform-origin:bottom;backface-visibility:hidden;visibility:hidden;pointer-events:none;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear .6s}
-      .gh-card.is-flipped .gh-front{transform:scale(.86);opacity:0}
-      /* 正面在翻开后**刻意保留可点**：卡片主体本来就整块是「阅读 README」按钮，
-         要是像网页收集那样把正面 pointer-events 关掉，鼠标一点就落进详情层的空白里，
-         「点卡片进阅读页」就变成了看运气。所以反过来：详情层容器不吃事件，
-         只让它自己的按钮吃（子元素 pointer-events:auto 在 none 的父元素里照常可点），
-         这样点哪儿都能进阅读页，点按钮才命中按钮。详情层内容很短，不需要滚动，
-         所以 overflow 用 hidden —— 没有滚动需求，穿透才不会吞掉滚轮。 */
-      .gh-card.is-flipped .gh-detail{transform:rotateX(0deg);visibility:visible;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
-      /* 鼠标能悬停时悬停即翻（这就是 LabOrbit 的触发方式）；触屏没有 hover，走「更多」按钮 */
+      /* 正面是「封面」：只有图标 + 名字，其余全在翻起来的详情层里。
+         卡片高度由正面撑开（.gh-detail 是 position:absolute;inset:0，高度跟着卡片走），
+         所以 min-height 不能撤：正面一旦变矮，详情层会被一起压扁、动作条被裁掉。 */
+      .gh-front{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;box-sizing:border-box;width:100%;padding:14px 13px;min-height:calc(236px * var(--ui-text-scale));text-align:center;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),opacity .45s ease}
+      .gh-front-ico{font-size:calc(34px * var(--ui-text-scale));line-height:1;font-style:normal}
+      .gh-front-name{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;color:var(--deep);font-size:calc(14px * var(--ui-text-scale));font-weight:750;line-height:1.35;overflow-wrap:anywhere}
+      .gh-detail{position:absolute;inset:0;z-index:5;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:12px 13px;border-radius:inherit;background:var(--panel);overflow:auto;transform:rotateX(-90deg);transform-origin:bottom;backface-visibility:hidden;visibility:hidden;pointer-events:none;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear .6s}
+      .gh-card.is-flipped .gh-front{transform:scale(.86);opacity:0;pointer-events:none}
+      /* 正面翻开后就不再吃事件了 —— 它现在是翻转按钮，没必要让点击落到被盖住的那一层。
+         详情层自己接管指针（容器 auto），这样内容变多时还能在层内滚动。 */
+      .gh-card.is-flipped .gh-detail{transform:rotateX(0deg);visibility:visible;pointer-events:auto;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
+      /* 鼠标能悬停时悬停即翻（这就是 LabOrbit 的触发方式）；触屏没有 hover，点卡片正面翻 */
       @media (hover:hover) and (pointer:fine){
-        .gh-card:hover .gh-front{transform:scale(.86);opacity:0}
-        .gh-card:hover .gh-detail{transform:rotateX(0deg);visibility:visible;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
+        .gh-card:hover .gh-front{transform:scale(.86);opacity:0;pointer-events:none}
+        .gh-card:hover .gh-detail{transform:rotateX(0deg);visibility:visible;pointer-events:auto;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
       }
       .gh-detail button{pointer-events:auto}
       .gh-detail-head{display:flex;align-items:flex-start;gap:8px}
@@ -818,19 +819,21 @@
     const k = repoKey(r);
     const c = r.commit || {};
     const on = flipped.has(k);
-    const title = `${r.icon ? `<i class="gh-ico">${esc(r.icon)}</i>` : ""}${esc(repoTitle(r))}${r.unread ? '<i class="gh-dot" aria-label="有未读更新"></i>' : ""}`;
+    const dot = r.unread ? '<i class="gh-dot" aria-label="有未读更新"></i>' : "";
     const meta = `${esc(r.branch)} · ${esc(c.author || "作者未知")} · ${esc(fmtTime(c.time))} · README ${esc(kb(r.size))}`;
     const more = `<button type="button" class="gh-btn" data-gh-more aria-expanded="${on ? "true" : "false"}" aria-controls="gh-detail-${esc(k)}">`;
-    return `<article class="gh-card${on ? " is-flipped" : ""}" data-gh-card="${esc(k)}"><div class="gh-front"><button type="button" class="gh-card-read" data-gh-open="${esc(k)}" aria-label="阅读 ${esc(k)} 的 README">
-      <b>${title}</b>
+    /* 正面是「封面」：只有图标 + 仓库名。别名 / 备注 / 提交标题 / 元信息 / 阅读·编辑·移除
+       全在翻起来的详情层里 —— 这就是 LabOrbit 那张卡的分工：封面朝前、内容朝后。
+       正面整体就是翻转按钮，触屏与键盘点卡片任意处都能翻。 */
+    const front = `<button type="button" class="gh-card-read gh-front" data-gh-more aria-expanded="${on ? "true" : "false"}" aria-controls="gh-detail-${esc(k)}" aria-label="${esc(k)}：展开详情">${r.icon ? `<span class="gh-front-ico">${esc(r.icon)}</span>` : ""}<span class="gh-front-name">${esc(repoTitle(r))}${dot}</span></button>`;
+    return `<article class="gh-card${on ? " is-flipped" : ""}" data-gh-card="${esc(k)}">${front}
+      <div class="gh-detail" id="gh-detail-${esc(k)}"><div class="gh-detail-head"><b>${esc(repoTitle(r))}${dot}</b>${more}收起</button></div>
       ${r.alias ? `<div class="gh-sub">${esc(k)}</div>` : ""}
       ${r.note ? `<div class="gh-note">${esc(r.note)}</div>` : ""}
       <p>${esc(c.title || "（还没读到提交记录）")}</p>
       <div class="gh-meta">${meta}</div>
-      <span class="gh-sub">阅读 README →</span></button>
       ${r.error ? `<div class="gh-err">${esc(r.error)}</div>` : ""}
-      <div class="gh-foot">${more}更多</button></div></div>
-      <div class="gh-detail" id="gh-detail-${esc(k)}"><div class="gh-detail-head"><b>${title}</b>${more}收起</button></div><div class="gh-meta">${meta}</div>${r.error ? `<div class="gh-err">${esc(r.error)}</div>` : ""}<div class="gh-foot"><button type="button" class="gh-btn" data-gh-open="${esc(k)}">阅读 README</button><button type="button" class="gh-btn" data-gh-edit="${esc(k)}" aria-label="编辑 ${esc(k)}">编辑</button><button type="button" class="gh-del" data-gh-del="${esc(k)}" aria-label="从列表移除 ${esc(k)}">移除</button></div></div>
+      <div class="gh-foot"><button type="button" class="gh-btn" data-gh-open="${esc(k)}">阅读 README</button><button type="button" class="gh-btn" data-gh-edit="${esc(k)}" aria-label="编辑 ${esc(k)}">编辑</button><button type="button" class="gh-del" data-gh-del="${esc(k)}" aria-label="从列表移除 ${esc(k)}">移除</button></div></div>
     </article>`;
   }
 

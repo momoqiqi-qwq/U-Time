@@ -755,6 +755,7 @@
 
   async function clearSavedLogin() {
     state.savedPassword = "";
+    forgetPdataAuth();
     jwSid = null;
     jwState.data = { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null };
     try {
@@ -1168,12 +1169,12 @@
 
   async function finishPortalTicket(loginRes) {
     const direct = tokenFromText(loginRes?.finalUrl, loginRes?.location, loginRes?.body, ...(loginRes?.cookies || []));
-    if (direct) { state.token = direct; return true; }
+    if (direct) { state.token = direct; forgetPdataAuth(); return true; }
     const portalTicket = redirectTarget(loginRes, SILENT_LOGIN, PORTAL);
     if (!portalTicket) return false;
     const portal = await getPage(portalTicket, false, { followRedirects: false }).catch(() => null);
     const token = tokenFromText(portal?.finalUrl, portal?.location, portal?.body, ...(portal?.cookies || []));
-    if (token) { state.token = token; return true; }
+    if (token) { state.token = token; forgetPdataAuth(); return true; }
     return false;
   }
 
@@ -1872,15 +1873,24 @@
      登录成功后**不发会话 Cookie**，而是把 token 放进每个 /tsa/** 请求的
      `Authentication` 头里（见站点 services 层）。
 
-     所以链路是两步，且两步都必须在本插件的会话里走（Rust 侧发起，不受 CORS 限制）：
+     但它和「警大通知」共用同一套统一身份认证：同一个 sso.cppu.edu.cn、同一份账号密码。
+     所以登录态是互通的 —— 本插件登录成功留下的 CASTGC 就是 pdata 换票的凭据，
+     反过来 pdata 换票也只消费主 SSO 的票，不会动门户会话。
+
+     链路（三步都必须在本插件的会话里走，Rust 侧发起，不受 CORS 限制）：
+       ⓪ 先把「警大通知」存进密钥库的会话票据灌回本会话（restoreCookies）——
+          这一步以前缺了，于是冷启动直接打开成长中心/一卡通时永远换不到票；
        ① 用主 SSO 的 CASTGC 换一张一次性 ticket
           （service 就是裸开 /stu/home/ 时 302 里的那个，即 https://pdata.cppu.edu.cn/stu/home/）；
           followRedirects:false —— 只看 Location，绝不把票消费掉；
        ② 拿 ticket 打 /tsa/validateLogin?ticket=..&service=..（SPA 自己就是这么登的），
           **这一步才消费 ticket**，回 {code:2000, data:{token, userId, ...}}。
 
+     ① 失败 ⇒ 主 SSO 的 CASTGC 也没了，就用通知里存的那份账号密码自动登一次（同一份凭据，
+     用户不需要再输一遍），登完再回到 ①。整条链都失败才提示「请先在警大通知里登录一次」。
+
      token 只进 vault（和教务密码同一把锁），不进 storage、不进日志、不写进 DOM。
-     失效时由 pdataApi 自己清掉重走一遍 ①②，用户不需要做任何事。 */
+     失效时由 pdataApi 自己清掉重走一遍，用户不需要做任何事。 */
   const PDATA_VAULT_KEY = "pdataToken";
   let pdataAuth = { token: "", userId: "", at: 0 };
   let pdataAuthPending = null;
@@ -1903,33 +1913,82 @@
     return pdataAuth;
   }
 
-  /** force=true：丢掉手上的 token 重新走一遍 ①②（用户点「重新登录」/ 服务端说 token 过期）。 */
+  /** 丢掉手上的 pdata 票。门户换了人（重新登录）或用户清了凭据时都要走一遍。 */
+  async function dropPdataAuth() {
+    pdataAuth = { token: "", userId: "", at: 0 };
+    try { await tide.vault?.del?.(PDATA_VAULT_KEY); } catch { /* ignore */ }
+  }
+
+  /** 门户会话刚被（重新）建立：手上的 pdata 票不再可信，下次取数重新换。
+      同步、不 await —— 它挂在 finishPortalTicket 的热路径上，不能拖慢登录。 */
+  function forgetPdataAuth() {
+    pdataAuth = { token: "", userId: "", at: 0 };
+    Promise.resolve(tide.vault?.del?.(PDATA_VAULT_KEY)).catch(() => {});
+  }
+
+  /* 凭据只在 loadPrefs 里读一次，而成长中心/一卡通可能比通知界面先被打开
+     （侧栏直接点进去就是这条路径）。这里只补登录相关的三项，
+     不碰筛选、已读等界面状态 —— 那些由 loadPrefs 在通知界面里负责。 */
+  let loginPrefsReady = null;
+  function ensureLoginPrefs() {
+    if (loginPrefsReady) return loginPrefsReady;
+    loginPrefsReady = (async () => {
+      try {
+        if (!state.username) state.username = (await tide.storage.get("username", "")) || "";
+        state.autoLogin = await tide.storage.get("autoLogin", true) !== false;
+        if (state.autoLogin && !state.savedPassword && typeof tide.vault?.get === "function") {
+          state.savedPassword = JSON.parse((await tide.vault.get("secret")) || "null")?.password || "";
+        }
+      } catch { /* 读不到就按「没存过凭据」处理，退回人工登录 */ }
+      // 没读到凭据就不缓存：用户很可能先去通知里登一次再回来，那时必须重新读一遍。
+      if (!state.username || !state.savedPassword) loginPrefsReady = null;
+    })();
+    return loginPrefsReady;
+  }
+
+  /** ①② 共用的那一步：换票 → 消费票 → 落库。成功返回 true。 */
+  async function exchangePdataToken() {
+    const service = PDATA + PDATA_HOME;
+    const ticket = await mintPdataTicket({ service, origin: PDATA, path: PDATA_HOME });
+    // 换不到票 ⇒ 本插件的统一身份认证会话不在（没勾「5天内自动登录」，或已过期）。
+    if (!ticket) return false;
+    let raw = "";
+    try { raw = new URL(ticket).searchParams.get("ticket") || ""; } catch { raw = ""; }
+    if (!raw) return false;
+    const res = await getPage(PDATA + "/tsa/validateLogin?ticket=" + encodeURIComponent(raw) + "&service=" + encodeURIComponent(service));
+    const body = JSON.parse(String(res?.body || ""));
+    if (Number(body?.code) !== 2000 || !body?.data?.token) return false;
+    pdataAuth = { token: String(body.data.token), userId: String(body.data.userId || ""), at: Date.now() };
+    try { await tide.vault?.set?.(PDATA_VAULT_KEY, JSON.stringify(pdataAuth)); } catch { /* ignore */ }
+    saveCookies();
+    return true;
+  }
+
+  /** force=true：丢掉手上的 token 重新走一遍（用户点「重新登录」/ 服务端说 token 过期）。 */
   async function ensurePdataAuth(force = false) {
-    if (force) {
-      pdataAuth = { token: "", userId: "", at: 0 };
-      try { await tide.vault?.del?.(PDATA_VAULT_KEY); } catch { /* ignore */ }
-    } else {
-      await loadPdataAuth();
-    }
+    if (force) await dropPdataAuth();
+    else await loadPdataAuth();
     if (pdataAuth.token) return pdataAuth;
     // 同一时刻只允许有一次换票在飞：七个接口并发拉的时候不能各换一次。
     if (pdataAuthPending) return pdataAuthPending;
     pdataAuthPending = (async () => {
       try {
+        await ensureLoginPrefs();
+        // ⓪ 复用「警大通知」留下的登录态：CASTGC / tp_up 都在密钥库里，先灌回本会话。
+        await restoreCookies();
         await newSession();
-        const service = PDATA + PDATA_HOME;
-        const ticket = await mintPdataTicket({ service, origin: PDATA, path: PDATA_HOME });
-        // 换不到票 ⇒ 本插件的统一身份认证会话不在（没勾「5天内自动登录」，或已过期）。
-        if (!ticket) return pdataAuth;
-        let raw = "";
-        try { raw = new URL(ticket).searchParams.get("ticket") || ""; } catch { raw = ""; }
-        if (!raw) return pdataAuth;
-        const res = await getPage(PDATA + "/tsa/validateLogin?ticket=" + encodeURIComponent(raw) + "&service=" + encodeURIComponent(service));
-        const body = JSON.parse(String(res?.body || ""));
-        if (Number(body?.code) !== 2000 || !body?.data?.token) return pdataAuth;
-        pdataAuth = { token: String(body.data.token), userId: String(body.data.userId || ""), at: Date.now() };
-        try { await tide.vault?.set?.(PDATA_VAULT_KEY, JSON.stringify(pdataAuth)); } catch { /* ignore */ }
-        saveCookies();
+        if (await exchangePdataToken()) return pdataAuth;
+        // ① CASTGC 还在、门户票据过期：静默续期一次，不碰验证码。
+        if (await silentRenew()) {
+          await saveCookies();
+          if (await exchangePdataToken()) return pdataAuth;
+        }
+        // ② 主 SSO 也没了：用通知里存的那份账号密码自动登一次（含验证码识别），
+        //    成功后主 SSO 的 CASTGC 就有了，再换 pdata 的票。
+        if (await passwordAutoLogin()) {
+          await saveCookies();
+          if (await exchangePdataToken()) return pdataAuth;
+        }
         return pdataAuth;
       } catch {
         return pdataAuth;
@@ -1945,7 +2004,7 @@
     const auth = await ensurePdataAuth();
     if (!auth.token) {
       return { ok: false, code: 0, status: 0, auth: true, data: null,
-        message: "统一身份认证会话已失效，请先在「警大通知」里登录一次，再回到本页刷新" };
+        message: "自动登录没成功：请先在「警大通知」里登录一次（两边共用同一份账号密码），再回到本页刷新" };
     }
     const url = PDATA + path + (path.includes("?") ? "&" : "?") + "_USER=" + encodeURIComponent(auth.userId || "");
     let res = null;
@@ -1967,22 +2026,31 @@
       message: msg || `个人成长中心返回 ${res?.status || "未知响应"}` };
   }
 
-  /* 开 pdata 的某个页面：**不换票**。pdata 的 SPA 必须自己在浏览器里跑 validateLogin，
-     把换来的票交给我们反而没人消费。只要 SSO 会话还在，裸开就会
-     /stu/xxx → 302 sso → 302 带票回来 → SPA 自证，一次跳转的事。 */
-  function openPdataLink(path) {
+  /* 开 pdata 的某个页面：先确保本会话有统一身份认证的票据，再把这份会话的 Cookie
+     交给应用内网页窗口（宿主 openPdataPage 注入 sso + pdata 两个域），
+     窗口里的 SPA 自己跑一次 validateLogin 就完成免登 —— 它必须自己跑，
+     把换来的票交给我们反而没人消费。换不到票据时退回裸链接（会落到统一身份认证登录页），
+     入口不能点了没反应。 */
+  async function openPdataLink(path) {
     let url = PDATA + PDATA_HOME;
-    try { url = new URL(path || PDATA_HOME, PDATA + "/").href; } catch { /* 退回首页 */ }
+    try {
+      const target = new URL(path || PDATA_HOME, PDATA + "/");
+      // path 是调用方给的：绝对外链在这里就折回首页，别让它把本插件的会话带去别处。
+      if (target.origin === PDATA) url = target.href;
+    } catch { /* 退回首页 */ }
+    await ensurePdataAuth();
+    if (state.sid && typeof tide.util?.openPdataPage === "function") {
+      try { await tide.util.openPdataPage(url, state.sid); return; } catch { /* 退回裸开 */ }
+    }
     tide.util.openUrl(url);
-    return Promise.resolve();
   }
 
   /* growth.js 只认这三件事：取数、开网页、重登。SSO 会话与 token 不出本文件。 */
   const growthBridge = {
     api: (path) => pdataApi(path),
     open: (path) => openPdataLink(path),
-    // "ok"  = 换到票了，可以重新取数；
-    // "form" = 换不到票 ⇒ 本插件的统一身份认证会话不在，得先去「警大通知」登一次。
+    // "ok"  = 换到票了，可以重新取数（含「用通知那份账号密码自动登一次」这条兜底）；
+    // "form" = 整条链都没换到 ⇒ 得先去「警大通知」人工登一次。
     relogin: async () => {
       await ensurePdataAuth(true);
       return pdataAuth.token ? "ok" : "form";

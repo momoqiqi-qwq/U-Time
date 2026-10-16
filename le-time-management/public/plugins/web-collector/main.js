@@ -43,8 +43,13 @@
        （延迟 .6s）—— 否则收起动画会在半途被 visibility:hidden 掐断。 */
     s.textContent += `
 .wc-card{display:block;min-width:0;padding:0;position:relative;perspective:1000px;transform-style:preserve-3d;overflow:hidden}
-.wc-front{display:grid;grid-template-columns:46px minmax(0,1fr);gap:11px;padding:14px;box-sizing:border-box;min-height:calc(182px * var(--ui-text-scale));align-content:space-between;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),opacity .45s ease}
-.wc-front>div:nth-child(2){min-width:0}
+/* 正面是「封面」：只有图标 + 名字，其余全在翻起来的详情层里。
+   卡片高度由正面撑开（.wc-detail 是 position:absolute;inset:0，高度跟着卡片走），
+   所以 min-height 不能撤：正面一旦变矮，详情层会被一起压扁、输入框与动作条被裁掉。
+   正面整体就是那颗翻转按钮 —— 触屏与键盘点卡片任意处都能翻。 */
+.wc-front{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;box-sizing:border-box;width:100%;padding:18px 14px;min-height:calc(206px * var(--ui-text-scale));font:inherit;text-align:center;color:inherit;background:none;border:0;cursor:pointer;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),opacity .45s ease}
+.wc-front .wc-icon{width:52px;height:52px;border-radius:14px;flex:none}
+.wc-front .wc-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;white-space:normal;text-align:center}
 .wc-detail{position:absolute;inset:0;z-index:5;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:11px 14px;border-radius:inherit;background:var(--panel);overflow:auto;scrollbar-width:thin;transform:rotateX(-90deg);transform-origin:bottom;backface-visibility:hidden;visibility:hidden;pointer-events:none;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear .6s}
 .wc-card.is-flipped .wc-front{transform:scale(.86);opacity:0;pointer-events:none}
 .wc-card.is-flipped .wc-detail{transform:rotateX(0deg);visibility:visible;pointer-events:auto;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
@@ -52,10 +57,8 @@
 /* 详情层的标题最多两行：它和下面的编辑框、动作条共享固定高度，不限行会把动作条顶出卡片 */
 .wc-detail-head b{flex:1;min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .wc-detail-head button{flex:none;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);padding:4px 9px;font-size:calc(11px * var(--ui-text-scale))}
-.wc-title{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.4}
-.wc-note{max-height:3.1em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.wc-detail-host{display:block;font-size:calc(10.5px * var(--ui-text-scale));font-weight:400;color:var(--ink-3);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wc-card .wc-actions{align-items:center}
-.wc-card .wc-actions [data-more]{margin-left:auto}
 .wc-edit{min-width:0}
 .wc-edit input{box-sizing:border-box}
 /* 这里刻意**不**给 .wc-actions 加分隔线：详情层里也有 .wc-actions，加了会把详情层顶出 10px 溢出 */
@@ -153,10 +156,22 @@
     const q = query.trim().toLowerCase(); if (!q) return items;
     return items.filter((x) => `${x.title} ${x.url} ${x.host} ${x.note || ""}`.toLowerCase().includes(q));
   }
+  /** 「更多 / 收起」只切 class，不整页重绘 —— 重绘会把搜索框焦点、输入框草稿和滚动位置一起抹掉。
+   *  正面的整块卡片就是翻转按钮（[data-more]），详情层里那颗是同一个标记，所以这里一次同步全部。 */
+  function toggleFlip(btn) {
+    const card = btn.closest && btn.closest("[data-id]");
+    if (!card || !card.classList) return;
+    const id = card.dataset.id;
+    const on = !flippedCards.has(id);
+    if (on) flippedCards.add(id); else flippedCards.delete(id);
+    card.classList.toggle("is-flipped", on);
+    for (const b of card.querySelectorAll("[data-more]")) b.setAttribute("aria-expanded", String(on));
+  }
+
   function paint() {
     if (!host?.isConnected) return;
     const rows = visible();
-    host.innerHTML = `<div class="wc"><div class="wc-hero"><input class="wc-input" data-url placeholder="输入网站，例如 https://www.example.edu.cn"><button class="wc-btn pri" data-add ${busy ? "disabled" : ""}>${busy ? "正在识别…" : "自动识别并收藏"}</button><button class="wc-btn" data-probe-icon ${busy ? "disabled" : ""}>${busy ? "获取中…" : "自动获取网站图标"}</button></div>${iconPreview ? `<div class="wc-icon-preview"><span class="wc-icon">${favicon(iconPreview)}</span><span class="wc-preview-text">图标地址：<code>${esc(iconPreview.iconUrl || "未取到")}</code></span><button class="wc-btn" data-preview-save ${busy ? "disabled" : ""}>存为新条目</button><button class="wc-btn" data-preview-clear>清空</button></div>` : ""}</div><div class="wc-toolbar"><span class="wc-searchbox"><span class="wc-search-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="wc-input" data-search value="${esc(query)}" aria-label="搜索已收藏网站" title="搜索已收藏网站" placeholder=""></span><select class="wc-open-mode" data-open-mode aria-label="网站打开方式"><option value="external"${openMode === "external" ? " selected" : ""}>浏览器打开</option><option value="inside"${openMode === "inside" ? " selected" : ""}>应用内显示</option></select><span style="font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2)">${rows.length} / ${items.length}</span></div><div class="wc-grid">${rows.map((x) => `<article class="wc-card${flippedCards.has(x.id) ? " is-flipped" : ""}" data-id="${esc(x.id)}"><div class="wc-front"><div class="wc-icon">${favicon(x)}</div><div><div class="wc-title" title="${esc(x.title)}">${esc(x.title)}</div><div class="wc-host">${esc(x.host || x.url)}</div><span class="wc-badge">FA: ${esc(x.iconName || "globe")}</span><div class="wc-note" title="${esc(x.note || "")}">${esc(x.note || "暂无备注")}</div></div><div class="wc-actions"><button data-open>打开</button><button data-more aria-expanded="false" aria-controls="wc-detail-${esc(x.id)}">更多</button></div></div><div class="wc-detail" id="wc-detail-${esc(x.id)}"><div class="wc-detail-head"><b>${esc(x.title)}</b><button data-more aria-expanded="true" aria-controls="wc-detail-${esc(x.id)}">收起</button></div><div class="wc-edit"><input data-title value="${esc(x.title)}" aria-label="名称"><input data-note value="${esc(x.note || "")}" placeholder="备注" aria-label="备注" title="${esc(x.note || "")}"></div><div class="wc-actions"><button data-open>打开</button><button data-save>保存修改</button><button data-fetch-icon title="只重新抓取这个网站的图标，标题与备注保持不变">换图标</button><button data-refresh>刷新名称/图标</button><button data-remove>删除</button></div></div></article>`).join("") || `<div class="wc-empty">还没有收藏网页。输入网址后会自动获取网站名称和图标。</div>`}</div></div>`;
+    host.innerHTML = `<div class="wc"><div class="wc-hero"><input class="wc-input" data-url placeholder="输入网站，例如 https://www.example.edu.cn"><button class="wc-btn pri" data-add ${busy ? "disabled" : ""}>${busy ? "正在识别…" : "自动识别并收藏"}</button><button class="wc-btn" data-probe-icon ${busy ? "disabled" : ""}>${busy ? "获取中…" : "自动获取网站图标"}</button></div>${iconPreview ? `<div class="wc-icon-preview"><span class="wc-icon">${favicon(iconPreview)}</span><span class="wc-preview-text">图标地址：<code>${esc(iconPreview.iconUrl || "未取到")}</code></span><button class="wc-btn" data-preview-save ${busy ? "disabled" : ""}>存为新条目</button><button class="wc-btn" data-preview-clear>清空</button></div>` : ""}</div><div class="wc-toolbar"><span class="wc-searchbox"><span class="wc-search-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="wc-input" data-search value="${esc(query)}" aria-label="搜索已收藏网站" title="搜索已收藏网站" placeholder=""></span><select class="wc-open-mode" data-open-mode aria-label="网站打开方式"><option value="external"${openMode === "external" ? " selected" : ""}>浏览器打开</option><option value="inside"${openMode === "inside" ? " selected" : ""}>应用内显示</option></select><span style="font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2)">${rows.length} / ${items.length}</span></div><div class="wc-grid">${rows.map((x) => `<article class="wc-card${flippedCards.has(x.id) ? " is-flipped" : ""}" data-id="${esc(x.id)}"><button type="button" class="wc-front" data-more aria-expanded="${flippedCards.has(x.id) ? "true" : "false"}" aria-controls="wc-detail-${esc(x.id)}" aria-label="${esc(x.title)}：更多操作"><span class="wc-icon">${favicon(x)}</span><span class="wc-title" title="${esc(x.title)}">${esc(x.title)}</span></button><div class="wc-detail" id="wc-detail-${esc(x.id)}"><div class="wc-detail-head"><b>${esc(x.title)}</b><button data-more aria-expanded="${flippedCards.has(x.id) ? "true" : "false"}" aria-controls="wc-detail-${esc(x.id)}">收起</button></div><div class="wc-detail-host">${esc(x.host || x.url)}</div><div class="wc-edit"><input data-title value="${esc(x.title)}" aria-label="名称" title="${esc(x.title)}"><input data-note value="${esc(x.note || "")}" placeholder="备注" aria-label="备注" title="${esc(x.note || "")}"></div><div class="wc-actions"><button data-open>打开</button><button data-save>保存修改</button><button data-fetch-icon title="只重新抓取这个网站的图标，标题与备注保持不变">换图标</button><button data-refresh>刷新名称/图标</button><button data-remove>删除</button></div></div></article>`).join("") || `<div class="wc-empty">还没有收藏网页。输入网址后会自动获取网站名称和图标。</div>`}</div></div>`;
     /* 两颗「更多 / 收起」按钮都写在模板里（正面一颗、详情层一颗），这里只把 is-flipped
        与 aria-expanded 同步到当前状态 —— 不再往 DOM 里塞按钮，否则每次重绘都会多长一颗。 */
     for (const card of host.querySelectorAll(".wc-card")) {
@@ -364,11 +379,11 @@
       if (e.target.closest("[data-preview-clear]")) { iconPreview = null; return paint(); }
       if (e.target.closest("[data-preview-save]")) return savePreviewAsItem();
       const card = e.target.closest("[data-id]"); if (!card) return; const id = card.dataset.id; const item = items.find((x) => x.id === id); if (!item) return;
-      if (e.target.closest("[data-more]")) { if (expandedCards.has(id)) expandedCards.delete(id); else expandedCards.add(id); return paint(); }
+      if (e.target.closest("[data-more]")) { toggleFlip(e.target.closest("[data-more]")); return; }
       if (e.target.closest("[data-open]")) openItem(item);
       else if (e.target.closest("[data-fetch-icon]")) refreshIcon(id);
       else if (e.target.closest("[data-refresh]")) refresh(id);
-      else if (e.target.closest("[data-remove]")) { items = items.filter((x) => x.id !== id); expandedCards.delete(id); save().then(paint); }
+      else if (e.target.closest("[data-remove]")) { items = items.filter((x) => x.id !== id); flippedCards.delete(id); save().then(paint); }
       else if (e.target.closest("[data-save]")) { item.title = card.querySelector("[data-title]").value.trim() || item.title; item.note = card.querySelector("[data-note]").value.trim(); save().then(() => { paint(); tide.notify("已保存"); }); }
     });
     host.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("[data-url]")) add(); });

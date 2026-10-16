@@ -47,7 +47,13 @@
    背面朝外，不隐掉会透出反向镜像）。闭合态停在 -90deg 而不是 +90deg，后者会从顶边垂下来。
    visibility 与 transform 分开延迟：展开立刻可见、收起等转完再隐藏，否则收起动画会被半途掐断。 */
 .pg-card{position:relative;perspective:1000px;transform-style:preserve-3d;overflow:hidden;background:var(--card,#fff);border:1px solid var(--border,#E4DFD6);border-radius:15px;box-shadow:0 2px 8px rgba(34,48,58,.04)}
-.pg-front{padding:16px;min-height:calc(158px * var(--ui-text-scale));display:flex;flex-direction:column;gap:9px;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),opacity .45s ease}
+/* 正面只有「图标 + 名字」—— 就是 LabOrbit 那张卡的封面：一个标志、一个标题，其余全翻到背面。
+   卡片高度由正面撑开（.pg-detail 是 position:absolute;inset:0，高度跟着卡片走），
+   所以 min-height 不能撤：正面一旦变矮，详情层会被一起压扁、步骤被裁掉。
+   正面整体就是那颗翻转按钮，触屏与键盘点哪儿都能翻。 */
+.pg-front{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px;box-sizing:border-box;width:100%;padding:18px 16px;min-height:calc(158px * var(--ui-text-scale));font:inherit;text-align:center;color:inherit;background:none;border:0;cursor:pointer;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),opacity .45s ease}
+.pg-front img{width:46px;height:46px;border-radius:13px;flex:none;object-fit:contain}
+.pg-front-name{font-size:calc(14px * var(--ui-text-scale));font-weight:750;line-height:1.4;overflow-wrap:anywhere}
 .pg-detail{position:absolute;inset:0;z-index:5;box-sizing:border-box;display:flex;flex-direction:column;gap:9px;padding:16px;border-radius:inherit;background:var(--card,#fff);overflow:hidden;transform:rotateX(-90deg);transform-origin:bottom;backface-visibility:hidden;visibility:hidden;pointer-events:none;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear .6s}
 .pg-card.is-flipped .pg-front{transform:scale(.86);opacity:0;pointer-events:none}
 .pg-card.is-flipped .pg-detail{transform:rotateX(0deg);visibility:visible;pointer-events:auto;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
@@ -56,8 +62,7 @@
 .pg-head-main{flex:1;min-width:0;display:flex;justify-content:space-between;gap:10px;align-items:start}
 .pg-name{font-size:calc(15px * var(--ui-text-scale))}
 .pg-badge{font-size:calc(10px * var(--ui-text-scale));padding:3px 7px;border-radius:10px;background:var(--soft,#F4F1EB);color:var(--muted,#7E8B94);flex:none}
-.pg-desc{font-size:calc(12px * var(--ui-text-scale));line-height:1.65;color:var(--muted,#687780);margin:0}
-.pg-desc-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.pg-desc{font-size:calc(12px * var(--ui-text-scale));line-height:1.65;color:var(--muted,#687780);margin:0;overflow-wrap:anywhere}
 .pg-steps{padding-left:19px;margin:0;flex:1 1 auto;min-height:0;overflow:auto;font-size:calc(12px * var(--ui-text-scale));line-height:1.8;color:var(--muted,#687780)}
 .pg-steps li{margin-bottom:6px}
 .pg-more{align-self:flex-end;margin-top:auto;font-family:inherit;border:1px solid var(--border,#E4DFD6);background:var(--soft,#F4F1EB);color:var(--ink,#22303A);border-radius:9px;padding:5px 10px;font-size:calc(11px * var(--ui-text-scale));cursor:pointer;transition:border-color .16s ease,background .16s ease}
@@ -136,13 +141,16 @@
         const p=byId[id]||{id,name:id,description:"插件清单中暂未找到此项。",platforms:{}};
         const steps=docs[id]||["打开插件","按页面提示完成配置","保存后即可使用"];
         const on=flipped.has(id);
-        // 正面只放「是什么」，步骤（「怎么做」）放到翻起来的详情层里 —— 这就是 LabOrbit 那张卡的
-        // 分工：封面朝前、内容朝后，翻起来才看到全部。两层的头部完全相同，翻过去不会觉得换了一张卡。
-        const head=`<div class="pg-head"><img src="/icons/plugins/${encodeURIComponent(id)}.png" alt="" onerror="this.style.display='none'"><div class="pg-head-main"><strong class="pg-name">${esc(p.name)}</strong><span class="pg-badge">${esc(platformText(p.platforms||{}))}</span></div></div>`;
+        // 正面是「封面」：只有图标 + 名字。平台、简介、步骤全在翻起来的详情层里 ——
+        // 这就是 LabOrbit 那张卡的分工：封面朝前、内容朝后。两层共用同一个 icon 变量，
+        // 翻过去看到的是同一个标志，不会觉得换了一张卡。
+        const icon=`<img src="/icons/plugins/${encodeURIComponent(id)}.png" alt="" onerror="this.style.display='none'">`;
+        const front=`<button type="button" class="pg-front" data-pg-more="${esc(id)}" aria-expanded="${on?"true":"false"}" aria-controls="pg-detail-${esc(id)}" aria-label="${esc(p.name)}：查看 ${steps.length} 步操作">${icon}<strong class="pg-front-name">${esc(p.name)}</strong></button>`;
+        const head=`<div class="pg-head">${icon}<div class="pg-head-main"><strong class="pg-name">${esc(p.name)}</strong><span class="pg-badge">${esc(platformText(p.platforms||{}))}</span></div></div>`;
         const more=label=>`<button type="button" class="pg-more" data-pg-more="${esc(id)}" aria-expanded="${on?"true":"false"}" aria-controls="pg-detail-${esc(id)}">${label}</button>`;
         const card=document.createElement("article");
         card.className="pg-card"+(on?" is-flipped":"");
-        card.innerHTML=`<div class="pg-front">${head}<p class="pg-desc pg-desc-clamp">${esc(p.description)}</p>${more(`查看 ${steps.length} 步操作 ▾`)}</div><div class="pg-detail" id="pg-detail-${esc(id)}">${head}<ol class="pg-steps">${steps.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>${more("收起 ▴")}</div>`;
+        card.innerHTML=`${front}<div class="pg-detail" id="pg-detail-${esc(id)}">${head}<p class="pg-desc">${esc(p.description)}</p><ol class="pg-steps">${steps.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>${more("收起 ▴")}</div>`;
         grid.append(card);
       });
       host.append(sec);

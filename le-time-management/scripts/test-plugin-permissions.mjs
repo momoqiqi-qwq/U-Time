@@ -48,6 +48,7 @@ const UTIL_PERMISSION = {
   openCardPage: 'openUrl',
   openUrlWithSession: ['openUrl', 'http'],
   openMailPage: ['openUrl', 'http'],
+  openPdataPage: ['openUrl', 'http'],
   parseWhen: 'timeParse',
   guessQuad: 'timeParse',
   guessCategory: 'timeParse',
