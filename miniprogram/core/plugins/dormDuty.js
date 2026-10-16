@@ -354,6 +354,30 @@ function ddGroupMoveMemberTo(g, id, toIndex) {
   next.splice(to, 0, hit);
   return Object.assign({}, g, { members: next });
 }
+/** 重新指定「今天谁值日」：把 TA 挪到当前轮次该在的位置上（名单顺序＝轮换顺序）。
+    于是今天轮到 TA，之后的轮次继续按名单顺序往下走（下一轮 = TA 后面那一位），
+    不会被这一次指定打乱。同时作废本轮的临时换人 —— 正常排班已经轮到 TA 了，
+    留着它会出现「当班显示的是换上来的人、名单里排的却是 TA」这种自相矛盾。
+    今天本来就已经轮到 TA（且本轮没有换人）、轮换没开始 / 暂停、id 不在名单里 → 原样返回 g
+    （调用方用 `=== g` 判断有没有变化，不必再落盘）。
+    小程序没有床位星图，所以不用像桌面端那样先把座位实体化。 */
+function ddRedesignate(g, memberId, date) {
+  const cycle = ddCycleStartOf(g, date);
+  const members = g.members || [];
+  const len = members.length;
+  if (!cycle || !len) return g;
+  const k = members.map((m) => m.id).indexOf(memberId);
+  if (k < 0) return g;
+  const pos = (ddCycleIndexAt(g, cycle) * ddPerRound(g)) % len;
+  const shift = (k - pos + len) % len;
+  if (!shift && !ddOverrideHits(g, cycle).length) return g;
+  const overrides = Object.assign({}, g.overrides || {});
+  delete overrides[cycle];
+  return Object.assign({}, g, {
+    members: shift ? members.slice(shift).concat(members.slice(0, shift)) : members.slice(),
+    overrides,
+  });
+}
 /** 移除成员：进「已移除」可恢复，并把指向他的临时换人一并清掉（否则会留一条永远命中不了的 override）。
     override 值有双格式：单人字符串直接删；多人数组里滤掉他，滤空了整个键也删掉。 */
 function ddGroupRemoveMember(g, id) {
@@ -674,4 +698,4 @@ function ddMarkNotified(groups, ids, today) {
 }
 
 
-module.exports = { dormDutySummary, ddSummaryFrom, ddSnapshot, ddReminderDue, ddDueReminders, ddMarkNotified, ddPeriodLabel, ddDefaultConfig, ddNormalizeConfig, ddNormalizeTime, ddMembers, ddPeriod, ddDefaultGroup, ddNormalizeGroup, ddGroups, ddMigrateLegacy, ddActiveId, ddLocationAt, ddGroupAddLocation, ddGroupMoveLocation, ddGroupRemoveLocation, ddCycleStartOf, ddCycleIndexAt, ddIsCycleStartDay, ddAssigneeFor, ddNormalFor, ddOverrideHit, ddMembersInDateOrder, ddWithGroup, ddGroupPatch, ddGroupAddMember, ddGroupRenameMember, ddGroupMoveMember, ddGroupMoveMemberTo, ddGroupRemoveMember, ddGroupRestoreMember, ddGroupSetOverride, ddAddGroup, ddRemoveGroup, ddDuplicateGroup, ddImportMembers, ddCopyName, DD_PERIODS, DD_UPCOMING, DD_REMOVED_KEEP, DD_GROUP_MAX, DD_NAME_MAX };
+module.exports = { dormDutySummary, ddSummaryFrom, ddSnapshot, ddReminderDue, ddDueReminders, ddMarkNotified, ddPeriodLabel, ddDefaultConfig, ddNormalizeConfig, ddNormalizeTime, ddMembers, ddPeriod, ddDefaultGroup, ddNormalizeGroup, ddGroups, ddMigrateLegacy, ddActiveId, ddLocationAt, ddGroupAddLocation, ddGroupMoveLocation, ddGroupRemoveLocation, ddCycleStartOf, ddCycleIndexAt, ddIsCycleStartDay, ddAssigneeFor, ddNormalFor, ddOverrideHit, ddMembersInDateOrder, ddWithGroup, ddGroupPatch, ddGroupAddMember, ddGroupRenameMember, ddGroupMoveMember, ddGroupMoveMemberTo, ddRedesignate, ddGroupRemoveMember, ddGroupRestoreMember, ddGroupSetOverride, ddAddGroup, ddRemoveGroup, ddDuplicateGroup, ddImportMembers, ddCopyName, DD_PERIODS, DD_UPCOMING, DD_REMOVED_KEEP, DD_GROUP_MAX, DD_NAME_MAX };

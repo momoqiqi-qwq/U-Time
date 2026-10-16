@@ -163,6 +163,13 @@
     <view class="card">
       <view class="section-title">成员与轮换顺序（{{dd.members.length}}）</view>
       <view class="desc">按真实轮换顺序排列；“当班”标记表示今天值日。按住拖拽点或点 ↑↓ 调整顺序{{dd.perRound > 1 ? '，每轮 ' + dd.perRound + ' 人一起当班' : ''}}。</view>
+      <view class="dd-field" wx:if="{{dd.members.length}}">
+        <text class="label">今天值日</text>
+        <picker mode="selector" range="{{dd.dutyNames}}" value="{{dd.dutyIndex}}" bindchange="onDdDutyPick">
+          <view class="dd-pick">{{dd.dutyName || '选择成员'}}</view>
+        </picker>
+      </view>
+      <view class="desc hint" wx:if="{{dd.members.length}}">选谁，今天就是谁值日，之后按名单顺序接着往下轮（与床位无关）。想只改这一轮、下轮回到原排班，用上面的「临时换人」。</view>
       <view class="dd-mrow" wx:for="{{dd.members}}" wx:key="id">
         <text class="dd-mno">{{item.no}}</text>
         <text class="dd-drag {{dd.dragMemberId === item.id ? 'on' : ''}}" data-id="{{item.id}}" catchtouchstart="onDdDragStart" catchtouchmove="onDdDragMove" catchtouchend="onDdDragEnd" catchtouchcancel="onDdDragCancel">⋮⋮</text>

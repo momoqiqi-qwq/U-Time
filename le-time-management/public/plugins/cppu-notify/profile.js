@@ -13,7 +13,8 @@
 // 由 main.js 内部处理；本模块只认「拿到 data / 没拿到」两种结果。
 //
 // 取数口径对齐网页（反解自 pdata 学生端 umi.js）：
-//   GET /tsa/shc/homepage/personInfo?_USER=<userId>   （_USER 由 pdataApi 自动追加）
+//   GET /tsa/shc/homepage/personInfo   （**不要**加 _USER：服务端按 token 认人，
+//   带上 _USER 反而命中空集 —— 见 main.js 里 pdataApi 的注释）
 //   → data = { personInfo, column, personPhoto, basicFormId, QRCodeUrl }
 //   · personInfo 是扁平对象：USERNAME / USERID / SEX(1男2女) / MZ / TEL / BIRTHDATE /
 //     BJ / ZGH，以及每个字段的中文值副本 <dataField>_CN

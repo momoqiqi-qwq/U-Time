@@ -90,7 +90,7 @@ export function toast(msg, opts = {}) {
 }
 
 /* ── 应用内对话框：替代 window.prompt / window.confirm（Tauri 里原生弹窗样式突兀）── */
-function appDialog({ title, message, label, value = "", placeholder = "", confirmText = "确定", cancelText = "取消", danger = false, input = false, timeoutMs = 0, timeoutNote = "不操作", dialogClass = "", focusMessage = false }) {
+function appDialog({ title, message, label, value = "", placeholder = "", confirmText = "确定", cancelText = "取消", danger = false, input = false, timeoutMs = 0, timeoutNote = "不操作", dialogClass = "", focusMessage = false, options = [] }) {
   return new Promise((resolve) => {
     let tick = null;
     let closed = false;
@@ -131,17 +131,43 @@ function appDialog({ title, message, label, value = "", placeholder = "", confir
     const countdown = timeoutMs > 0
       ? el("p", { class: "app-dialog-countdown" })
       : null;
-    const submit = () => close(input ? field.value.trim() : true);
+    // 勾选项（options）：用于「必须本人手动确认」的门（免责声明等）。required 的项没勾上时
+    // 确认按钮保持 disabled —— 点不动，比点完再弹一句「请先勾选」更难被误跳过。
+    // 有勾选项时 resolve { confirmed, checks }，没有时保持原来的布尔语义。
+    const checkFields = (options || []).map((option) => ({
+      ...option,
+      field: el("input", { type: "checkbox", ...(option.checked ? { checked: "" } : {}) }),
+    }));
+    const checksState = () => Object.fromEntries(checkFields.map((c) => [c.id, Boolean(c.field.checked)]));
+    // submit 用函数声明：确认按钮在它之前创建，onclick 只捕获引用，调用发生在点击时。
+    function submit() {
+      if (checkFields.some((c) => c.required && !c.field.checked)) { syncChecks(); return; }
+      close(input ? field.value.trim() : (checkFields.length ? { confirmed: true, checks: checksState() } : true));
+    }
+    const confirmButton = el("button", { class: `app-dialog-btn pri${danger ? " danger" : ""}`, type: "button", onclick: () => submit() }, confirmText);
+    const syncChecks = () => {
+      confirmButton.disabled = checkFields.some((c) => c.required && !c.field.checked);
+    };
     const box = el("div", { class: `app-dialog${dialogClass ? ` ${dialogClass}` : ""}`, role: "dialog", "aria-modal": "true", "aria-label": title },
       el("h3", {}, title),
       message ? (message.nodeType ? message : el("p", { class: "app-dialog-msg" }, message)) : null,
       countdown,
       field,
+      checkFields.length
+        ? el("div", { class: "app-dialog-checks" }, checkFields.map((check, i) => {
+          const id = `app-dialog-check-${i}-${Math.random().toString(36).slice(2, 7)}`;
+          check.field.setAttribute("id", id);
+          if (check.required) check.field.setAttribute("required", "");
+          check.field.addEventListener("change", syncChecks);
+          return el("label", { class: "app-dialog-check", for: id }, check.field, el("span", {}, check.label));
+        }))
+        : null,
       el("div", { class: "app-dialog-actions" },
         el("button", { class: "app-dialog-btn", type: "button", onclick: () => close(input ? null : false) }, cancelText),
-        el("button", { class: `app-dialog-btn pri${danger ? " danger" : ""}`, type: "button", onclick: submit }, confirmText),
+        confirmButton,
       ),
     );
+    if (checkFields.length) syncChecks();
     const mask = el("div", { class: "drawer-mask app-dialog-mask" }, box);
     mask.addEventListener("click", (e) => { if (e.target === mask) close(input ? null : false); });
     if (field) {
@@ -163,8 +189,12 @@ function appDialog({ title, message, label, value = "", placeholder = "", confir
       tick = setInterval(paint, 1000);
     }
     if (field) { field.focus(); field.select(); }
+    // 必勾项优先拿焦点：这是「必须本人手动确认」的门，可操作的那个控件才是落点。
+    // 说明正文仍带 tabindex，Shift+Tab 就能回去读，不会被锁在外面。
+    else if (checkFields.some((c) => c.required && !c.field.checked)) checkFields.find((c) => c.required && !c.field.checked).field.focus();
     else if (focusMessage && message?.focus) message.focus();
-    else box.querySelector(".app-dialog-btn.pri")?.focus();
+    else if (!confirmButton.disabled) confirmButton.focus();
+    else checkFields[0]?.field.focus();
   });
 }
 

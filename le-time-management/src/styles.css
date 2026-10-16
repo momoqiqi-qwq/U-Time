@@ -4958,6 +4958,21 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
   margin-bottom: 4px;
 }
 .app-dialog-field:focus { outline: 2px solid color-mix(in srgb, var(--sea) 65%, transparent); outline-offset: 1px; }
+/* 勾选确认门（免责声明等）：required 项未勾上时确认键保持 disabled，点不动。 */
+.app-dialog-checks { display: grid; gap: 8px; margin: 12px 0 2px; }
+.app-dialog-check {
+  display: flex; align-items: flex-start; gap: 9px;
+  min-height: 44px; padding: 9px 11px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--paper);
+  font-size: calc(12.5px * var(--ui-text-scale)); line-height: 1.6; color: var(--ink);
+  cursor: pointer;
+}
+.app-dialog-check input { flex: none; width: 17px; height: 17px; margin: 2px 0 0; accent-color: var(--deep); cursor: pointer; }
+.app-dialog-check:has(input:focus-visible) { outline: 2px solid var(--deep); outline-offset: 1px; }
+.app-dialog-check:has(input:checked) { border-color: color-mix(in srgb, var(--deep) 45%, var(--line)); background: color-mix(in srgb, var(--deep) 7%, var(--panel)); }
+.app-dialog-btn:disabled { opacity: .5; cursor: not-allowed; }
+.app-dialog-btn:disabled:hover { border-color: var(--line); color: var(--ink); filter: none; }
+.app-dialog-btn.pri:disabled:hover { color: var(--on-deep); }
 .app-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 /* 倒计时那一行只在带 timeoutMs 的对话框里出现（局域网回传确认门）。
    放在 message 和按钮之间：它是关于「这个窗还能活多久」的，不是关于内容的。 */

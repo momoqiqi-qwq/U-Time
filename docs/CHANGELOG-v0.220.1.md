@@ -42,7 +42,13 @@
 
 ## 边界（重要）
 
-**2025 级新生在成长中心侧目前没有排行数据**：实测（学号 `2025290058`）`gradePointRanking`、`learningGap`、`getFormListByCatalogId(catalogId=studyInfo)` 全部 `{"code":2000,"message":"请求成功","data":[]}`，`learnSituation` 返回 `{TOTALUNIT:0,GOTTENUNIT:0,THISTERMGOTTENUNIT:0,GRADEPOINT:0.0}`。所以本机账号上两张卡只会显示上面的占位文案 —— 这是数据现实，不是实现缺陷。等成长中心算出排行（按学期批量）就会自动出数。
+> ⚠️ **本节结论已在 v0.229.1 被推翻，保留原文只为留痕。** 当时实测 `gradePointRanking` /
+> `learningGap` / `getFormListByCatalogId` 全部 `data:[]`，误判为「新生还没有排行数据」；
+> 真因是 `pdataApi` 在 URL 上多拼了一个 `_USER=<学号>`，服务端拿它当筛选条件、命中空集。
+> 去掉 `_USER` 后同一个 token 立刻拿到真数据（全校 6519 / 学院 622 / 专业 145 / 班级 30）。
+> 详见 `docs/CHANGELOG-v0.229.1.md`。
+
+**（以下为 v0.220.1 当时的记录，勿再引用）** 2025 级新生在成长中心侧「没有排行数据」：实测（学号 `2025290058`）`gradePointRanking`、`learningGap`、`getFormListByCatalogId(catalogId=studyInfo)` 全部 `{"code":2000,"message":"请求成功","data":[]}`，`learnSituation` 返回 `{TOTALUNIT:0,GOTTENUNIT:0,THISTERMGOTTENUNIT:0,GRADEPOINT:0.0}`。
 
 ## 验证
 

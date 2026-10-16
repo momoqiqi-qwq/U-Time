@@ -39,12 +39,12 @@ await f.initAndroidNotifications(); assert.equal(f.calls.length, 0);
 
 const disclaimer = read("../src/disclaimer.js").replace(/^import .*;\r?\n/gm, "").replace(/export /g, "");
 let readVersion = null, dialogs = 0, accepted = false;
-const onboarding = new Function("api", "appConfirm", "el", "localStorage", `${disclaimer}\nreturn {showStartupDisclaimer};`)(
+const onboarding = new Function("api", "appConfirm", "el", "localStorage", `${disclaimer}\nreturn {showStartupDisclaimer, DISCLAIMER_VERSION};`)(
   { isTauri: true }, async () => { dialogs++; return accepted; }, () => {},
   { getItem: () => readVersion, setItem: (_, value) => { readVersion = value; } });
 await onboarding.showStartupDisclaimer(); assert.equal(readVersion, null, "later must not mark read");
 accepted = true;
-await onboarding.showStartupDisclaimer(); assert.equal(readVersion, "2");
+await onboarding.showStartupDisclaimer(); assert.equal(readVersion, onboarding.DISCLAIMER_VERSION);
 await onboarding.showStartupDisclaimer(); assert.equal(dialogs, 2, "read disclaimer should not reappear");
 
 const host = read("../src/pluginHost.js");

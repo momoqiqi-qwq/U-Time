@@ -295,6 +295,56 @@
   :root:not([data-ui-motion="full"]) :is(.sync-disclosure, .sync-preset-arrow) { transition: none; }
 }
 
+/* ── 通用说明折叠栏（src/disclosure.js）──
+   与 .sync-disclosure 同一套高度插值机制：0fr / 1fr 覆盖真实内容高度，
+   收起时保留中间帧；内层 .disclosure-inner 负责裁切，不能自带 padding。
+   箭头固定 chevron-down，展开态转 180°（与 ai-model-picker / sync 下拉一致）。 */
+.disclosure-block { min-width: 0; }
+.disclosure-head { display: flex; align-items: center; gap: 8px; margin: 14px 0 6px; }
+.disclosure-trigger {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-height: 44px; padding: 4px 8px 4px 0; margin: 0;
+  border: 0; background: none; color: var(--ink); text-align: left; cursor: pointer;
+  font-size: calc(13px * var(--ui-text-scale)); letter-spacing: .01em;
+}
+.disclosure-title { position: relative; padding-left: 11px; }
+.disclosure-title::before {
+  content: ""; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 14px; border-radius: 99px; background: var(--deep);
+}
+.disclosure-chevron {
+  flex: none; width: 7px; height: 7px; margin: 0 2px 3px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform var(--motion-normal, 200ms) var(--motion-out, ease);
+}
+.disclosure-trigger[aria-expanded="true"] .disclosure-chevron { transform: translateY(3px) rotate(225deg); }
+.disclosure-trigger:hover .disclosure-title { color: var(--deep); }
+.disclosure-trigger:focus-visible { outline: 2px solid var(--deep); outline-offset: 2px; border-radius: 8px; }
+.disclosure-desc { margin: 0 0 10px; color: var(--ink-3); font-size: calc(11.5px * var(--ui-text-scale)); line-height: 1.6; }
+.disclosure {
+  display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden;
+  transition: grid-template-rows 320ms cubic-bezier(.4,0,.2,1), opacity 220ms ease, visibility 0s 320ms;
+}
+.disclosure.is-open { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition-delay: 0s; }
+.disclosure-inner { min-height: 0; overflow: hidden; }
+/* 阅读状态徽标 + 复核按钮：窄屏换行，不挤标题。 */
+.disclaimer-ack { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.disclaimer-ack-chip {
+  flex: none; padding: 2px 8px; border-radius: 8px;
+  font-size: calc(11px * var(--ui-text-scale));
+  color: var(--ink-3); background: color-mix(in srgb, var(--ink-3) 14%, transparent);
+}
+.disclaimer-ack-chip.on { color: var(--deep); background: color-mix(in srgb, var(--deep) 14%, transparent); }
+:root[data-ui-motion="reduced"] :is(.disclosure, .disclosure-chevron) { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-ui-motion="full"]) :is(.disclosure, .disclosure-chevron) { transition: none; }
+}
+@media (max-width: 520px) {
+  .disclosure-head { flex-wrap: wrap; }
+  .disclaimer-ack { margin-left: 0; width: 100%; justify-content: flex-start; }
+}
+
 .sync-form { display: grid; gap: 9px; }
 .sync-field {
   display: grid;

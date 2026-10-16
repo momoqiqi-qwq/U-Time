@@ -787,14 +787,24 @@ assert.ok(gradePage.includes('参考毕业学分') && gradePage.includes('170（
 assert.ok(gradePage.includes('data-grade-export'), '导出成绩单按钮应可点击');
 assert.ok(gradePage.includes('绩点排名情况') && gradePage.includes('六维图'), '警大成绩下面须有绩点排名情况与六维图两张卡');
 jwState.data.pdataStudy = { ok: true, auth: false, message: '', at: Date.now(),
-  rank: { QXPM: 145, XYPM: 30, ZYPM: 12, BJPM: 3 },
-  myPoint: { QXPM: 3.2, XYPM: 3.4, ZYPM: 3.5, BJPM: 3.8 },
-  topPoint: { QXPM: 4, XYPM: 4, ZYPM: 4, BJPM: 4 } };
+  rank: { QXPM: 6519, XYPM: 622, ZYPM: 145, BJPM: 30 },
+  myPoint: { QXPM: 86.4, XYPM: 86.4, ZYPM: 86.4, BJPM: 86.4 },
+  topPoint: { QXPM: 572.2, XYPM: 457.3, ZYPM: 457.3, BJPM: 213.8 } };
 const rankPage = pdataRankCard();
 for (const t of ['全校排名', '学院排名', '专业排名', '班级排名', '数据来源'])
   assert.ok(rankPage.includes(t), `绩点排名情况应包含 ${t}`);
-assert.ok(rankPage.includes('>145<') && rankPage.includes('>30<') && rankPage.includes('>12<') && rankPage.includes('>3<'),
-  '四档排名要取成长中心的 RANKING 值');
+assert.ok(rankPage.includes('>6519<') && rankPage.includes('>622<') && rankPage.includes('>145<') && rankPage.includes('>30<'),
+  '四档排名要取成长中心的 RANKING 值（实测 2025 级：全校 6519 / 学院 622 / 专业 145 / 班级 30）');
+// 版式与图标照抄站点「绩点排名情况」：左 65px 圆底 + 36×40 图标，右 20px 蓝字数字、下面灰字标签。
+// 站点把四个图标内联在 umi.js 里（54×59 PNG 的 data URI），插件原样内嵌、不重画。
+const rankIcons = rankPage.match(/data:image\/png;base64,[A-Za-z0-9+/=]+/g) || [];
+assert.equal(rankIcons.length, 4, '四档排名各要有一张站点图标');
+assert.equal(new Set(rankIcons).size, 4, '四个档位的图标必须各不相同');
+assert.match(rankPage, /<b class="jg-rank-num">6519<\/b><small>全校排名<\/small>/, '站点版式：数字在上、标签在下');
+assert.ok(rankPage.includes('jg-rank-badge'), '图标要坐在站点那个圆底里');
+assert.ok(source.includes('const PDATA_RANK_ICONS = {'), '图标要以 PDATA_RANK_ICONS 常量内嵌在插件里');
+for (const key of ['QXPM', 'XYPM', 'ZYPM', 'BJPM'])
+  assert.ok(source.includes(`    ${key}: "data:image/png;base64,`), `PDATA_RANK_ICONS 要有 ${key}`);
 const radarPage = pdataRadarCard();
 assert.ok(radarPage.includes('<svg') && radarPage.includes('jg-radar'), '六维图应画成内联 SVG 雷达图');
 assert.ok(radarPage.includes('本人绩点') && radarPage.includes('学霸绩点'), '六维图要有本人/学霸两组图例');
@@ -813,6 +823,11 @@ assert.ok(pdataRankCard().includes('警大通知') && pdataRadarCard().includes(
   '个人成长中心登录态缺失时应指路到警大通知登录');
 jwState.data.pdataStudy = null;
 assert.ok(jwGradesHtml().includes('还没有拉取过绩点排名'), '未拉取过时给出刷新提示');
+// 回归：pdata 学生端按 token 认人，URL 上再挂 _USER 会被服务端当筛选条件用，
+// 排行/学情/个人信息等接口会一律返回空集或 code:-1（v0.220.1 修的正是这个）。
+const pdataApiBody = source.slice(source.indexOf('async function pdataApi'), source.indexOf('async function pdataApi') + 900);
+assert.ok(!pdataApiBody.includes('_USER'), 'pdataApi 不能给 URL 拼 _USER');
+assert.match(pdataApiBody, /const url = PDATA \+ path;/, 'pdataApi 直接用调用方给的 path，不追加查询参数');
 const drawn = [];
 context.document.createElement = () => ({
   getContext: () => ({ fillRect: () => {}, measureText: (s) => ({ width: s.length * 14 }), fillText: (s) => drawn.push(s) }),

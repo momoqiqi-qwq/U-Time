@@ -5,7 +5,8 @@ import { ABOUT_DOCS, FRAMEWORKS, OPEN_SOURCE_PROJECTS, RELEASE_NOTES } from "../
 import { createUpdateSettingsPanel } from "./settings/update.js";
 import { openUpdateHistory } from "../updateHistory.js";
 import { createUninstallPanel } from "./settings/uninstall.js";
-import { createDisclaimerContent } from "../disclaimer.js";
+import { createDisclaimerContent, isDisclaimerAcknowledged, showStartupDisclaimer } from "../disclaimer.js";
+import { createDisclosure } from "../disclosure.js";
 
 function sectionTitle(text) {
   return el("h3", { class: "about-section-title" }, text);
@@ -89,7 +90,29 @@ export function createAboutCard(info, registry = []) {
   const uninstallPanel = createUninstallPanel({ version: currentVersion });
   if (uninstallPanel) card.append(sectionTitle("卸载应用"), uninstallPanel);
 
-  card.append(sectionTitle("使用说明与免责声明"), createDisclaimerContent());
+  // 使用说明与免责声明：可展开 / 收起的折叠栏（铁律七），默认展开，
+  // 收起后正文 inert，不给误点。右侧徽标显示本机阅读状态，按钮可再走一次
+  // 首次使用的那道「手动勾选」确认门（force：已读过也照常弹，取消不回退记录）。
+  const ackChip = el("span", { class: "disclaimer-ack-chip" });
+  const recheckButton = el("button", { class: "btn ghost sm", type: "button" }, "重新阅读确认");
+  const paintAck = () => {
+    const acked = isDisclaimerAcknowledged();
+    ackChip.textContent = acked ? "本机已确认" : "尚未确认";
+    ackChip.classList.toggle("on", acked);
+  };
+  recheckButton.addEventListener("click", async () => {
+    await showStartupDisclaimer({ force: true });
+    paintAck();
+  });
+  const disclaimerDisclosure = createDisclosure({
+    title: "使用说明与免责声明",
+    description: "首次使用时必须手动勾选确认；本机阅读状态只存在这台设备上，不随数据同步。",
+    content: createDisclaimerContent(),
+    aside: el("span", { class: "disclaimer-ack" }, ackChip, recheckButton),
+    open: true,
+  });
+  paintAck();
+  card.append(disclaimerDisclosure.node);
 
   const releaseList = el("ul", { class: "about-bullets" });
   RELEASE_NOTES.forEach((text) => releaseList.append(el("li", {}, text)));

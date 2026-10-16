@@ -187,7 +187,7 @@ function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = 
       '  tide.ui.registerView({ id: VIEW_ID,',
       '  globalThis.__fx = { state, load, save, tick, stopTimer, snapshot, GROUP_MAX, NAME_MAX, MEMBER_MAX, confirmFn,\n'
       + '    defaultGroup, normalizeGroup, normalizeGroups, migrateLegacy, addTodayTask,\n'
-      + '    cycleStartOf, assigneeFor, assigneesFor, cycleIndexAt, overrideHit, overrideHits, normalAssignees,\n'
+      + '    cycleStartOf, assigneeFor, assigneesFor, cycleIndexAt, overrideHit, overrideHits, normalAssignees, redesignate,\n'
       + '    isCycleStartDay, reminderDue, periodOf, perRoundOf, locationAt, locationsHtml,\n'
       + '    nextBigText, render, heroHtml, rowsHtml, groupChipsHtml, swapHtml, rulesHtml, setActiveGroup, addGroup, removeGroup, renameGroup,\n'
       + '    duplicateGroup, importMembers, tabMenuHtml, clampTabMenu, placeTabMenu, paint,\n'
@@ -1030,6 +1030,100 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
   assert.equal(fx.overrideHits(dup, '2026-09-17').length, 1, 'override 数组里的重复 id 要去重');
 }
 
+/* 7.3b redesignate：重新指定今天值日的人 —— 把 TA 挪到当前轮次的位置上，之后按名单顺序接着往下 */
+{
+  const { fx } = bootPlugin({ today: '2026-09-17' });
+  const norm = (patch) => fx.normalizeGroup(GROUP(patch), '2026-09-17');
+  const who = (g, d) => fx.assigneesFor(g, d).map((m) => m.name).join(',');
+
+  // 指定第三个人：他今天当班，下一轮是名单里他后面那一位，转满一圈回到 TA
+  const g = norm({ periodDays: 7, perRound: 1 });
+  assert.equal(fx.redesignate(g, 'mC', '2026-09-17'), true, '指定成功返回 true');
+  assert.equal(who(g, '2026-09-17'), '老陈', '指定的那天就是 TA');
+  assert.equal(who(g, '2026-09-18'), '老陈', '周期内每天沿用同一批人');
+  assert.equal(who(g, '2026-09-24'), '阿青', '下一轮接着名单顺序往下');
+  assert.equal(who(g, '2026-10-01'), '小北', '再下一轮继续往下');
+  assert.equal(who(g, '2026-10-08'), '老陈', '转满一圈回到 TA');
+
+  // 中途指定（不是轮次第一天）也落在整个轮次上，而不是「从明天起」
+  const mid = norm({ periodDays: 7, perRound: 1 });
+  fx.redesignate(mid, 'mB', '2026-09-20');
+  assert.equal(who(mid, '2026-09-17'), '小北', '轮次中间的指定要覆盖整轮（含已经过去的那几天）');
+
+  // 今天本来就轮到 TA → 名单一个字都不动
+  const same = norm({ periodDays: 7, perRound: 1 });
+  const ids = same.members.map((m) => m.id).join(',');
+  assert.equal(fx.redesignate(same, 'mA', '2026-09-17'), false, '今天本来就是 TA → 返回 false');
+  assert.equal(same.members.map((m) => m.id).join(','), ids, '返回 false 时名单不变');
+
+  // 床位不动：先实体化座位再转名单 —— 否则「第 i 位成员睡第 i 号床」的兜底会把整张星图一起挪走
+  const bed = norm({ periodDays: 7, perRound: 1, roomSize: 4 });
+  assert.equal(bed.seats.length, 0, '种子数据还没编辑过床位');
+  fx.redesignate(bed, 'mC', '2026-09-17');
+  assert.equal(fx.seatsOf(bed, 4).map((m) => (m ? m.name : '空')).join(','), '阿青,小北,老陈,空', '换个人值日不该跟着换床');
+  assert.equal(bed.seats.filter(Boolean).join(','), 'mA,mB,mC', '座位要先实体化，转名单才不会带走床位分配');
+
+  // 本轮的临时换人一并作废 —— 否则会出现「星图上亮的是换上来的人、名单里排的却是 TA」
+  const ov = norm({ periodDays: 7, perRound: 1, overrides: { '2026-09-17': 'mC' } });
+  assert.equal(fx.redesignate(ov, 'mB', '2026-09-17'), true, '指定别人时要把本轮换人清掉');
+  assert.equal(ov.overrides['2026-09-17'], undefined, '本轮的 override 要删掉');
+  assert.equal(who(ov, '2026-09-17'), '小北', '清掉换人后正常排班就是 TA');
+  // 已经轮到 TA、但本轮有换人 → 只清换人、不动位次
+  const ov2 = norm({ periodDays: 7, perRound: 1, overrides: { '2026-09-17': 'mC' } });
+  const ids2 = ov2.members.map((m) => m.id).join(',');
+  assert.equal(fx.redesignate(ov2, 'mA', '2026-09-17'), true, '位次没变但有换人 → 仍要返回 true');
+  assert.equal(ov2.members.map((m) => m.id).join(','), ids2, '位次没变就不动名单');
+  assert.equal(ov2.overrides['2026-09-17'], undefined, 'override 已清');
+
+  // 每轮多人：TA 落在窗口的**头一个**，今天当班 = 从 TA 起算的这一批
+  const multi = norm({ periodDays: 7, perRound: 2 });
+  fx.redesignate(multi, 'mC', '2026-09-17');
+  assert.equal(who(multi, '2026-09-17'), '老陈,阿青', '多人轮：TA 排在窗口第一位');
+  assert.equal(who(multi, '2026-09-24'), '小北,老陈', '下一批接着往下');
+
+  // 不成立的情况一律返回 false 且不改名单
+  const future = norm({ periodDays: 7, perRound: 1, startDate: '2026-10-01' });
+  assert.equal(fx.redesignate(future, 'mC', '2026-09-17'), false, '轮换还没开始 → 不动');
+  const paused = norm({ periodDays: 7, perRound: 1, pauseRanges: [{ start: '2026-09-17', end: '2026-09-30' }] });
+  assert.equal(fx.redesignate(paused, 'mC', '2026-09-20'), false, '暂停期间 → 不动');
+  assert.equal(fx.redesignate(norm({ periodDays: 7 }), '查无此人', '2026-09-17'), false, 'id 不在名单里 → 不动');
+  assert.equal(fx.redesignate(norm({ periodDays: 7, members: [] }), 'mA', '2026-09-17'), false, '没有成员 → 不动');
+}
+
+/* 7.3c 跨端同语义：小程序 ddRedesignate 与桌面端 redesignate 必须逐日算出同一批当班人 */
+{
+  const { fx } = bootPlugin({ today: '2026-09-17' });
+  const seedG = (patch) => GROUP({ periodDays: 7, perRound: 1, ...patch });
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const days = ['2026-09-17', '2026-09-20', '2026-09-24', '2026-10-01', '2026-10-08'];
+  for (const perRound of [1, 2]) {
+    for (const pick of ['mA', 'mB', 'mC']) {
+      const a = fx.normalizeGroup(seedG({ perRound }), '2026-09-17');
+      const b = mini.ddNormalizeGroup(clone(seedG({ perRound })), '2026-09-17');
+      const ra = fx.redesignate(a, pick, '2026-09-17');
+      const b2 = mini.ddRedesignate(b, pick, '2026-09-17');   // 小程序侧不可变：用返回值比
+      assert.equal(b2 !== b, ra, `「有没有变」两端要一致（每轮 ${perRound} 人 · 指定 ${pick}）`);
+      for (const d of days) {
+        // 比「同一批人」而不是「同一个次序」：每轮多人且轮次跨过名单末尾时，
+        // 桌面端按「本轮第几位」排（pos, pos+1… 绕回队首），小程序按名单顺序排，
+        // 集合一致、次序不同 —— 那是两端列表画法差异，不是排班差异。
+        const names = (list) => list.map((m) => m.name).sort().join(',');
+        assert.equal(
+          names(mini.ddSnapshot(d, b2).members.filter((m) => m.isCurrent)),
+          names(fx.assigneesFor(a, d)),
+          `每轮 ${perRound} 人 · 指定 ${pick} 后 ${d} 的当班人要逐日一致`,
+        );
+      }
+    }
+  }
+  // 小程序没有床位星图：不动 roomSize，也不该凭空写 seats
+  const b2 = mini.ddNormalizeGroup(clone(GROUP({ periodDays: 7, roomSize: 4 })), '2026-09-17');
+  const after = mini.ddRedesignate(b2, 'mC', '2026-09-17');
+  assert.equal(after.roomSize, 4, '小程序指定值日的人不该动床位档');
+  assert.equal((after.seats || []).length, 0, '小程序没有星图，不该凭空写 seats');
+  assert.equal(mini.ddRedesignate(b2, '查无此人', '2026-09-17'), b2, 'id 不在名单里 → 原样返回（不落盘）');
+}
+
 /* 7.4 snapshot / 提醒 / 任务都带完整多人名单 */
 {
   const { fx } = bootPlugin({ today: '2026-09-17' });
@@ -1627,7 +1721,11 @@ console.log('PASS: dorm-duty 多套轮换互不串台、旧数据迁移不丢字
   const g4 = many(4);
   const html4 = fx.roomHtml(g4, fx.snapshot(g4));
   assert.equal((html4.match(/data-room-bed="/g) || []).length, 4, '4 人间只画 4 颗星');
-  assert.ok(!html4.includes('>小满<'), '没排进去的成员不该出现在星星上');
+  assert.equal((html4.match(/data-room-rename="[^"]*"[^>]*>小满</g) || []).length, 0, '没排进去的成员不该出现在星星上');
+  // 「今天值日」下拉列的是**值日顺序**（全部成员），和床位无关 —— 超编的人也能当值日，
+  // 所以这里只要求「星星上没有他」，不要求整张卡里没有他。
+  assert.equal((html4.match(/data-room-duty/g) || []).length, 1, '星图上方要有一个「今天值日」下拉');
+  assert.match(html4, /<option value="[^"]*"[^>]*>小满<\/option>/, '值日下拉要列出全部成员（含没排进床位的）');
   assert.match(html4, /还有 4 位成员没排进这间宿舍/, '超编必须提示，否则用户以为人被吞了');
 
   // 空床：2 个人住 4 人间 → 后两颗是空床，且不可点

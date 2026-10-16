@@ -40,6 +40,10 @@ module.exports = {
       });
       try { if (wx.vibrateShort) wx.vibrateShort({ type: "light" }); } catch (e) { /* 部分机型不支持，忽略 */ }
     }
+    // 「今天值日」选择器：列出全部成员（值日顺序与床位无关），当前当班的那位默认选中。
+    dd.dutyNames = (dd.members || []).map((m) => m.name);
+    dd.dutyIndex = Math.max(0, (dd.members || []).findIndex((m) => m.isCurrent));
+    dd.dutyName = dd.dutyNames[dd.dutyIndex] || "";
     this.setData({ dd });
   },
   /** 切换当前轮换。 */
@@ -183,6 +187,28 @@ module.exports = {
     if (!g) return;
     if (runtime.ddGroupMoveMember(g, id, delta) === g) return;   // 已在首/末位，别写一次没意义的存储
     this.ddCommit((cur) => runtime.ddGroupMoveMember(cur, id, delta));
+  },
+  /** 「今天值日」：把选中的成员挪到当前轮次的位置（名单顺序＝轮换顺序）—— 今天轮到 TA，
+      之后接着按顺序往下。与「临时换人」分工：换人只改这一轮、下轮回到原排班，
+      这里改的是长期顺序（桌面端在星图上方有同一个入口）。 */
+  onDdDutyPick(e) {
+    const dd = this.data.dd || {};
+    const m = (dd.members || [])[Number(e.detail.value)];
+    if (!m) return;
+    const today = store.todayStr();
+    const g = this.ddGroups().filter((x) => x.id === dd.activeId)[0];
+    if (!g) return;
+    if (!runtime.ddCycleStartOf(g, today)) {
+      wx.showToast({ title: "轮换还没开始或正在暂停：先把起始日期设成今天", icon: "none" });
+      return;
+    }
+    if (runtime.ddRedesignate(g, m.id, today) === g) {
+      wx.showToast({ title: m.name + " 今天本来就在值日", icon: "none" });
+      this.loadDormDuty();   // 把选择器拨回真实值
+      return;
+    }
+    this.ddCommit((cur) => runtime.ddRedesignate(cur, m.id, today));
+    wx.showToast({ title: "今天起由 " + m.name + " 值日，之后按名单顺序接着往下", icon: "none" });
   },
   ddCurrentTime() {
     const d = new Date();

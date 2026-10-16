@@ -63,7 +63,10 @@ async function boot() {
     initPluginHost().catch((e) => console.error("预览插件加载失败:", e));
     return;
   }
-  await showStartupDisclaimer();
+  // 首次使用的阅读确认门。弹窗本身是全屏遮罩模态，已经挡住交互，所以不 await：
+  // 之前 await 会把通知、采集、提醒、快捷键的初始化一直吊在用户点掉弹窗之后
+  // —— 用户把窗晾着，提醒就一直没有注册。
+  showStartupDisclaimer().catch((e) => console.warn("免责声明弹窗失败:", e));
   await initAndroidNotifications();
   initCapture();
   initTaskReminders();

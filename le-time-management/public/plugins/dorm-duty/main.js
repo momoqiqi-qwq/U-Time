@@ -435,6 +435,35 @@
     for (let i = 0; i < per; i++) out.push(g.members[(idx * per + i) % len]);
     return [...new Map(out.map((m) => [m.id, m])).values()];
   }
+  /** 重新指定「今天谁值日」：把 TA 挪到当前轮次该在的位置上。
+      名单顺序就是轮换顺序，所以转一次名单就够了 —— 今天轮到 TA，之后的轮次继续按名单顺序往下走
+      （下一轮 = TA 后面那一位），不会被这一次指定打乱。名字只跟人走、不跟位次走。
+      床位**不动**：先把座位实体化再转名单 —— g.seats 还空着时「第 i 位成员睡第 i 号床」的兜底规则
+      会让整张星图跟着名单一起挪，那就不是「换个人值日」而是「换宿舍」了。
+      今天本来就已经轮到 TA（且本轮没有临时换人）时返回 false，调用方据此跳过落盘与提示。
+      顺带作废本轮的临时换人记录：正常排班已经轮到 TA 了，留着它会出现
+      「星图上亮的是换上来的人、名单里排的却是 TA」这种自相矛盾。 */
+  function redesignate(g, memberId, date) {
+    const cycle = cycleStartOf(g, date);
+    const len = g.members.length;
+    if (!cycle || !len) return false;
+    const k = g.members.findIndex((m) => m.id === memberId);
+    if (k < 0) return false;
+    const pos = (cycleIndexAt(g, cycle) * perRoundOf(g)) % len;
+    const shift = (k - pos + len) % len;
+    const hadOverride = overrideHits(g, cycle).length > 0;
+    if (!shift && !hadOverride) return false;
+    if (shift) {
+      const size = roomSizeOf(g);
+      const raw = Array.isArray(g.seats) ? g.seats : [];
+      if (size && !raw.some((x) => String(x || "").trim())) {
+        g.seats = seatsOf(g, size).map((m) => (m ? m.id : ""));
+      }
+      g.members = g.members.slice(shift).concat(g.members.slice(0, shift));
+    }
+    delete g.overrides[cycle];
+    return true;
+  }
   /** 某天的当班人（可能多人）：没成员 / 没开始 → 空数组；有临时换人 → 换上的名单。 */
   function assigneesFor(g, date) {
     const cycle = cycleStartOf(g, date);
@@ -657,6 +686,16 @@
       .dd-room-spin{display:inline-flex;align-items:center;gap:6px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);cursor:pointer;user-select:none}
       .dd-room-spin input{accent-color:var(--deep,#0F4C5C);width:14px;height:14px;margin:0}
       .dd-room-hint{margin-left:auto;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A1A9AF)}
+      /* 「今天值日」下拉：这一行里唯一改数据的控件，所以给它一点实体感（描边 + 加粗字），
+         和旁边那些「看 / 转视角」的浅色控件分开。字色走 --deep on --panel 这一对令牌 ——
+         深色主题下自己配色很容易掉到 4.5:1 以下。 */
+      .dd-room-duty{display:inline-flex;align-items:center;gap:6px;flex:none;
+        font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#7E8B94)}
+      .dd-room-duty select{height:28px;max-width:9em;font-family:inherit;font-size:calc(11.5px * var(--ui-text-scale));
+        font-weight:700;border-radius:999px;padding:0 8px;background:var(--panel,#fff);color:var(--deep,#0F4C5C);
+        border:1px solid color-mix(in srgb,var(--mint,#2EC4B6) 55%,var(--line,#DCD6CB))}
+      .dd-room-duty select:hover{border-color:var(--mint,#2EC4B6)}
+      .dd-room-duty select:focus-visible{outline:2px solid var(--deep,#0F4C5C);outline-offset:2px}
       /* 「停止 / 继续旋转」：按下就把当前角度钉住（不再自动旋转），再按一下恢复。
          分工是「旋转条负责转到某个角度，这颗按钮负责就停在这儿」——
          原来只有一个「自动旋转」开关，想停在某个角度只能等它转过去。 */
@@ -1384,8 +1423,19 @@
     }).join("");
 
     const views = ROOM_VIEWS.map((x) => `<button class="dd-chip dd-chip-sm${x.id === v.view ? " on" : ""}" data-room-view="${x.id}" type="button" aria-pressed="${x.id === v.view ? "true" : "false"}">${x.label}</button>`).join("");
+    /* 「今天值日」下拉：星图上方那行里**唯一一个改数据**的控件（其余都是看 / 转视角的）。
+       它改的是**长期顺序** —— 选谁，就把谁挪到当前轮次该在的位置上，于是今天轮到 TA、
+       之后接着按名单顺序往下轮（下一轮就是 TA 后面那一位）。跟下面那条「本轮换人」分工不同：
+       换人只改这一轮、下轮回到原排班；这里动的是名单本身。所以只在这里放一次，不重复入口。 */
+    const dutyFirst = g.members.find((m) => assigneesFor(g, s.today).some((x) => x.id === m.id)) || null;
+    const duty = g.members.length
+      ? `<label class="dd-room-duty">今天值日<select data-room-duty aria-label="重新指定今天值日的人，之后的轮次按名单顺序接着往下">${
+        g.members.map((m) => `<option value="${esc(m.id)}"${m === dutyFirst ? " selected" : ""}>${esc(m.name)}</option>`).join("")
+      }</select></label>`
+      : "";
     const bar = `<div class="dd-room-bar">
       <span class="dd-room-views" role="group" aria-label="视角">${views}</span>
+      ${duty}
       <label class="dd-room-spin"><input type="checkbox" data-room-beds${v.beds ? " checked" : ""}>显示床铺</label>
       <button class="dd-room-stop${v.spin ? " spinning" : ""}" data-room-spin type="button" title="${v.spin ? "固定当前角度，不再自动旋转" : "恢复自动旋转"}">${v.spin ? "停止" : "继续旋转"}</button>
       <button class="dd-room-edit${edit ? " on" : ""}" data-room-edit type="button" aria-pressed="${edit ? "true" : "false"}" title="${edit ? "收起编辑，回到只看星星" : "打开编辑：拖动星星换床铺、改名字、连自己的线"}">${edit ? "完成编辑" : "编辑床位"}</button>
@@ -1416,7 +1466,7 @@
     const extra = g.members.length > size
       ? `<div class="dd-note">名单里还有 ${g.members.length - size} 位成员没排进这间宿舍 —— 调大宿舍人数，或把多余的成员移到别的轮换里。</div>` : "";
     const empty = g.members.length ? "" : `<div class="dd-note">还没有成员。先在上一张卡里添加：第 1 个人住 1 号床（下铺）。</div>`;
-    const legend = `<div class="dd-note">实心星是上铺、空心星是下铺（同一张铺的两颗星沿铺宽略微错开，只为俯视时也分得开 —— 是示意，不是真实床位坐标）；星上的数字是床位号（编辑模式把人挪到别的床上之后它就不再等于名单位次了，所以谁排第几改挂在鼠标悬停的说明里），默认连线按 1→${size} 走、流动方向就是值日顺序，尾端虚线绕回第 1 位；今天当班的星亮成绿色。<b>点星上的名字就能就地改名</b>；点星星本身则是跳到它在成员列表里的那一行。想按自己的意思排床位就点「编辑床位」：星星可以整颗拖到别的床上（拖到睡着人的床上＝两人换铺），点两颗星之间就连一条自己的线（接着点就一路连下去，「清空连线」回到默认的值日路线），名字就地改，空床也能起个名字当备注。下面的「旋转条」可以直接把视角拖到某个角度，松手后若不按「停止」就接着自动旋转，按「停止」就把角度钉住不动。床架觉得碍事可以把上面的「显示床铺」关掉，只剩星星与连线。<b>触控板在图上直接捏合就能缩放</b>（鼠标滚轮同理，向上滚放大）。</div>`;
+    const legend = `<div class="dd-note">实心星是上铺、空心星是下铺（同一张铺的两颗星沿铺宽略微错开，只为俯视时也分得开 —— 是示意，不是真实床位坐标）；星上的数字是床位号（编辑模式把人挪到别的床上之后它就不再等于名单位次了，所以谁排第几改挂在鼠标悬停的说明里），默认连线按 1→${size} 走、流动方向就是值日顺序，尾端虚线绕回第 1 位；今天当班的星亮成绿色。<b>点星上的名字就能就地改名</b>；点星星本身则是跳到它在成员列表里的那一行。上面那行的「今天值日」下拉可以直接点人：选谁，今天就是谁值日，之后按名单顺序接着往下轮（床位不跟着动）。想按自己的意思排床位就点「编辑床位」：星星可以整颗拖到别的床上（拖到睡着人的床上＝两人换铺），点两颗星之间就连一条自己的线（接着点就一路连下去，「清空连线」回到默认的值日路线），名字就地改，空床也能起个名字当备注。下面的「旋转条」可以直接把视角拖到某个角度，松手后若不按「停止」就接着自动旋转，按「停止」就把角度钉住不动。床架觉得碍事可以把上面的「显示床铺」关掉，只剩星星与连线。<b>触控板在图上直接捏合就能缩放</b>（鼠标滚轮同理，向上滚放大）。</div>`;
 
     return `${head}${bar}${editbar}
       <div class="dd-room" data-room data-room-beds="${v.beds ? "on" : "off"}" data-room-edit="${edit ? "on" : "off"}" style="aspect-ratio:${box.w}/${box.h}">
@@ -2695,6 +2745,25 @@
       if (!confirmFn("恢复默认床位？床位分配、空床别名、自定连线都会清掉，成员名单不动。")) return;
       roomSel = -1;
       await commit(() => { g.seats = []; g.bedNames = []; g.links = []; });
+    });
+    /* 「今天值日」下拉：把选中的成员挪到当前轮次的位置（名单顺序＝轮换顺序），
+       于是今天轮到 TA、之后接着按顺序往下。床位不动 —— redesignate() 里先实体化座位再转名单。
+       与「本轮换人」分工：换人只改这一轮、下轮回到原排班；这里改的是长期顺序。 */
+    q("[data-room-duty]")?.addEventListener("change", async (e) => {
+      const id = String(e.currentTarget.value || "");
+      const m = g.members.find((x) => x.id === id);
+      const today = tide.util.today();
+      if (!cycleStartOf(g, today)) {
+        tide.notify("轮换还没开始或正在暂停：先把起始日期设成今天，再来指定值日的人");
+        await paint();   // 把下拉拨回真实值
+        return;
+      }
+      if (!m) { await paint(); return; }
+      let changed = false;
+      await commit(() => { changed = redesignate(g, id, today); });
+      tide.notify(changed
+        ? `今天起由 ${m.name} 值日，之后按名单顺序接着往下`
+        : `${m.name} 今天本来就在值日，名单没有变`);
     });
     bindRoom(g, snapshot(g), commit);
 
