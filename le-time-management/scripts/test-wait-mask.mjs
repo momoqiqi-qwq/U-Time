@@ -90,7 +90,14 @@ function makeElement(tag = "div") {
     removeAttribute(n) { this.attrs.delete(n); },
     hasAttribute(n) { return this.attrs.has(n); },
     append(...nodes) {
-      for (const n of nodes) { n.parentNode = this; this.children.push(n); }
+      for (const n of nodes) {
+        // 真 DOM 的 append 会把节点从原父节点搬走（不是复制）。替身必须照做，
+        // 否则「把 body 里的空壳搬进 .main」会变成父子两处各挂一份。
+        if (n.parentNode && n.parentNode !== this) n.parentNode.children = n.parentNode.children.filter((c) => c !== n);
+        if (n.parentNode === this) this.children = this.children.filter((c) => c !== n);
+        n.parentNode = this;
+        this.children.push(n);
+      }
       return this;
     },
     replaceChildren(...nodes) { this.children = []; this.append(...nodes); },
@@ -121,16 +128,29 @@ function makeElement(tag = "div") {
 function makeHarness({ reducedMotion = false, withShell = true } = {}) {
   const doc = makeElement("html");
   const body = makeElement("body");
+  /* .main 是蒙版的包含块（v0.239.0「蒙板仅在右界面使用」）。替身里必须真的存在这颗容器，
+     否则测到的是「蒙版挂到 body 上」的老行为 —— 那等于没测到本次需求。 */
+  const main = makeElement("main");
+  main.setAttribute("class", "main");
+  const view = makeElement("div");
+  view.setAttribute("class", "view");
+  main.append(view);
+  body.append(main);
   const shell = makeElement("div");
   if (withShell) {
     shell.setAttribute("class", "wait-mask");
     shell.setAttribute("data-wait-mask", "");
     shell.setAttribute("hidden", "");
+    // 与 index.html 一致：空壳写在 body 里，首次 show 时由 waitMask.js 搬进 .main。
     body.append(shell);
   }
   doc.append(body);
   doc.body = body;
-  doc.querySelector = (sel) => (sel === "[data-wait-mask]" && withShell && shell.isConnected ? shell : body.querySelector(sel));
+  doc.querySelector = (sel) => {
+    if (sel === "[data-wait-mask]") return withShell && shell.isConnected ? shell : null;
+    if (sel === ".main") return main;
+    return body.querySelector(sel);
+  };
   doc.createElement = (tag) => makeElement(tag);
   doc.createElementNS = (_ns, tag) => makeElement(tag);
   doc.documentElement = doc;
@@ -168,11 +188,11 @@ function makeHarness({ reducedMotion = false, withShell = true } = {}) {
 return { SHOW_DELAY_MS, MIN_VISIBLE_MS, FADE_MS, MAX_HOLD_MS, showWaitMask, withWaitMask, resetWaitMask };`,
   )(doc, win, brandMark, win.requestAnimationFrame, win.clearTimeout, win.setTimeout);
 
-  const maskEl = () => body.children.find((c) => c.classes.has("wait-mask")) || null;
+  const maskEl = () => body.querySelector(".wait-mask");
   const brandText = () => maskEl()?.querySelector(".brand b")?.textContent ?? null;
   const badgeText = () => maskEl()?.querySelector(".wait-mask-count")?.textContent ?? null;
 
-  return { doc, body, shell, mod, flushFrames, fireTimers, pendingTimers, hasMinVisibleTimer, maskEl, brandText, badgeText };
+  return { doc, body, main, shell, mod, flushFrames, fireTimers, pendingTimers, hasMinVisibleTimer, maskEl, brandText, badgeText };
 }
 
 /* ── 1. 延迟出现：快操作不闪 ── */
@@ -332,6 +352,34 @@ return { SHOW_DELAY_MS, MIN_VISIBLE_MS, FADE_MS, MAX_HOLD_MS, showWaitMask, with
   r3();
 }
 
+/* ── 8b. 只在右界面：节点挂 .main、期间侧栏照旧可选（v0.239.0） ── */
+{
+  const h = makeHarness();
+  const r = h.mod.showWaitMask("正在刷新…");
+  h.fireTimers(h.mod.SHOW_DELAY_MS);
+  assert.equal(h.maskEl().parentNode, h.main,
+    "蒙版必须挂进 .main（右侧主区）：挂在 body 上就只能 fixed 铺满整窗，侧边栏会被一起蒙住、点不动");
+  assert.equal(h.body.classList.contains("wait-mask-open"), true,
+    "显示期间 body 要带 wait-mask-open：窄屏底栏靠它把 z-index 抬到蒙版之上（不然手机上仍然点不了底栏）");
+  r();
+  h.fireTimers(h.mod.MIN_VISIBLE_MS);
+  h.fireTimers(Infinity);
+  assert.equal(h.maskEl(), null, "收尾要真的摘节点");
+  assert.equal(h.body.classList.contains("wait-mask-open"), false,
+    "撤掉蒙版后必须摘掉 body 标记，否则窄屏底栏会一直停在 2501 上盖过后续浮层");
+
+  // 蒙版期间用户点了侧栏另一项：视图切换会 release + 重画 .view，蒙版必须跟着走、不残留。
+  const h2 = makeHarness();
+  const keep = h2.mod.showWaitMask("正在刷新课表…");
+  h2.fireTimers(h2.mod.SHOW_DELAY_MS);
+  assert.equal(h2.maskEl().parentNode, h2.main);
+  keep();
+  h2.fireTimers(h2.mod.MIN_VISIBLE_MS);
+  h2.fireTimers(Infinity);
+  assert.equal(h2.main.querySelector(".wait-mask"), null, "切换视图后 .main 里不许残留蒙版");
+  assert.equal(h2.body.classList.contains("wait-mask-open"), false);
+}
+
 /* ── 9. 减少动效：延迟照旧（拦的是「闪」，不是动画）；出现/消失跳过过渡 ── */
 {
   const h = makeHarness({ reducedMotion: true });
@@ -451,8 +499,20 @@ return { SHOW_DELAY_MS, MIN_VISIBLE_MS, FADE_MS, MAX_HOLD_MS, showWaitMask, with
   const css = readProductSource(new URL("../src/styles.css", import.meta.url), "utf8");
   const block = /\.wait-mask\s*\{([^}]*)\}/.exec(css)?.[1];
   assert.ok(block, "styles.css 缺少 .wait-mask 基础规则");
-  assert.match(block, /position:\s*fixed/, "等待蒙版要固定铺满");
-  assert.match(block, /inset:\s*0/, "等待蒙版要铺满整屏");
+  /* v0.239.0 用户需求「蒙板仅在右界面使用，不在侧边栏使用」：定位从 fixed 整窗改成
+     absolute + .main 包含块。改回 fixed 就会重新把侧栏盖住 —— 这两条直接钉死方向。 */
+  assert.match(block, /position:\s*absolute/,
+    "等待蒙版必须 absolute：它的包含块是 .main，fixed 会连侧边栏一起盖住（本次需求正是不许盖侧栏）");
+  assert.doesNotMatch(block, /position:\s*fixed/, "不许退回 fixed");
+  assert.match(block, /inset:\s*0/, "在 .main 里 inset:0 铺满右侧主区（顶栏 + 视图）");
+  assert.match(css, /\.main\s*\{[^}]*position:\s*relative/,
+    "蒙版用 absolute 定位，.main 必须是 position: relative（唯一包含块），否则蒙版会挂到更外层");
+  assert.match(source, /MASK_HOST_SELECTOR\s*=\s*"\.main"/,
+    "waitMask.js 必须把节点挂到 .main（右侧主区），不能挂 body");
+  assert.match(source, /BODY_FLAG\s*=\s*"wait-mask-open"/,
+    "蒙版在场必须给 body 打 wait-mask-open（窄屏底栏的抬升读它）");
+  assert.match(css, /body\.wait-mask-open \.rail\s*\{\s*z-index:\s*2501;\s*\}/,
+    "窄屏侧栏是 fixed 浮层（z-index 55），蒙版期间必须抬到蒙版之上，否则手机上点不动底栏");
   assert.match(block, /color-mix\(in srgb,\s*var\(--bg\)\s*86%,\s*transparent\)/,
     "底色必须是半透明的 --bg：下面那页已经画好了，遮死反而像卡住（启动蒙版才是实心）");
   assert.match(block, /pointer-events:\s*auto/,
@@ -534,4 +594,4 @@ return { SHOW_DELAY_MS, MIN_VISIBLE_MS, FADE_MS, MAX_HOLD_MS, showWaitMask, with
   assert.match(main, /waitMask\(/, "生成物 main.js 里也必须带上：改完 ui.js 要跑 node tools/build-schedule-plugin.js");
 }
 
-console.log("PASS: 刷新等待蒙版（延迟 180ms 才起 · 最短停留 420ms · 引用计数 + 最新标签 + ×N · 幂等 release · 空壳复用/自建 · 减少动效同步摘 · withWaitMask 抛错也撤 · 兜底上限 · 插件接线 + CSS 契约）");
+console.log("PASS: 刷新等待蒙版（只盖右界面 · 侧栏可点 · 延迟 180ms 才起 · 最短停留 420ms · 引用计数 + 最新标签 + ×N · 幂等 release · 空壳复用/自建 · 减少动效同步摘 · withWaitMask 抛错也撤 · 兜底上限 · 插件接线 + CSS 契约）");

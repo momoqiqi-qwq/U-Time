@@ -493,8 +493,13 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
 .nav .nav-act.on { color: var(--sun); }
 .nav .nav-act:focus-visible { outline: 2px solid var(--sun); outline-offset: 1px; }
 
-/* ── 主区 ── */
-.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* ── 主区 ──
+   `position: relative` 是「刷新等待蒙版只盖右界面」的包含块（v0.239.0）：
+   `.wait-mask` 现在是 .main 里的 absolute 子元素，不再 fixed 铺满整窗 ——
+   侧边栏（.rail）不在它里面，蒙版期间点别的项目照旧切页。
+   ⚠️ 别把这条改成 transform / filter 之类的合成属性：fixed 后代会被它改成
+   以 .main 为包含块，全站浮层（toast、弹窗、命令面板）会跟着错位。 */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
 
 /* ── v0.58.0：侧栏宽度分隔条（.rail 与 .main 之间）──
    基础规则只有占位；几何（负边距骑间隙）与指示线都在 ≥901px 块里 —— 那才是
@@ -1208,6 +1213,11 @@ button, .nav { touch-action: manipulation; }
        但真机那一帧抖动是这张条子自己的合成层治的，两回事。 */
     transform: translateZ(0);
   }
+  /* v0.239.0：等待蒙版只盖 .main，而窄屏的侧栏是 fixed 浮层、几何上正压在 .main 上（z-index:55）。
+     蒙版期间把它抬到蒙版之上，用户仍然能点底栏换页 —— 这条只在 body.wait-mask-open 时生效，
+     平时 z-index 还是 55，弹窗/抽屉/命令面板的层级关系不受影响（它们都 ≥1000）。
+     蒙版 z-index 是 2500（见文件末尾 .wait-mask），取 2501 刚刚好压住又不去抢更上面的层。 */
+  body.wait-mask-open .rail { z-index: 2501; }
   :root[data-nav-width] .rail {
     --nav-available-width: calc(var(--ui-vw, 100vw) - 2 * var(--nav-float, 10px) / var(--ui-scale, 1));
     --nav-custom-width: min(var(--nav-available-width), max(calc(240px / var(--ui-scale, 1)), calc(var(--nav-available-width) * var(--nav-width, 1))));
@@ -5501,6 +5511,14 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
    （在应用弹窗 2400 之下 —— 刷新提示不该盖住它自己触发的弹窗）、
    **文字可变**（DOM 由 src/waitMask.js 建，默认仍是那句 `U Time WorkSpace`）。
 
+   v0.239.0（用户需求「蒙板仅在右界面使用，不在侧边栏使用。蒙版期间依然可以选择侧边栏的
+   其他项目」）：**几何从「整窗 fixed」改成「只盖 .main」**。DOM 现在挂在 .main 里
+   （waitMask.js 的 ensureNode），这里用 absolute + inset:0 跟着 .main 的盒走：
+   · 侧边栏（.rail）、侧栏宽度分隔条都在 .main 之外 ⇒ 蒙版不再盖住它们，也不再拦它们的点击；
+   · 窄屏（≤900px）侧栏是 fixed 浮层底栏、几何上压在 .main 上面，靠那条
+     `body.wait-mask-open .rail { z-index: 2501 }` 把它抬到蒙版之上（见 ≤900px 媒体块）；
+   · 不要再改回 fixed：fixed 的包含块是整窗，铺多少层都还是把侧栏一起蒙住。
+
    ⚠️ 字标用的是 `background-clip: text` 的**渐变裁剪**，所以底色亮度直接决定可读性：
    铺 `--bg` 时两套渐变都是按实算过的对比度挑的，换底色必须重算
    （scripts/test-brand-wordmark.mjs 里那套浅色档压暗到 ≥3.5:1 就是为了浅底）。
@@ -5509,7 +5527,7 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
    `data-size="brand"`（默认）→ 品牌文案用 34px；`compact` → 20px；
    `wide` → clamp 收进 `calc(100vw - 48px)`，任意长度标签都不会横向溢出。 */
 .wait-mask {
-  position: fixed; inset: 0; z-index: 2500;
+  position: absolute; inset: 0; z-index: 2500;
   display: grid; place-items: center;
   background: color-mix(in srgb, var(--bg) 86%, transparent);
   opacity: 1;

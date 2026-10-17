@@ -7,6 +7,7 @@
 //   ② 工具条（复制全部 / 打开原页 / 重新登录 / 刷新 / 已复制计数）
 //   ③ 字段网格（每格一个字段，点格子即复制该字段的值，复制过的格子亮一下）
 //   ④ 复制记录（最近复制的若干条，可点着再复制一次；折叠走双向动画）
+//   ⑤ 数据报告目录（basicInfo 只是这个组里的一个目录，其余目录同样一键直达）
 //
 // 边界：本模块**不碰** SSO / 密码 / vault / Cookie —— 那是 main.js 的事。
 // 一切取数走 bridge.api(path)，鉴权（换票 → validateLogin → token）与一次性重登
@@ -67,6 +68,7 @@ export function createProfileView(tide, bridge) {
     root: null, disposed: false, loading: false, error: "", loginNeeded: false, stale: "",
     account: "", profile: null, photo: "", fields: [], heroTags: [], rows: [],
     query: "", copied: 0, history: [], histOpen: false, loadedAt: 0, inFlight: 0,
+    reports: [], reportsAt: 0,
   };
 
   /* ── 样式 ──────────────────────────────────────────────────────────────
@@ -148,6 +150,14 @@ export function createProfileView(tide, bridge) {
 .pf-hist .pf-hv{flex:1 1 auto;min-width:0;font-weight:600;overflow-wrap:anywhere;word-break:break-word}
 .pf-empty{border:1px dashed var(--line);border-radius:11px;padding:15px;text-align:center;color:var(--ink-3,#7E8B94);font-size:calc(12px * var(--ui-text-scale));line-height:1.85}
 .pf-note{margin:11px 0 0;font-size:calc(11px * var(--ui-text-scale));line-height:1.85;color:var(--ink-3,#7E8B94)}
+/* ⑤ 数据报告目录：一格一个报表，点开在应用内网页窗口里直达 */
+.pf-dirs{display:grid;grid-template-columns:repeat(auto-fill,minmax(198px,1fr));gap:9px}
+.pf-dir{display:flex;align-items:center;gap:9px;width:100%;box-sizing:border-box;font:inherit;font-size:calc(12.5px * var(--ui-text-scale));text-align:left;color:inherit;background:color-mix(in srgb,var(--deep,#0F4C5C) 4%,var(--panel));border:1px solid var(--line);border-radius:11px;padding:10px 12px;min-height:44px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .16s ease,border-color .16s ease}
+.pf-dir:hover{background:color-mix(in srgb,var(--deep,#0F4C5C) 11%,var(--panel))}
+.pf-dir:focus-visible{outline:2px solid color-mix(in srgb,var(--deep,#0F4C5C) 55%,transparent);outline-offset:-2px}
+.pf-dir .pf-dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--deep,#0F4C5C);opacity:.7}
+.pf-dir .pf-dn{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.pf-dir .pf-go{flex:none;color:var(--ink-3,#7E8B94);font-size:calc(12px * var(--ui-text-scale))}
 .pf-loading{padding:26px 16px;text-align:center;color:var(--ink-3,#7E8B94);font-size:calc(12.5px * var(--ui-text-scale))}
 .pf-alert{border:1px solid color-mix(in srgb,var(--danger,#B03535) 42%,var(--line));background:color-mix(in srgb,var(--danger,#B03535) 8%,var(--panel));border-radius:11px;padding:12px 14px;font-size:calc(12px * var(--ui-text-scale));line-height:1.85;color:var(--ink)}
 @media(max-width:760px){.pf-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}}
@@ -233,6 +243,28 @@ export function createProfileView(tide, bridge) {
     return out.filter((f) => f.k);
   }
 
+  /** 数据报告目录：取「数据报告」那一组的 children（与 growth.js flattenModules 同口径）。
+      老版本接口只给 id（形如 "1-13-basicInfo"），按最后一个 '-' 后面那截当目录名 —— 
+      那正是 basicInfo / bookRent 这类值，拼进 /stu/dataReport/<key> 就是网页那张页。 */
+  function buildReports(data) {
+    const list = Array.isArray(data) ? data : [];
+    const group = list.find((g) => clean(pick(g, "id")) === "1-DataReport" || clean(pick(g, "name")) === "数据报告");
+    const children = group && Array.isArray(group.children)
+      ? group.children
+      : list.flatMap((g) => (Array.isArray(g?.children) ? g.children : []));
+    const seen = new Set();
+    const out = [];
+    for (const c of children) {
+      if (!c || typeof c !== "object") continue;
+      const name = clean(pick(c, "name"));
+      const key = clean(pick(c, "CATALOGID", "catalogId")) || clean(pick(c, "id")).split("-").slice(-1)[0];
+      if (!name || !key || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ name, key });
+    }
+    return out;
+  }
+
   /* 取数：`force` 只在用户按「刷新」时为真，要求 bridge 绕过它那份缓存；老宿主没给
      force 通道时退回普通取数（宁可慢一次，也不要「点了刷新没反应」）。 */
   const call = (path, force = false) => Promise.resolve(force && bridge?.force ? bridge.force(path) : bridge?.api?.(path)).then((r) => (r && typeof r === "object" ? r : { ok: false, message: "取数通道不可用" }));
@@ -279,6 +311,18 @@ export function createProfileView(tide, bridge) {
     state.loadedAt = Date.now();
     state.stale = state.fields.length ? "" : "接口通了，但没有返回任何档案字段";
     paint();
+
+    /* 第二屏：数据报告目录。personInfo 只是「数据报告」组里的一个目录（basicInfo），
+       同一份 token 还能拿到学校给在读学生开放的全部目录 —— 那正是这一页下方该有的内容。
+       档案先落地、目录后补，和 growth.js 分两批落画面同一个理由：别让首屏等第二个接口。
+       取不到就静默：目录缺席不影响字段复制。 */
+    const dirs = await call(`/tsa/shc/customStyle/getModuleList?t=${Date.now()}`, force);
+    if (state.disposed) return;
+    if (dirs.ok) {
+      state.reports = buildReports(dirs.data);
+      state.reportsAt = Date.now();
+      paint();
+    }
   }
 
   /* ── 复制 ────────────────────────────────────────────────────────────── */
@@ -398,6 +442,17 @@ ${state.query ? `<button type="button" data-pf-qclear aria-label="清空筛选">
 ${body}${emptyNote}${histHtml()}</section>`;
   };
 
+  /* ⑤ 数据报告目录：basicInfo 之外，学校还给在读学生开了哪些报表。
+     整行是一个按钮 —— 点开走 bridge.open，与应用内「打开原页」是同一条通道（换票 + 注入 Cookie）。 */
+  const reportsHtml = () => {
+    if (!state.reports.length) return "";
+    return `<section class="pf-card pf-sec">
+<header><h3>数据报告目录</h3><span class="pf-sub">${state.reports.length} 个 · 点开直达</span></header>
+<div class="pf-dirs">${state.reports.map((r, i) => `<button type="button" class="pf-dir" data-pf-dir="${i}" title="在应用内打开「${esc(r.name)}」"><span class="pf-dot" aria-hidden="true"></span><span class="pf-dn">${esc(r.name)}</span><span class="pf-go" aria-hidden="true">↗</span></button>`).join("")}</div>
+<p class="pf-note">上面这些与「个人信息」同站同权限，都是学校在个人成长中心里为你开放的报表。</p>
+</section>`;
+  };
+
   const histRowsHtml = () => state.history.map((h, i) => `<button type="button" data-pf-hist="${i}" title="点击再复制一次"><span class="pf-hk">${esc(h.k)}</span><span class="pf-hv">${esc(h.v)}</span></button>`).join("");
 
   const histFoldHtml = () => `<div class="pf-fold${state.histOpen ? " open" : ""}" data-pf-fold>
@@ -447,7 +502,7 @@ ${body}${emptyNote}${histHtml()}</section>`;
     }
     root.innerHTML = `<div class="pf-wrap">${toolbarHtml()}
 ${state.stale ? `<div class="pf-card pf-sec"><div class="pf-alert">${esc(state.stale)}</div></div>` : ""}
-${heroHtml()}${gridHtml()}</div>`;
+${heroHtml()}${gridHtml()}${reportsHtml()}</div>`;
     bind(root);
   }
 
@@ -471,6 +526,8 @@ ${heroHtml()}${gridHtml()}</div>`;
       if (cell) { const f = state.rows[Number(cell.dataset.pfCell)]; if (f && f.v) doCopy(cell, f.k, f.v); return; }
       const hb = hit("[data-pf-hist]");
       if (hb) { const h = state.history[Number(hb.dataset.pfHist)]; if (h) doCopy(hb, h.k, h.v); return; }
+      const dir = hit("[data-pf-dir]");
+      if (dir) { const r = state.reports[Number(dir.dataset.pfDir)]; if (r && r.key) bridge?.open?.("/stu/dataReport/" + r.key); return; }
       if (hit("[data-pf-copyall]")) { copyAll(); return; }
       if (hit("[data-pf-refresh]")) { loadAll(true); return; }
       if (hit("[data-pf-home]")) { bridge?.open?.("/stu/dataReport/basicInfo"); return; }

@@ -17,6 +17,11 @@
 //    （最新的那条最贴近用户当下在做的事），并带一个 `×N` 后缀说明「还有几件事在跑」。
 // ④ **纯装饰 + 半透明**：`aria-hidden="true"`、`role="presentation"` —— 读屏不该念它；
 //    下面那页已经画好了，遮死反而像卡住，所以底色是 `color-mix(--bg 86%)`。
+// ⑤ **只盖右侧主区（v0.239.0）**：蒙版挂在 `.main` 里（顶栏 + 视图），不是挂在 body 上。
+//    用户需求原文「蒙板仅在右界面使用，不在侧边栏使用。蒙版期间，依然可以选择侧边栏的其他项目」——
+//    盖住侧栏就会连点击一起拦掉，用户被锁在当前页直到刷新结束。
+//    侧栏在 `.main` 之外 ⇒ 蒙版既盖不到它、也拦不住它；窄屏底栏是 fixed 浮层，靠 body 上的
+//    `wait-mask-open` 标记抬 z-index（styles.css ≤900px 块），一并保住可点。
 //
 // 蒙版节点**复用** index.html 里那颗 `[data-wait-mask]` 空壳（和启动蒙版一样写在 HTML 里，
 // 首帧就在文档中）；被摘掉之后再 show 会重新建一颗，所以它不依赖那颗空壳还在不在。
@@ -85,17 +90,45 @@ function estimateEm(label) {
   return Math.max(em, 1);
 }
 
+/* v0.239.0：蒙版只盖右侧主区（.main = 顶栏 + 视图），侧边栏不在它的盒里 ——
+   用户要求「蒙板仅在右界面使用…蒙版期间依然可以选择侧边栏的其他项目」。
+   包含块由 styles.css 的 `.main { position: relative }` 提供，蒙版自己是 absolute/inset:0。
+   index.html 那颗空壳仍写在 body（首帧就在，弱机不闪半成品），首次 show 时搬进 .main。
+   ⚠️ 不要再改回 document.body：那样就只能 position:fixed 铺满整窗，侧栏又被一起蒙住。 */
+const MASK_HOST_SELECTOR = ".main";
+/** 蒙版在场标记：窄屏底栏靠它把 z-index 抬到蒙版之上（styles.css ≤900px 块），
+    否则手机上蒙版期间点不动底栏，「依然可以选择其他项目」就落不了地。 */
+const BODY_FLAG = "wait-mask-open";
+
+/** 蒙版该挂在谁身上。拿不到 .main（index 被改坏 / 单测无壳）时退回 body，蒙版宁可铺满也不能不显示。 */
+function maskHost() {
+  try {
+    return document.querySelector(MASK_HOST_SELECTOR) || document.body;
+  } catch {
+    return document.body;
+  }
+}
+
+function clearBodyFlag() {
+  try { document.body?.classList?.remove?.(BODY_FLAG); } catch { /* 无 body 的极端环境：忽略 */ }
+}
+
 /** 建/取蒙版节点。优先复用 HTML 里的空壳（首帧就在，不必等 JS 建）。 */
 function ensureNode() {
-  if (node && node.isConnected) return node;
+  const target = maskHost();
+  if (node && node.isConnected) {
+    // 视图切换只重画 .view，.main 不重建；这里仍是兜底 —— 节点被别处摘走就拉回来。
+    if (node.parentNode !== target) target.append(node);
+    return node;
+  }
   let host = null;
   try { host = document.querySelector(MASK_SELECTOR); } catch { host = null; }
   if (!host) {
     host = document.createElement("div");
     host.className = "wait-mask";
     host.dataset.waitMask = "";
-    document.body.append(host);
   }
+  if (host.parentNode !== target) target.append(host);
   host.setAttribute("hidden", "");
   host.setAttribute("aria-hidden", "true");
   host.setAttribute("role", "presentation");
@@ -132,6 +165,8 @@ function showNow() {
   const host = ensureNode();
   paint(host, label, pending.size);
   host.removeAttribute("hidden");
+  // 只有窄屏那条 `.rail` 抬升读它（桌面侧栏根本不在蒙版范围内，类挂上也无副作用）。
+  try { document.body?.classList?.add?.(BODY_FLAG); } catch { /* 忽略 */ }
   nodeShownAt = Date.now();
   window.clearTimeout(hideTimer);
   hideTimer = 0;
@@ -144,11 +179,12 @@ function showNow() {
 function hideNow() {
   const host = node;
   node = null;
-  if (!host || !host.isConnected) return;
+  if (!host || !host.isConnected) { clearBodyFlag(); return; }
   host.setAttribute("aria-hidden", "true");
-  if (prefersReduced()) { host.remove(); return; }
+  if (prefersReduced()) { host.remove(); clearBodyFlag(); return; }
   host.classList.add(LEAVING_CLASS);
-  hideTimer = window.setTimeout(() => host.remove(), FADE_MS + 60);
+  // 底栏的抬升跟着节点一起撤：淡出那 200ms 里还留着标记会让底栏「悬」在渐隐的蒙版上。
+  hideTimer = window.setTimeout(() => { host.remove(); clearBodyFlag(); }, FADE_MS + 60);
 }
 
 /**
@@ -236,4 +272,5 @@ export function resetWaitMask() {
   const host = node;
   node = null;
   if (host) host.remove();
+  clearBodyFlag();
 }

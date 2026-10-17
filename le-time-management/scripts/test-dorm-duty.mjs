@@ -1859,8 +1859,22 @@ console.log('PASS: dorm-duty 多套轮换互不串台、旧数据迁移不丢字
     'roomView() 的夹取必须与缩放常量同源，否则两处上下限会各走各的');
   assert.match(PLUGIN_SRC, /左右拖动转视角[^<]*捏合/,
     '提示文案要提到捏合 —— 用户不会去试一个没写出来的手势');
-  assert.match(PLUGIN_SRC, /触控板在图上直接捏合就能缩放/,
-    '图注也要写明触控板捏合（星图的用法只有图注这一处说明）');
+
+  /* 9.10 图注改成 1..6 速查（v0.241.1）：编号与短标题沿主题语义色从上到下换色。
+     这三条钉的是「能被扫读」的前提：结构是 ol、六条都在、颜色朝 --ink 混过
+     （纯 --sun 压白底只有 2:1，占比 72% 时 mint/sun 也只有 3.4/3.6:1）。 */
+  assert.match(PLUGIN_SRC, /<ol class="dd-legend">/,
+    '图注必须是 ol.dd-legend 的六条速查，不能退回一整段长文案');
+  assert.equal((PLUGIN_SRC.match(/<li><b>[1-6]<\/b><span><i>/g) || []).length, 6,
+    '六条速查一条都不能少，且每条都是「编号 + 短标题 + 正文」三段结构');
+  for (const [n, tok] of [[1, 'deep'], [2, 'sea'], [3, 'grape'], [4, 'mint'], [5, 'sun'], [6, 'coral']]) {
+    assert.match(PLUGIN_SRC, new RegExp(`\\.dd-legend li:nth-child\\(${n}\\)\\{--dd-lc:var\\(--${tok}`),
+      `第 ${n} 条要取主题语义色 --${tok}（不写死色号，切主题与深浅模式才跟着走）`);
+  }
+  assert.match(PLUGIN_SRC, /var\(--dd-lc,var\(--deep,#0F4C5C\)\) 45%,var\(--ink,#22303A\)\)/,
+    '编号要朝 --ink 混 45%：再靠色相一端（72%）时 mint/sun/coral 在白底只有 3.4/3.6/4.3:1，读不清');
+  assert.match(PLUGIN_SRC, /视角与缩放<\/i>[^<]*捏合/,
+    '第 6 条要写明触控板捏合（星图的用法只有图注这一处说明）');
 
   /* 9.7 跨端：roomSize 在两端归一化出同一个值，备份恢复才不丢设置 */
   for (const [v, expected] of [[0, 0], [4, 4], [8, 8], [5, 4], ['6', 6], [null, 4], ['', 4]]) {

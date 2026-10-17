@@ -46,7 +46,7 @@
 /* 正面是「封面」：只有图标 + 名字，其余全在翻起来的详情层里。
    卡片高度由正面撑开（.wc-detail 是 position:absolute;inset:0，高度跟着卡片走），
    所以 min-height 不能撤：正面一旦变矮，详情层会被一起压扁、输入框与动作条被裁掉。
-   正面整体就是那颗翻转按钮 —— 触屏与键盘点卡片任意处都能翻。 */
+   正面整体是「打开」按钮 —— 触屏与键盘点卡片任意处都直接打开网站（详情改由右上角「⋯」翻起）。 */
 .wc-front{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;box-sizing:border-box;width:100%;padding:18px 14px;min-height:calc(206px * var(--ui-text-scale));font:inherit;text-align:center;color:inherit;background:none;border:0;cursor:pointer;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),opacity .45s ease}
 .wc-front .wc-icon{width:52px;height:52px;border-radius:14px;flex:none}
 .wc-front .wc-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;white-space:normal;text-align:center}
@@ -62,17 +62,19 @@
 .wc-edit{min-width:0}
 .wc-edit input{box-sizing:border-box}
 /* 这里刻意**不**给 .wc-actions 加分隔线：详情层里也有 .wc-actions，加了会把详情层顶出 10px 溢出 */
-/* 鼠标能悬停时，悬停即翻（这就是 LabOrbit 的触发方式）。正面翻走后 pointer-events:none，
-   所以正面的按钮够不着 —— 但详情层里放的是**同一套动作**（打开 / 保存 / 换图标 / 刷新 / 删除
-   与「收起」），没有任何一个功能只长在正面，悬停状态下也不会丢入口。 */
-@media (hover:hover) and (pointer:fine){
-  .wc-card:hover .wc-front{transform:scale(.86);opacity:0;pointer-events:none}
-  .wc-card:hover .wc-detail{transform:rotateX(0deg);visibility:visible;pointer-events:auto;transition:transform .6s cubic-bezier(.175,.885,.32,1.275),visibility 0s linear 0s}
-}
+/* 正面整块卡片就是「打开」按钮：点它直接开网站，详情层改由右上角那颗「⋯」显式翻起。
+   以前是鼠标悬停即翻（LabOrbit 的触发方式），但那让「点卡片打开」永远点不到 ——
+   悬停一进入正面就 pointer-events:none 了。所以悬停自动翻整段撤掉，翻面只在点「⋯」时发生。 */
+.wc-more{position:absolute;top:8px;right:8px;z-index:6;width:26px;height:26px;display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink-3);font-size:calc(14px * var(--ui-text-scale));line-height:1;cursor:pointer;transition:color .18s ease,border-color .18s ease}
+.wc-more:hover{color:var(--deep);border-color:var(--deep)}
+/* 详情层里已有「收起」，翻起来时把「⋯」让开，免得两颗按钮叠在同一处 */
+.wc-card.is-flipped .wc-more{opacity:0;pointer-events:none}
+.wc-front:hover .wc-title{color:var(--deep)}
+.wc-front:focus-visible{outline:2px solid var(--deep);outline-offset:-6px;border-radius:inherit}
 /* 减少动效：不翻不缩，直接切换（与应用「减少动效」设置一致） */
 @media (prefers-reduced-motion:reduce){
   .wc-front,.wc-detail{transition:none!important}
-  .wc-card.is-flipped .wc-front,.wc-card:hover .wc-front{transform:none;opacity:0}
+  .wc-card.is-flipped .wc-front{transform:none;opacity:0}
 }`;
     document.head.append(s);
   }
@@ -157,7 +159,7 @@
     return items.filter((x) => `${x.title} ${x.url} ${x.host} ${x.note || ""}`.toLowerCase().includes(q));
   }
   /** 「更多 / 收起」只切 class，不整页重绘 —— 重绘会把搜索框焦点、输入框草稿和滚动位置一起抹掉。
-   *  正面的整块卡片就是翻转按钮（[data-more]），详情层里那颗是同一个标记，所以这里一次同步全部。 */
+   *  右上角「⋯」与详情层「收起」是同一个标记（[data-more]），所以这里一次同步全部。 */
   function toggleFlip(btn) {
     const card = btn.closest && btn.closest("[data-id]");
     if (!card || !card.classList) return;
@@ -171,9 +173,9 @@
   function paint() {
     if (!host?.isConnected) return;
     const rows = visible();
-    host.innerHTML = `<div class="wc"><div class="wc-hero"><input class="wc-input" data-url placeholder="输入网站，例如 https://www.example.edu.cn"><button class="wc-btn pri" data-add ${busy ? "disabled" : ""}>${busy ? "正在识别…" : "自动识别并收藏"}</button><button class="wc-btn" data-probe-icon ${busy ? "disabled" : ""}>${busy ? "获取中…" : "自动获取网站图标"}</button></div>${iconPreview ? `<div class="wc-icon-preview"><span class="wc-icon">${favicon(iconPreview)}</span><span class="wc-preview-text">图标地址：<code>${esc(iconPreview.iconUrl || "未取到")}</code></span><button class="wc-btn" data-preview-save ${busy ? "disabled" : ""}>存为新条目</button><button class="wc-btn" data-preview-clear>清空</button></div>` : ""}</div><div class="wc-toolbar"><span class="wc-searchbox"><span class="wc-search-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="wc-input" data-search value="${esc(query)}" aria-label="搜索已收藏网站" title="搜索已收藏网站" placeholder=""></span><select class="wc-open-mode" data-open-mode aria-label="网站打开方式"><option value="external"${openMode === "external" ? " selected" : ""}>浏览器打开</option><option value="inside"${openMode === "inside" ? " selected" : ""}>应用内显示</option></select><span style="font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2)">${rows.length} / ${items.length}</span></div><div class="wc-grid">${rows.map((x) => `<article class="wc-card${flippedCards.has(x.id) ? " is-flipped" : ""}" data-id="${esc(x.id)}"><button type="button" class="wc-front" data-more aria-expanded="${flippedCards.has(x.id) ? "true" : "false"}" aria-controls="wc-detail-${esc(x.id)}" aria-label="${esc(x.title)}：更多操作"><span class="wc-icon">${favicon(x)}</span><span class="wc-title" title="${esc(x.title)}">${esc(x.title)}</span></button><div class="wc-detail" id="wc-detail-${esc(x.id)}"><div class="wc-detail-head"><b>${esc(x.title)}</b><button data-more aria-expanded="${flippedCards.has(x.id) ? "true" : "false"}" aria-controls="wc-detail-${esc(x.id)}">收起</button></div><div class="wc-detail-host">${esc(x.host || x.url)}</div><div class="wc-edit"><input data-title value="${esc(x.title)}" aria-label="名称" title="${esc(x.title)}"><input data-note value="${esc(x.note || "")}" placeholder="备注" aria-label="备注" title="${esc(x.note || "")}"></div><div class="wc-actions"><button data-open>打开</button><button data-save>保存修改</button><button data-fetch-icon title="只重新抓取这个网站的图标，标题与备注保持不变">换图标</button><button data-refresh>刷新名称/图标</button><button data-remove>删除</button></div></div></article>`).join("") || `<div class="wc-empty">还没有收藏网页。输入网址后会自动获取网站名称和图标。</div>`}</div></div>`;
-    /* 两颗「更多 / 收起」按钮都写在模板里（正面一颗、详情层一颗），这里只把 is-flipped
-       与 aria-expanded 同步到当前状态 —— 不再往 DOM 里塞按钮，否则每次重绘都会多长一颗。 */
+    host.innerHTML = `<div class="wc"><div class="wc-hero"><input class="wc-input" data-url placeholder="输入网站，例如 https://www.example.edu.cn"><button class="wc-btn pri" data-add ${busy ? "disabled" : ""}>${busy ? "正在识别…" : "自动识别并收藏"}</button><button class="wc-btn" data-probe-icon ${busy ? "disabled" : ""}>${busy ? "获取中…" : "自动获取网站图标"}</button></div>${iconPreview ? `<div class="wc-icon-preview"><span class="wc-icon">${favicon(iconPreview)}</span><span class="wc-preview-text">图标地址：<code>${esc(iconPreview.iconUrl || "未取到")}</code></span><button class="wc-btn" data-preview-save ${busy ? "disabled" : ""}>存为新条目</button><button class="wc-btn" data-preview-clear>清空</button></div>` : ""}</div><div class="wc-toolbar"><span class="wc-searchbox"><span class="wc-search-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="wc-input" data-search value="${esc(query)}" aria-label="搜索已收藏网站" title="搜索已收藏网站" placeholder=""></span><select class="wc-open-mode" data-open-mode aria-label="网站打开方式"><option value="external"${openMode === "external" ? " selected" : ""}>浏览器打开</option><option value="inside"${openMode === "inside" ? " selected" : ""}>应用内显示</option></select><span style="font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2)">${rows.length} / ${items.length}</span></div><div class="wc-grid">${rows.map((x) => `<article class="wc-card${flippedCards.has(x.id) ? " is-flipped" : ""}" data-id="${esc(x.id)}"><button type="button" class="wc-front" data-open aria-label="${esc(x.title)}：打开" title="${esc("打开 " + x.title)}"><span class="wc-icon">${favicon(x)}</span><span class="wc-title" title="${esc(x.title)}">${esc(x.title)}</span></button><button type="button" class="wc-more" data-more aria-expanded="${flippedCards.has(x.id) ? "true" : "false"}" aria-controls="wc-detail-${esc(x.id)}" aria-label="更多操作：改名 / 备注 / 换图标 / 刷新 / 删除" title="更多操作">⋯</button><div class="wc-detail" id="wc-detail-${esc(x.id)}"><div class="wc-detail-head"><b>${esc(x.title)}</b><button data-more aria-expanded="${flippedCards.has(x.id) ? "true" : "false"}" aria-controls="wc-detail-${esc(x.id)}">收起</button></div><div class="wc-detail-host">${esc(x.host || x.url)}</div><div class="wc-edit"><input data-title value="${esc(x.title)}" aria-label="名称" title="${esc(x.title)}"><input data-note value="${esc(x.note || "")}" placeholder="备注" aria-label="备注" title="${esc(x.note || "")}"></div><div class="wc-actions"><button data-save>保存修改</button><button data-fetch-icon title="只重新抓取这个网站的图标，标题与备注保持不变">换图标</button><button data-refresh>刷新名称/图标</button><button data-remove>删除</button></div></div></article>`).join("") || `<div class="wc-empty">还没有收藏网页。输入网址后会自动获取网站名称和图标。</div>`}</div></div>`;
+    /* 两颗「更多 / 收起」按钮都写在模板里（右上角「⋯」一颗、详情层「收起」一颗），这里只把
+       is-flipped 与 aria-expanded 同步到当前状态 —— 不再往 DOM 里塞按钮，否则每次重绘都会多长一颗。 */
     for (const card of host.querySelectorAll(".wc-card")) {
       const open = flippedCards.has(card.dataset.id);
       card.classList.toggle("is-flipped", open);
@@ -380,6 +382,7 @@
       if (e.target.closest("[data-preview-save]")) return savePreviewAsItem();
       const card = e.target.closest("[data-id]"); if (!card) return; const id = card.dataset.id; const item = items.find((x) => x.id === id); if (!item) return;
       if (e.target.closest("[data-more]")) { toggleFlip(e.target.closest("[data-more]")); return; }
+      // 正面整块卡片就是「打开」：详情层里不再单独放一颗「打开」按钮（v0.240.0）
       if (e.target.closest("[data-open]")) openItem(item);
       else if (e.target.closest("[data-fetch-icon]")) refreshIcon(id);
       else if (e.target.closest("[data-refresh]")) refresh(id);

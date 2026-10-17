@@ -133,9 +133,20 @@ const manifest = JSON.parse(fs.readFileSync(new URL('../public/plugins/web-colle
 // 这条断言的作用是「改了行为就必须动版本号」，所以每加一批行为就往上抬一格，别删。
 // 1.6.0 → 卡片编辑区展开收起（长标题与备注在卡片内可读）；
 // 1.7.0 → 卡片改成从底边翻起的抽屉（正面看网站，翻起来改名称 / 备注 / 图标）。
+// 1.9.0 → 点卡片直接打开网站（详情层里不再有「打开」按钮），详情改由右上角「⋯」翻起。
 // 这条断言的作用是「改了行为就必须动版本号」，所以每加一批行为就往上抬一格，别删。
-assert.equal(manifest.version, '1.8.0', '改了网页收集的行为必须升 manifest 版本号');
+assert.equal(manifest.version, '1.9.0', '改了网页收集的行为必须升 manifest 版本号');
 assert.equal(manifest.platforms.miniprogram, 'native', '原生收藏管理已实现，任意网站内嵌不在适配范围');
+
+/* ── 六之二、点卡片直接打开（v1.9.0）──
+   以前正面是翻转按钮、详情层里放一颗「打开」；现在正面临 data-open，详情由右上角「⋯」翻起。
+   静态断言钉住「别把按钮加回去、也别把正面退回 data-more」，否则点卡片又会打不开。 */
+assert.match(src, /class="wc-front" data-open/, '卡片正面必须是打开按钮（data-open），不再是翻转按钮');
+assert.ok(!/class="wc-front" data-more/.test(src), '正面不许退回翻转按钮（data-more）—— 那样点卡片又打不开了');
+assert.ok(!/<button data-open>打开<\/button>/.test(src), '详情层里不再单独放「打开」按钮（同一件事不设两个入口）');
+assert.match(src, /class="wc-more" data-more/, '详情入口是右上角那颗「⋯」（.wc-more + data-more）');
+assert.ok(!/\.wc-card:hover\s+\.wc-front\{pointer-events:none/.test(src),
+  '不许恢复「悬停即翻」—— 正面一 pointer-events:none，点卡片打开就永远点不到');
 
 /* ── 七之二、明文 http 站点在「应用内显示」里不许挂空 iframe（v1.2.4）──
    APK 上页面来源是 https（WebViewAssetLoader 默认 scheme），http 的 iframe 会被当

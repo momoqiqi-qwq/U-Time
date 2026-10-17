@@ -5,11 +5,16 @@ import { bannerPalettes, channelDelta, colorMix, contrastRatio, mixHex, resolveT
 const read = p => fs.readFileSync(new URL('../'+p, import.meta.url),'utf8');
 const portal = read('public/plugins/cppu-notify/main.js');
 const calendar = read('public/plugins/cppu-notify/calendar.js');
+const calIcons = read('public/plugins/cppu-notify/cal-icons.js');
 const schedule = read('public/plugins/shiguang-schedule/ui.js');
 // 校历 v0.216.0 并进 cppu-notify：calendar.js 变成 ES module 的工厂（不再自己 registerView），
 // 把 `export function createCalendarView(tide)` 换成全局赋值再在沙箱里调一次，即可拿到那套内部函数。
+// v0.242.0 起 calendar.js 还 import 了 cal-icons.js（同样是 ESM）：把 `export ` 前缀剥掉后与它拼进
+// 同一个沙箱 —— 跑的是产品里那份真图标实现（纯字符串拼接，不碰 DOM），不是桩。
 const calendarHarness = (box) => vm.runInNewContext(
-  calendar.replace('export function createCalendarView(tide) {', 'globalThis.createCalendarView = function (tide) {')
+  calIcons.replace(/^export /gm, '')
+    + calendar.replace("import { calIcon } from './cal-icons.js';", '')
+      .replace('export function createCalendarView(tide) {', 'globalThis.createCalendarView = function (tide) {')
     + ';globalThis.test = createCalendarView(tide);', box);
 // Execute the actual retry policy with controlled transports; no live credentials.
 const policy = portal.slice(portal.indexOf('  const cleanLoginRetries ='),portal.indexOf('  function loginSettingsHtml()'));

@@ -598,6 +598,25 @@
       .dd-big em{font-style:normal;color:var(--deep,#0F4C5C);font-size:calc(30px * var(--ui-text-scale));margin-right:3px}
       .dd-muted{font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);line-height:1.75}
       .dd-note{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#A1A9AF);line-height:1.7;margin-top:9px}
+      /* 星图速查（1. 2. 3.）：编号与短标题**从上到下换色**，正文留在 --ink-3 ——
+         整段都染色会花，只有序号和标题带色才扫得下去。
+         色相取主题语义色（--deep/--sea/--grape/--mint/--sun/--coral）：每套主题、浅色与
+         深色各有自己的一套值，所以这里不用写死的色号，切主题自动跟着变。
+         三个落点都朝 --ink 混：浅色主题下更暗、深色主题下更亮，
+         于是 --sun 这种偏亮的黄在两种模式下都还读得清（纯 #E3A008 压白底只有 2:1）。
+         比例是量出来的，别随手调大 LC 占比：占比 72% 时 mint/sun/coral 在白底只有
+         3.4 / 3.6 / 4.3:1，压到 45% 后最低 4.9:1；正文本就用 --ink-3 再往 --ink 混 45%，
+         否则纯 --ink-3 白底只有 3.5:1。 */
+      .dd-legend{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:5px;font-size:calc(11px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink-3,#A1A9AF) 45%,var(--ink,#22303A));line-height:1.65}
+      .dd-legend li{display:grid;grid-template-columns:1.4em minmax(0,1fr);gap:7px;align-items:baseline}
+      .dd-legend li:nth-child(1){--dd-lc:var(--deep,#0F4C5C)}
+      .dd-legend li:nth-child(2){--dd-lc:var(--sea,#277DA1)}
+      .dd-legend li:nth-child(3){--dd-lc:var(--grape,#7367C9)}
+      .dd-legend li:nth-child(4){--dd-lc:var(--mint,#2EC4B6)}
+      .dd-legend li:nth-child(5){--dd-lc:var(--sun,#E3A008)}
+      .dd-legend li:nth-child(6){--dd-lc:var(--coral,#FF6B6B)}
+      .dd-legend b{font-weight:800;font-variant-numeric:tabular-nums;color:color-mix(in srgb,var(--dd-lc,var(--deep,#0F4C5C)) 45%,var(--ink,#22303A))}
+      .dd-legend i{font-style:normal;font-weight:750;margin-right:5px;color:color-mix(in srgb,var(--dd-lc,var(--deep,#0F4C5C)) 35%,var(--ink,#22303A))}
       .dd-err{color:#B34747}
       .dd-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
       .dd-btn{height:34px;border-radius:9px;border:1px solid var(--line,#DCD6CB);background:var(--panel,#fff);padding:0 13px;cursor:pointer;font-size:calc(12px * var(--ui-text-scale));font-family:inherit;color:var(--ink,#22303A);display:inline-flex;align-items:center;gap:6px}
@@ -1466,7 +1485,16 @@
     const extra = g.members.length > size
       ? `<div class="dd-note">名单里还有 ${g.members.length - size} 位成员没排进这间宿舍 —— 调大宿舍人数，或把多余的成员移到别的轮换里。</div>` : "";
     const empty = g.members.length ? "" : `<div class="dd-note">还没有成员。先在上一张卡里添加：第 1 个人住 1 号床（下铺）。</div>`;
-    const legend = `<div class="dd-note">实心星是上铺、空心星是下铺（同一张铺的两颗星沿铺宽略微错开，只为俯视时也分得开 —— 是示意，不是真实床位坐标）；星上的数字是床位号（编辑模式把人挪到别的床上之后它就不再等于名单位次了，所以谁排第几改挂在鼠标悬停的说明里），默认连线按 1→${size} 走、流动方向就是值日顺序，尾端虚线绕回第 1 位；今天当班的星亮成绿色。<b>点星上的名字就能就地改名</b>；点星星本身则是跳到它在成员列表里的那一行。上面那行的「今天值日」下拉可以直接点人：选谁，今天就是谁值日，之后按名单顺序接着往下轮（床位不跟着动）。想按自己的意思排床位就点「编辑床位」：星星可以整颗拖到别的床上（拖到睡着人的床上＝两人换铺），点两颗星之间就连一条自己的线（接着点就一路连下去，「清空连线」回到默认的值日路线），名字就地改，空床也能起个名字当备注。下面的「旋转条」可以直接把视角拖到某个角度，松手后若不按「停止」就接着自动旋转，按「停止」就把角度钉住不动。床架觉得碍事可以把上面的「显示床铺」关掉，只剩星星与连线。<b>触控板在图上直接捏合就能缩放</b>（鼠标滚轮同理，向上滚放大）。</div>`;
+    /* 说明只留六条速查：编号与标题沿主题语义色从上到下换色（样式见 .dd-legend），
+       颜色不写死 —— 切主题 / 深浅模式自动跟着走。 */
+    const legend = `<ol class="dd-legend">
+      <li><b>1</b><span><i>床位与星号</i>实心＝上铺、空心＝下铺；星上数字是床号，编辑挪床后不再等于名单位次。</span></li>
+      <li><b>2</b><span><i>值日路线</i>默认按 1→${size} 连线，流向就是值日顺序，尾端虚线绕回第 1 位；今天当班亮绿。</span></li>
+      <li><b>3</b><span><i>今天值日</i>上面那行下拉直接点人：选谁今天就是谁，之后按名单顺序接着轮（床位不动）。</span></li>
+      <li><b>4</b><span><i>改名与定位</i>点名字就地改；点星星本身跳到成员列表里那一行。</span></li>
+      <li><b>5</b><span><i>编辑床位</i>拖星换床（拖到有人的床＝换铺）；点两颗星连线，「清空连线」回默认；空床可起名当备注。</span></li>
+      <li><b>6</b><span><i>视角与缩放</i>旋转条拖到角度，按「停止」钉住；「显示床铺」可关床架；滚轮 / 捏合缩放。</span></li>
+    </ol>`;
 
     /* data-private-full：三维星图的「全满」锚点。宿主的隐私展示模式开着时，
        styles/privacy-mask.css 会把空位（.dd-bed.empty）按占用样式画实 —— 这张图是俯视
