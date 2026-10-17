@@ -1,7 +1,8 @@
 {
   "name": "le-time-management",
   "private": true,
-  "version": "0.231.0",
+  "author": "梁逸乐 (Yile Liang)",
+  "version": "0.238.1",
   "type": "module",
   "scripts": {
     "dev": "vite",

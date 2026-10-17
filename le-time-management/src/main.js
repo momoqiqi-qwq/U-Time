@@ -22,6 +22,8 @@ import { isMobilePreview } from "./mobilePreview.js";
 import { initAndroidNotifications } from "./androidNotify.js";
 import { renderStartupRecovery } from "./views/startupRecovery.js";
 import { mountStorageStatus } from "./views/storageStatus.js";
+import { finishRefreshMask, mountRefreshMask, revealRefreshMask } from "./loadingMask.js";
+import { initPrivacyMask } from "./privacyMask.js";
 
 // 首次启动的初始数据 —— 刻意全空，让空状态引导用户自己建第一条（对接 Rust seed_data()）。
 // ⚠️ 这里不要再塞示例任务：首启四象限/时间块该是干净的。样例请做成显式入口（如「恢复示例数据」）。
@@ -36,6 +38,9 @@ function seed() {
 }
 
 async function boot() {
+  // 刷新蒙版（v0.232.0）：盖住整段首屏启动 —— 从这行一直到 revealAppWindow() 交出界面为止。
+  // 同步挂载（HTML 里已有空壳），所以弱机上不会先闪一下半成品界面。
+  mountRefreshMask();
   // 原生桌面窗体先保持隐藏：恢复用户的默认尺寸、主题与缩放后再显示，避免看到
   // 默认 1360×860 窗口先出现、随后被启动窗口大小设置调整的过程。
   if (api.isTauri) document.documentElement.dataset.appStarting = "true";
@@ -44,6 +49,9 @@ async function boot() {
   applyTouchZoomViewport();
   await initStore(seed());
   initTheme();
+  // 主题解析完（data-theme / data-theme-mode 已写）才把字标放进蒙版：那颗字标是渐变裁剪文字，
+  // 浅色/深色两套渐变靠 data-theme-mode 二选一，放早了深色用户会看到色标跳一下。
+  revealRefreshMask();
   initUiPreferences();
   initNepheleBackground();
   // 界面缩放的 resize 监听必须无条件挂上（即使当前是 100%）：用户随后在设置里调大缩放时，
@@ -56,8 +64,15 @@ async function boot() {
   await applyWindowSize(getUiPreferences());
   initMotionInteractions();
   renderShell(document.getElementById("app"));
+  // 隐私展示模式（v0.234.0）：必须在 renderShell 之后 —— 它要扫的正是刚挂上去的这棵树
+  // （顶栏徽标也在这时候才存在）。开关持久化在 settings.ui.privacyMask，所以开着模式启动时
+  // 首屏就已经是模糊 + 9 化的样子，不会先亮出原值再被盖一层。
+  initPrivacyMask();
   mountStorageStatus(document.body);
   await revealAppWindow();
+  // 刷新完成 → 取消蒙版。必须在 revealAppWindow() **之后**：先摘 data-app-starting 让界面
+  // 亮起来，再让蒙版淡出，两段动画交叠才是「交接」；顺序反了会露出空窗。
+  finishRefreshMask();
   if (isMobilePreview()) {
     initCommandPalette();
     initPluginHost().catch((e) => console.error("预览插件加载失败:", e));
@@ -131,4 +146,6 @@ boot().catch(async (error) => {
   if (!getState()) renderStartupRecovery(document.getElementById("app"), error);
   // 即便初始化某一步抛错，也不要把隐藏的原生窗口留在后台。
   await revealAppWindow();
+  // 失败路径同样要撤蒙版，否则「重新读取」按钮会被蒙版压在下面点不到。
+  finishRefreshMask();
 });

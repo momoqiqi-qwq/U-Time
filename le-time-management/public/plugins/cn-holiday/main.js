@@ -285,7 +285,18 @@
     } catch (e) { out.innerHTML = `<span class="ch-err">${esc(e.message || e)}</span>`; }
   }
 
-  async function paint() {
+  /* 刷新等待蒙版（v0.233.0）：节假日数据要联网取（首次 / 跨年 / 点「联网更新」），
+     内存缓存命中的重绘是同步返回的，蒙版有 180ms 延迟，不会闪 —— 所以这里直接包住
+     paint / paintYear 就行，不必再区分「这次会不会真发请求」。老宿主没有 tide.ui.waitMask
+     时退化成空操作。 */
+  const waitMask = (text) => (tide.ui && typeof tide.ui.waitMask === "function" ? tide.ui.waitMask(text) : () => {});
+  function paint() {
+    if (!root) return Promise.resolve();
+    const releaseWait = waitMask("正在读取节假日数据…");
+    return paintInner().finally(releaseWait);
+  }
+
+  async function paintInner() {
     if (!root) return;
     const today = tide.util.today();
     root.innerHTML = `<div class="ch-wrap"><div class="ch-card"><div class="ch-muted">正在读取节假日数据…</div></div></div>`;
@@ -345,7 +356,13 @@
     root.querySelector("[data-next]")?.addEventListener("click", () => { currentYear++; paintYear(); });
   }
 
-  async function paintYear() {
+  function paintYear() {
+    if (!root) return Promise.resolve();
+    const releaseWait = waitMask(`正在读取 ${currentYear} 年节假日…`);
+    return paintYearInner().finally(releaseWait);
+  }
+
+  async function paintYearInner() {
     if (!root) return;
     const yEl = root.querySelector("[data-year]"), list = root.querySelector("[data-list]"), src = root.querySelector("[data-year-source]"), makeup = root.querySelector("[data-makeup]");
     if (!list) return;
@@ -373,10 +390,14 @@
     const btn = root?.querySelector("[data-refresh]");
     if (btn) { btn.disabled = true; btn.textContent = "更新中…"; }
     const y = yearOf(tide.util.today()), years = [y, y + 1];
-    const settled = await Promise.allSettled(years.map((yy) => loadYear(yy, true)));
-    const result = settled.map((r, i) => r.status === "fulfilled" ? `${years[i]} 已更新` : `${years[i]}：${r.reason?.message || r.reason}`);
-    tide.notify(result.join("；"));
-    busy = false;
+    // 这里强制走网络，是这一页唯一「一定要等」的路径。蒙版在 paint 之前就撤掉：
+    // 撤完 paint 读的是刚写进内存缓存的数据，不会出现两层蒙版叠成「×2」。
+    const releaseWait = waitMask("正在联网更新节假日数据…");
+    try {
+      const settled = await Promise.allSettled(years.map((yy) => loadYear(yy, true)));
+      const result = settled.map((r, i) => r.status === "fulfilled" ? `${years[i]} 已更新` : `${years[i]}：${r.reason?.message || r.reason}`);
+      tide.notify(result.join("；"));
+    } finally { busy = false; releaseWait(); }
     await paint();
   }
 

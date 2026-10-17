@@ -1468,8 +1468,11 @@
     const empty = g.members.length ? "" : `<div class="dd-note">还没有成员。先在上一张卡里添加：第 1 个人住 1 号床（下铺）。</div>`;
     const legend = `<div class="dd-note">实心星是上铺、空心星是下铺（同一张铺的两颗星沿铺宽略微错开，只为俯视时也分得开 —— 是示意，不是真实床位坐标）；星上的数字是床位号（编辑模式把人挪到别的床上之后它就不再等于名单位次了，所以谁排第几改挂在鼠标悬停的说明里），默认连线按 1→${size} 走、流动方向就是值日顺序，尾端虚线绕回第 1 位；今天当班的星亮成绿色。<b>点星上的名字就能就地改名</b>；点星星本身则是跳到它在成员列表里的那一行。上面那行的「今天值日」下拉可以直接点人：选谁，今天就是谁值日，之后按名单顺序接着往下轮（床位不跟着动）。想按自己的意思排床位就点「编辑床位」：星星可以整颗拖到别的床上（拖到睡着人的床上＝两人换铺），点两颗星之间就连一条自己的线（接着点就一路连下去，「清空连线」回到默认的值日路线），名字就地改，空床也能起个名字当备注。下面的「旋转条」可以直接把视角拖到某个角度，松手后若不按「停止」就接着自动旋转，按「停止」就把角度钉住不动。床架觉得碍事可以把上面的「显示床铺」关掉，只剩星星与连线。<b>触控板在图上直接捏合就能缩放</b>（鼠标滚轮同理，向上滚放大）。</div>`;
 
+    /* data-private-full：三维星图的「全满」锚点。宿主的隐私展示模式开着时，
+       styles/privacy-mask.css 会把空位（.dd-bed.empty）按占用样式画实 —— 这张图是俯视
+       三维床位，空床本身也是隐私信息（谁不在宿舍）。标记放这里，插件侧不需要知道开关状态。 */
     return `${head}${bar}${editbar}
-      <div class="dd-room" data-room data-room-beds="${v.beds ? "on" : "off"}" data-room-edit="${edit ? "on" : "off"}" style="aspect-ratio:${box.w}/${box.h}">
+      <div class="dd-room" data-room data-private-full data-room-beds="${v.beds ? "on" : "off"}" data-room-edit="${edit ? "on" : "off"}" style="aspect-ratio:${box.w}/${box.h}">
         <svg class="dd-room-svg" viewBox="0 0 ${box.w} ${box.h}" preserveAspectRatio="none" aria-hidden="true">${roomSceneSvg(L, links)}</svg>
         ${starsHtml}
       </div>${turn}${extra}${empty}${legend}`;

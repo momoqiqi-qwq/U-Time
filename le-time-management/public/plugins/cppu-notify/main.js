@@ -64,6 +64,9 @@
   const AWARD_AFFIX_MAX = 12;     // 单轮最多下载解析多少个附件
   const AWARD_AFFIX_MARK_MAX = 400; // 「扫过」标记的落盘上限（按时间淘汰最旧的）
   const AWARD_AFFIX_CHARS = 60000;  // 单个附件抽取文本的上限，防止一个巨型表格把解析拖住
+  // 取数并发：上面这两批请求（候选正文、附件）过去是一条一条串着等的，60 条正文就能把
+  // 状态行顶住半分钟。并发档位在「设置 → 警大获奖名单 → 读取并发数」，键名 / 默认值 / 上限 /
+  // 档位全在 award-pool.js（运行时动态 import，见 ensurePoolMod），与设置页共用一份 storage。
 
   // ── 左侧校园服务栏 ──
   // 标题与图标不写死：进入插件时抓一次网页元信息（<title> / favicon / 图标名），
@@ -147,6 +150,13 @@
     return blocks.join(" ");
   }
 
+  /* 刷新等待蒙版（v0.233.0）：门户这几个分类每次进入都要「验票据 → 必要时自动登录 →
+     拉第一页数据」，几秒钟里整页只有一句灰色占位。宿主提供了整屏蒙版（与启动蒙版同一颗
+     字标），这里统一用它，占位文字仍保留作为兜底（蒙版只盖在上面，不替掉内容）。
+
+     老宿主没有 tide.ui.waitMask（插件 zip 可能装到旧版本应用上），退化成空操作而不是抛错。 */
+  const waitMask = (text) => (tide.ui && typeof tide.ui.waitMask === "function" ? tide.ui.waitMask(text) : () => {});
+
   const state = {
     sid: null, token: "", username: "", rememberUsername: true, autoLogin: true, autoRefresh: true, loginRetries: 2,
     notices: [], page: 1, hasMore: true,
@@ -169,6 +179,8 @@
   let awardPanel = null, awardPanelLoading = null;
   let attachMod = null, attachLoading = null;
   let affixScanned = null;         // { "rid::附件名": 时间戳 } —— 扫过的附件不再扫
+  let affixScannedLoading = null;  // 上面那份台账的读取合流：并发读附件时不各建一个空对象
+  let poolMod = null, poolLoading = null;   // award-pool.js：取数并发池（读不到就退回串行）
 
   function observeSentinel(node, cb) {
     sentinelCb = cb;
@@ -528,6 +540,29 @@
       .jw-leave-draft{margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
       .jw-leave-draft textarea{width:100%;min-height:82px;resize:vertical;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);padding:9px 10px;font:inherit;font-size:calc(12px * var(--ui-text-scale));line-height:1.7}
       .jw-leave-draft small,.jw-detail-grid small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));line-height:1.7;margin-top:6px}
+      /* ── 请假页：状态四档沿用「警大成绩」的分数四档色相 ──
+         成绩页把分数分四档（.jg-good / .jg-warn / .jg-bad + --deep），请假状态同样只有
+         「已同意 / 审批中 / 未同意 / 已撤销」四态，这里直接复用那四个色相，两页说同一种颜色语言。
+         文字色在色相内取「压得住浅掺底」的一档：成绩页的 #1B7F4B / #B06A00 当 10.5px 小字压在
+         同色底上只有 4.29 / 3.65:1（成绩页自己是色字压白底 5.02:1），所以标签档各加深一档；
+         掺底取 8% 而不是 10% —— 16 套主题（含各自派生深色）实算的最差值：10% 时深色红只有
+         4.38:1（褐底主题 fresh/claude/dunhuang/citrus 的深色面板 #202F2D / #2F2A20 最伤），
+         8% 时四档最差 4.55:1，浅色最差 4.84:1，全部 ≥WCAG AA。作用域限定 .jw-leave ——
+         选课 / 创新学分页的 .jw-tag 旧色各有主题对比度断言（test-theme-contrast.mjs 数着那三条），不连带改。 */
+      .jw-leave .jw-tag.ok{background:rgba(21,112,63,.08);border-color:rgba(21,112,63,.34);color:#15703F}
+      .jw-leave .jw-tag.warn{background:rgba(150,89,0,.08);border-color:rgba(150,89,0,.34);color:#965900}
+      .jw-leave .jw-tag.bad{background:rgba(200,16,46,.08);border-color:rgba(200,16,46,.34);color:#C8102E}
+      .jw-leave .jw-tag.muted{background:var(--paper);border-color:var(--line-soft);color:var(--ink-2)}
+      [data-theme-mode="dark"] .jw-leave .jw-tag.ok{background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.34);color:#4ADE80}
+      [data-theme-mode="dark"] .jw-leave .jw-tag.warn{background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.34);color:#FBBF24}
+      [data-theme-mode="dark"] .jw-leave .jw-tag.bad{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.34);color:#F87171}
+      [data-theme-mode="dark"] .jw-leave .jw-tag.muted{background:var(--paper);border-color:var(--line-soft);color:var(--ink-2)}
+      /* 请假理由 / 课次行的课程信息是「内容」不是「注释」：--ink-3 在浅色面板上只有 3.49:1，
+         这两处提到 --ink-2（浅色 5.4:1 / 深色 7.4:1），与成绩页正文同档。 */
+      .jw-leave .jw-why{color:var(--ink-2)}
+      .jw-leave .jw-row small{color:var(--ink-2)}
+      .jw-leave .jw-leave-draft small{color:var(--ink-2)}
+      .jw-leave .jw-card-t{color:var(--deep)}
       .jw-detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line)}
       .jw-detail-cell{background:var(--paper);border:1px solid var(--line-soft);border-radius:10px;padding:8px 10px;min-width:0}
       .jw-detail-cell b{display:block;color:var(--ink-3);font-size:calc(10px * var(--ui-text-scale));font-weight:500;margin-bottom:3px}
@@ -1898,6 +1933,40 @@
   let pdataAuth = { token: "", userId: "", at: 0 };
   let pdataAuthPending = null;
 
+  /* ── pdata 取数缓存（v0.236.0：把「切走再切回」这条最常走的路变成 0 次网络） ────
+     「学生成长」一次进页面并发打 8 个接口，而它和个人信息在侧栏里是来回切的常客 ——
+     原来每次 render 都从零重打一遍，用户看到的就是「每次进去都在转圈」。
+
+     这一层刻意做成 pdataApi 的**包装**，而不是它的内部逻辑：
+       · 并发去重：两个视图同一时刻要 personInfo 时只发一次请求。
+       · 短 TTL：TTL 内重进直接吃内存；用户按「刷新」走 force 绕开。
+
+     为什么不动 pdataApi：它是唯一的事实出口（URL 口径不带 _USER 有回归测试钉着），
+     而 test-cppu-pdata-login 要求「同一个 path 第二次被问到时必须重新问服务端」——
+     把缓存塞进去会把那条断言变成假绿。挂在外面，那份测试完全碰不到。
+
+     只缓存成功：失败 / 未登录的响应一律不落缓存 —— 否则一次网络抖动会被记住一整个
+     TTL，用户点几次刷新都是「读不到」，比不快更糟。 */
+  const PDATA_TTL = 60 * 1000;
+  // 这两样在一节课的时间里不会变：模块清单是静态导航，personInfo 是档案。
+  const PDATA_TTL_STATIC = 10 * 60 * 1000;
+  const PDATA_STATIC_RE = /getModuleList|personInfo/;
+  const pdataCache = new Map();
+  const pdataPending = new Map();
+
+  /** 缓存键：调用方用 `?t=<时间戳>` 防缓存（getModuleList 就带着），不剔掉永远不命中。 */
+  function pdataCacheKey(path) {
+    return String(path || "")
+      .replace(/([?&])(?:t|_t|_)=[^&]*(?=&|$)/g, "$1")
+      .replace(/\?&/, "?")
+      .replace(/[?&]+$/, "");
+  }
+  function pdataCacheTtl(path) {
+    return PDATA_STATIC_RE.test(String(path || "")) ? PDATA_TTL_STATIC : PDATA_TTL;
+  }
+  /** 票据换了人（重登 / 换账号 / 清凭据）⇒ 手上这份数据可能属于上一个人，整层作废。 */
+  function dropPdataCache() { pdataCache.clear(); }
+
   /** 学生端 CAS 要票：pdata 的 CAS 就是 sso.cppu.edu.cn，没有 sso-jw 那一跳。 */
   function mintPdataTicket(entry) {
     const url = SSO + "/tpass/login?service=" + encodeURIComponent(entry.service);
@@ -1919,6 +1988,7 @@
   /** 丢掉手上的 pdata 票。门户换了人（重新登录）或用户清了凭据时都要走一遍。 */
   async function dropPdataAuth() {
     pdataAuth = { token: "", userId: "", at: 0 };
+    dropPdataCache();
     try { await tide.vault?.del?.(PDATA_VAULT_KEY); } catch { /* ignore */ }
   }
 
@@ -1926,6 +1996,7 @@
       同步、不 await —— 它挂在 finishPortalTicket 的热路径上，不能拖慢登录。 */
   function forgetPdataAuth() {
     pdataAuth = { token: "", userId: "", at: 0 };
+    dropPdataCache();
     Promise.resolve(tide.vault?.del?.(PDATA_VAULT_KEY)).catch(() => {});
   }
 
@@ -2034,6 +2105,25 @@
       message: msg || `个人成长中心返回 ${res?.status || "未知响应"}` };
   }
 
+  /** 带缓存与并发去重的取数：两个视图都走这里。`force` = 用户明确要求重新取。 */
+  async function pdataCached(path, force = false) {
+    const key = pdataCacheKey(path);
+    if (!force) {
+      const hit = pdataCache.get(key);
+      if (hit && Date.now() - hit.at < hit.ttl) return hit.value;
+      const flying = pdataPending.get(key);
+      if (flying) return flying;
+    }
+    const task = pdataApi(path)
+      .then((res) => {
+        if (res && res.ok) pdataCache.set(key, { at: Date.now(), ttl: pdataCacheTtl(path), value: res });
+        return res;
+      })
+      .finally(() => { if (pdataPending.get(key) === task) pdataPending.delete(key); });
+    pdataPending.set(key, task);
+    return task;
+  }
+
   /* 开 pdata 的某个页面：先确保本会话有统一身份认证的票据，再把这份会话的 Cookie
      交给应用内网页窗口（宿主 openPdataPage 注入 sso + pdata 两个域），
      窗口里的 SPA 自己跑一次 validateLogin 就完成免登 —— 它必须自己跑，
@@ -2053,9 +2143,12 @@
     tide.util.openUrl(url);
   }
 
-  /* growth.js 只认这三件事：取数、开网页、重登。SSO 会话与 token 不出本文件。 */
+  /* growth.js / profile.js 只认这几件事：取数（可强制绕缓存）、开网页、重登。
+     SSO 会话与 token 不出本文件。 */
   const growthBridge = {
-    api: (path) => pdataApi(path),
+    api: (path) => pdataCached(path),
+    // 「刷新」走这条：主进程那份缓存也要绕过去，否则用户按了刷新还是旧数据。
+    force: (path) => pdataCached(path, true),
     open: (path) => openPdataLink(path),
     // "ok"  = 换到票了，可以重新取数（含「用通知那份账号密码自动登一次」这条兜底）；
     // "form" = 整条链都没换到 ⇒ 得先去「警大通知」人工登一次。
@@ -2718,6 +2811,24 @@
   function jwCourseTime(r) {
     return `${String(r.SKRQ || "").slice(5)} 周${"日一二三四五六"[Number(new Date(`${r.SKRQ}T00:00:00`).getDay()) || 0]} ${jwDict("JC", r.JC)}节`;
   }
+  /* 请假状态四档 → 成绩页分数四档的同名色（见 .jw-leave .jw-tag.* 注释）：
+     2 已同意 → ok、1 审批中 → warn、3 未同意 → bad、0 已撤销 → muted，校方新加的未知码不给色。 */
+  const jwLeaveTone = (code) => ({ "2": "ok", "1": "warn", "3": "bad", "0": "muted" }[String(code ?? "").trim()] || "");
+  /* 首屏汇总与成绩页同构：同一个 .jg-card + .jg-metrics 骨架，指标名 11px --ink-3、数值 19px --ink，
+     语义数字借 .jg-good / .jg-warn / .jg-bad —— 两页的「一屏概览」看起来才是同一套界面。 */
+  function jwLeaveSummaryHtml() {
+    const rec = Array.isArray(jwState.data.qjRecord) ? jwState.data.qjRecord : [];
+    const courses = Array.isArray(jwState.data.qjCourse) ? jwState.data.qjCourse : [];
+    if (!rec.length && !courses.length) return "";
+    const count = (code) => rec.filter((r) => String(r.SQZT ?? "").trim() === code).length;
+    const ok = count("2");
+    const pending = count("1");
+    const rest = rec.length - ok - pending;
+    const metrics = [["申请总数", rec.length, ""], ["已同意", ok, "jg-good"], ["审批中", pending, "jg-warn"], ["未通过 / 已撤销", rest, rest ? "jg-bad" : ""]]
+      .map(([label, value, tone]) => `<div><small>${label}</small><b${tone ? ` class="${tone}"` : ""}>${value}</b></div>`).join("");
+    return `<section class="jg-card"><div class="jg-metrics">${metrics}</div>
+      <div class="jg-note">可请假课次 ${courses.length} 节 · 汇总按教务返回的申请状态统计，提交入口仍在学校教务。</div></section>`;
+  }
   function jwLeaveDraftHtml(r, applied) {
     if (applied) return `<div class="jw-leave-draft"><small>这节课已经出现在请假记录里，通常不需要重复申请。</small></div>`;
     const title = `${r.KCMC || "这节课"} · ${jwCourseTime(r)}`;
@@ -2788,12 +2899,15 @@
             jwTag(`${String(r.SKRQ || "").slice(5)} ${jwDict("JC", r.JC)}节`),
             r.JSXMS ? jwTag(r.JSXMS) : "",
             r.JSMC ? jwTag(r.JSMC) : "",
-            jwTag(jwDict("SQZT", r.SQZT), String(r.SQZT) === "2" ? "ok" : String(r.SQZT) === "1" ? "warn" : ""),
+            jwTag(jwDict("SQZT", r.SQZT), jwLeaveTone(r.SQZT)),
           ])}
           ${r.SQYY ? `<div class="jw-why">${esc(r.SQYY)}</div>` : ""}
         </div>`).join("") : `<div class="pp-empty">还没有提交过请假申请</div>`);
-    return jwSection("请假记录", `${Array.isArray(rows) ? rows.length + " 条 · " : ""}${jwAt("qjRecord")}`, records)
-      + jwSection("可提请假的课次", jwAt("qjCourse"), jwCourseScopeBar() + jwCourseList());
+    return `<div class="jw-leave">`
+      + jwLeaveSummaryHtml()
+      + jwSection("请假记录", `${Array.isArray(rows) ? rows.length + " 条 · " : ""}${jwAt("qjRecord")}`, records)
+      + jwSection("可提请假的课次", jwAt("qjCourse"), jwCourseScopeBar() + jwCourseList())
+      + `</div>`;
   }
   const jwGradeDone = (r) => String(r?.SFHDXF || "") === "1";
   const jwModuleLabel = (code) => {
@@ -3555,17 +3669,62 @@
     }
     return attachLoading;
   }
+
+  /* ── 取数并发池 ──
+     口径与实现都在 award-pool.js（纯函数，可单测）：并发数 1~8、默认 3，
+     档位由「设置 → 警大获奖名单 → 读取并发数」写进同一份插件 storage。
+     main.js 是宿主包出来的经典脚本（不能写顶层 import），所以这里运行时动态 import。 */
+  function ensurePoolMod() {
+    if (!poolLoading) {
+      poolLoading = import("/plugins/cppu-notify/award-pool.js")
+        .then((mod) => { poolMod = mod; return mod; })
+        .catch(() => { poolLoading = null; poolMod = null; return null; });   // 读不到不抛：退回串行
+    }
+    return poolLoading;
+  }
+  // 读并发数：每轮同步开头读一次 —— 改完设置点「刷新」或重开视图即生效。
+  async function awConcurrency() {
+    await ensurePoolMod();
+    if (!poolMod) return 1;
+    let raw = poolMod.AWARD_CONCURRENCY_DEFAULT;
+    try { raw = await tide.storage.get(poolMod.AWARD_CONCURRENCY_KEY, poolMod.AWARD_CONCURRENCY_DEFAULT); }
+    catch { /* 读不到就用默认值，不影响这一轮 */ }
+    return poolMod.clampConcurrency(raw);
+  }
+  /* 跑一批任务，最多 limit 个同时在飞。stop() 为真时不再派新任务（视图卸载后别再敲门户）。
+     池子模块缺失时退化成一次一个：并发是个可选的加速，不该把整张榜单拖垮。 */
+  async function awRun(items, limit, worker, stop) {
+    await ensurePoolMod();
+    if (poolMod) return poolMod.runPool(items, limit, worker, { stop });
+    const serial = [];
+    for (let i = 0; i < items.length; i++) {
+      if (stop?.()) break;
+      try { serial[i] = { ok: true, value: await worker(items[i], i) }; }
+      catch (error) { serial[i] = { ok: false, error }; }
+    }
+    return serial;
+  }
+
   // 键是「通知 + 附件名」：换一条通知的同名附件不算同一个，不会被旧标记挡住。
   const affixKey = (rid, name) => `${rid}::${name}`;
 
+  // 「扫过」标记只在这一刻整体赋值：并发读附件时多个 markAffixScanned 会同时进来，
+  // 若像以前那样先塞一个空对象再等 storage 回来，后到的调用会拿着空对象改、
+  // 早到的又把整份旧标记盖回去 —— 判定「读过就不再下载」的台账就这么丢光了。
   async function loadAffixScanned() {
     if (affixScanned) return affixScanned;
-    affixScanned = {};
-    try {
-      const saved = await tide.storage.get(AWARD_AFFIX_KEY, null);
-      if (saved && typeof saved === "object") affixScanned = saved;
-    } catch { /* 读不到就当作一个都没扫过 */ }
-    return affixScanned;
+    if (!affixScannedLoading) {
+      affixScannedLoading = (async () => {
+        let box = {};
+        try {
+          const saved = await tide.storage.get(AWARD_AFFIX_KEY, null);
+          if (saved && typeof saved === "object") box = saved;
+        } catch { /* 读不到就当作一个都没扫过 */ }
+        affixScanned = box;
+        return box;
+      })();
+    }
+    return affixScannedLoading;
   }
   // 只记「扫过」，不存内容：名单已经进了 awardBoardCache，附件文本用完即弃。
   async function markAffixScanned(rid, name) {
@@ -3618,11 +3777,13 @@
     }
     const batch = plan.slice(0, AWARD_AFFIX_MAX);
     awState.affixWait = Math.max(0, plan.length - batch.length);
-    for (let i = 0; i < batch.length; i++) {
-      const { rid, att } = batch[i];
-      awState.progress = `正在读附件里的获奖名单 ${i + 1}/${batch.length}（${att.name}）`;
-      awPaint(el);
-      if (!el.isConnected) return out;
+    // 附件同样并发读（以前是一个一个下载解析）。进度行报的是**已读完**的条数：
+    // 并发下按完成顺序往前爬，比按提交顺序更能说明还剩多少。
+    const conc = await awConcurrency();
+    const pace = conc > 1 ? ` · 并发 ${conc}` : "";
+    let done = 0;
+    await awRun(batch, conc, async ({ rid, att }) => {
+      if (!el.isConnected) return;                      // 视图已卸载：这一格不再发请求
       try {
         const text = await awAffixFetch(rid, att);
         if (text) {
@@ -3635,7 +3796,10 @@
         // 读过就记上（哪怕里面没名单）：同一份附件不在每轮刷新里反复下载
         await markAffixScanned(rid, att.name);
       } catch { /* 读失败不记标记，下一轮刷新会再试 */ }
-    }
+      done += 1;
+      awState.progress = `正在读附件里的获奖名单 ${done}/${batch.length}（${att.name}）${pace}`;
+      awPaint(el);
+    }, () => !el.isConnected);
     return out;
   }
 
@@ -3692,13 +3856,21 @@
       const batch = unread.slice(0, AWARD_NOTICE_MAX);
       awState.pendingCands = Math.max(0, unread.length - batch.length);
       let failed = 0, sessionLost = false;
-      for (let i = 0; i < batch.length; i++) {
-        awState.progress = `正在读正文筛选获奖名单 ${i + 1}/${batch.length}（候选 ${cands.length} 条）`;
-        awPaint(el);
-        if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
+      // 正文并发读：一串 60 条候选 × 门户 300~600ms 的串行等待是这套同步里最长的一段，
+      // 并发数读「设置 → 警大获奖名单 → 读取并发数」（默认 3，上限 8，键见 award-pool.js）。
+      const conc = await awConcurrency();
+      const pace = conc > 1 ? ` · 并发 ${conc}` : "";
+      let done = 0;
+      await awRun(batch, conc, async (it) => {
+        if (!el.isConnected) return;                    // 视图已卸载：这一格不再发请求
         // 会话型失败要记下来：下一轮「刷新」若还信 sessionOk，就只会在同一堵墙上再撞一次。
-        try { await awDetailFetch(itemKey(batch[i])); } catch (e) { failed += 1; if (awSessionError(e)) sessionLost = true; }
-      }
+        try { await awDetailFetch(itemKey(it)); } catch (e) { failed += 1; if (awSessionError(e)) sessionLost = true; }
+        done += 1;
+        awState.progress = `正在读正文筛选获奖名单 ${done}/${batch.length}（候选 ${cands.length} 条）${pace}`;
+        awPaint(el);
+      }, () => !el.isConnected);
+      // 池子跑完才发现视图已经关掉：这时状态要收干净（与串行版逐条判断的收尾一致）
+      if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
       // 附件阶段：正文里没有名单的通知，名单多半在附件上。只读「该读的」（附件名像名单，
       // 或正文说了名单在附件），扫过的跳过；抽到的文本并进同一条通知的解析文本，
       // 解析完这段文本就丢 —— 落盘的只有名单本身（见 AWARD_AFFIX_KEY 的注释）。
@@ -4545,7 +4717,11 @@
       tide.notify(state.autoRefresh ? "已开启自动刷新：每 10 分钟同步警大通知" : "已关闭警大通知自动刷新");
     });
     el.querySelector("[data-filter-reset]").addEventListener("click", () => resetFilter());
-    el.querySelector("[data-refresh]").addEventListener("click", () => loadPage(1));
+    el.querySelector("[data-refresh]").addEventListener("click", () => {
+      // 刷新要重新走会话校验 + 拉第一页（+ 新通知广播），几秒钟里只有状态条在动。
+      const release = waitMask("正在刷新门户通知…");
+      loadPage(1).finally(release);
+    });
     // 错误状态行整条也是刷新入口（v0.190.0）：状态行每次重绘都会换掉里面的按钮，所以挂在容器上做委托
     ui.status.addEventListener("click", (e) => { if (e.target.closest("[data-banner-refresh]")) loadPage(1); });
     // 下拉是原生 <details>，点开面板后点旁边不会自己收 —— 在文档级捕获外面的按下，替它收起
@@ -4615,6 +4791,8 @@
       + `</div></div>`;
     bindSide(el);
     loadLinkMeta(el);
+    // 整页等待：loadPrefs → 验票据/自动登录 → 首屏数据，走完才撤蒙版（抛错也撤）。
+    const releaseWait = waitMask("正在载入警大门户通知…");
     loadPrefs().then(async () => {
       if (disposed) return;
       // 每次进入都重新验证票据，避免插件在应用内放置较久后拿着过期 token 直接进空列表。
@@ -4628,8 +4806,8 @@
         await prepareLoginForm();
         paintLogin(el, "");
       }
-    });
-    return () => { disposed = true; stopAutoRefresh(); io?.disconnect(); };
+    }).finally(releaseWait);
+    return () => { disposed = true; releaseWait(); stopAutoRefresh(); io?.disconnect(); };
   }
 
   /* 警大校历（v0.216.0 从独立插件 cppu-calendar 并进来）：视图主体在 calendar.js，

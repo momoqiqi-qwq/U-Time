@@ -825,8 +825,12 @@ function markStyleSheet(){
  function showPreview(){const target=host.querySelector('[data-preview]');if(!target||!pending)return;const data=M.normalize(pending[selectedPack].data);target.innerHTML=`<label><span>选择课表</span><select data-pack>${pending.map((p,i)=>`<option value="${i}" ${i===selectedPack?'selected':''}>${esc(p.name)}</option>`).join('')}</select></label><p><span class="badge">${data.courses.length} 门课程</span><span class="badge">${data.timeSlots.length} 个节次</span><span class="badge">${data.config.semesterTotalWeeks} 周</span></p><p class="warning">可替换当前课表；多课表备份也可一次恢复全部课表。</p><div class="tools">${button('替换当前课表','import','class="primary"')}${pending.length>1?button('恢复全部课表','import-all'):''}</div>`;}
  function showEduPreview(){const target=host.querySelector('[data-edu-preview]');if(!target||!pendingEdu)return;const d=pendingEdu.table,w=pendingEdu.warnings||[];target.innerHTML=`<div class="success">成功识别 ${d.courses.length} 门课程${w.length?`，另有 ${w.length} 行需要人工检查`:''}。</div><div class="preview-list">${d.courses.slice(0,12).map(c=>`<div class="preview-item"><b>${esc(c.name)}</b><div class="preview-meta">${days[c.day-1]} · ${c.isCustomTime?`${esc(c.customStartTime)}-${esc(c.customEndTime)}`:`第 ${c.startSection}-${c.endSection} 节`}<br>${esc(c.position||'地点未填写')} ${c.teacher?`· ${esc(c.teacher)}`:''}</div></div>`).join('')}</div>${d.courses.length>12?`<p class="muted">仅展示前 12 门，完整导入共 ${d.courses.length} 门。</p>`:''}${w.length?`<details><summary>查看未识别行（${w.length}）</summary><p class="error">${esc(w.slice(0,20).join('\n'))}</p></details>`:''}<label><span>导入方式</span><select data-edu-strategy><option value="merge">合并到当前课表（自动跳过重复项）</option><option value="replace">替换当前课表</option></select></label><div class="tools">${button('确认导入','edu-import','class="primary"')}</div>`;}
  function base64Bytes(raw){const binary=atob(raw),bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);return bytes;}
- async function loadSchoolIndex(){
-   if(schoolIndex)return;schoolBusy=true;paint();try{const res=await fetch('/plugins/shiguang-schedule/school_index.pb');if(!res.ok)throw new Error(`内置学校索引读取失败（HTTP ${res.status}）`);const parsed=M.decodeSchoolIndex(new Uint8Array(await res.arrayBuffer()));if(parsed.protocolVersion<1||parsed.protocolVersion>2||!parsed.schools.length)throw new Error('学校索引格式不兼容');schoolIndex=parsed;}finally{schoolBusy=false;}
+ /* 刷新等待蒙版（v0.233.0）：读学校索引、取第三方适配脚本都是网络往返，期间界面上只有一行
+   文字或干脆没反馈。走宿主的整屏蒙版（与启动蒙版同一颗字标）；老宿主没有 tide.ui.waitMask
+   时退化成空操作，插件单独更新到旧应用上也不会报错。 */
+const waitMask=(text)=>(tide.ui&&typeof tide.ui.waitMask==='function')?tide.ui.waitMask(text):()=>{};
+async function loadSchoolIndex(){
+   if(schoolIndex)return;schoolBusy=true;paint();const releaseWait=waitMask('正在读取学校索引…');try{const res=await fetch('/plugins/shiguang-schedule/school_index.pb');if(!res.ok)throw new Error(`内置学校索引读取失败（HTTP ${res.status}）`);const parsed=M.decodeSchoolIndex(new Uint8Array(await res.arrayBuffer()));if(parsed.protocolVersion<1||parsed.protocolVersion>2||!parsed.schools.length)throw new Error('学校索引格式不兼容');schoolIndex=parsed;}finally{schoolBusy=false;releaseWait();}
  }
  /* 第三方适配脚本的取源清单，按顺序试到第一个拿得到内容的为止。
     两处都是 <base>/resources/<resourceFolder>/<assetJsPath>，拼法完全一致，只是宿主不同。
@@ -839,6 +843,12 @@ function markStyleSheet(){
    {name:'GitHub 原仓库',base:'https://raw.githubusercontent.com/XingHeYuZhuan/shiguang_warehouse/main'},
  ];
  async function openSchoolAdapter(adapter){
+   // 适配脚本要从 Gitee / GitHub 拉，然后才打开教务窗口 —— 这几秒里界面上没有任何反馈。
+   // 包一层而不是在函数体里 release：里面有多条 throw，散点收尾必漏。
+   const releaseWait=waitMask('正在准备教务适配脚本…');
+   try{return await openSchoolAdapterInner(adapter);}finally{releaseWait();}
+}
+async function openSchoolAdapterInner(adapter){
    if(!adapter)return;let script;if(selectedSchool?.id==='CPPU'){const local=await fetch('/plugins/shiguang-schedule/adapters/cppu.js');if(!local.ok)throw new Error(`警大适配脚本读取失败（HTTP ${local.status}）`);script=await local.text();}else{const folder=selectedSchool.resourceFolder,path=[folder,...String(adapter.assetJsPath||`${adapter.adapterId}.js`).split('/')].map(encodeURIComponent).join('/');const sid=await tide.http.session(),failed=[];
    /* 单个源失败不许中断整条链：404 只代表那个镜像没有这个文件，抛错只代表这次没连上。 */
    for(const src of schoolAdapterSources){const url=`${src.base}/resources/${path}`;try{const res=await tide.http.fetch(sid,'GET',url,{});if(res.status<400&&res.body.trim()){script=res.body;break;}failed.push(`${src.name} HTTP ${res.status}`);}catch(error){failed.push(`${src.name} ${error?.message||'请求失败'}`);}}

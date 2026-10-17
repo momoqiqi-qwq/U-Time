@@ -246,7 +246,7 @@ function trendChartHtml(trend, width = 0) {
   const peak = points.reduce((best, p) => (p.cents > best.cents ? p : best), points[0] || { cents: 0 });
   const grid = [0, 1, 2, 3, 4].map((i) => {
     const gy = padT + (innerH * i) / 4;
-    return `<line class="cc-grid" x1="${padL}" y1="${gy.toFixed(2)}" x2="${W - padR}" y2="${gy.toFixed(2)}"/>`
+    return `<line class="cc-gridline" x1="${padL}" y1="${gy.toFixed(2)}" x2="${W - padR}" y2="${gy.toFixed(2)}"/>`
       + `<text class="cc-axis" x="${padL - 8}" y="${(gy + 3.5).toFixed(2)}" text-anchor="end">${esc(axisText((max * (4 - i)) / 4))}</text>`;
   }).join("");
   const dots = points.map((p, i) => {
@@ -329,6 +329,14 @@ export function plotWidth(root, fallback = 620) {
 /** 环图跟着图形区宽度走，窄屏也不缩到看不清。 */
 export const donutWidth = (plot) => Math.round(Math.min(248, Math.max(176, plot * 0.42)));
 
+/** 并排还是单列，看实测的图形区宽度（不看视口）：两列时列宽 ≈ (plot-10)/2，
+ *  plot≥640 才有 ≈315px 的卡片内容盒 —— 248px 的环图与最小 206px 的排行行都放得下；
+ *  再窄就单列，宁可让每张图吃满一行，也不把两张卡挤成窄条。 */
+export const chartColumns = (plot) => (plot >= 640 ? 2 : 1);
+
+/** 网格容器的内联列定义：单列不写内联样式，交给 .cc-chart-grid 的默认值。 */
+const gridCols = (plot) => (chartColumns(plot) === 2 ? ' style="grid-template-columns:repeat(2,minmax(0,1fr))"' : "");
+
 function styles() {
   if (typeof document === "undefined" || document.getElementById("card-chart-style")) return;
   const node = document.createElement("style");
@@ -346,18 +354,21 @@ function styles() {
 .cc-chips button{font:inherit;font-size:calc(12.5px * var(--ui-text-scale));color:inherit;background:transparent;border:0;padding:7px 14px;min-height:38px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .18s ease,color .18s ease}
 .cc-chips button+button{border-left:1px solid var(--line)}
 .cc-chips button[aria-pressed="true"]{background:var(--deep);color:var(--on-accent,#fff)}
-/* 默认单列：每张图都吃满面板宽度。只有窗口真的够宽（≥1080px）才并排，
-   否则两张图各占一半，折线的刻度与环图都会缩到看不清。 */
-.cc-grid{display:grid;grid-template-columns:1fr;gap:12px}
-@media(min-width:1080px){.cc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* 默认单列：每张图都吃满面板宽度。够宽时由 paint() 给容器写内联两列 —— 判据是
+   **实测的面板宽度**（见 chartColumns），不是视口宽度：面板被夹窄时窗口再宽也不并排。
+   ⚠️ 容器类名必须唯一：本插件里校历视图（calendar.js）的月历网格过去也叫 .cc-grid，
+   两份 <style> 都常驻 <head> 且同权重，后注入的那份会整块覆盖前者 —— 图形统计被
+   套上月历的 repeat(7,minmax(0,1fr)) 后，两张卡被挤成 1/7 宽（环图与排行直接溢出卡片）。
+   改名后 .cc-grid 只属于校历，两边再不会互相踩。 */
+.cc-chart-grid{display:grid;grid-template-columns:1fr;gap:12px}
 .cc-card{border:1px solid var(--line-soft,var(--line));border-radius:14px;padding:14px 15px;background:color-mix(in srgb,var(--deep) 3%,var(--panel));min-width:0}
 .cc-card.cc-wide{grid-column:1/-1}
 .cc-card>header{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:10px}
 .cc-card>header b{font-size:calc(13.5px * var(--ui-text-scale))}
 .cc-card>header small{margin-left:auto;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale))}
 .cc-svg{display:block;width:100%;height:auto}
-.cc-donut-svg{display:block;flex:0 0 auto;margin:0 auto}
-.cc-grid line.cc-grid{stroke:var(--cc-grid);stroke-width:1}
+.cc-donut-svg{display:block;flex:0 0 auto;margin:0 auto;max-width:100%}
+.cc-chart-grid line.cc-gridline{stroke:var(--cc-grid);stroke-width:1}
 .cc-axis{fill:var(--cc-axis);font-size:calc(12.5px * var(--ui-text-scale))}
 .cc-line{fill:none;stroke:var(--cc-accent);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 .cc-dot{fill:var(--cc-dot);stroke:var(--cc-accent);stroke-width:1.8}
@@ -479,7 +490,7 @@ export async function createCardCharts(tide, bridge) {
         clean(info.MONTHCONSUME) ? `<div><small>本月消费</small><b>${esc(platformStat(info.MONTHCONSUME))}</b></div>` : "",
         clean(info.WEEKCONSUME) ? `<div><small>本周消费</small><b>${esc(platformStat(info.WEEKCONSUME))}</b></div>` : "",
       ].filter(Boolean).join("");
-      body = `${stats ? `<div class="cc-plat-stats">${stats}</div>` : ""}<div class="cc-grid">
+      body = `${stats ? `<div class="cc-plat-stats">${stats}</div>` : ""}<div class="cc-chart-grid"${gridCols(plot)}>
 ${trendCard("平台月度消费趋势", platform.trend, "按月 · 网页同源", plot)}
 ${rankCard("平台消费地点排行", platform.rank, "按次数 · 网页同源")}
 </div>`;
@@ -522,7 +533,7 @@ ${rankCard("平台消费地点排行", platform.rank, "按次数 · 网页同源
 <div class="cc-head"><h4>一卡通图形统计</h4>
 <div class="cc-chips" data-cc-kindbox>${kindChips}</div>
 <div class="cc-chips" data-cc-monthbox>${monthChips}</div></div>
-${empty || `<div class="cc-grid">
+${empty || `<div class="cc-chart-grid"${gridCols(plot)}>
 ${trendCard(`${kindLabel}金额趋势`, trend, "", plot)}
 <article class="cc-card"><header><b>消费结构</b><small>${cat.count} 笔支出${cat.excludedCount ? ` · ${cat.excludedCount} 笔退款冲正未计入` : ""}</small></header>${cat.slices.length ? donutChartHtml(cat, donutWidth(plot)) : `<div class="cc-empty">所选流水里没有可分类的支出。</div>`}</article>
 ${rankCard(`${kindLabel}地点排行`, places, `共 ${places.totalCount} 笔 · 金额 ${money(places.totalCents)}`)}

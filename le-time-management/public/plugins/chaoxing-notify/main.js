@@ -1423,9 +1423,14 @@ const CX_PY_DATA = {
     host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-updated">${state.lastSync ? `上次刷新 ${esc(state.lastSync)}` : "尚未刷新"}</p></div><div class="cx2-actions"><button class="primary" data-refresh ${state.loading?'disabled':''} title="刷新最新通知、课程与作业状态">${state.loading?'刷新中…':'刷新'}</button>${tools}</div></div>${navHtml()}${status ? `<div class="cx2-status ${state.error?'err':''}" role="status">${esc(status)}</div>` : ""}<div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?coursesHtml():lookupHtml()}</div>${colorMenuHtml()}</div>`;
   }
 
+  /* 刷新等待蒙版（v0.233.0）：拉通知 + 课程列表是网络往返，首次进入整页只有一句
+     「正在读取学习通登录信息…」。老宿主没有 tide.ui.waitMask 时退化成空操作。 */
+  const waitMask = (text) => (tide.ui && typeof tide.ui.waitMask === "function" ? tide.ui.waitMask(text) : () => {});
+
   async function refreshAll() {
     if (!state.loggedIn || state.loading) return;
     state.loading = true; state.error = ""; paintMain();
+    const releaseWait = waitMask("正在刷新学习通…");
     try {
       await fetchInbox(0, true, state.inbox.length > 0);
       try { await loadCourses(); } catch (e) { state.error = String(e.message || e); }
@@ -1435,19 +1440,21 @@ const CX_PY_DATA = {
     } catch (e) {
       state.error = String(e.message || e);
       if (/登录|会话/.test(state.error)) state.loggedIn = false;
-    } finally { state.loading = false; paintMain(); }
+    } finally { state.loading = false; paintMain(); releaseWait(); }
   }
 
   async function fullSync() {
     if (!state.loggedIn || state.loading) return;
     state.loading = true; state.error = ""; paintMain();
+    // 完整同步要逐页拉全部通知，是这里最久的一次等待（用户点「完整同步」时本来就在等）。
+    const releaseWait = waitMask("正在完整同步学习通…");
     try {
       await fetchInbox(0, true, false);
       state.lastSync = new Date().toLocaleString();
       state.lastSyncAt = Date.now(); await tide.storage.set("lastSyncAt", state.lastSyncAt);
       tide.notify(`完整同步完成，共 ${state.inbox.length} 条通知`);
     } catch (e) { state.error = String(e.message || e); }
-    finally { state.loading = false; paintMain(); }
+    finally { state.loading = false; paintMain(); releaseWait(); }
   }
 
   function loginHtml(message = "") {
@@ -1545,11 +1552,16 @@ const CX_PY_DATA = {
 
   async function render(el) {
     host = el; ensureStyle(); host.innerHTML = '<div class="cx2"><div class="cx2-empty">正在读取学习通登录信息…</div></div>';
-    wire(); await ensurePrefs();
-    if (state.inbox.length) paintMain();
-    const ok = await autoLogin();
-    if (!ok) { loginHtml(); return; }
-    paintMain();
+    // 登录那一段（含自动登录 / 会话复用）单独盖一层蒙版；后面的 refreshAll 自带一层，
+    // 两段分开而不是套起来 —— 套起来首屏会显示「×2」的并发计数，看着像出了两次错。
+    const releaseWait = waitMask("正在载入学习通…");
+    try {
+      wire(); await ensurePrefs();
+      if (state.inbox.length) paintMain();
+      const ok = await autoLogin();
+      if (!ok) { loginHtml(); return; }
+      paintMain();
+    } finally { releaseWait(); }
     // 刷新策略（用户在按钮里选）：auto=每次打开都刷新（默认）；
     // throttle=距上次成功同步不足 10 分钟直接用缓存，想更新随时点「刷新」。
     const stale = Date.now() - (state.lastSyncAt || 0) >= AUTO_REFRESH_THROTTLE_MS;

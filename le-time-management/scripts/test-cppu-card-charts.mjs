@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import {
   CHART_PALETTE, PIE_PALETTE, chartMonthShift, chartTrend, chartPlaces, placeName,
   chartCategories, chartWeekday, platformTrend, platformPlaces, niceMaxCents, createCardCharts,
-  plotWidth, donutWidth,
+  plotWidth, donutWidth, chartColumns,
 } from '../public/plugins/cppu-notify/card-charts.js';
 
 // ── 月份位移：跨年、越界都要准 ──────────────────────────────────────────
@@ -213,11 +213,24 @@ assert.match(root.innerHTML, /class="cc-donut-svg" viewBox="0 0 248 248" style="
 // 星期分布与折线一样吃满整行，不会孤零零占半行、另一半空着
 assert.equal((root.innerHTML.match(/class="cc-card cc-wide"/g) || []).length, 2);
 const css = styles.get('card-chart-style').textContent;
-assert.match(css, /\.cc-grid\{display:grid;grid-template-columns:1fr;gap:12px\}/, '默认单列');
-assert.match(css, /@media\(min-width:1080px\)\{\.cc-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)\}\}/);
+assert.match(css, /\.cc-chart-grid\{display:grid;grid-template-columns:1fr;gap:12px\}/, '默认单列');
+assert.doesNotMatch(css, /@media\(min-width:1080px\)/, '并排判据不许再看视口宽度');
+// 校历（calendar.js）的月历网格也叫 .cc-grid：两份 <style> 同时常驻 <head>，
+// 同权重时后注入者整块生效 —— 图形统计再占用这个名字，就会被套上 7 列。
+assert.doesNotMatch(css, /(^|[^-\w])\.cc-grid\s*[,{]/, '.cc-grid 是校历的名字，图形统计不许再用');
+assert.match(css, /\.cc-chart-grid line\.cc-gridline\{stroke:var\(--cc-grid\);stroke-width:1\}/, '折线网格线用独立类名');
+assert.match(css, /\.cc-donut-svg\{[^}]*max-width:100%/, '环图不许溢出卡片');
 assert.match(css, /\.cc-axis\{fill:var\(--cc-axis\);font-size:calc\(12\.5px \* var\(--ui-text-scale\)\)\}/, 'SVG 轴文字要跟界面字号走');
 assert.match(css, /\.cc-week-track\{[^}]*height:112px/, '星期柱要够高');
 assert.doesNotMatch(css, /\.cc-donut-svg\{flex:1 1 168px/, '环图不能再被 flex 压缩');
+// 面板宽度≥640 才并排：两列时列宽 ≈315、卡片内容盒够放 248 环图与 206 排行行；否则单列
+assert.equal(chartColumns(300), 1, '窄面板一律单列');
+assert.equal(chartColumns(639), 1);
+assert.equal(chartColumns(640), 2);
+assert.equal(chartColumns(900), 2);
+// 单列（测试替身量不到面板 → plot 退回 620）时容器不写内联列定义
+assert.match(root.innerHTML, /class="cc-chart-grid"/);
+assert.doesNotMatch(root.innerHTML, /grid-template-columns/, '单列不该写内联列定义');
 
 // 尺寸助手：宽度扣掉内外边距（16×2 + 15×2 + 4 道边框 = 66），环图夹在 176–248
 assert.equal(plotWidth({ clientWidth: 766 }), 700);

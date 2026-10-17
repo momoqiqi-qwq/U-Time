@@ -117,7 +117,7 @@ export function createGrowthView(tide, bridge) {
     root: null, disposed: false, loading: false, error: "", loginNeeded: false, stale: "",
     account: "", tab: "consume", kpiPage: 0, detail: null, detailLoading: false, expanded: false,
     profile: null, photo: "", learn: null, learnTags: [], kpi: [], consume: null, online: null, attend: [], bonus: [], modules: [],
-    loadedAt: 0, inFlight: 0,
+    loadedAt: 0, inFlight: 0, partial: false,
   };
   const glowHandles = [];
   let modalEl = null, modalTimer = 0, modalKeyHandler = null;
@@ -235,56 +235,112 @@ export function createGrowthView(tide, bridge) {
   }
 
   /* ── 取数 ────────────────────────────────────────────────────────────── */
-  const call = (path) => Promise.resolve(bridge?.api?.(path)).then((r) => (r && typeof r === "object" ? r : { ok: false, message: "取数通道不可用" }));
+  /* `force` 只在用户按「刷新」时为真：要求 bridge 绕过它那份缓存。老宿主没给 force
+     通道时退回普通取数 —— 宁可慢一次，也不要「点了刷新没反应」。 */
+  const call = (path, force = false) => Promise.resolve(force && bridge?.force ? bridge.force(path) : bridge?.api?.(path)).then((r) => (r && typeof r === "object" ? r : { ok: false, message: "取数通道不可用" }));
 
-  async function loadAll() {
+  /* 刷新等待蒙版（v0.233.0）：这一页要并发打 8 个 pdata 接口，首次进入整屏只有一句
+     「正在读取个人成长数据…」。蒙版盖在这句占位之上（占位保留，作为老宿主的兜底）。
+     包一层而不是在原函数里散点 release：里面有多条 return，散点极易漏掉一条。
+     v0.236.0：**手里已经有数据时不再打蒙版** —— 蒙版是给「什么都没有」的首次进入用的。 */
+  const waitMask = (text) => (tide.ui && typeof tide.ui.waitMask === "function" ? tide.ui.waitMask(text) : () => {});
+
+  /* 重进缓存（v0.236.0）：成长页在侧栏里是来回切的常客，而它一次要打 8 个接口。
+     进去一次不该等于「每次都把全部数据重等一遍」：
+       · TTL 内重进：连 bridge 都不问（主进程那份缓存也就不会被碰），直接画上次的；
+       · 有数据但过期：先把旧数据画出来（带「更新于 …」），再后台静默刷新；
+       · 什么都没有：才是蒙版该出现的场景。 */
+  const FRESH_MS = 60 * 1000;
+  function loadAll(force = false) {
+    if (state.inFlight) return Promise.resolve();
+    if (!force && state.loadedAt && Date.now() - state.loadedAt < FRESH_MS) {
+      paint();
+      return Promise.resolve();
+    }
+    const releaseWait = state.loadedAt ? () => {} : waitMask("正在读取学生成长数据…");
+    return loadAllInner(force).finally(releaseWait);
+  }
+
+  /* 两组响应共用的落盘映射：HEAD_FIELDS / TAIL_FIELDS 与请求数组一一对应。
+     返回成功条数，交给 state.stale 算「几项没取到」。 */
+  const HEAD_FIELDS = ["profile", "learn", "kpi"];
+  const TAIL_FIELDS = ["consume", "online", "attend", "bonus", "modules"];
+  function applyResults(fields, rs) {
+    let ok = 0;
+    fields.forEach((f, i) => {
+      const x = rs[i];
+      if (!x || !x.ok) return;
+      ok += 1;
+      if (f === "profile") {
+        const d = x.data || {};
+        state.profile = d.personInfo || null;
+        state.photo = photoSrc(d.personPhoto);
+        // 网页把前 3 项砍掉（那 3 项是姓名/学号/性别，身份卡上已经有了），这里照做。
+        state.learnTags = (Array.isArray(d.column) ? d.column : []).slice(3)
+          .map((c) => ({ k: clean(c.dataFieldName), v: clean(c.val) })).filter((t) => t.k && t.v);
+      } else if (f === "learn") state.learn = x.data || null;
+      else if (f === "kpi") state.kpi = (Array.isArray(x.data) ? x.data : []).filter((k) => k && (clean(k.FORMNAME) || clean(k.KPICONFIG)));
+      else if (f === "consume") state.consume = x.data || null;
+      else if (f === "online") state.online = x.data || null;
+      else if (f === "attend") state.attend = Array.isArray(x.data) ? x.data.filter(Boolean) : [];
+      else if (f === "bonus") state.bonus = Array.isArray(x.data) ? x.data.filter(Boolean) : [];
+      else if (f === "modules") state.modules = flattenModules(x.data);
+    });
+    return ok;
+  }
+
+  async function loadAllInner(force = false) {
     if (state.inFlight) return;
     state.inFlight = 1;
     state.loading = true;
     state.error = "";
     state.loginNeeded = false;
+    // 还在补数据 ≠ 没有数据：下面几块要显示「读取中…」而不是「暂无」。
+    state.partial = true;
     paint();
-    const [profile, learn, kpi, consume, online, attend, bonus, mods] = await Promise.all([
-      call("/tsa/shc/homepage/personInfo"),
-      call("/tsa/shc/learnInfo/learnSituation"),
-      call("/tsa/shc/homepage/getKpiList"),
-      call("/tsa/shc/homepage/cardConsume"),
-      call("/tsa/shc/homepage/onlineState"),
-      call("/tsa/shc/homepage/getMyAttendance"),
-      call("/tsa/shc/homepage/bonusPenaltyList"),
-      call(`/tsa/shc/customStyle/getModuleList?t=${Date.now()}`),
-    ]);
-    if (state.disposed) { state.inFlight = 0; return; }
-    state.inFlight = 0;
-    state.loading = false;
 
-    const results = [profile, learn, kpi, consume, online, attend, bonus, mods];
-    const okCount = results.filter((r) => r && r.ok).length;
-    // 一个都没成：区分「没登录」和「站点没通」，两种提示的下一步完全不同。
-    if (!okCount) {
-      const first = results.find((r) => r && (r.message || r.status)) || {};
+    /* 首屏优先：先把身份卡 / 学业概览 / 成长指标这三块画出来，剩下五块（消费 / 上网 /
+       考勤 / 奖惩 / 模块入口）到了再补一版。两组请求同时发出 —— 只是**分两批落画面**，
+       否则首屏等于在等最慢的那一个接口。 */
+    const head = [
+      call("/tsa/shc/homepage/personInfo", force),
+      call("/tsa/shc/learnInfo/learnSituation", force),
+      call("/tsa/shc/homepage/getKpiList", force),
+    ];
+    const tail = [
+      call("/tsa/shc/homepage/cardConsume", force),
+      call("/tsa/shc/homepage/onlineState", force),
+      call("/tsa/shc/homepage/getMyAttendance", force),
+      call("/tsa/shc/homepage/bonusPenaltyList", force),
+      call(`/tsa/shc/customStyle/getModuleList?t=${Date.now()}`, force),
+    ];
+
+    const headRes = await Promise.all(head);
+    if (state.disposed) { state.inFlight = 0; return; }
+    const okHead = applyResults(HEAD_FIELDS, headRes);
+    if (!okHead) {
+      // 首屏这三块全灭：不必再等后面五块，直接给结论（没登录 vs 站点不通，两者下一步不同）。
+      const first = headRes.find((r) => r && (r.message || r.status)) || {};
+      state.inFlight = 0;
+      state.loading = false;
+      state.partial = false;
       state.loginNeeded = !!first.auth;
       state.error = first.message || "个人成长中心暂时没有响应";
       paint();
       return;
     }
-    if (profile?.ok) {
-      const d = profile.data || {};
-      state.profile = d.personInfo || null;
-      state.photo = photoSrc(d.personPhoto);
-      // 网页把前 3 项砍掉（那 3 项是姓名/学号/性别，身份卡上已经有了），这里照做。
-      state.learnTags = (Array.isArray(d.column) ? d.column : []).slice(3)
-        .map((c) => ({ k: clean(c.dataFieldName), v: clean(c.val) })).filter((t) => t.k && t.v);
-    }
-    if (learn?.ok) state.learn = learn.data || null;
-    if (kpi?.ok) state.kpi = (Array.isArray(kpi.data) ? kpi.data : []).filter((k) => k && (clean(k.FORMNAME) || clean(k.KPICONFIG)));
-    if (consume?.ok) state.consume = consume.data || null;
-    if (online?.ok) state.online = online.data || null;
-    if (attend?.ok) state.attend = Array.isArray(attend.data) ? attend.data.filter(Boolean) : [];
-    if (bonus?.ok) state.bonus = Array.isArray(bonus.data) ? bonus.data.filter(Boolean) : [];
-    if (mods?.ok) state.modules = flattenModules(mods.data);
+    // 首屏落地：从这一刻起「有数据」——后面的刷新一律不再打蒙版（loadAll 看的就是它）。
     state.loadedAt = Date.now();
-    state.stale = okCount < results.length ? `${results.length - okCount} 项数据没取到，其余为最新` : "";
+    paint();
+
+    const tailRes = await Promise.all(tail);
+    if (state.disposed) { state.inFlight = 0; return; }
+    state.inFlight = 0;
+    state.loading = false;
+    state.partial = false;
+    const okCount = okHead + applyResults(TAIL_FIELDS, tailRes);
+    const total = head.length + tail.length;
+    state.stale = okCount < total ? `${total - okCount} 项数据没取到，其余为最新` : "";
     state.kpiPage = 0;
     paint();
   }
@@ -485,7 +541,7 @@ ${pages > 1 ? `<div class="pg-pager"><button type="button" data-pg-kpipage="${pa
       : (Array.isArray(o.placeRanking) ? o.placeRanking : []).map((r) => ({ a: clean(r.PLACE) || "未知地点", b: clean(r.USETIME) || "" }));
     const body = rows.length
       ? `<ul class="pg-list">${rows.slice(0, 8).map((r) => `<li class="pg-row"><span class="pg-what">${esc(r.a)}</span><span class="pg-how">${esc(r.b || "—")}</span></li>`).join("")}</ul>`
-      : `<div class="pg-empty" style="margin-top:10px">${onConsume ? "当月无消费记录" : "当月无上网记录"}</div>`;
+      : `<div class="pg-empty" style="margin-top:10px">${state.partial ? "正在读取…" : onConsume ? "当月无消费记录" : "当月无上网记录"}</div>`;
     const metrics = onConsume
       ? `<div class="pg-flow"><div class="pg-f"><small>当月消费</small><strong>${esc(money(c?.balance?.TOTALAMOUNT) || "—")}</strong><em>元</em></div>
 <div class="pg-f"><small>一卡通余额</small><strong>${esc(money(c?.balance?.BALANCE) || "—")}</strong><em>元</em></div></div>`
@@ -515,8 +571,8 @@ ${metrics}${body}
 ${list.length ? `<ul class="pg-list">${list.slice(0, 10).map((r) => `<li class="pg-row">${r.when ? `<span class="pg-when">${esc(r.when)}</span>` : ""}<span class="pg-what">${esc(r.what)}</span>${r.how ? `<span class="pg-how">${esc(r.how)}</span>` : ""}</li>`).join("")}</ul>`
       : `<div class="pg-empty">${esc(empty)}</div>`}</section>`;
     return `<div style="display:grid;gap:14px" class="pg-two">`
-      + block("我的考勤", attend.length ? `${attend.length} 条` : "暂无", attend, "暂无出勤记录")
-      + block("奖惩记录", bonus.length ? `${bonus.length} 条` : "暂无", bonus, "暂无奖惩记录")
+      + block("我的考勤", attend.length ? `${attend.length} 条` : state.partial ? "读取中" : "暂无", attend, state.partial ? "正在读取…" : "暂无出勤记录")
+      + block("奖惩记录", bonus.length ? `${bonus.length} 条` : state.partial ? "读取中" : "暂无", bonus, state.partial ? "正在读取…" : "暂无奖惩记录")
       + `</div>`;
   };
 
@@ -568,14 +624,14 @@ ${heroHtml()}${learnHtml()}${kpiHtml()}${flowHtml()}${recordHtml()}${moduleHtml(
 
   function bind(root) {
     const on = (sel, fn) => { const n = root.querySelector(sel); if (n) n.onclick = fn; };
-    on("[data-pg-refresh]", () => loadAll());
+    on("[data-pg-refresh]", () => loadAll(true));
     on("[data-pg-home]", () => bridge?.open?.("/stu/home/"));
     on("[data-pg-relogin]", async () => {
       const btn = root.querySelector("[data-pg-relogin]");
       if (btn) { btn.disabled = true; btn.textContent = "正在重新登录…"; }
       let result = "fail";
       try { result = (await bridge?.relogin?.()) || "fail"; } catch { result = "fail"; }
-      if (result === "ok") { state.error = ""; state.stale = ""; loadAll(); return; }
+      if (result === "ok") { state.error = ""; state.stale = ""; loadAll(true); return; }
       // 换不到票 ⇒ 插件的统一身份认证会话不在。**不动现有画面**：这里要是重画，
       // 用户看到的是一片空白，连该去哪儿登录的提示都读不到。
       if (btn) { btn.disabled = false; btn.textContent = "重新登录"; }

@@ -320,7 +320,8 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
   font-weight: 700;
   /* v0.183.0：28px → 20px。名字换成 U Time WorkSpace 后实测宽 222.64px（28px 下），
      而默认 compact 侧栏（--rail-w: 204px）里 .brand 可用宽度只有 166px；20px 下实测
-     159.03px，留 7px 余量。别照抄 28px —— 那是 U-Time Work 时代的尺寸。 */
+     159.03px，留 7px 余量。别照抄 28px —— 那是 U-Time Work 时代的尺寸。
+     ⚠️ 这一行是**量出来的定值**，别改成变量：scripts/test-brand-wordmark.mjs 直接比对它。 */
   font-size: calc(20px * var(--ui-text-scale));
   line-height: 1.34;
   letter-spacing: .015em;
@@ -1974,6 +1975,12 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, te
 .about-card { overflow: hidden; }
 .about-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .about-head h2 { margin-bottom:5px; }
+/* 作者署名（v0.232.0）：标签用大写小字号、姓名用正文色加粗，拉丁名与职责降一级，
+   只消费既有主题令牌，不新增色值 —— 深色变体由 gen-theme-dark.js 照常派生。 */
+.about-author { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:0; color:var(--ink-3); font-size:calc(12px * var(--ui-text-scale)); }
+.about-author-label { letter-spacing:.08em; text-transform:uppercase; font-size:calc(10px * var(--ui-text-scale)); font-weight:700; }
+.about-author b { color:var(--ink); font-size:calc(13px * var(--ui-text-scale)); font-weight:750; }
+.about-author-role::before { content:"·"; margin-right:6px; }
 .about-version { flex:none; border:1px solid var(--line); border-radius:999px; padding:5px 9px; font-size:calc(12px * var(--ui-text-scale)); font-weight:750; background:var(--panel); color:var(--deep); }
 .about-meta-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:14px 0 4px; }
 .about-meta { border:1px solid var(--line); border-radius:12px; padding:11px 12px; background:var(--paper); min-width:0; }
@@ -5439,3 +5446,107 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .update-history-mask .update-history-close:hover { color: #ddd; background: #242424; }
 .update-history-mask .update-history-status { flex-wrap: wrap; height: auto; min-height: 54px; padding: 12px 15px; }
 .update-history-mask .is-preview:has(.update-history-empty) .update-history-notes { height: 100px; }
+
+/* ── 启动 / 刷新蒙版（v0.232.0）──
+   用户需求：「在刷新时，添加一个蒙版。蒙板上面有文字，文字形式，参考左上角的标题，
+   当刷新完成时，取消蒙板。」DOM 由 index.html 的空壳 + src/loadingMask.js 建，这里只管外观。
+
+   三个要点（改之前先读完）：
+   ① **字就是左上角那颗字标本身**，不是仿写：蒙版里放的还是 `.brand` + `<b>` +
+      `.brand-rule`，字形 / 渐变 / 深色覆盖全部复用 `.brand b` 那组规则。蒙版这档字号单独写在
+      下面的 `.refresh-mask .brand b` 里 —— 选择器多一层，所以
+      `scripts/test-brand-wordmark.mjs` 的 `.brand b {…}` 规则计数不会被打乱，
+      而它比对的那条「桌面字号必须是 calc(20px * var(--ui-text-scale))」也不用动。
+   ② 底色的挑选依据：那两套四档渐变是按「浅色侧栏 / Nephele 淡紫毛玻璃 / 深色侧栏」三种底色
+      实算过对比度的。蒙版直接铺主题自己的页面底色 `--bg`（与侧栏同色系），字标对比度沿用
+      同一份预算；深色那一套本来就是参考图原色，压深底最亮。
+   ③ 淡出由 `.leaving` 触发（loadingMask.js 在 revealAppWindow() 之后加），
+      `pointer-events: none` 让它在淡出那 220ms 里不再拦住已经亮起来的界面；
+      `hidden` 只作为兜底（JS 没跑到时至少不占位）。
+
+   v0.233.0：这套外观抽成 `.mask-base`，与「刷新等待蒙版」`.wait-mask` 共用（见文件末尾）。
+   两条底色不同是刻意的：启动蒙版必须**完全遮住**界面（不然会先闪一下半成品），
+   等待蒙版是**半透明**的（下面那页已经画好了，遮死反而像卡住）。 */
+.refresh-mask {
+  position: fixed; inset: 0; z-index: 2600;
+  display: grid; place-items: center;
+  background: var(--bg);
+  opacity: 1;
+  transition: opacity 220ms ease;
+  pointer-events: none;
+}
+/* 蒙版上的字标比侧栏那颗大一号：整屏居中，没有 166px 的侧栏宽度约束，
+   34px 与桌面侧栏那颗同档、远看能认出是同一个字标。 */
+.refresh-mask .brand b { font-size: calc(34px * var(--ui-text-scale)); }
+/* 过渡带（901~1100px）侧栏被压到 176px 时会缩到 18px；蒙版不吃那条，但窄屏（≤900px）下
+   34px 的 U Time WorkSpace 约 270px 宽，仍远小于手机宽度，不必再降档。 */
+.refresh-mask[hidden] { display: none; }
+/* 首帧透明 → 下一帧淡入（loadingMask.js 用两帧 rAF 加 `.ready`）；`hidden` 属性在场时同样
+   停在透明态，所以「填 DOM → 摘 hidden → 淡入」三步都不会看到半截画面。 */
+.refresh-mask:not(.ready) { opacity: 0; }
+.refresh-mask.leaving { opacity: 0; }
+/* 蒙版里的字标不跟侧栏那条 padding-bottom 走：整块要落在视口正中。
+   ⚠️ `display: flex` 不能省：窄屏底栏模式那条媒体查询（max-width: 900px）里有一条
+   `.brand { display: none }`，会把蒙版的字标一起藏掉 —— 手机上启动/刷新时看到的就是一块纯色空屏。
+   这里多一层选择器把它还原（特异性 .refresh-mask .brand > .brand，与源序无关）。
+   （注释里刻意不写 @media 字样：scripts/test-ui-scale.mjs 按 `@media…{` 数断点条数，
+   注释里带 @media 会被数成第 5 处 900px 而误报。） */
+.refresh-mask .brand { display: flex; padding: 0; }
+
+/* ── 刷新等待蒙版（v0.233.0）──
+   用户需求：「给其他需要刷新等待时间的界面也添加这种蒙版。」
+
+   与启动蒙版共用全部外观（`.brand b` 的哥特黑体 + 四档渐变 + `.brand-rule` 装饰线），
+   只改三处：**半透明**（`color-mix` 让下面那页透出来）、**独立层级 2500**
+   （在应用弹窗 2400 之下 —— 刷新提示不该盖住它自己触发的弹窗）、
+   **文字可变**（DOM 由 src/waitMask.js 建，默认仍是那句 `U Time WorkSpace`）。
+
+   ⚠️ 字标用的是 `background-clip: text` 的**渐变裁剪**，所以底色亮度直接决定可读性：
+   铺 `--bg` 时两套渐变都是按实算过的对比度挑的，换底色必须重算
+   （scripts/test-brand-wordmark.mjs 里那套浅色档压暗到 ≥3.5:1 就是为了浅底）。
+
+   三个尺寸档（字号跟着标签长度走，不然长标签在窄屏上会顶出视口）：
+   `data-size="brand"`（默认）→ 品牌文案用 34px；`compact` → 20px；
+   `wide` → clamp 收进 `calc(100vw - 48px)`，任意长度标签都不会横向溢出。 */
+.wait-mask {
+  position: fixed; inset: 0; z-index: 2500;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  opacity: 1;
+  transition: opacity 200ms ease;
+  pointer-events: auto;
+}
+/* ⚠️ `display: flex` 不能省，理由同 `.refresh-mask .brand` 那条：
+   窄屏（≤900px，底栏模式）的 `.brand { display: none }` 会把蒙版字标一起藏掉。 */
+.wait-mask .brand { display: flex; padding: 0; }
+.wait-mask .brand b { font-size: calc(34px * var(--ui-text-scale)); }
+.wait-mask[data-size="compact"] .brand b { font-size: calc(20px * var(--ui-text-scale)); }
+/* 宽档：字号由「标签估宽」反推，任意长度都收进视口。
+   除数 `--wait-mask-em` 由 src/waitMask.js 的 estimateEm() 写上来（汉字 1em / 其余 .55em）；
+   兜底 9.6 只是没拿到估宽时的旧值，正常路径不会用到。 */
+.wait-mask[data-size="wide"] .brand b {
+  font-size: min(calc(34px * var(--ui-text-scale)), calc(100vw - 48px) / var(--wait-mask-em, 9.6));
+}
+.wait-mask[hidden] { display: none; }
+.wait-mask:not(.ready) { opacity: 0; }
+.wait-mask.leaving { opacity: 0; }
+/* `×N`：同一时刻有几件事在等（waitMask.js 在计数 >1 时挂上来）。
+   刻意不塞进字标本体 —— 那颗 `<b>` 必须是纯渐变裁剪文字，掺进别的字会破坏字形与渐变。 */
+.wait-mask .wait-mask-count {
+  position: absolute; margin-top: 58px;
+  font-size: calc(12px * var(--ui-text-scale));
+  color: var(--ink-3); letter-spacing: .06em;
+}
+/* 减少动效：不淡入不淡出，直接落位（waitMask.js 同时会把时长压到 0）。 */
+@media (prefers-reduced-motion: reduce) {
+  .wait-mask { transition: none; }
+}
+:root[data-ui-motion="reduced"] .wait-mask { transition: none; }
+/* 手机上等待蒙版的字标再收一档：34px 的 `U Time WorkSpace` 约 270px，
+   在 360px 视口里只剩 45px 边距，长标签（如「正在刷新课表…」）会顶到边。 */
+@media (max-width: 560px) {
+  .wait-mask .brand b { font-size: calc(26px * var(--ui-text-scale)); }
+  .wait-mask[data-size="wide"] .brand b {
+    font-size: min(calc(26px * var(--ui-text-scale)), calc(100vw - 40px) / var(--wait-mask-em, 9.6));
+  }
+}

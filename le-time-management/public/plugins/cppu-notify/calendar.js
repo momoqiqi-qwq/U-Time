@@ -126,14 +126,26 @@ export function createCalendarView(tide) {
     state.stats = message.available && !valid ? { error: "课表统计格式无效，请刷新重试" } : message; paintStats();
   });
   tide.events.on("schedule:changed", () => requestStats());
+  // 刷新等待蒙版（v0.233.0）：同步教务学期要等门户往返，最长 30s，期间界面上只有一行状态字。
+  // 老宿主没有 tide.ui.waitMask 时退化成空操作。
+  const waitMask = (text) => (tide.ui && typeof tide.ui.waitMask === "function" ? tide.ui.waitMask(text) : () => {});
   function syncTerm() {
     state.loading = true; state.status = "正在通过警大门户同步教务学期…"; state.retry = null; state.requestId = `${Date.now()}-${Math.random()}`; paint();
     const id = state.requestId;
+    // 结束点有两个：收到 cppu:term-response（正常）与下面那个 30s 超时（门户不回话）。
+    // 两条路都要撤，否则超时后蒙版会一直盖着 —— 用同一个 release 幂等收口。
+    state.releaseTermWait = waitMask("正在同步教务学期…");
     tide.events.emit("cppu:term-request", { id });
-    setTimeout(() => { if (state.loading && state.requestId === id) { state.loading = false; state.status = "同步超时；可检查警大门户登录，或手动设置学期"; state.retry = "term"; paint(); } }, 30000);
+    setTimeout(() => {
+      if (state.loading && state.requestId === id) {
+        state.loading = false; state.status = "同步超时；可检查警大门户登录，或手动设置学期"; state.retry = "term"; paint();
+      }
+      state.releaseTermWait?.(); state.releaseTermWait = null;
+    }, 30000);
   }
   tide.events.on("cppu:term-response", async (message) => {
     if (!message || message.id !== state.requestId) return;
+    state.releaseTermWait?.(); state.releaseTermWait = null;
     state.loading = false; state.requestId = "";
     const term = cleanTerm(message.term, "教务");
     if (term) { state.term = term; state.status = "已同步警大教务当前学期"; state.retry = null; await save(); }
@@ -174,7 +186,7 @@ export function createCalendarView(tide) {
     state.root = root; style();
     const statsTimer = setInterval(() => { if (state.root === root && !state.statsLoading) requestStats(); }, 60000);
     reload();
-    return () => { clearInterval(statsTimer); if (state.root === root) { state.root = null; state.requestId = ""; state.loading = false; state.statsId = ""; state.statsLoading = false; } };
+    return () => { clearInterval(statsTimer); state.releaseTermWait?.(); state.releaseTermWait = null; if (state.root === root) { state.root = null; state.requestId = ""; state.loading = false; state.statsId = ""; state.statsLoading = false; } };
   }
   return { state, cleanTerm, weekOf, termEndOf, termCardHtml, calendarCells, paint, requestStats, statusHtml, retryFail, reload, syncTerm, render };
 }

@@ -14,8 +14,32 @@ import { renderNativeSchedule } from "./nativeSchedule.js";
 import { BUILTIN_SOUNDS, playSound, resolveSound } from "./sound.js";
 import { attachPomodoroGlass } from "./pomodoroGlass.js";
 import { attachSelectionGlow } from "./selectionGlow.js";
+import { showWaitMask } from "./waitMask.js";
 
 const pluginDisposers = new Map();
+/* 每个插件当前挂着的刷新等待蒙版（pid -> Set<release>）。单独一张表而不是塞进
+   pluginDisposers：插件每次 render 都会起一个等待，逐次注册 disposer 会让那个 Set
+   无限变长；这里每次调用只往自己的 Set 里放一个函数，release 时删掉。 */
+const pluginWaits = new Map();
+
+/** 登记一个等待，返回「撤下它」的函数（幂等，撤下后从表里摘掉）。 */
+function trackPluginWait(pid, release) {
+  if (!pluginWaits.has(pid)) pluginWaits.set(pid, new Set());
+  const set = pluginWaits.get(pid);
+  const entry = () => { set.delete(entry); release(); };
+  set.add(entry);
+  return entry;
+}
+
+/** 撤掉某个插件全部还挂着的等待（插件停用 / 视图切走时兜底，否则蒙版会留在屏幕上）。 */
+export function releasePluginWaits(pid) {
+  const set = pluginWaits.get(pid);
+  if (!set) return;
+  pluginWaits.delete(pid);
+  for (const entry of [...set]) {
+    try { entry(); } catch (error) { console.error(error); }
+  }
+}
 let badgeQueue = Promise.resolve();
 function queueTaskbarBadge(count) {
   badgeQueue = badgeQueue.catch(() => {}).then(() => api.setTaskbarBadge(count));
@@ -307,6 +331,30 @@ function makeApi(man, source) {
         pluginDisposers.get(pid).add(dispose);
         return { sync: () => glow.sync(), dispose };
       },
+      // 刷新等待蒙版（v0.233.0）。插件自己拉远端数据（通知、成绩、课表）时通常要等几秒，
+      // 原来只能自己画个 spinner 或干脆什么都不显示 —— 现在统一走宿主这套：
+      // 与启动蒙版同一颗字标，延迟 180ms 才出现（快操作不闪）、一旦出现至少停 420ms
+      // （不会刚出现就消失），操作结束自动撤。**多个等待同时存在时自动叠加计数**。
+      // 用法：
+      //   const release = tide.ui.waitMask("正在刷新课表…");
+      //   try { await fetchAll(); } finally { release(); }
+      // 或直接 `await tide.ui.waitMask.run("正在刷新课表…", () => fetchAll())`（抛错也会撤）。
+      //
+      // 收尾走**每个插件一个 Set**（不是每次调用注册一个 disposer）：插件在 render 里
+      // 起一个等待、下一次 render 又起一个，逐次注册会让 pluginDisposers 无限长。
+      waitMask(text) {
+        requirePermission(man, pid, "ui");
+        return trackPluginWait(pid, showWaitMask(text));
+      },
+      waitMaskRun(text, task) {
+        requirePermission(man, pid, "ui");
+        // 不用 `this.waitMask`：插件可能把函数摘下来单独调用（`const run = tide.ui.waitMaskRun`），
+        // 那时 `this` 就丢了。这里直接走模块级 showWaitMask。
+        const release = trackPluginWait(pid, showWaitMask(text));
+        return Promise.resolve()
+          .then(() => (typeof task === "function" ? task() : task))
+          .finally(release);
+      },
       setTaskbarBadge(count) {
         requirePermission(man, pid, "ui");
         if (pid !== "chaoxing-notify") throw new Error("任务栏作业角标仅对学习通插件开放");
@@ -534,6 +582,8 @@ export async function emitPluginEvent(name, data) {
 }
 
 function removeRegistrations(id) {
+  // 先撤等待蒙版：视图被拆掉时如果还挂着等待，蒙版会永远留在屏幕上（最优先，别挪到后面）。
+  releasePluginWaits(id);
   for (const dispose of pluginDisposers.get(id) || []) {
     try { dispose(); } catch (error) { console.error(error); }
   }

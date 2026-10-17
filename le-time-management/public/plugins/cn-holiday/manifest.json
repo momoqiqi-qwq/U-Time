@@ -1,7 +1,7 @@
 {
   "id": "cn-holiday",
   "name": "中国节假日",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "U-Time内置 · 数据源 NateScarlet/holiday-cn",
   "icon": "calendar-day",
   "description": "中国法定节假日、调休上班日和下次休息日；内置 2024–2026 离线数据，首屏不再探测未公布年份，缺失年份按需联网并缓存。",

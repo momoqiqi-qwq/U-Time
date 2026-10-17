@@ -816,7 +816,17 @@
     } catch {}
   }
 
-  async function fetchList(page = 1) {
+  /* 刷新等待蒙版（v0.233.0）：抓消息是网络往返，几秒；期间只有状态行在动。
+     包一层而不是在函数体里 release —— 里面有三条 return（切源 / 抛错各一条），散点必漏。
+     老宿主没有 tide.ui.waitMask 时退化成空操作。 */
+  const waitMask = (text) => (tide.ui && typeof tide.ui.waitMask === "function" ? tide.ui.waitMask(text) : () => {});
+  function fetchList(page = 1) {
+    if (state.fetching) return Promise.resolve();
+    const releaseWait = waitMask("正在抓取消息…");
+    return fetchListInner(page).finally(releaseWait);
+  }
+
+  async function fetchListInner(page = 1) {
     if (state.fetching) return;
     const src = currentSource();
     const seq = ++fetchSeq;

@@ -37,7 +37,7 @@ const settingsSrc = readFileSync(new URL("../src/views/settings.js", import.meta
 const block = settingsSrc.slice(settingsSrc.indexOf("const settingEntries = ["), settingsSrc.indexOf("entries = settingEntries"));
 assert.ok(block.length > 500, "没能从 src/views/settings.js 里切出 settingEntries 块（结构变了要同步这个测试）");
 const usedIcons = [...block.matchAll(/icon:\s*"([^"]+)"/g)].map(m => m[1]);
-assert.equal(usedIcons.length, 15, `settingEntries 应该是 15 条，抓到 ${usedIcons.length} 条`);
+assert.equal(usedIcons.length, 16, `settingEntries 应该是 16 条，抓到 ${usedIcons.length} 条`);
 for (const icon of usedIcons) {
   assert.ok(hasSettingsNavIcon(icon), `分类用到的图标 "${icon}" 不在 settingsNavIcons.js 里，界面会落到 gear 兜底`);
 }
@@ -102,4 +102,4 @@ assert.equal(
   "分类图标有两处消费点：分类按钮 .settings-nav-ico 与窄屏手风琴头 .settings-acc-ico",
 );
 
-console.log("PASS: 设置分类图标为自绘线性图标（15 个分类各一，未知名字落 gear 兜底），且 Nephele / 窄屏竖排下都不再被样式隐藏");
+console.log("PASS: 设置分类图标为自绘线性图标（16 个分类各一，未知名字落 gear 兜底），且 Nephele / 窄屏竖排下都不再被样式隐藏");

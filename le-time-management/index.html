@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>U-Time · 时间块与四象限</title>
+  <meta name="author" content="梁逸乐 (Yile Liang)" />
+  <meta name="description" content="U-Time：本地优先的时间管理平台，整合四象限、时间块、课程表与插件扩展。" />
   <link rel="icon" href="/app-icon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/src/styles.css">
   <link rel="stylesheet" href="/src/styles/feature-layouts.css">
@@ -17,10 +19,17 @@
   <link rel="stylesheet" href="/src/styles/settings-selection-glow.css">
   <link rel="stylesheet" href="/src/styles/pomodoro-glass.css">
   <link rel="stylesheet" href="/src/styles/storage-status.css">
+  <!-- 隐私展示模式（v0.234.0）：这里静态引一份，开着模式启动时首屏就是模糊 + 全满，
+       不必等 src/privacyMask.js 的动态插入（settings 页与顶栏徽标共用同一份） -->
+  <link rel="stylesheet" href="/src/styles/privacy-mask.css">
 </head>
 <body>
   <div id="app"></div>
   <div id="toasts"></div>
+  <!-- 启动 / 刷新蒙版（v0.232.0）：空壳必须**写在 HTML 里**，由 src/loadingMask.js 同步填充并接管；
+       等模块加载完再 createElement 会先闪一下半成品界面。里面的字标 DOM 由 brandWordmark.js 给。 -->
+  <div class="refresh-mask" data-refresh-mask hidden></div>
+  <div class="wait-mask" data-wait-mask hidden></div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

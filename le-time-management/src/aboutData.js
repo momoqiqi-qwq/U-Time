@@ -1,4 +1,13 @@
 // “关于”页的产品与开源元数据。运行时版本号由 Tauri app_info 提供，避免重复硬编码。
+
+// 作者署名：产品内「关于」页是唯一消费方，打包元数据（package.json / Cargo.toml /
+// tauri.conf.json）与文档各自独立声明，改动时四处一起改，别只改这里。
+export const AUTHOR = {
+  name: "梁逸乐",
+  latin: "Yile Liang",
+  role: "设计与开发",
+};
+
 export const RELEASE_NOTES = [
   "首次安装或升级成功后，会在右下角显示当前版本的安装结果提醒。",
   "Windows 任务到点后会进入系统通知中心，主窗口隐藏到托盘时也不会漏掉弹窗。",

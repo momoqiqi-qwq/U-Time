@@ -1,7 +1,7 @@
 import { el } from "../ui.js";
 import { api } from "../api.js";
 import { PROJECT_LINKS } from "../projectLinks.js";
-import { ABOUT_DOCS, FRAMEWORKS, OPEN_SOURCE_PROJECTS, RELEASE_NOTES } from "../aboutData.js";
+import { ABOUT_DOCS, AUTHOR, FRAMEWORKS, OPEN_SOURCE_PROJECTS, RELEASE_NOTES } from "../aboutData.js";
 import { createUpdateSettingsPanel } from "./settings/update.js";
 import { openUpdateHistory } from "../updateHistory.js";
 import { createUninstallPanel } from "./settings/uninstall.js";
@@ -52,7 +52,16 @@ export function createAboutCard(info, registry = []) {
 
   const card = el("div", { class: "card set-card about-card" },
     el("div", { class: "about-head" },
-      el("div", {}, el("h2", {}, "关于 U-Time")),
+      el("div", {},
+        el("h2", {}, "关于 U-Time"),
+        // 作者署名（v0.232.0）：产品内唯一展示位，与打包元数据、文档三处同源。
+        el("p", { class: "about-author" },
+          el("span", { class: "about-author-label" }, "By"),
+          el("b", {}, AUTHOR.name),
+          el("span", { class: "about-author-latin" }, AUTHOR.latin),
+          el("span", { class: "about-author-role" }, AUTHOR.role),
+        ),
+      ),
       el("span", { class: "about-version" }, `v${currentVersion}`),
     ),
     el("div", { class: "about-meta-grid" },

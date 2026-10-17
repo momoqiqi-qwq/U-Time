@@ -84,19 +84,42 @@
   let disposeHooked = false;   // tide.ui.onDispose 只挂一次，避免每次重绘往宿主 Set 里塞新闭包
   let sessions = [];
   let sessionId = "";
+  // 「已归档」分组是展开还是收起。它必须活在重绘之外 —— 每次 saveThread() 都会重画侧栏，
+  // 状态放在渲染函数里的话，打一个字进去分组就自己合上了。
+  let archiveOpen = false;
+  /* 会话右键菜单的「收尾钩子」。paintSessions() 在模块层、菜单接线在 render() 里，而重画列表
+     必须先收掉菜单（菜单锚在旧卡片上，卡片一换节点就悬空了）。用钩子而不是把 paintSessions
+     搬进 render：它会重建，闭包会随每次重绘堆积。 */
+  let ctxCloser = null;
   const newSessionId = () => `chat_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+  /** 只落盘会话索引（改名 / 归档 / 删除用得到），不碰 thread 与 draft。 */
+  function persistSessions() {
+    tide.storage.set(SESSIONS_KEY, { activeId: sessionId, items: sessions });
+  }
 
   function saveThread() {
     if (!sessionId) sessionId = newSessionId();
     const previous = sessions.find((s) => s.id === sessionId);
     if (thread.length || draft || previous) {
       const first = thread.find((m) => m.role === "user");
-      const entry = { id: sessionId, title: first?.text.slice(0, 32) || "未发送的草稿", at: thread.at(-1)?.at || previous?.at || Date.now(), thread: thread.slice(), draft };
+      // 手动改过名的会话不许被「首条提问」盖回去：saveThread() 每轮对话都会跑一次，
+      // 用首条提问当标题的话，改名只活到下一次发送。
+      const auto = first?.text.slice(0, 32) || "未发送的草稿";
+      const entry = {
+        id: sessionId,
+        title: previous?.renamed ? previous.title : auto,
+        at: thread.at(-1)?.at || previous?.at || Date.now(),
+        thread: thread.slice(),
+        draft,
+        renamed: !!previous?.renamed,
+        archived: !!previous?.archived,
+      };
       sessions = sessions.filter((s) => s.id !== sessionId).concat(entry);
     }
     tide.storage.set(THREAD_KEY, thread);
     tide.storage.set(DRAFT_KEY, draft);
-    tide.storage.set(SESSIONS_KEY, { activeId: sessionId, items: sessions });
+    persistSessions();
     paintSessions();
   }
 
@@ -119,13 +142,75 @@
     }
   }
 
+  /* ─── 会话管理三件事：改名 / 归档 / 删除（右键菜单，v0.235.0）───
+     三条都不是「只改 DOM」：sessions 是唯一事实源，改完必须 persistSessions() + paintSessions()。
+     删除当前会话时还要把内存里的 thread/draft 一起清掉 —— 见 deleteSession 里的注释。 */
+
+  function renameSession(id, title) {
+    const s = sessions.find((x) => x.id === id);
+    const name = String(title || "").trim().slice(0, 60);
+    if (!s || !name || name === s.title) return false;
+    s.title = name;
+    s.renamed = true;
+    persistSessions();
+    paintSessions();
+    return true;
+  }
+
+  function archiveSession(id) {
+    const s = sessions.find((x) => x.id === id);
+    if (!s) return;
+    s.archived = !s.archived;
+    // 刚归档完就把分组展开 —— 否则用户点「归档」，卡片凭空消失，看着像被删了。
+    if (s.archived) archiveOpen = true;
+    persistSessions();
+    paintSessions();
+    tide.notify(s.archived ? `已归档「${s.title}」` : `已取消归档「${s.title}」`);
+  }
+
+  function deleteSession(id) {
+    const target = sessions.find((s) => s.id === id);
+    if (!target) return;
+    const wasActive = id === sessionId;
+    sessions = sessions.filter((s) => s.id !== id);
+    if (!wasActive) {
+      persistSessions();
+      paintSessions();
+    } else {
+      /* 删掉的正是当前这条：光把 sessionId 挪走不够 —— saveThread() 会按 sessionId 找到
+         「上一个自己」，把内存里还在的 thread 原样写回 sessions，等于删了又活。所以
+         thread / draft 必须与 sessionId 一起换掉。 */
+      const next = sessions.slice().sort((a, b) => b.at - a.at)[0];
+      sessionId = next ? next.id : "";
+      thread = next ? next.thread.slice() : [];
+      draft = next?.draft || "";
+      if (ui) {
+        ui.input.value = draft;
+        ui.input.oninput();               // 顺带走一次 saveThread()，把新状态落盘
+        renderThread();
+        ui.log.scrollTop = ui.log.scrollHeight;
+        ui.closeId?.();
+      } else persistSessions();
+      paintSessions();
+    }
+    tide.notify(`已删除「${target.title}」`);
+  }
+
   function paintSessions() {
     if (!ui?.sessionList) return;
+    ctxCloser?.();
     const items = sessions.slice().sort((a, b) => b.at - a.at);
-    ui.sessionList.innerHTML = items.length ? items.map((s) => `<button type="button" class="aichat-session${s.id === sessionId ? " on" : ""}" data-session="${esc(s.id)}" ${busy ? "disabled" : ""} ${s.id === sessionId ? 'aria-current="true"' : ""}><span>${esc(s.title)}</span><small>${esc(new Date(s.at).toLocaleDateString("zh-CN"))} · ${s.thread.length} 条消息</small></button>`).join("") : '<p class="aichat-history-empty">还没有对话记录</p>';
-    ui.sessionList.querySelectorAll("[data-session]").forEach((button) => {
-      button.onclick = () => startSession(button.dataset.session);
-    });
+    const card = (s) => `<button type="button" class="aichat-session${s.id === sessionId ? " on" : ""}" data-session="${esc(s.id)}" title="右键：重命名 / 归档 / 删除" ${busy ? "disabled" : ""} ${s.id === sessionId ? 'aria-current="true"' : ""}><span>${esc(s.title)}</span><small>${esc(new Date(s.at).toLocaleDateString("zh-CN"))} · ${s.thread.length} 条消息</small></button>`;
+    const live = items.filter((s) => !s.archived);
+    const arch = items.filter((s) => s.archived);
+    /* 归档分组用 0fr → 1fr 插值开合（铁律七：展开与收起都要有中间帧，内容不删只收），
+       箭头是同一支连续旋转，不换字符。分组自己带计数，收起时也知道里面有几条。 */
+    const archive = arch.length ? `
+      <div class="aichat-archive${archiveOpen ? " open" : ""}">
+        <button type="button" class="aichat-archive-head" data-arch-toggle aria-expanded="${archiveOpen}"><i aria-hidden="true"></i>已归档 ${arch.length}</button>
+        <div class="aichat-archive-body"><div>${arch.map(card).join("")}</div></div>
+      </div>` : "";
+    ui.sessionList.innerHTML = (live.length ? live.map(card).join("") : '<p class="aichat-history-empty">还没有对话记录</p>') + archive;
     ui.clear.disabled = busy;
   }
 
@@ -235,6 +320,34 @@
     });
     if (list) out.push(`</${list}>`);
     return out.join("\n").replace(/(<p><\/p>)+/g, '<p class="gap"></p>');
+  }
+
+  /* ─── 回答卡片（v0.235.0）───
+     用户原话：「给AI的回答内容的多表现为对话卡片，颜色多样化一些」。
+     以前一条回答就是一整块同色气泡，结论、正文、清单连成一片，扫的时候分不清哪块是哪块。
+     现在：按空行把回答切成若干张卡，每张卡自带一个色相（左竖条 + 同色晕染底 + 同色小标题），
+     色相取「内容哈希 + 序号」，所以同一条回答每次重绘颜色完全一致（不会闪），相邻段落之间
+     又必然不同色。
+     md() 一行没动 —— 卡片只是把 md() 的输出按段落装帧。测试里 md() 的精确输出是硬约束，
+     所有装帧都在这个函数里做，不往 md() 里塞任何分支。 */
+  const CARD_TONES = 6;
+  function toneOf(text, i) {
+    let h = 0;
+    for (let k = 0; k < text.length; k += 1) h = (h * 31 + text.charCodeAt(k)) >>> 0;
+    return (h + i * 3) % CARD_TONES;
+  }
+
+  function cardHtml(text) {
+    const raw = String(text == null ? "" : text).trim();
+    if (!raw) return "";
+    const blocks = raw.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+    if (!blocks.length) return "";
+    return blocks.map((b, i) => {
+      /* md() 的 leadFree 是按单次调用算的：切块后每块都想当「结论」。只有第一块配叫结论，
+         后面的把 .lead 摘掉，否则一条回答里会冒出好几个加粗大标题。 */
+      const html = i ? md(b).replace('<p class="lead">', "<p>") : md(b);
+      return `<section class="aichat-card" data-tone="${toneOf(b, i)}">${html}</section>`;
+    }).join("");
   }
 
   function node(html) {
@@ -609,10 +722,12 @@
     chart: (n) => giChart(n),
     avatar: (n) => {
       const src = giText(n.src);
+      // data-private-face（v0.212.0）：AI 卡片里的头像节点 —— 开的若是真人头像/肖像，
+      // 宿主的隐私展示模式会把它模糊掉（见 le-time-management/src/privacyMask.js）。
       if (/^data:image\//.test(src)) {
-        return `<span class="gui-avatar"><img src="${esc(src)}" alt="${esc(giText(n.alt ?? n.name ?? ""))}"></span>`;
+        return `<span class="gui-avatar" data-private-face><img src="${esc(src)}" alt="${esc(giText(n.alt ?? n.name ?? ""))}"></span>`;
       }
-      return `<span class="gui-avatar">${esc(giText(n.name ?? n.text ?? "").trim().slice(0, 1) || "·")}</span>`;
+      return `<span class="gui-avatar" data-private-face>${esc(giText(n.name ?? n.text ?? "").trim().slice(0, 1) || "·")}</span>`;
     },
     button: (n) => {
       const act = giText(n.action);
@@ -689,19 +804,21 @@
   function bodyHtml(m) {
     const text = giText(m.text);
     const blocks = Array.isArray(m.genui) ? m.genui : [];
-    if (!blocks.length) return md(text);
+    // AI 的正文走卡片装帧；用户那侧保持原样（自己写的话不需要被排版）。
+    const paint = (s) => (m.role === "assistant" ? cardHtml(s) : md(s));
+    if (!blocks.length) return paint(text);
     const rx = new RegExp(`${GENUI_MARK}GUI(\\d+)${GENUI_MARK}`, "g");
     let out = "";
     let last = 0;
     let hit = rx.exec(text);
     while (hit) {
-      out += md(text.slice(last, hit.index));
+      out += paint(text.slice(last, hit.index));
       const spec = blocks[Number(hit[1])];
       if (spec) out += genuiHtml(spec, genuiState(m), `g${hit[1]}`);
       last = hit.index + hit[0].length;
       hit = rx.exec(text);
     }
-    return out + md(text.slice(last));
+    return out + paint(text.slice(last));
   }
 
   /** 复制：沙箱里 clipboard 可能没有权限，拿不到就明说，不静默失败。 */
@@ -1407,44 +1524,117 @@ button.aichat-avatar{padding:0;cursor:pointer}
    软阴影（它那边是 MultiEffect shadowColor rgba(0,0,0,.15) / blur .75 / offset 8）。
    底部 padding 从 58px 收到 18px —— 58px 是照「浮层底下要留出手影」抄的，但本视图不是浮层，
    快捷提问行下面那一段就白占了 82px（用户：「对话框下面太多空位了」）。 */
-.aichat{--ink:#f6f0ff;--ink-2:#c7b6d9;--ink-3:#bba8cf;--panel:#2b243b;--paper:#352d46;--line:#665573;--deep:#bb91ce;--on-deep:#fff;position:relative;isolation:isolate;box-sizing:border-box;max-width:none;min-height:0;gap:10px;padding:26px clamp(22px,9%,100px) 18px;background:radial-gradient(ellipse at 12% 95%,#67516f66,transparent 62%),linear-gradient(120deg,#51435e,#48425c);border-radius:18px;overflow:hidden;font-family:"Microsoft YaHei UI","PingFang SC",sans-serif;box-shadow:0 8px 22px #00000026,0 0 34px #cfa8dd21;animation:aichat-dialog-in 400ms cubic-bezier(.34,1.4,.64,1) both,aichat-dialog-fade 300ms cubic-bezier(.16,1,.3,1) both}
+.aichat{--ink:#f6f0ff;--ink-2:#c7b6d9;--ink-3:#bba8cf;--panel:#2b243b;--paper:#352d46;--line:#665573;--deep:#bb91ce;--on-deep:#fff;position:relative;isolation:isolate;box-sizing:border-box;max-width:none;min-height:0;gap:10px;padding:10px clamp(16px,5%,64px) 12px;background:radial-gradient(ellipse at 12% 95%,#67516f66,transparent 62%),linear-gradient(120deg,#51435e,#48425c);border-radius:18px;overflow:hidden;font-family:"Microsoft YaHei UI","PingFang SC",sans-serif;box-shadow:0 8px 22px #00000026,0 0 34px #cfa8dd21;animation:aichat-dialog-in 400ms cubic-bezier(.34,1.4,.64,1) both,aichat-dialog-fade 300ms cubic-bezier(.16,1,.3,1) both}
+/* 布局改用 grid（v0.235.0）：对话面要能容纳左侧一整列常驻侧栏（见下面 .aichat.side-docked），
+   而 flex 列做不到「侧栏跨满整高、其余四段仍在右侧各自成行」。grid-area 的名字把这四段钉死，
+   浮层（.aichat-backdrop / .aichat-id / .aichat-ctx）是 absolute，不参与轨道分配。 */
+.aichat{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto auto;grid-template-areas:"head" "flow" "bar" "quick"}
+.aichat-head{grid-area:head}.aichat-flow{grid-area:flow}.aichat-bar{grid-area:bar}.aichat-shortcuts{grid-area:quick}
 @keyframes aichat-dialog-in{from{transform:translate3d(0,20px,0) scale(.9)}to{transform:none}}
 @keyframes aichat-dialog-fade{from{opacity:0}to{opacity:1}}
 .aichat::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;opacity:.55;background-image:radial-gradient(circle at 17% 15%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 74% 33%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 85% 56%,#e9c9ff 0 1px,transparent 1.5px),radial-gradient(circle at 32% 18%,#bb80d2 0 .7px,transparent 1.2px),radial-gradient(circle at 66% 26%,#dc9bea 0 .8px,transparent 1.3px),radial-gradient(circle at 73% 90%,#e9c9ff 0 1px,transparent 1.5px);background-size:100% 100%,100% 100%,100% 100%,193px 157px,271px 211px,100% 100%}
 .aichat [hidden]{display:none!important}
-.aichat-head{flex:none;gap:10px;min-height:34px}
-.aichat-log{padding:10px 2px 0}
-.aichat-menu{position:relative;z-index:6;width:32px;height:32px;border:0;background:transparent;color:#e0cfea;padding:0;cursor:pointer;margin-right:auto;transition:transform 500ms cubic-bezier(.22,1,.36,1)}
+.aichat-head{flex:none;gap:8px;min-height:26px}
+.aichat-log{padding:6px 2px 0}
+.aichat-menu{position:relative;z-index:6;width:26px;height:26px;border:0;background:transparent;color:#e0cfea;padding:0;cursor:pointer;margin-right:auto;transition:transform 500ms cubic-bezier(.22,1,.36,1)}
 .aichat-menu::before{content:"";position:absolute;inset:-18px;pointer-events:none;border-radius:50%;background:radial-gradient(circle,#cfa8dd33,transparent 68%)}
-.aichat-menu span{position:absolute;left:7px;top:15px;width:18px;height:2px;border-radius:2px;background:currentColor;transition:transform 500ms cubic-bezier(.22,1,.36,1),width 500ms cubic-bezier(.22,1,.36,1),left 500ms cubic-bezier(.22,1,.36,1),opacity 350ms}
-.aichat-menu span:first-child{transform:translateY(-6px)}
-.aichat-menu span:nth-child(2){left:4px;width:24px}
-.aichat-menu span:last-child{transform:translateY(6px)}
+.aichat-menu span{position:absolute;left:5px;top:12px;width:16px;height:2px;border-radius:2px;background:currentColor;transition:transform 500ms cubic-bezier(.22,1,.36,1),width 500ms cubic-bezier(.22,1,.36,1),left 500ms cubic-bezier(.22,1,.36,1),opacity 350ms}
+.aichat-menu span:first-child{transform:translateY(-5px)}
+.aichat-menu span:nth-child(2){left:3px;width:20px}
+.aichat-menu span:last-child{transform:translateY(5px)}
 .aichat-menu:hover,.sidebar-open .aichat-menu{color:#d9b3ea}
 .sidebar-open .aichat-menu{transform:rotate(180deg)}
-.sidebar-open .aichat-menu span:first-child{left:4px;width:24px;transform:rotate(45deg)}
+.sidebar-open .aichat-menu span:first-child{left:3px;width:20px;transform:rotate(45deg)}
 .sidebar-open .aichat-menu span:nth-child(2){opacity:0;transform:scaleX(0)}
-.sidebar-open .aichat-menu span:last-child{left:4px;width:24px;transform:rotate(-45deg)}
+.sidebar-open .aichat-menu span:last-child{left:3px;width:20px;transform:rotate(-45deg)}
 /* 蒙版（v0.200.0）：以前它只是个「点得到」的空层，没有任何视觉。现在它得真的暗下去 ——
    头像与名称弹窗弹出时，背后的对话界面必须被压暗，否则这块弹窗看着仍像页面里的一张卡。 */
 .aichat-backdrop{position:absolute;inset:0;z-index:4;background:#1c13286b;backdrop-filter:blur(3px);opacity:0;visibility:hidden;pointer-events:none;transition:opacity 200ms ease,visibility 0s 220ms}
 .sidebar-open .aichat-backdrop,.id-open .aichat-backdrop{opacity:1;visibility:visible;pointer-events:auto;transition:opacity 220ms ease,visibility 0s}
 /* 弹窗（头像与名称）要盖过 z-index:6 的汉堡按钮：弹出期间背后那层不该还点得着 */
 .id-open .aichat-backdrop{z-index:7}
-.aichat-sidebar{position:absolute;z-index:5;left:clamp(22px,9%,100px);top:70px;width:min(320px,calc(100% - 44px));max-height:min(520px,calc(100% - 94px));display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid #bc9acd4d;border-radius:16px;background:#30273eee;box-shadow:0 8px 28px #1c132866;backdrop-filter:blur(16px);transform-origin:top left;opacity:0;transform:scale(.92);visibility:hidden;pointer-events:none;transition:opacity 180ms ease-in,transform 220ms ease-in,visibility 0s 220ms}
+/* box-sizing 是必须的（v0.235.0 修）：这条规则只有 width:100% / min(320px,…)，没有 border-box，
+   于是那 14px padding 与 1px 边框会往外再加 30px —— 常驻态下它比给它的 260px 网格列宽 30px，
+   正好压住右侧对话区左边 16px（实测：浮层右缘 368 / 对话列左缘 352，首批字符被盖）。
+   抽屉态同样虚胖 30px，calc(100% - 32px) 也就不是写这句话时想的意思了。 */
+.aichat-sidebar{position:absolute;box-sizing:border-box;z-index:5;left:clamp(16px,5%,64px);top:52px;width:min(320px,calc(100% - 32px));max-height:min(520px,calc(100% - 74px));display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid #bc9acd4d;border-radius:16px;background:#30273eee;box-shadow:0 8px 28px #1c132866;backdrop-filter:blur(16px);transform-origin:top left;opacity:0;transform:scale(.92);visibility:hidden;pointer-events:none;transition:opacity 180ms ease-in,transform 220ms ease-in,visibility 0s 220ms}
 .sidebar-open .aichat-sidebar{opacity:1;transform:scale(1);visibility:visible;pointer-events:auto;transition:opacity 220ms cubic-bezier(.22,1,.36,1),transform 320ms cubic-bezier(.34,1.4,.64,1),visibility 0s}
 .aichat-sidebar-heading{display:flex;align-items:center;gap:8px;font-size:calc(16px * var(--ui-text-scale,1))}
 .aichat-sidebar-heading b{flex:1}
 .aichat-sidebar-close{width:28px;height:28px;padding:0;border:0;border-radius:8px;background:transparent;color:#d5c1e2;font:inherit;font-size:calc(23px * var(--ui-text-scale,1));cursor:pointer}
 .aichat-sidebar-close:hover{background:#bd99d12b}
-.aichat-sidebar>.aichat-btn{width:100%;min-height:34px}
+.aichat-sidebar-in{display:flex;flex-direction:column;gap:12px;min-height:0;flex:1;width:100%}
+.aichat-sidebar-in>.aichat-btn{width:100%;min-height:34px}
 .aichat-session-list{min-height:0;overflow-y:auto;border-top:1px solid #b69ac42b;padding-top:8px;display:flex;flex-direction:column;gap:4px;scrollbar-width:thin;scrollbar-color:#a17eb966 transparent}
 .aichat-session{flex:none;text-align:left;border:1px solid transparent;border-radius:10px;padding:10px;background:transparent;color:#efe5fa;cursor:pointer;font:inherit;font-size:calc(12px * var(--ui-text-scale,1));transition:background 250ms}
 .aichat-session:hover,.aichat-session.on{background:#b58fc32b;border-color:#b58fc32b}
+/* 右键菜单指向的那张卡片：菜单是 absolute 浮层，不给锚点的话看不出它要对哪一条动手 */
+.aichat-session.ctx-on{background:#b58fc33d;border-color:#d6b8e166;box-shadow:inset 0 0 0 1px #d6b8e133}
 .aichat-session:disabled{opacity:.55;cursor:default}
 .aichat-session span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .aichat-session small{display:block;margin-top:5px;color:#c1afd0;font-size:calc(10.5px * var(--ui-text-scale,1))}
 .aichat-history-empty{margin:22px 0;text-align:center;color:#bba8cf;font-size:calc(12px * var(--ui-text-scale,1))}
+/* ─── 常驻侧栏（v0.235.0，用户原话：「添加对话侧边栏」）───
+   宽度够（>720px）时侧栏不再是一块浮出来的抽屉，而是对话面左侧的一整列 —— 桌面上「点汉堡
+   才看得见历史」等于每次切会话都多两次点击。窄屏仍然是抽屉（.side-docked 不加，就回到上面
+   那条 absolute 规则），因为手机上一条 260px 的常驻列会把对话挤没。
+   列宽用 grid-template-columns 插值收起（Chromium 107+ 支持轨道插值），同时钳掉遮罩 ——
+   常驻侧栏不是浮层，不该把对话面压暗。 */
+.aichat.side-docked{grid-template-columns:260px minmax(0,1fr);grid-template-areas:"side head" "side flow" "side bar" "side quick";column-gap:14px;transition:grid-template-columns 280ms cubic-bezier(.22,1,.36,1)}
+.aichat.side-docked:not(.sidebar-open){grid-template-columns:0px minmax(0,1fr)}
+.aichat.side-docked .aichat-sidebar{position:relative;left:auto;top:auto;z-index:3;grid-area:side;width:100%;max-height:none;opacity:1;visibility:visible;pointer-events:auto;transform:none;overflow-x:clip;transition:opacity 200ms ease,padding 280ms cubic-bezier(.22,1,.36,1)}
+.aichat.side-docked:not(.sidebar-open) .aichat-sidebar{opacity:0;visibility:hidden;pointer-events:none;padding-left:0;padding-right:0}
+/* 内层固定 260px：收起时靠外层 overflow-x:clip 裁掉，而不是让文字一路重排（重排会「抽动」） */
+.aichat.side-docked .aichat-sidebar-in{width:236px;flex:none}
+.aichat.side-docked .aichat-backdrop{opacity:0;visibility:hidden;pointer-events:none}
+.aichat.side-docked .aichat-sidebar-close{display:none}
+/* ─── 会话右键菜单（改名 / 归档 / 删除）───
+   位置口径是 absolute（不是 fixed）：包含块是 .aichat 的 padding box，天然落在宿主 .view 的
+   四条安全边内，不需要自己去读 --sat/--sab（铁律四）。坐标由 JS 按 .aichat 的矩形夹取。 */
+.aichat-ctx{position:absolute;z-index:10;left:0;top:0;min-width:134px;display:flex;flex-direction:column;gap:2px;padding:6px;border:1px solid #bc9acd4d;border-radius:12px;background:#30273ef2;box-shadow:0 12px 30px #1c132866;backdrop-filter:blur(14px);transform-origin:top left;opacity:0;transform:scale(.94);visibility:hidden;pointer-events:none;transition:opacity 160ms ease-in,transform 200ms ease-in,visibility 0s 200ms}
+.aichat-ctx.open{opacity:1;transform:scale(1);visibility:visible;pointer-events:auto;transition:opacity 180ms cubic-bezier(.22,1,.36,1),transform 240ms cubic-bezier(.34,1.4,.64,1),visibility 0s}
+.aichat-ctx button{display:block;width:100%;text-align:left;border:0;border-radius:8px;background:transparent;color:#efe5fa;font:inherit;font-size:calc(12px * var(--ui-text-scale,1));padding:7px 10px;cursor:pointer}
+.aichat-ctx button:hover,.aichat-ctx button:focus-visible{background:#b58fc33d;color:#fff}
+.aichat-ctx button[data-ctx-act="remove"]{color:#f2a7a0}
+.aichat-ctx button[data-ctx-act="remove"]:hover,.aichat-ctx button[data-ctx-act="remove"]:focus-visible{background:#c96b6b3d;color:#ffd9d5}
+/* 删除的第一下只是上膛：底色坐实、字加粗，跟上面那条 hover 明显不同层级 ——
+   用户得能一眼看出「这一下没删，还得再点一下」。 */
+.aichat-ctx button[data-ctx-act="remove"].armed{background:#c96b6b52;color:#ffe3df;font-weight:700}
+/* ─── 侧栏里的「已归档」分组 ───
+   展开 / 收起都走 0fr ↔ 1fr 连续插值（铁律七），内容始终留在 DOM 里；箭头是同一支连续旋转。 */
+.aichat-archive{margin-top:6px;border-top:1px solid #b69ac42b;padding-top:6px}
+.aichat-archive-head{display:flex;align-items:center;gap:7px;width:100%;text-align:left;border:0;border-radius:8px;background:transparent;color:#bba8cf;font:inherit;font-size:calc(11px * var(--ui-text-scale,1));padding:6px 8px;cursor:pointer}
+.aichat-archive-head:hover{background:#b58fc32b;color:#efe5fa}
+.aichat-archive-head i{flex:none;width:7px;height:7px;margin-top:-3px;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(45deg);transition:transform 240ms cubic-bezier(.22,1,.36,1)}
+.aichat-archive-head[aria-expanded="true"] i{margin-top:2px;transform:rotate(-135deg)}
+.aichat-archive-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows 260ms cubic-bezier(.22,1,.36,1)}
+.aichat-archive.open .aichat-archive-body{grid-template-rows:1fr}
+.aichat-archive-body>div{overflow:hidden;min-height:0;display:flex;flex-direction:column;gap:4px;padding:0}
+.aichat-archive.open .aichat-archive-body>div{padding-top:4px}
+/* 改名用的行内输入框：与卡片同一块面。宿主 src/styles.css 有一条带 !important 的通用 input
+   规则（background + border-radius，特异性 (0,3,1)），所以这里既抬特异性又加 !important ——
+   只写一边的话会被它刷成宿主控件底色，在深色侧栏里就是一块刺眼的白框。 */
+.aichat .aichat-session-list input.aichat-session-edit.aichat-session-edit:not([type="checkbox"]):not([type="radio"]):not([type="range"]){
+  width:100%;box-sizing:border-box;height:auto;padding:9px 10px;font:inherit;font-size:calc(12px * var(--ui-text-scale,1));background:#2b243b!important;border:1px solid #d6b8e199!important;border-radius:10px!important;color:#fff!important;box-shadow:none!important;outline:none!important
+}
+/* ─── 回答卡片（v0.235.0，用户原话：「颜色多样化一些」）───
+   六个色相，都是压在这个深紫气泡（#2b243bd9）上能读清的亮色；左竖条 + 同色晕染底 + 同色
+   结论/小标题。色相由内容哈希决定（见 cardHtml），同一条回答重绘不变色。
+   这里必须排在 .aichat-msg .lead / .aichat-msg .sec 之后：同特异性比的是先后。 */
+.aichat-card{position:relative;margin:0 0 8px;padding:9px 12px 9px 15px;border-radius:13px;background:linear-gradient(135deg,var(--tone-bg,#c0a2ec2e),transparent 78%);border:1px solid var(--tone-line,#c0a2ec4d);box-shadow:0 2px 10px #1c132826}
+.aichat-card:last-child{margin-bottom:0}
+.aichat-card::before{content:"";position:absolute;left:5px;top:9px;bottom:9px;width:3px;border-radius:3px;background:var(--tone,#c0a2ec)}
+.aichat-card[data-tone="0"]{--tone:#c0a2ec;--tone-bg:#c0a2ec2e;--tone-line:#c0a2ec4d}
+.aichat-card[data-tone="1"]{--tone:#6fc9d8;--tone-bg:#6fc9d82b;--tone-line:#6fc9d847}
+.aichat-card[data-tone="2"]{--tone:#7fd3a8;--tone-bg:#7fd3a829;--tone-line:#7fd3a845}
+.aichat-card[data-tone="3"]{--tone:#e9be72;--tone-bg:#e9be722b;--tone-line:#e9be7247}
+.aichat-card[data-tone="4"]{--tone:#f09c93;--tone-bg:#f09c932b;--tone-line:#f09c9347}
+.aichat-card[data-tone="5"]{--tone:#9ec5ea;--tone-bg:#9ec5ea2b;--tone-line:#9ec5ea47}
+/* 卡片自带左竖条，结论那条就不该再画一根 —— 两根并排会看成缩进错位。 */
+.aichat-card .lead{color:var(--tone,#c0a2ec)}
+.aichat-card .lead::before{display:none}
+.aichat-card .sec{color:var(--tone,#c0a2ec)}
+.aichat-card p:last-child,.aichat-card ul:last-child,.aichat-card ol:last-child{margin-bottom:0}
 .aichat-chip{background:#ffffff0a;border-color:#c9acd329;color:#e1d2ef;padding:5px 10px}
 .aichat-chip.on{background:#c9a6d438;border-color:#d6b8e16b;color:#fff}
 .aichat-log{padding:8px 2px 0;min-height:0;scrollbar-width:thin;scrollbar-color:#ae8cbb66 transparent}
@@ -1532,17 +1722,21 @@ button.aichat-avatar{padding:0;cursor:pointer}
 .aichat-id:focus{outline:none}
 @media (max-width:640px){.aichat-id{width:calc(100% - 36px);padding:12px 13px}}
 @media (max-height:480px){.aichat-id{max-height:calc(100% - 32px);gap:8px;padding:12px 13px}}
-@media (max-width:640px){.aichat-row.me{max-width:90%}.aichat{gap:8px;padding:16px 18px 14px;border-radius:14px}.aichat-empty b{font-size:calc(26px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(13px * var(--ui-text-scale,1))}.aichat-empty{padding:16px 16px}.aichat-bar{padding:6px 0 0}.aichat-head{gap:6px}.aichat-chip{font-size:calc(10px * var(--ui-text-scale,1));padding:5px 8px}.aichat-feed{display:none}.aichat-tools{width:100%}.aichat-model{max-width:68%;padding:6px 10px}}
-@media (max-height:480px){.aichat{padding-top:12px;padding-bottom:10px}.aichat-empty b{font-size:calc(23px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(12px * var(--ui-text-scale,1))}.aichat-feed{display:none}.aichat-empty{padding:12px 14px}}
-@media (max-width:640px){.aichat-sidebar{left:18px;top:60px;width:min(320px,calc(100% - 36px));max-height:calc(100% - 84px)}}
-@media (max-height:480px){.aichat-sidebar{top:56px;max-height:calc(100% - 72px);gap:8px;padding:12px}}
-@media (prefers-reduced-motion:reduce){.aichat-bar,.aichat-menu,.aichat-menu span,.aichat-sidebar,.aichat-id,.aichat-backdrop,.aichat-session,.aichat-effort-arrow,.aichat-effort-menu,.aichat-effort-in,.aichat-shortcuts button,.aichat-shortcuts .selection-glow{transition:none}.aichat,.aichat-menu,.aichat-bar,.aichat-think i{animation:none}}
+@media (max-width:640px){.aichat-row.me{max-width:90%}.aichat{gap:8px;padding:8px 14px 10px;border-radius:14px}.aichat-empty b{font-size:calc(26px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(13px * var(--ui-text-scale,1))}.aichat-empty{padding:16px 16px}.aichat-bar{padding:6px 0 0}.aichat-head{gap:6px}.aichat-chip{font-size:calc(10px * var(--ui-text-scale,1));padding:5px 8px}.aichat-feed{display:none}.aichat-tools{width:100%}.aichat-model{max-width:68%;padding:6px 10px}}
+@media (max-height:480px){.aichat{padding-top:6px;padding-bottom:8px}.aichat-empty b{font-size:calc(23px * var(--ui-text-scale,1))}.aichat-empty p{font-size:calc(12px * var(--ui-text-scale,1))}.aichat-feed{display:none}.aichat-empty{padding:12px 14px}}
+@media (max-width:640px){.aichat-sidebar{left:14px;top:44px;width:min(320px,calc(100% - 28px));max-height:calc(100% - 66px)}}
+@media (max-height:480px){.aichat-sidebar{top:44px;max-height:calc(100% - 60px);gap:8px;padding:12px}}
+@media (prefers-reduced-motion:reduce){.aichat-bar,.aichat-menu,.aichat-menu span,.aichat-sidebar,.aichat-id,.aichat-backdrop,.aichat-ctx,.aichat-ctx button,.aichat-archive-body,.aichat-archive-head i,.aichat-session,.aichat-effort-arrow,.aichat-effort-menu,.aichat-effort-in,.aichat-shortcuts button,.aichat-shortcuts .selection-glow{transition:none}.aichat,.aichat-menu,.aichat-bar,.aichat-think i{animation:none}}
+/* 常驻侧栏的列宽插值同样归「减少动效」管：那条规则跟上面一份不是同一批选择器（它带 .side-docked），
+   所以在白名单之外单独收。 */
+@media (prefers-reduced-motion:reduce){.aichat.side-docked,.aichat.side-docked .aichat-sidebar{transition:none}}
 /* 应用内「减少动效」开关（data-ui-motion=reduced）与系统开关同级：入场、呼吸光都要停。
    光块的位置换算本身不看动效开关 —— selectionGlow 在 reducedMotion() 下直接跳到终态。
    下拉栏也在这里瞬切：减动效时收起 / 展开不再插值，方向箭头直接到位。 */
 :root[data-ui-motion="reduced"] .aichat,:root[data-ui-motion="reduced"] .aichat-menu,:root[data-ui-motion="reduced"] .aichat-bar{animation:none}
 :root[data-ui-motion="reduced"] .aichat-shortcuts .selection-glow{transition:none}
 :root[data-ui-motion="reduced"] .aichat-effort-arrow,:root[data-ui-motion="reduced"] .aichat-effort-menu,:root[data-ui-motion="reduced"] .aichat-effort-in{transition:none}
+:root[data-ui-motion="reduced"] .aichat-ctx,:root[data-ui-motion="reduced"] .aichat-ctx button,:root[data-ui-motion="reduced"] .aichat-archive-body,:root[data-ui-motion="reduced"] .aichat-archive-head i,:root[data-ui-motion="reduced"] .aichat-sidebar,:root[data-ui-motion="reduced"] .aichat.side-docked{transition:none}
 /* 窄屏：档位名与说明挤不进一行 —— 只留档位名，说明仍写在每一项的 title 上（读屏与悬停都还在）。 */
 @media (max-width:640px){.aichat-compose-row{gap:6px}.aichat-compose-chips{gap:4px}.aichat-compose-tools{gap:6px}.aichat-shortcuts{mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent);-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 18px),transparent)}.aichat-lv{padding:7px 8px}.aichat-lv small{display:none}}
 
@@ -1966,10 +2160,12 @@ button.aichat-avatar{padding:0;cursor:pointer}
       </div>
       <div class="aichat-backdrop" aria-hidden="true"></div>
       <aside class="aichat-sidebar" id="aichat-history" aria-label="对话历史" aria-hidden="true" inert>
-        <div class="aichat-sidebar-heading"><b>对话历史</b><button type="button" class="aichat-sidebar-close" aria-label="收起对话历史">×</button></div>
-        <button type="button" class="aichat-btn pri" data-clear>＋ 新对话</button>
-        <div class="aichat-session-list"></div>
-        <button type="button" class="aichat-btn" data-id aria-controls="aichat-id-panel" aria-expanded="false">头像与名称</button>
+        <div class="aichat-sidebar-in">
+          <div class="aichat-sidebar-heading"><b>对话历史</b><button type="button" class="aichat-sidebar-close" aria-label="收起对话历史">×</button></div>
+          <button type="button" class="aichat-btn pri" data-clear>＋ 新对话</button>
+          <div class="aichat-session-list"></div>
+          <button type="button" class="aichat-btn" data-id aria-controls="aichat-id-panel" aria-expanded="false">头像与名称</button>
+        </div>
       </aside>
       <div class="aichat-id" id="aichat-id-panel" role="dialog" aria-modal="true" aria-label="头像与名称" aria-hidden="true" tabindex="-1" inert>
         <div class="aichat-id-head"><b>头像与名称</b><button type="button" class="aichat-id-close" data-id-close aria-label="关闭头像与名称">×</button></div>
@@ -1983,6 +2179,11 @@ button.aichat-avatar{padding:0;cursor:pointer}
           </div>`).join("")}
         <p class="aichat-id-tip">头像与名称只存进本机数据，不会发给模型。改过名称后头像自动换成名称首字，上传过图片则以图片为准。</p>
         <input type="file" class="aichat-file" accept="image/*" hidden>
+      </div>
+      <div class="aichat-ctx" id="aichat-ctx" role="menu" aria-label="对话操作" aria-hidden="true" inert>
+        <button type="button" role="menuitem" data-ctx-act="rename">重命名</button>
+        <button type="button" role="menuitem" data-ctx-act="archive">归档</button>
+        <button type="button" role="menuitem" data-ctx-act="remove">删除</button>
       </div>
       <div class="aichat-flow">
         <div class="aichat-log"></div>
@@ -2083,10 +2284,11 @@ button.aichat-avatar{padding:0;cursor:pointer}
     let idOpen = false;
     /* 弹窗（头像与名称）开着时，背后那层不接受点击与 Tab。蒙版自己不算 —— 它是「点一下关掉」
        的落点，inert 掉就没人接这一下；侧栏关着的时候本来就该是 inert，恢复时要按它自己的
-       状态写回，别一把清成 false（那会让收起的侧栏重新变成 Tab 得到、却看不见的幽灵）。 */
+       状态写回，别一把清成 false（那会让收起的侧栏重新变成 Tab 得到、却看不见的幽灵）。
+       右键菜单同理：它挂在 root 上，但 inert 由 openCtx/closeCtx 自己管，这里不能插手。 */
     const setBehindInert = (on) => {
       [...root.children].forEach((child) => {
-        if (child === idPanel || child === backdrop) return;
+        if (child === idPanel || child === backdrop || child === ctxMenu) return;
         if (on) child.inert = true;
         else child.inert = child === sidebar ? !sidebarOpen : false;
       });
@@ -2101,10 +2303,182 @@ button.aichat-avatar{padding:0;cursor:pointer}
       if (open) paintSessions();
       if (restoreFocus) menu.focus();
     };
-    ui.closeSidebar = () => setSidebar(false);
+    /* 常驻态下「切换会话后收起侧栏」是错的 —— 用户刚就是从那一列里点的，收起等于把菜单抽走。
+       只有抽屉态（窄屏）才需要它自己让位。 */
+    ui.closeSidebar = () => { if (!root.classList.contains("side-docked")) setSidebar(false); };
     menu.onclick = () => setSidebar(!sidebarOpen);
     root.querySelector(".aichat-sidebar-close").onclick = () => setSidebar(false, true);
     backdrop.onclick = () => { if (idOpen) setIdOpen(false); else setSidebar(false, true); };
+    /* ─── 会话右键菜单（v0.235.0）────────────────────────────────────────────
+       用户原话「右键对话题可改名、删除或归档」。菜单本身是一块 absolute 小浮层，
+       坐标按 .aichat 的矩形夹取 —— 它是 position:relative 的包含块，可视区就是它的 border box
+       （overflow:hidden），而 absolute 子元素的偏移原点是包含块的 padding box；.aichat 没有
+       边框，两者同界，于是本地坐标 = clientX - rect.left。夹在 [6, 边长 - 自身尺寸 - 6] 之间
+       就既不出框，也不必自己去读 --sat/--sab（铁律四只要求视口级浮层让边，这里不是）。 */
+    const ctxMenu = root.querySelector(".aichat-ctx");
+    let ctxFor = "";        // 菜单当前对着哪条会话
+    let ctxReturnTo = null; // 关掉后焦点回哪儿
+    let ctxCard = null;     // 菜单当前指着的那张卡片（加高亮 + 改名要拿它换输入框）
+    let ctxAt = null;       // 打开时的指针坐标：菜单内容变宽后要按同一个锚点重新夹位置
+
+    const placeCtx = (x, y) => {
+      ctxMenu.style.left = "0px";
+      ctxMenu.style.top = "0px";
+      const box = root.getBoundingClientRect();
+      const w = ctxMenu.offsetWidth;
+      const h = ctxMenu.offsetHeight;
+      ctxMenu.style.left = `${Math.max(6, Math.min(x - box.left, box.width - w - 6))}px`;
+      ctxMenu.style.top = `${Math.max(6, Math.min(y - box.top, box.height - h - 6))}px`;
+    };
+
+    /* 删除不可恢复，所以走「点两次」而不是 window.confirm()：原生对话框会打断整个
+       WebView 的绘制与动画，也和这个界面里所有自绘弹层（侧栏 / 头像与名称）不一致。
+       第一次点只把菜单项变成确认态，第二次才真删；菜单一关就复位。 */
+    let ctxArm = false;
+    const armCtx = (on) => {
+      ctxArm = on;
+      const btn = ctxMenu.querySelector('[data-ctx-act="remove"]');
+      if (!btn) return;
+      btn.classList.toggle("armed", on);
+      btn.textContent = on ? "确认删除" : "删除";
+      // 文案变长会把菜单撑宽，重新夹一次位置，别让它戳出对话面
+      if (on && ctxAt) placeCtx(ctxAt.x, ctxAt.y);
+    };
+
+    const closeCtx = (restoreFocus = false) => {
+      const back = ctxReturnTo;
+      if (ctxArm) armCtx(false);
+      ctxFor = "";
+      ctxReturnTo = null;
+      ctxAt = null;
+      ctxCard?.classList.remove("ctx-on");   // 卡片可能已被重画成游离节点，classList 照样安全
+      ctxCard = null;
+      if (!ctxMenu.classList.contains("open")) return;
+      ctxMenu.classList.remove("open");
+      ctxMenu.setAttribute("aria-hidden", "true");
+      ctxMenu.inert = true;
+      if (restoreFocus && back?.isConnected) back.focus();
+    };
+    ctxCloser = closeCtx;
+
+    const openCtx = (cardEl, x, y) => {
+      closeCtx();
+      ctxFor = cardEl.dataset.session || "";
+      ctxReturnTo = cardEl;
+      ctxCard = cardEl;
+      cardEl.classList.add("ctx-on");
+      ctxAt = { x, y };
+      ctxMenu.classList.add("open");
+      ctxMenu.setAttribute("aria-hidden", "false");
+      ctxMenu.inert = false;
+      placeCtx(x, y);
+      // 焦点进菜单：这样 Esc 与上下键落在菜单自己的处理器上（也能从键盘直接操作）
+      ctxMenu.querySelector("[data-ctx-act]")?.focus?.();
+    };
+
+    /* 改名走「就地换输入框」而不是再弹一层窗：侧栏本来就窄，弹窗等于把要改的那行盖住。
+       回车 / 失焦提交，Esc 放弃，空标题视为放弃 —— 一个手滑不该把会话变成无名氏。 */
+    const renameCard = (cardEl) => {
+      const id = cardEl.dataset.session || "";
+      const title = cardEl.querySelector("span");
+      const s = sessions.find((x) => x.id === id);
+      if (!s || !title) return;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "aichat-session-edit";
+      input.value = s.title || "";
+      input.maxLength = 60;
+      input.setAttribute("aria-label", "对话名称");
+      let done = false;
+      const settle = (save) => {
+        if (done) return;
+        done = true;                     // 失焦与回车常常连着来，只认第一次
+        const next = input.value.trim();
+        // renameSession() 只在「真的改了」时自己重画；否则这里补一次，把那行换回卡片
+        if (!(save && next && renameSession(id, next))) paintSessions();
+        ui.sessionList.querySelector(`[data-session="${id}"]`)?.focus?.();
+      };
+      input.onkeydown = (event) => {
+        if (event.key === "Enter") { event.preventDefault(); settle(true); }
+        else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); settle(false); }
+      };
+      input.onblur = () => settle(true);
+      title.replaceWith(input);
+      input.focus();
+      input.select();
+    };
+
+    /* 事件全委托在列表容器上：卡片是 innerHTML 整批重建的，逐张挂监听每次重画都得重挂。 */
+    ui.sessionList.addEventListener("click", (event) => {
+      const toggle = event.target?.closest?.("[data-arch-toggle]");
+      if (toggle) { archiveOpen = !archiveOpen; paintSessions(); return; }
+      const cardEl = event.target?.closest?.(".aichat-session");
+      if (!cardEl) return;
+      closeCtx();
+      if (cardEl.dataset.session === sessionId) return;
+      startSession(cardEl.dataset.session);
+    });
+    ui.sessionList.addEventListener("contextmenu", (event) => {
+      const cardEl = event.target?.closest?.(".aichat-session");
+      if (!cardEl) { closeCtx(); return; }
+      event.preventDefault();
+      openCtx(cardEl, event.clientX, event.clientY);
+    });
+    ctxMenu.addEventListener("click", (event) => {
+      const act = event.target?.closest?.("[data-ctx-act]")?.dataset.ctxAct;
+      const id = ctxFor;
+      const cardEl = ctxCard;            // closeCtx() 会清掉 ctxCard，先把改名要用的那张留下
+      if (!act || !id) return;
+      // 删除的第一下只是上膛：菜单留在原地、按钮变「确认删除」，第二下才真删
+      if (act === "remove" && !ctxArm) { armCtx(true); return; }
+      closeCtx();
+      if (act === "rename") { if (cardEl?.isConnected) renameCard(cardEl); }
+      else if (act === "archive") archiveSession(id);
+      else if (act === "remove") deleteSession(id);
+    });
+    ctxMenu.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeCtx(true); return; }
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      const acts = [...ctxMenu.querySelectorAll("[data-ctx-act]")];
+      if (!acts.length) return;
+      const at = acts.indexOf(document.activeElement);
+      event.preventDefault();
+      const to = event.key === "Home" ? 0
+        : event.key === "End" ? acts.length - 1
+          : event.key === "ArrowDown" ? (at + 1) % acts.length
+            : (at <= 0 ? acts.length - 1 : at - 1);
+      acts[to]?.focus();
+    });
+    /* 三种「自己关掉」：点别处、列表滚走（卡片位置已经变了）、窗口变尺寸（夹取用的矩形过期）。
+       pointerdown 而不是 click：右键按下时就该收，不必等菜单键抬起。 */
+    root.addEventListener("pointerdown", (event) => {
+      if (!ctxMenu.classList.contains("open")) return;
+      if (ctxMenu.contains(event.target)) return;
+      closeCtx();
+    });
+    ui.sessionList.addEventListener("scroll", () => closeCtx());
+
+    /* ─── 常驻侧栏 vs 抽屉（v0.235.0）─────────────────────────────────────────
+       够宽的窗口里侧栏是对话面左边的一整列（列宽 260px ↔ 0px 的插值由 CSS 的
+       .aichat.side-docked 决定），窄屏退回抽屉 —— 手机上一列 260px 会把对话挤没。
+       这里只做「够不够宽」一个判断，样式全在 CSS。
+       用 matchMedia 而不是读视口尺寸属性：它在 Android WebView 里不等于可视区（被
+       test-plugin-safe-area 盯着），而这里也根本不需要具体数值。 */
+    const dockQuery = window.matchMedia("(min-width:860px)");
+    const applyDock = () => {
+      const docked = !!dockQuery.matches;
+      const was = root.classList.contains("side-docked");
+      root.classList.toggle("side-docked", docked);
+      // 首次进宽屏：侧栏直接摊开（用户要的是「看得到的一列」，不是又要点一次汉堡）；
+      // 之后由用户自己开合，resize 不再擅自摊开。
+      if (docked && !was && !sidebarOpen) setSidebar(true);
+      // 回到窄屏：抽屉先收起，否则会以展开姿态压住整个对话面
+      if (!docked && sidebarOpen) setSidebar(false);
+    };
+    applyDock();
+    dockQuery.addEventListener("change", applyDock);
+    const onViewportLayout = () => { applyDock(); closeCtx(); };
+    window.addEventListener("resize", onViewportLayout);
     /* 「头像与名称」= 居中弹窗 + 背后蒙版（v0.200.0）。开合两向都由 root 上的 .id-open 驱动，
        收起时内容留在 DOM 里直到过渡结束，不许 hidden 闪没（铁律七）。 */
     let idReturnTo = null;
@@ -2134,6 +2508,8 @@ button.aichat-avatar{padding:0;cursor:pointer}
     idPanel.querySelector("[data-id-close]").onclick = closeId;
     root.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
+      // 右键菜单最上（它是「对着某一条的操作」，焦点就在它里面），一次只关一层
+      if (ctxMenu.classList.contains("open")) { event.preventDefault(); event.stopPropagation(); closeCtx(true); return; }
       // 下拉栏最轻、弹窗在上、侧栏在下，Esc 一次只关最上面那一层
       const top = thinkOpen ? () => setThinkMenu(false, true)
         : idOpen ? closeId : sidebarOpen ? () => setSidebar(false, true) : null;
@@ -2225,7 +2601,14 @@ button.aichat-avatar{padding:0;cursor:pointer}
     paintFeed();
     // 进页面先抄一次：消息类插件多半在启动阶段就广播完了，晚加载的这一轮才补得回来。
     syncNotices().then(() => { paintFeed(); renderThread(); });
-    return () => { ui = null; };
+    return () => {
+      // 视图被换掉时先摘干净自己挂出去的三样：窗口 resize、matchMedia、以及 paintSessions 里的收尾钩子
+      window.removeEventListener("resize", onViewportLayout);
+      dockQuery.removeEventListener("change", applyDock);
+      closeCtx();
+      ctxCloser = null;
+      ui = null;
+    };
   }
 
   tide.ui.registerView({ id: VIEW_ID, title: "AI 对话", icon: "robot", render });

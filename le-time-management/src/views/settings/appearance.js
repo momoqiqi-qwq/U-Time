@@ -18,12 +18,14 @@ import { CUSTOM_SIZE_LIMITS, applyWindowSize, isDesktopRuntime, windowSizeHint }
 import { navDisplayName } from "../../navAppearance.js";
 import { NARROW_REFERENCE_WIDTH, UI_SCALE_LIMITS, UI_SCALE_PRESETS, dragStableScale, getAutoScaleFactor, normalizeUiScale, parseCustomScaleInput } from "../../uiScale.js";
 import { toggleSwitch } from "../../switchControl.js";
+import { maskDigitsPreserveWidth, setPrivacyMask } from "../../privacyMask.js";
 import { attachSelectionGlow } from "../../selectionGlow.js";
 
 /* 开关行：左侧只有名称，右侧一个滑块开关（说明文字已按要求全部去掉，见 v0.37.19）。 */
-function toggleRow(label, checked, onChange) {
-  return el("div", { class: "setting-row" },
-    el("span", { class: "setting-copy" }, el("b", {}, label)),
+function toggleRow(label, checked, onChange, description = "") {
+  const copy = el("span", { class: "setting-copy" }, el("b", {}, label));
+  if (description) copy.append(el("small", {}, description));
+  return el("div", { class: "setting-row" }, copy,
     toggleSwitch({ checked, onChange, ariaLabel: label }),
   );
 }
@@ -637,4 +639,49 @@ export function createThemeCard() {
 
   themeCard.append(modeBox, themeGrid);
   return themeCard;
+}
+
+/* ── 隐私展示模式（v0.234.0）────────────────────────────────────────────
+   屏摄 / 外发截图 / 投屏演示时用的「展示态」：人脸模糊 + 数字 9 化 + 三维图全满。
+   行为全在 src/privacyMask.js，这里只负责开关与说明 —— 这个分区存在的意义是
+   把「会影响看到什么」的开关集中一处，而不是散在界面与交互里。
+
+   样例串用 maskDigitsPreserveWidth 现场算：文案与实际行为同源，改了规则不会不同步。 */
+export function createPrivacyCard({ rerender = () => {} } = {}) {
+  const prefs = getUiPreferences();
+  const on = prefs.privacyMask === true;
+  const sample = "学号 2021005 · 成绩 87.5";
+  return el("div", { class: "card set-card" },
+    el("h2", {}, "隐私展示"),
+    el("p", { class: "privacy-note" },
+      "屏幕分享、截图外发、投屏演示时打开：不动任何数据，只改「显示成什么样」。",
+    ),
+    toggleRow("隐私展示模式", on, (value) => {
+      setPrivacyMask(value);
+      rerender(); // 开关的 aria 状态与说明要跟着重画
+      toast(value ? "已开启隐私展示模式：人脸模糊、数字变 9" : "已关闭隐私展示模式");
+    }, "人脸模糊 · 数字 9 化 · 三维图全满"),
+    el("div", { class: "setting-row setting-col privacy-sub" },
+      el("span", { class: "privacy-note" },
+        el("b", {}, "人脸模糊："),
+        "头像、本人截图等标记过的肖像统一加模糊，看不清五官但位置与尺寸不变。",
+      ),
+      el("span", { class: "privacy-note" },
+        el("b", {}, "数字 9 化："),
+        "屏幕上每段数字的个位、十位、百位都变成 9（逐位 0~8 → 9）。",
+      ),
+      /* 示例行必须 data-privacy-skip：模式开着时它自己也会被 9 化，左右两边一起变 9，
+         箭头就失去意义了（这条是「说明」，不是「被保护的隐私数据」）。 */
+      el("span", { class: "privacy-sample", "aria-label": "9 化示例", "data-privacy-skip": "" },
+        "示例：", sample, " → ", maskDigitsPreserveWidth(sample),
+      ),
+      el("span", { class: "privacy-note" },
+        el("b", {}, "三维图全满："),
+        "三维床位星图之类画满显示，空位也按占用渲染，看不出哪张床空着。",
+      ),
+      el("span", { class: "privacy-note", "data-privacy-skip": "" },
+        "边界：只处理屏幕上的文字与图像，不改动存储的数据；关掉开关，数字立刻还原成原值。",
+      ),
+    ),
+  );
 }

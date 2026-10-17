@@ -39,6 +39,9 @@ const appRoot = path.join(here, "..");
 const read = (p) => readProductSource(path.join(appRoot, p), "utf8");
 
 const shellSrc = read("src/shell.js");
+/* v0.232.0：`brandRule()` 从 shell.js 抽到了 src/brandWordmark.js（刷新蒙版要复用同一条装饰线，
+   复制一份必然走形）。装饰线的形状断言改读这个模块；shell.js 那边只查「有没有调它」。 */
+const wordmarkSrc = read("src/brandWordmark.js");
 const stylesCss = read("src/styles.css");
 
 /* ── 1. DOM：品牌区只剩名称 ── */
@@ -129,8 +132,17 @@ assert.deepEqual(
 assert.match(darkRule, /filter:\s*drop-shadow\(/, "深色下要有同色系柔光（filter: drop-shadow，不是 text-shadow）");
 
 /* ── 6. 字标下方那条哥特装饰线（v0.183.0） ── */
-const ruleFn = /function brandRule\(\)\s*\{[\s\S]*?<g class="br-glow">[\s\S]*?\}`/.exec(shellSrc)?.[0];
-assert.ok(ruleFn, "shell.js 里找不到 brandRule() 的 SVG 主体（装饰线的唯一创建口）");
+/* v0.183.0 的实现把这段 SVG 直接写成 shell.js 里的模板字面量；v0.232.0 搬进 brandWordmark.js 后
+   外面包了一层 `svg.innerHTML = \`…\`;`，所以结尾的匹配从「反引号紧接 }」放宽到「反引号 + 可选分号」。 */
+const ruleFn = /function brandRule\([^)]*\)\s*\{[\s\S]*?<g class="br-glow">[\s\S]*?`\s*;?/.exec(wordmarkSrc)?.[0];
+assert.ok(ruleFn, "src/brandWordmark.js 里找不到 brandRule() 的 SVG 主体（装饰线的唯一创建口）");
+/* 唯一创建口不许被复制出第二份：复制一份到刷新蒙版里，改一处必漏一处。 */
+assert.equal(
+  [...shellSrc.matchAll(/function brandRule\(/g)].length, 0,
+  "shell.js 里不该再有自己的 brandRule() 定义 —— 装饰线的唯一创建口是 src/brandWordmark.js",
+);
+assert.match(shellSrc, /import\s*\{[^}]*\bbrandRule\b[^}]*\}\s*from\s*"\.\/brandWordmark\.js"/,
+  "shell.js 必须从 ./brandWordmark.js 引入 brandRule（内联复制会与蒙版那份走形）");
 assert.match(ruleFn, /createElementNS\(NS, "svg"\)/, "装饰线必须是内联 SVG（纯 CSS 画不出中间的哥特花纹）");
 assert.match(ruleFn, /setAttribute\("viewBox", "0 0 160 14"\)/,
   "viewBox 必须是 0 0 160 14 —— 与桌面侧栏里字标的实际宽度（159.03px）几乎 1:1，横拉才会走形");

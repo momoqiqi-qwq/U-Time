@@ -569,6 +569,10 @@
 
   /* 并发抓取：CONCURRENCY 个 worker 抢同一个游标 —— 比 Promise.all 全量并发温和，
      源多时不会一次打出十几个请求（部分源会直接 429）。 */
+  /* 刷新等待蒙版（v0.233.0）：抓订阅源是并发网络请求，源多时十几秒；期间只有状态行在动。
+     老宿主没有 tide.ui.waitMask 时退化成空操作。 */
+  const waitMask = (text) => (tide.ui && typeof tide.ui.waitMask === "function" ? tide.ui.waitMask(text) : () => {});
+
   async function refreshAll() {
     if (state.fetching) return;
     const targets = state.feeds.filter((f) => f.enabled !== false);
@@ -576,6 +580,7 @@
     state.fetching = true;
     state.error = null;
     paintStatus();
+    const releaseWait = waitMask("正在抓取订阅源…");
     let cursor = 0;
     let added = 0;
     const failures = [];
@@ -600,6 +605,7 @@
     }
     state.fetching = false;
     paintAll();
+    releaseWait();   // 列表已经画好了才撤蒙版：先撤会出现「蒙版没了但列表还是空的」那一帧
     if (added > 0) {
       tide.notify("收到 " + added + " 条新内容", {
         actionLabel: "查看", ms: 6000,

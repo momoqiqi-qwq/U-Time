@@ -1,0 +1,111 @@
+/* ── 隐私展示模式（v0.234.0）· 只有行为样式，不引入任何新配色 ────────────────
+   由 src/privacyMask.js 的 ensurePrivacyMaskStyles() 插入，index.html 里也有一份静态
+   引用（首屏前就位，避免开着模式启动时闪一下原值）。
+
+   三条规则与 js 模块头部注释一一对应：
+     ① 人脸模糊  → `[data-private-face]`（肖像、人脸、以及本人截图预览）
+     ② 数字 9 化 → `.privacy-masked`（文本节点已由 js 改写，这里只做淡淡的「已遮蔽」质感）
+     ③ 三维图全满 → `[data-private-full]` 里的空位星点按占用样式显示（宿舍床位星图）
+
+   只在 ON 时生效：宿主把 `data-privacy-mask="on"` 写在 <html> 上，关掉即整块失效。 */
+
+/* ── ① 人脸 / 肖像模糊 ─────────────────────────────────────────────────── */
+:root[data-privacy-mask="on"] [data-private-face],
+:root[data-privacy-mask="on"] [data-private-face] img {
+  filter: blur(7px) saturate(.55) brightness(1.06);
+  /* 放大一点点，盖掉高斯模糊在边缘洇出去的透明圈 */
+  scale: 1.06;
+  /* 模糊是纯视觉处理，不许吃掉点击 —— 头像本身往往就是按钮 */
+  pointer-events: none;
+}
+
+/* 图片在模糊的同时保留圆角裁剪，避免方角冒出台面（overflow:clip 对 <img> 也生效，
+   比 overflow:hidden 更适合这里：不改布局、不造出滚动容器） */
+:root[data-privacy-mask="on"] [data-private-face] {
+  overflow: clip;
+}
+:root[data-privacy-mask="on"] [data-private-face] img {
+  overflow: clip;
+}
+
+/* ── ② 数字 9 化后的质感 ────────────────────────────────────────────────
+   9 化只是把数字改了，形态上与原值无异；这里给一点点透明度与字距，
+   让「这是被处理过的数」一眼可辨，同时字号、行高、对齐全不变（不位移）。 */
+:root[data-privacy-mask="on"] .privacy-masked {
+  opacity: .88;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── ③ 三维图全满 ──────────────────────────────────────────────────────
+   宿舍床位星图：空位星点原本是「描边 + 0.3 透明度 + 无光晕」（插件里
+   `.dd-bed.empty .dd-bed-glyph` 那一条）。全满 = 把空位按占用样式显示，
+   星点实心、编号与名字照旧（名字里的数字同样走 9 化）。
+   `!important` 是必须的：那几条是插件目录里的三级选择器，一律排在宿主样式之后；
+   不压住就只在「刚打开」的那一帧是全满、下一帧被插件自己的样式改回空位。 */
+:root[data-privacy-mask="on"] [data-private-full] .dd-bed.empty .dd-bed-glyph {
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--dd-star, #8f63b8) 85%, transparent)) !important;
+  animation: none !important;
+}
+:root[data-privacy-mask="on"] [data-private-full] .dd-bed.empty .dd-bed-glyph polygon {
+  fill: var(--dd-star, #8f63b8) !important;
+  stroke: var(--dd-star, #8f63b8) !important;
+  stroke-width: 10 !important;
+}
+:root[data-privacy-mask="on"] [data-private-full] .dd-bed.empty .dd-bed-no {
+  background: color-mix(in srgb, var(--deep, #0F4C5C) 78%, transparent) !important;
+  box-shadow: none !important;
+}
+/* 空位的名字标签同步按「有人」的对比度显示，否则满图里会出现几行灰字 */
+:root[data-privacy-mask="on"] [data-private-full] .dd-bed.empty .dd-bed-name {
+  background: color-mix(in srgb, var(--panel, #fff) 72%, transparent) !important;
+  color: var(--ink-2, #59656D) !important;
+  font-weight: 700 !important;
+}
+
+/* ── 顶栏「展示模式」徽标 ──────────────────────────────────────────────── */
+.privacy-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--deep, #0F4C5C) 34%, transparent);
+  background: color-mix(in srgb, var(--deep, #0F4C5C) 12%, transparent);
+  color: var(--deep, #0F4C5C);
+  font-size: calc(10.5px * var(--ui-text-scale));
+  font-weight: 750;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  user-select: none;
+}
+.privacy-badge[hidden] { display: none; }
+.privacy-badge .privacy-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+/* ── 设置页里那一块说明与开关 ─────────────────────────────────────────── */
+.privacy-note {
+  font-size: calc(11.5px * var(--ui-text-scale));
+  line-height: 1.75;
+  color: var(--ink-2, #59656D);
+  margin: 2px 0 4px;
+}
+.privacy-note b { color: var(--ink, #22303A); font-weight: 750; }
+.privacy-sub {
+  margin-left: 10px;
+  padding-left: 12px;
+  border-left: 2px solid color-mix(in srgb, var(--deep, #0F4C5C) 22%, transparent);
+}
+:root[data-privacy-mask="off"] .privacy-sub { opacity: .55; }
+.privacy-sample {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2, #59656D);
+}
+.privacy-sample s { text-decoration: none; color: var(--ink-3, #A1A9AF); }

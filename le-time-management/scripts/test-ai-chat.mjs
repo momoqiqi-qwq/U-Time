@@ -196,6 +196,7 @@ vm.runInContext(
     + "    get notices() { return notices; }, set notices(v) { notices = v; },\n"
     + "    syncNotices, noticeBlock,\n"
     + "    loadOnce, saveThread, startSession,\n"
+    + "    cardHtml, toneOf, CARD_TONES, renameSession, archiveSession, deleteSession, persistSessions,\n"
     + "    get sessions() { return sessions; }, get sessionId() { return sessionId; },\n"
     + "    get draft() { return draft; }, set draft(v) { draft = v; },\n"
     + "    set loaded(v) { loaded = v; },\n"
@@ -869,8 +870,11 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
     "光块按 offsetLeft 定位，容器必须是定位祖先");
 
   // 行下空位：58px 是浮层口径（NepheleDialog 要露按钮阴影），本视图不是浮层
-  assert.match(mainSrc, /padding:26px clamp\(22px,9%,100px\) 18px;/, "底部内边距必须收到 18px");
-  assert.doesNotMatch(mainSrc, /padding:26px clamp\(22px,9%,100px\) 58px;/, "别退回 58px：行下会多出 82px 空位");
+  // v0.235.0：上下边距再收一轮（26/18 → 10/12），左右上限 100px → 64px。
+  // 用户原话「ai对话上面还可以再窄一点，让对话能看到更多地方」—— 减的是对话面自己的边距，
+  // 不是内容宽度；.aichat 高度仍是 100%，省下来的全归消息流。
+  assert.match(mainSrc, /padding:10px clamp\(16px,5%,64px\) 12px;/, "上下边距收到 10px/12px，左右上限 64px");
+  assert.doesNotMatch(mainSrc, /padding:[^;}]*\b58px/, "别退回 58px：行下会多出 82px 空位");
   /* 对话框本体（v0.193.0）：以前 .aichat 是一层纯装饰壳，真正的输入区是壳里另起的一个带边框、
      带独立底色的小框 —— 用户看到的就是「框里套小框」，点发送还没反应。现在消息流与输入区是同一块
      对话面里的上下两段：顶栏（标题/状态）→ 消息流 → 输入区 → 快捷提问。 */
@@ -1070,8 +1074,8 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
     "Esc 一次只关最上面那一层：下拉栏最轻、弹窗在上、侧栏在下");
   assert.match(mainSrc, /const setBehindInert = \(on\) => \{[\s\S]{0,420}child\.inert = child === sidebar \? !sidebarOpen : false;/,
     "恢复 inert 时要看侧栏自己的状态 —— 一把清成 false 会让收起的侧栏变成 Tab 得到却看不见的幽灵");
-  assert.match(mainSrc, /if \(child === idPanel \|\| child === backdrop\) return;/,
-    "蒙版不能一起 inert 掉：它是「点一下关掉」的落点");
+  assert.match(mainSrc, /if \(child === idPanel \|\| child === backdrop \|\| child === ctxMenu\) return;/,
+    "蒙版不能一起 inert 掉：它是「点一下关掉」的落点；右键菜单自己管 inert（v0.235.0）");
   assert.match(mainSrc, /idReturnTo = from === ui\.idBtn \? menu : from;/,
     "从侧栏点开的，焦点要回汉堡键（侧栏已随弹窗一起收起）");
   assert.match(mainSrc, /backdrop\.onclick = \(\) => \{ if \(idOpen\) setIdOpen\(false\); else setSidebar\(false, true\); \}/,
@@ -1229,4 +1233,162 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
   assert.match(mainSrc, /@media \(max-width:640px\)\{\.gui-table th,\.gui-table td\{padding:5px 6px/, "窄屏收窄表格内边距");
 }
 
-console.log("PASS: AI 对话插件 —— 权限 / 快照 / 建议写入撤销 / 一轮问答 / 历史迁移 / 会话与草稿隔离 / 思考强度 / 请求保护 / 滑动选中光 / 头像与名称弹窗 / 生成式界面（dsh-ui 围栏）");
+/* ───────── 对话侧边栏 / 会话右键菜单 / 回答卡片（v0.235.0）─────────
+   四条用户诉求：
+   ①「ai对话上面还可以再窄一点，让对话能看到更多地方」→ .aichat 自己的上下内边距与左右上限再收一轮
+   ②「添加对话侧边栏」→ 够宽时侧栏是对话面左边的一整列（.aichat.side-docked），窄屏退回抽屉
+   ③「右键对话题可改名、删除或归档」→ 会话级右键菜单 + 侧栏里的「已归档」分组
+   ④「给AI的回答内容的多表现为对话卡片，颜色多样化一些」→ cardHtml() 按空行切卡、按内容哈希上色
+   卡片的装帧全在新的 cardHtml() 里 —— md() 一个字没动（它的精确输出是上面那批断言钉死的）。 */
+{
+  // ① 更窄的顶部：减的是对话面自己的边距，不是内容宽度
+  assert.match(mainSrc, /padding:10px clamp\(16px,5%,64px\) 12px;/, "上下边距收到 10px/12px、左右上限 64px");
+  assert.doesNotMatch(mainSrc, /padding:26px clamp\(22px,9%,100px\)/, "别退回 26px/100px 那套旧口径");
+
+  // ② 常驻侧栏：同一块 DOM 两态切换，列宽 260px ↔ 0px 插值（不是两套侧栏、也不是 display:none）
+  assert.match(mainSrc, /\.aichat\.side-docked\{grid-template-columns:260px minmax\(0,1fr\)/,
+    "常驻态给出一列 260px");
+  assert.match(mainSrc, /\.aichat\.side-docked:not\(\.sidebar-open\)\{grid-template-columns:0px minmax\(0,1fr\)\}/,
+    "收起要用 0px 轨道插值，才能有中间帧且不退化成删列");
+  assert.doesNotMatch(mainSrc, /\.aichat\.side-docked \.aichat-sidebar\{[^}]*display:none/,
+    "常驻侧栏收起不许用 display:none（要靠 0px 轨道 + overflow-x 裁切）");
+  assert.match(mainSrc, /\.aichat\.side-docked \.aichat-sidebar\{[^}]*overflow-x:clip/,
+    "内层固定 236px、外层裁切：不然收起过程中文字会一路重排");
+  assert.match(mainSrc, /\.aichat\.side-docked \.aichat-backdrop\{opacity:0;visibility:hidden;pointer-events:none\}/,
+    "常驻侧栏不是浮层，不该把对话面压暗");
+  assert.match(mainSrc, /\.aichat\.side-docked \.aichat-sidebar-in\{width:236px;flex:none\}/,
+    "内层固定宽 236px 靠外层裁切，而不是让文字一路重排（重排会抽动）");
+  assert.match(mainSrc, /const dockQuery = window\.matchMedia\("\(min-width:860px\)"\)/,
+    "断点只判一次宽度；用 matchMedia 而不是视口尺寸属性");
+  assert.match(mainSrc, /if \(docked && !was && !sidebarOpen\) setSidebar\(true\)/, "首次进宽屏侧栏要直接摊开");
+  assert.match(mainSrc, /if \(!docked && sidebarOpen\) setSidebar\(false\)/, "回到窄屏要收回抽屉，别压住对话");
+  assert.match(mainSrc, /ui\.closeSidebar = \(\) => \{ if \(!root\.classList\.contains\("side-docked"\)\) setSidebar\(false\); \}/,
+    "常驻态下换会话不许把侧栏一起收掉 —— 用户刚就是从那一列里点的");
+  assert.match(mainSrc, /@media \(prefers-reduced-motion:reduce\)\{\.aichat\.side-docked,\.aichat\.side-docked \.aichat-sidebar\{transition:none\}\}/,
+    "列宽插值同样归减少动效管");
+  assert.match(mainSrc, /\.aichat\{display:grid;grid-template-columns:minmax\(0,1fr\);grid-template-rows:auto minmax\(0,1fr\) auto auto;grid-template-areas:"head" "flow" "bar" "quick"\}/,
+    "四段各自成行必须靠 grid 命名区域，flex 列做不到「侧栏跨满整高、其余四段仍在右侧」");
+  assert.match(mainSrc, /\.aichat-head\{grid-area:head\}\.aichat-flow\{grid-area:flow\}\.aichat-bar\{grid-area:bar\}\.aichat-shortcuts\{grid-area:quick\}/,
+    "四段的名字要真的落到 grid-area 上");
+
+  // ③ 会话右键菜单：absolute（包含块是 .aichat 的 padding box，天然落在宿主安全区内）
+  assert.match(mainSrc, /<div class="aichat-ctx" id="aichat-ctx" role="menu" aria-label="对话操作" aria-hidden="true" inert>/,
+    "菜单要有 role/aria，且初始 inert + aria-hidden");
+  for (const act of ["rename", "archive", "remove"]) {
+    assert.ok(mainSrc.includes(`data-ctx-act="${act}"`), `右键菜单要有 ${act} 这一项`);
+  }
+  assert.match(mainSrc, /\.aichat-ctx\{position:absolute;/, "菜单用 absolute，不用视口级浮层");
+  assert.match(mainSrc, /const box = root\.getBoundingClientRect\(\);/,
+    "坐标按 .aichat 的矩形夹取 —— 夹住就既不出框，也不用自己读安全区变量");
+  assert.match(mainSrc, /ui\.sessionList\.addEventListener\("contextmenu"/,
+    "右键挂在列表容器上（卡片是 innerHTML 整批重建的，逐张挂会漏）");
+  assert.match(mainSrc, /input\.className = "aichat-session-edit"/, "改名是就地换输入框，不再多弹一层窗");
+  assert.match(mainSrc, /input\.onblur = \(\) => settle\(true\);/, "失焦即提交，别让改动卡在半路");
+  assert.match(mainSrc, /if \(!\(save && next && renameSession\(id, next\)\)\) paintSessions\(\);/,
+    "改名没真的生效时要补一次重画，否则那行永远停在输入框上");
+  assert.match(mainSrc, /input\.aichat-session-edit[\s\S]{0,400}?background:#2b243b!important/,
+    "改名输入框要压住宿主那条带 !important 的通用 input 规则（否则深色侧栏里出现白框）");
+  assert.match(mainSrc, /if \(ctxMenu\.contains\(event\.target\)\) return;/, "点别处要收起菜单");
+  assert.match(mainSrc, /ui\.sessionList\.addEventListener\("scroll", \(\) => closeCtx\(\)\);/,
+    "列表一滚，卡片位置就变了，菜单必须收起来");
+  assert.match(mainSrc, /const ctxMenu = root\.querySelector\("\.aichat-ctx"\);/, "菜单必须从 root 里取（整棵重建）");
+  assert.match(mainSrc, /if \(child === idPanel \|\| child === backdrop \|\| child === ctxMenu\) return;/,
+    "菜单自己管 inert，别被弹窗那套一把清成 false（那会留下 Tab 得到却看不见的幽灵）");
+  assert.match(mainSrc, /if \(ctxMenu\.classList\.contains\("open"\)\) \{ event\.preventDefault\(\); event\.stopPropagation\(\); closeCtx\(true\); return; \}/,
+    "Esc 只关最上面那层：右键菜单排在下拉栏与弹窗之前");
+
+  // 归档分组：0fr ↔ 1fr 两向插值，内容不删只收（铁律七）
+  assert.match(mainSrc, /\.aichat-archive-body\{display:grid;grid-template-rows:0fr;transition:grid-template-rows 260ms/,
+    "归档分组收起要有中间帧");
+  assert.match(mainSrc, /\.aichat-archive\.open \.aichat-archive-body\{grid-template-rows:1fr\}/, "展开插值到 1fr");
+  assert.doesNotMatch(mainSrc, /\.aichat-archive[a-z-]*\{[^}]*display:none/, "归档分组不许靠 display:none 收起");
+  assert.match(mainSrc, /data-arch-toggle/, "分组头要能点开合");
+  assert.match(mainSrc, /if \(s\.archived\) archiveOpen = true;/,
+    "刚归档完要把分组展开 —— 卡片凭空消失会被当成删掉了");
+
+  // ④ 回答卡片：切块、上色、可复现
+  const one = fx.cardHtml("今天三条都在 23:59 截止，先做实训2。");
+  assert.match(one, /^<section class="aichat-card" data-tone="\d">/, "AI 的正文要装成卡片");
+  assert.match(one, /<p class="lead">/, "第一块保留结论态");
+  const three = fx.cardHtml("先给结论。\n\n依据一：任务积压。\n\n依据二：时段冲突。");
+  assert.equal((three.match(/class="aichat-card"/g) || []).length, 3, "按空行切块，一块一张卡");
+  assert.equal((three.match(/<p class="lead">/g) || []).length, 1, "只有第一块配叫结论，否则一条回答里冒出好几个大标题");
+  assert.equal(fx.cardHtml(""), "", "空正文不产出空卡");
+  assert.equal(fx.toneOf("同一段", 0), fx.toneOf("同一段", 0), "同内容同序号必须同色（重绘不闪）");
+  assert.notEqual(fx.toneOf("同一段", 0), fx.toneOf("同一段", 1), "相邻两块不能同色");
+  assert.ok(fx.CARD_TONES >= 4, "色相至少 4 种");
+  for (let t = 0; t < fx.CARD_TONES; t += 1) {
+    assert.ok(mainSrc.includes(`.aichat-card[data-tone="${t}"]{--tone:`), `第 ${t} 号色相要有自己的三个变量`);
+  }
+  assert.match(mainSrc, /\.aichat-card \.lead::before\{display:none\}/, "卡片自带左竖条，结论那条不能再画一根");
+  assert.match(mainSrc, /\.aichat-card \.sec\{color:var\(--tone,/,
+    "小标题也要跟着卡片色相 —— 这一段是「颜色多样化」里最显眼的那处");
+  assert.match(mainSrc, /const paint = \(s\) => \(m\.role === "assistant" \? cardHtml\(s\) : md\(s\)\);/,
+    "只有 AI 那侧走卡片，用户自己写的话不必被排版");
+  assert.match(mainSrc, /const html = i \? md\(b\)\.replace\('<p class="lead">', "<p>"\) : md\(b\);/,
+    "装帧只在外层做：md() 仍旧一段一调，签名与输出都不动");
+  assert.equal(fx.cardHtml("- 甲\n- 乙"), `<section class="aichat-card" data-tone="${fx.toneOf("- 甲\n- 乙", 0)}"><ul>\n<li>甲</li>\n<li>乙</li>\n</ul></section>`,
+    "装帧只套一层壳，md() 的输出一字不动（它自己的精确输出由上面那批断言钉着）");
+}
+
+/* 会话三件事（改名 / 归档 / 删除）改的是 sessions 这份唯一事实源，不是只改 DOM。 */
+{
+  storage.clear();
+  fx.sessions.length = 0;
+  fx.startSession();
+  const id = fx.sessionId;
+  fx.thread.push({ role: "user", text: "原始标题", at: 1 });
+  fx.saveThread();
+  assert.equal(fx.sessions.find((s) => s.id === id).title, "原始标题", "标题默认取首条提问");
+
+  assert.equal(fx.renameSession(id, "  改过的名字  "), true, "改名要去掉首尾空格");
+  assert.equal(fx.sessions.find((s) => s.id === id).title, "改过的名字");
+  assert.equal(fx.sessions.find((s) => s.id === id).renamed, true, "改过名的会话要打上标记");
+  assert.equal(fx.renameSession(id, "   "), false, "空标题视为放弃，不当无名氏");
+  assert.equal(fx.renameSession(id, "改过的名字"), false, "同名不算改动");
+  // renamed 标记的用处：saveThread() 每轮对话都会跑，用首条提问当标题的话改名只活到下一次发送
+  fx.saveThread();
+  assert.equal(fx.sessions.find((s) => s.id === id).title, "改过的名字", "手动改过名的会话不许被首条提问盖回去");
+  assert.equal(storage.get("sessions").items.find((s) => s.id === id).title, "改过的名字", "改名要真落盘");
+
+  fx.archiveSession(id);
+  assert.equal(fx.sessions.find((s) => s.id === id).archived, true, "归档要落到数据里（侧栏据此分组）");
+  fx.archiveSession(id);
+  assert.equal(fx.sessions.find((s) => s.id === id).archived, false, "同一项再点一次要能取消归档");
+
+  const keep = fx.sessionId;
+  fx.startSession();
+  const drop = fx.sessionId;
+  fx.thread.push({ role: "user", text: "要被删掉的那条", at: 2 });
+  fx.saveThread();
+  const before = fx.sessions.length;
+  fx.deleteSession(keep);
+  assert.equal(fx.sessions.length, before - 1, "删除要真的从 sessions 里摘掉");
+  assert.equal(fx.sessionId, drop, "删掉的不是当前会话时，当前会话不能动");
+  /* 删掉当前会话：光把 sessionId 挪走不够 —— saveThread() 会按 sessionId 找到「上一个自己」
+     把内存里还在的 thread 原样写回，等于删了又活。所以这一条要连着内存状态一起验。 */
+  fx.deleteSession(drop);
+  assert.equal(fx.sessions.find((s) => s.id === drop), undefined, "删掉的会话不许被 saveThread() 复活");
+  assert.equal(fx.thread.length, 0, "当前会话被删后内存里的 thread 要一起清掉");
+  assert.equal(fx.draft, "", "草稿同理");
+}
+
+/* 删除是唯一不可恢复的动作（改名能再改、归档能取消），所以它必须「点两次」。
+   这段逻辑在 render 的接线里跑不到（harness 不驱动整套 DOM 事件），只能守源码 ——
+   守的是「第一下不删、第二下才删、关菜单就复位」这三件事都在。 */
+{
+  assert.match(mainSrc, /if \(act === "remove" && !ctxArm\) \{ armCtx\(true\); return; \}/,
+    "删除的第一下只能上膛，不许把 deleteSession() 直接挂在菜单项上");
+  assert.match(mainSrc, /const armCtx = \(on\) => \{/, "上膛 / 复位共用一支 armCtx()");
+  assert.match(mainSrc, /btn\.textContent = on \? "确认删除" : "删除";/,
+    "上膛后按钮文案要变，用户得看得出「这一下没删」");
+  assert.match(mainSrc, /\.aichat-ctx button\[data-ctx-act="remove"\]\.armed\{/,
+    "上膛态要有自己的样式，不能和 hover 同一层级");
+  // 关掉菜单（含点外部、Esc、切会话、重画列表）都要复位，否则下次打开就是「已上膛」
+  assert.match(mainSrc, /const closeCtx = \(restoreFocus = false\) => \{[\s\S]{0,200}?if \(ctxArm\) armCtx\(false\);/,
+    "closeCtx() 里必须复位上膛态");
+  assert.match(mainSrc, /if \(on && ctxAt\) placeCtx\(ctxAt\.x, ctxAt\.y\);/,
+    "文案变长会把菜单撑宽，上膛后要按同一个锚点重新夹位置");
+}
+
+console.log("PASS: AI 对话插件 —— 权限 / 快照 / 建议写入撤销 / 一轮问答 / 历史迁移 / 会话与草稿隔离 / 思考强度 / 请求保护 / 滑动选中光 / 头像与名称弹窗 / 生成式界面（dsh-ui 围栏） / 对话侧边栏与会话三件事 / 回答卡片");

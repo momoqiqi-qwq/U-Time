@@ -928,7 +928,7 @@
         <span>来源</span><input class="id-in" data-f-source value="${esc(p.source)}" maxlength="120" placeholder="群名 / 发件人 / 文件名" aria-label="消息来源">
         <span>原文</span><textarea class="id-in id-ta" data-f-raw maxlength="${RAW_MAX}" aria-label="消息原文">${esc(p.raw)}</textarea>
       </div>
-      ${p.bin ? `<img class="id-preview" src="${esc(p.bin)}" alt="截图预览">` : ""}
+      ${p.bin ? `<img class="id-preview" data-private-face src="${esc(p.bin)}" alt="截图预览">` : ""}
       <div class="id-actions">
         <button class="id-btn pri" type="button" data-p-ok>${faIcon("inbox")}收进收件箱</button>
         <button class="id-btn" type="button" data-p-task>${faIcon("circle-plus")}直接建任务</button>
@@ -968,7 +968,7 @@
           <span class="id-when">${esc(when)} · ${esc(relTime(row.at))}</span>
           ${row.fileSize ? `<span class="id-tag gray">${Math.max(1, Math.round(row.fileSize / 1024))} KB</span>` : ""}
         </div>
-        ${row.bin ? `<img class="id-thumb" src="${esc(row.bin)}" alt="收纳的截图">` : ""}
+        ${row.bin ? `<img class="id-thumb" data-private-face src="${esc(row.bin)}" alt="收纳的截图">` : ""}
         ${preview ? `<div class="id-fold${foldOpen.has(row.id) ? " open" : ""}" data-fold><button class="id-fold-btn" type="button" aria-expanded="${foldOpen.has(row.id)}">原文</button><div class="id-fold-body"><div class="id-fold-clip"><pre class="id-raw">${esc(raw)}</pre></div></div></div>` : ""}
       </div>
       <div class="id-rowbtns">

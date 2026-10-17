@@ -5,13 +5,14 @@ const source = fs.readFileSync(new URL('../public/plugins/cn-holiday/main.js', i
 const manifest = JSON.parse(fs.readFileSync(new URL('../public/plugins/cn-holiday/manifest.json', import.meta.url), 'utf8'));
 
 /* 全年安排：已经结束的假期整行置灰并打「已过」标签；查某一天用自定义大日历（v0.3.0） */
-assert.equal(manifest.version, '0.3.0');
+/* v0.233.0：读取 / 联网更新期间接上宿主等待蒙版（tide.ui.waitMask）→ 0.3.1 */
+assert.equal(manifest.version, '0.3.1');
 
 const catalog = fs.readFileSync(new URL('../src/pluginCatalog.js', import.meta.url), 'utf8');
 const entry = catalog.slice(catalog.indexOf('"id": "cn-holiday"'));
 const block = entry.slice(0, entry.indexOf('},\n  {'));
 
-assert.match(block, /"0\.3\.0"/, 'pluginCatalog 必须同步插件新版本号');
+assert.match(block, /"0\.3\.1"/, 'pluginCatalog 必须同步插件新版本号');
 assert.doesNotMatch(source, /type="date"/, '原生 date input 必须移除（其弹层小且没法定制）');
 assert.match(source, /ch-datebtn" data-datebtn/, '必须用自定义日期按钮触发日历');
 assert.match(source, /grid-template-rows:0fr/, '日历展开收起必须用 0fr→1fr 高度过渡（平滑不跳变）');

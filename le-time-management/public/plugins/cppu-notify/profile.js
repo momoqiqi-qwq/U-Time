@@ -182,8 +182,8 @@ export function createProfileView(tide, bridge) {
     } catch { return false; }
   }
 
-  /* ── 取数 ────────────────────────────────────────────────────────────── */
-  const call = (path) => Promise.resolve(bridge?.api?.(path)).then((r) => (r && typeof r === "object" ? r : { ok: false, message: "取数通道不可用" }));
+  /* ── 取数 ──────────────────────────────────────────────────────────────
+     取数函数在下面的「刷新等待蒙版」一节（它和 force / FRESH_MS 是一组）。 */
 
   /** 大小写不敏感取键：接口在不同部署里 camelCase / UPPER 都出现过。 */
   function pick(obj, ...keys) {
@@ -233,14 +233,35 @@ export function createProfileView(tide, bridge) {
     return out.filter((f) => f.k);
   }
 
-  async function loadAll() {
+  /* 取数：`force` 只在用户按「刷新」时为真，要求 bridge 绕过它那份缓存；老宿主没给
+     force 通道时退回普通取数（宁可慢一次，也不要「点了刷新没反应」）。 */
+  const call = (path, force = false) => Promise.resolve(force && bridge?.force ? bridge.force(path) : bridge?.api?.(path)).then((r) => (r && typeof r === "object" ? r : { ok: false, message: "取数通道不可用" }));
+
+  /* 刷新等待蒙版（v0.233.0）：同 growth.js —— 包一层，别在有多条 return 的函数体里散点 release。
+     v0.236.0：**手里已经有数据时不再打蒙版**。 */
+  const waitMask = (text) => (tide.ui && typeof tide.ui.waitMask === "function" ? tide.ui.waitMask(text) : () => {});
+
+  /* 重进缓存（v0.236.0）：这一页只有一个接口，但档案字段在一节课里不会变。
+     TTL 内重进连 bridge 都不问；过期时先把旧档案画出来（带「更新于 …」）再静默刷新。 */
+  const FRESH_MS = 60 * 1000;
+  function loadAll(force = false) {
+    if (state.inFlight) return Promise.resolve();
+    if (!force && state.loadedAt && Date.now() - state.loadedAt < FRESH_MS) {
+      paint();
+      return Promise.resolve();
+    }
+    const releaseWait = state.loadedAt ? () => {} : waitMask("正在读取个人信息…");
+    return loadAllInner(force).finally(releaseWait);
+  }
+
+  async function loadAllInner(force = false) {
     if (state.inFlight) return;
     state.inFlight = 1;
     state.loading = true;
     state.error = "";
     state.loginNeeded = false;
     paint();
-    const res = await call("/tsa/shc/homepage/personInfo");
+    const res = await call("/tsa/shc/homepage/personInfo", force);
     if (state.disposed) { state.inFlight = 0; return; }
     state.inFlight = 0;
     state.loading = false;
@@ -312,7 +333,7 @@ export function createProfileView(tide, bridge) {
     let result = "fail";
     try { result = (await bridge?.relogin?.()) || "fail"; } catch { result = "fail"; }
     if (state.disposed) return;
-    if (result === "ok") { state.error = ""; state.stale = ""; loadAll(); return; }
+    if (result === "ok") { state.error = ""; state.stale = ""; loadAll(true); return; }
     // 换不到票 ⇒ 插件的统一身份认证会话不在。**不动现有画面**：这里要是重画，
     // 用户看到的是一片空白，连该去哪儿登录的提示都读不到。
     if (btn) { btn.disabled = false; btn.textContent = "重新登录"; }
@@ -451,7 +472,7 @@ ${heroHtml()}${gridHtml()}</div>`;
       const hb = hit("[data-pf-hist]");
       if (hb) { const h = state.history[Number(hb.dataset.pfHist)]; if (h) doCopy(hb, h.k, h.v); return; }
       if (hit("[data-pf-copyall]")) { copyAll(); return; }
-      if (hit("[data-pf-refresh]")) { loadAll(); return; }
+      if (hit("[data-pf-refresh]")) { loadAll(true); return; }
       if (hit("[data-pf-home]")) { bridge?.open?.("/stu/dataReport/basicInfo"); return; }
       if (hit("[data-pf-qclear]")) { state.query = ""; paint(); return; }
       if (hit("[data-pf-htoggle]")) { toggleHist(root); return; }

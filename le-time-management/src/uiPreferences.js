@@ -87,6 +87,9 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   // 用户往下拖时以卡片当前实际高度为起点起算，往上拖则受内容高度限制（不会裁掉文字）。
   marketCardWidth: 180,
   marketCardHeight: 0,
+  // 隐私展示模式（v0.234.0）：人脸模糊 + 数字 9 化 + 三维图全满，见 src/privacyMask.js。
+  // 默认关闭 —— 它是「给人看给别人看」的展示态，不该影响日常读数。
+  privacyMask: false,
 });
 
 export const NAVBAR_SIZE_OPTIONS = Object.freeze([
@@ -174,6 +177,8 @@ export function normalizeUiPreferences(raw = {}) {
   next.notifyStack = next.notifyStack !== false;
   next.showSettingsDescriptions = next.showSettingsDescriptions !== false;
   next.showPluginDescriptions = next.showPluginDescriptions === true;
+  // 隐私展示模式：只有显式 true 才算开（缺省 / 老存档 = 关）。
+  next.privacyMask = next.privacyMask === true;
   if (!["auto", "top", "left", "right"].includes(next.settingsNavPosition)) next.settingsNavPosition = "auto";
   if (!WINDOW_SIZE_MODES_SET.has(next.startupWindowMode)) next.startupWindowMode = DEFAULT_UI_PREFERENCES.startupWindowMode;
   next.startupWindowWidth = Math.round(clamp(next.startupWindowWidth, CUSTOM_SIZE_LIMITS.minWidth, CUSTOM_SIZE_LIMITS.maxWidth));
@@ -223,6 +228,8 @@ export function applyUiPreferences(raw = null, { animate = false } = {}) {
   root.dataset.showViewSubtitle = cfg.showViewSubtitle ? "on" : "off";
   root.dataset.settingsDescriptions = cfg.showSettingsDescriptions ? "on" : "off";
   root.dataset.pluginDescriptions = cfg.showPluginDescriptions ? "on" : "off";
+  // dataset.privacyMask → data-privacy-mask（src/privacyMask.js 与 styles/privacy-mask.css 消费）
+  root.dataset.privacyMask = cfg.privacyMask ? "on" : "off";
   root.dataset.settingsNavPosition = cfg.settingsNavPosition;
   // dataset.notifyStack → data-notify-stack（写成 data-notifyStack 之类 CSS 匹配不上）
   root.dataset.notifyStack = cfg.notifyStack ? "on" : "off";

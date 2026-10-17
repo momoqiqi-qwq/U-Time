@@ -287,6 +287,7 @@
     const pager = pagers.get(site.id);
     if (!pager || busy) return;
     busy = true; paint();
+    const releaseWait = waitMask("正在读取更多分页…");
     try {
       const { gained, slow } = await walkPages(site, pager, lastReadPage(pager) + 1, PAGE_ROUND);
       await tide.storage.set(`notices:${site.id}`, notices.slice(0, MAX_ROWS));
@@ -295,7 +296,7 @@
       else if (notices.length >= MAX_ROWS) toast(`本地列表只缓存最新 ${MAX_ROWS} 条，不再往前读取`);
       else if (!gained) toast(lastReadPage(pager) >= pager.total ? "已经是最后一页，没有更多通知了" : "后面的分页没读到新通知：可能站点改版，或这些页已经读过了");
     } catch (e) { toast(`读取更多分页失败：${e.message || e}`); }
-    finally { busy = false; paint(); }
+    finally { busy = false; paint(); releaseWait(); }
   }
 
   // 工具条上的分页进度。没认出分页器（单页站点 / JSON 接口）时整块不出现。
@@ -469,6 +470,8 @@
     const nameInput = host.querySelector("[data-new-name]"), urlInput = host.querySelector("[data-new-url]");
     const raw = urlInput?.value || ""; if (!raw.trim()) return toast("请输入学校通知网站网址");
     busy = true; paint();
+    // 「添加并自动适配」要真去抓一次首页并识别 CMS / 分页器 / 图标，是这一页最慢的一步。
+    const releaseWait = waitMask("正在读取站点并自动适配…");
     try {
       const url = tide.util.web.normalizeUrl(raw); const id = uid(); const tmp = { id, name: nameInput?.value.trim() || "学校通知", url, loginUrl: "", cms: "自动识别", lastFetchedAt: 0, iconUrl: "" };
       sites.push(tmp); activeId = id; sitePanel = true;   // 新站点直接摊开配置：很可能下一步就要登录
@@ -499,14 +502,20 @@
       await save();
       await ensureIconData(tmp, false);
     } catch (e) { toast(`添加失败：${e.message || e}`); }
-    busy = false; paint();
+    busy = false; paint(); releaseWait();
   }
+
+  /* 刷新等待蒙版（v0.233.0）：读公告、自动适配新站点、翻更多分页都是网络往返，几秒到几十秒。
+     登录配置（data-login）**不盖**：那条路中途要人工填验证码 / 账号，盖住会把输入挡住。
+     老宿主没有 tide.ui.waitMask 时退化成空操作。 */
+  const waitMask = (text) => (tide.ui && typeof tide.ui.waitMask === "function" ? tide.ui.waitMask(text) : () => {});
 
   async function refresh(notify = true) {
     const site = active(); if (!site || busy) return; busy = true; paint();
+    const releaseWait = waitMask(`正在读取${site.name || "学校"}通知…`);
     try { await readNotices(site); lastErrors.delete(site.id); if (notify && !loginRuntime.has(site.id)) toast(`已读取 ${notices.length} 条公告`); }
     catch (e) { lastErrors.set(site.id, e.message || String(e)); toast(`读取失败：${e.message || e}`); }
-    finally { busy = false; paint(); }
+    finally { busy = false; paint(); releaseWait(); }
   }
   async function switchSite(id) { activeId = id; editing = false; resetChunk(); notices = await tide.storage.get(`notices:${id}`, []); if (!Array.isArray(notices)) notices = []; await loadHidden(id); paint(); }
   async function toReminder(n) {
