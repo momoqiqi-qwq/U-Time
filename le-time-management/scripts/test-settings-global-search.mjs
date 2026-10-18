@@ -18,8 +18,9 @@ assert.ok(SETTINGS_SEARCH_ENTRIES.length >= 70, "设置索引必须覆盖到具�
 // testing（测试分区）是 v0.172.0 收进来的：旧索引把「手机版测试」错挂在 ui 下，
 // 而它其实在「测试」分区 —— 那条点下去切到「界面与交互」后找不到任何控件，是死条目。
 // privacy（隐私展示）是 v0.213.0 收进来的：它是独立分区（人脸模糊 / 数字 9 化 / 三维图全满）。
+// support（赞助支持）是 v0.244.0 新增的独立分区：收款码图片 + 保存 / 赞助说明。
 assert.deepEqual(new Set(SETTINGS_SEARCH_ENTRIES.map((x) => x.section)),
-  new Set(["tasks", "ui", "theme", "highlights", "privacy", "reminders", "data", "sync", "ai", "shortcuts", "lan", "plugins", "testing", "about"]),
+  new Set(["tasks", "ui", "theme", "highlights", "privacy", "reminders", "data", "sync", "ai", "shortcuts", "lan", "plugins", "testing", "support", "about"]),
   "每个设置分区都必须进入全局索引");
 for (const required of ["界面与交互", "界面密度", "界面缩放", "隐私展示", "人脸模糊", "数字 9 化", "三维图全满", "关键词标注", "日期和时间自动标红", "背景标注", "API Key", "WebDAV", "系统托盘", "插件快捷键", "检查更新"]) {
   assert.ok(SETTINGS_SEARCH_ENTRIES.some((x) => `${x.title} ${x.keywords}`.includes(required)), `全局设置索引缺少：${required}`);

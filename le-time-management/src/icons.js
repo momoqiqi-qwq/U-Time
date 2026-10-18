@@ -1,7 +1,8 @@
 import { el } from "./ui.js";
 import { BUILTIN_PLUGINS } from "./pluginCatalog.js";
 
-// Icons8 / iGoutu 图标源，统一为 Color 彩色风格（来源台账见 public/icons/{plugins,nav}/ATTRIBUTION.md）：
+// 随包彩色图标（v0.250.0 起统一为本项目自有的扁平双色母版，tools/icon-masters/ → gen-plugin-icons.py；
+// 来源台账见 public/icons/{plugins,nav}/ATTRIBUTION.md）。下面的 Icons8 slug 只用于随包 PNG 加载失败时的 CDN 回落：
 //  · 内置插件：随包 PNG public/icons/plugins/<插件ID>.png（tools/gen-plugin-icons.py 生成）；
 //  · 主导航（四象限/时间块/收件箱/插件/设置/快速捕获）：随包 PNG public/icons/nav/<key>.png，
 //    与插件同一套 Color 风格 —— v0.42.0 前导航走 CDN 的 iOS Filled 直链，离线即裂且风格不统一；
@@ -109,8 +110,8 @@ export function appIcon(key, title = "") {
     loading: "eager",
     decoding: "async",
     draggable: "false",
-    "data-icon-source": bundledDir === "plugins" ? "bundled plugin PNG (Icons8 Color)"
-      : bundledDir === "nav" ? "bundled nav PNG (Icons8 Color)"
+    "data-icon-source": bundledDir === "plugins" ? "bundled plugin PNG (flat masters)"
+      : bundledDir === "nav" ? "bundled nav PNG (flat masters)"
       : "Icons8 Color",
     "data-icon-key": manifestIcon || candidates[0],
   });

@@ -1,0 +1,123 @@
+/* ── 界面点缀（v0.249.0）──
+   一批「审美补丁」集中在这里，而不是散进 styles.css：
+   - styles.css 是 gen-theme-dark.js 的输入，改它就要连带重生成 theme-derived.css；
+     这里只引用已有变量（--ink / --sea / --q1… / --coral），不新增调色板。
+   - 每一节都写明它服务的是哪个视图，回退时整节删掉即可。 */
+
+/* ═════ 1. 空状态线稿（src/emptyArt.js）═════
+   线条 = currentColor，强调色 = --ea-accent。各处只需要给这两个值。 */
+.empty-art {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 10px 6px;
+  color: color-mix(in srgb, var(--ink) 34%, transparent);
+  --ea-accent: var(--coral, #E8705F);
+  --ea-on-accent: var(--panel, #fff);
+  pointer-events: none;
+  user-select: none;
+}
+.empty-art svg { display: block; width: min(100%, 176px); height: auto; overflow: visible; }
+.empty-art p {
+  margin: 0;
+  max-width: 26em;
+  text-align: center;
+  color: var(--ink-2);
+  font-size: calc(12px * var(--ui-text-scale));
+  line-height: 1.7;
+}
+
+/* 象限：只在「这个象限一条任务都没有」时出现（quadrant.js 打 .is-empty；搜索 / 筛选
+   筛空不算 —— 那时候说「别再犹豫」就不对了）。插画进文档流而不是绝对定位：
+   移动端 .tks 是 flex:none（styles.css 窄屏段），绝对定位会压到「添加到这个象限」按钮上。 */
+.q .q-empty { display: none; }
+.q.is-empty .q-empty { display: flex; flex: 1 1 auto; justify-content: center; min-height: 0; padding: 0 6px 4px; }
+.q.is-empty .tks { flex: 0 0 auto; }
+.q .q-empty svg { width: min(78%, 168px); }
+.q .q-empty p { color: color-mix(in srgb, var(--ink-2) 62%, var(--ink)); }
+.q1 .q-empty { --ea-accent: var(--q1); color: color-mix(in srgb, var(--q1) 38%, var(--ink-2)); }
+.q2 .q-empty { --ea-accent: var(--q2); color: color-mix(in srgb, var(--q2) 38%, var(--ink-2)); }
+.q3 .q-empty { --ea-accent: var(--q3); color: color-mix(in srgb, var(--q3) 38%, var(--ink-2)); }
+.q4 .q-empty { --ea-accent: var(--q4); color: color-mix(in srgb, var(--q4) 38%, var(--ink-2)); }
+.q .q-empty { --ea-on-accent: var(--panel, #fff); }
+/* 象限很矮（窗口压扁、四格并排）时，说明文字先让位，只留插画 */
+@media (max-height: 640px) { .q .q-empty p { display: none; } }
+
+/* 收件箱清空 */
+.inbox-empty-art { padding-top: 22px; }
+
+/* ═════ 2. 收件箱：来源图标 16px ═════
+   插件来源走 pluginDisplayIcon（与侧栏同一张图）；AI / 内置规则没有插件，用内联小图形。 */
+.inbox-item-main small .inbox-src { gap: 5px; }
+.inbox-item-main small .inbox-src .plugin-present-icon { width: 16px; height: 16px; border-radius: 4px; }
+.inbox-src .src-glyph { display: inline-grid; place-items: center; width: 16px; height: 16px; flex: none; color: var(--src, var(--ink-2)); }
+.inbox-src .src-glyph svg { width: 15px; height: 15px; }
+.inbox-src .src-glyph[data-kind="ai"] { --src: #8B5CF6; }
+.inbox-src .src-glyph[data-kind="rule"] { --src: #D9900F; }
+:root[data-theme-mode="dark"] .inbox-src .src-glyph[data-kind="ai"] { --src: #B79BFA; }
+:root[data-theme-mode="dark"] .inbox-src .src-glyph[data-kind="rule"] { --src: #F0B54A; }
+
+/* ═════ 3. 自动化规则：规则图标 + 真正的开关 ═════
+   旧问题：styles.css 的 `.automation-rule input{width:18px;height:18px}` 是给原生勾格写的，
+   v0.2xx 换成 toggleSwitch 之后它把 36×20 的滑块压成了 18×18 —— 只剩一颗紫色圆点，像单选框。
+   这里按 .switch 自己的尺寸变量还原（选择器多一个 .switch，权重压过旧规则）。 */
+.automation-rule input.switch { width: var(--switch-w); height: var(--switch-h); margin-top: 0; }
+.automation-rule { justify-content: flex-start; }
+.automation-rule > span { flex: 1 1 auto; }
+.automation-rule .ar-ico {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--ar, var(--sea));
+  background: color-mix(in srgb, var(--ar, var(--sea)) 14%, transparent);
+}
+.automation-rule .ar-ico svg { width: 18px; height: 18px; }
+.automation-rule[data-action="schedule-due"] { --ar: var(--sea, #2E8BA8); }
+.automation-rule[data-action="exam-remind"] { --ar: var(--coral, #E8705F); }
+.automation-rule[data-action="course-sync"] { --ar: #8B5CF6; }
+.automation-rule[data-action="daily-tidy"] { --ar: #D9900F; }
+:root[data-theme-mode="dark"] .automation-rule[data-action="course-sync"] { --ar: #B79BFA; }
+:root[data-theme-mode="dark"] .automation-rule[data-action="daily-tidy"] { --ar: #F0B54A; }
+/* 关掉的规则整行降一档，开关本身保持原色（可点） */
+.automation-rule:has(input.switch:not(:checked)) .ar-ico { filter: grayscale(1); opacity: .55; }
+
+/* ═════ 4. 时间块「近 7 天节奏」：星期标签 + 当天高亮 ═════
+   旧问题：标签 <em> 一直都在，但 .r 带 overflow:hidden，bottom:-17px 的标签被裁掉了；
+   柱子底色 #EFEAE1 / 当天 #DCEAEF 写死浅色，深色主题下是两根奶白条。 */
+.rhythm .r { overflow: visible; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.rhythm .r i { border-radius: 5px 5px 2px 2px; }
+.rhythm .r.cur { background: color-mix(in srgb, var(--sea) 16%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sea) 34%, transparent); }
+.rhythm .r.cur em { color: var(--sea); font-weight: 700; }
+.rhythm .r.today em::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--coral, #E8705F);
+}
+.rh-wrap { padding-bottom: 26px; }
+
+/* ═════ 5. 字标装饰线：切换视图时重画一遍 ═════
+   shell.js 在切到另一个视图时调 replayBrandRule()（减少动态效果时直接不加类）。
+   左线从中间往左画（offset -1 → 0），右线从中间往右画（offset 1 → 0），卷草和尖头随后淡入。
+   两条主线带 pathLength="1"，dasharray 用 1 就是整条线长。 */
+.brand-rule.br-draw .br-line { stroke-dasharray: 1 1; animation: br-draw-r .62s cubic-bezier(.22, .8, .22, 1) both; }
+.brand-rule.br-draw .br-line[data-side="l"] { animation-name: br-draw-l; }
+.brand-rule.br-draw .br-tip { animation: br-fade .34s ease .4s both; }
+.brand-rule.br-draw .br-scroll { animation: br-pop .42s cubic-bezier(.22, .8, .22, 1) both; transform-box: fill-box; transform-origin: center; }
+@keyframes br-draw-r { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes br-draw-l { from { stroke-dashoffset: -1; } to { stroke-dashoffset: 0; } }
+@keyframes br-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes br-pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-ui-motion="full"]) .brand-rule.br-draw * { animation: none !important; stroke-dasharray: none !important; }
+}
+:root[data-ui-motion="reduced"] .brand-rule.br-draw * { animation: none !important; stroke-dasharray: none !important; }

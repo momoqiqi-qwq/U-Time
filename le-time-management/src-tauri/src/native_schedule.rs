@@ -86,6 +86,12 @@ pub async fn native_schedule<R: Runtime>(
         if !["show", "hide", "close"].contains(&action.as_str()) {
             return Err("未知课表操作".into());
         }
+        // 首次启动要等课表进程打印 LE_READY（最长 45s），且全程持有进程锁：
+        // 放进阻塞线程池执行，避免长时间占住异步运行时的工作线程。
+        let _ = state;
+        let (app, window) = (app.clone(), window.clone());
+        return tauri::async_runtime::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        let state = app.state::<NativeSchedule>();
         let mut guard = state.process.lock().map_err(|e| e.to_string())?;
         if guard
             .as_mut()
@@ -149,7 +155,10 @@ pub async fn native_schedule<R: Runtime>(
         writeln!(p.input, "{message}")
             .and_then(|_| p.input.flush())
             .map_err(|e| e.to_string())?;
-        return Ok(serde_json::json!({"visible":action == "show"}));
+        Ok(serde_json::json!({"visible":action == "show"}))
+        })
+        .await
+        .map_err(|e| format!("课表后台任务异常终止: {e}"))?;
     }
     #[cfg(target_os = "android")]
     {

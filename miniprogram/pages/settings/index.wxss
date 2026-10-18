@@ -66,3 +66,8 @@
 .card .input { margin:14rpx 0; }
 .import-preview { background:var(--paper); border:1rpx solid var(--line); border-radius:16rpx; padding:20rpx; line-height:1.8; }
 .import-preview .pv { margin:18rpx 0; }
+
+/* v0.244.0 赞助：收款码卡片（图片在 images/support/sponsor-qr.png，点按走 previewImage 放大） */
+.support-qr { display: flex; justify-content: center; margin: 20rpx 0 10rpx; padding: 16rpx; border: 2rpx solid var(--line); border-radius: 20rpx; background: var(--panel); }
+.support-qr-img { width: 100%; max-width: 420rpx; border-radius: 12rpx; }
+.support-hint { text-align: center; }

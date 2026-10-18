@@ -38,8 +38,9 @@ import { searchGlyph, withSearchGlyph } from "./searchField.js";
 import { openUpdateHistory } from "./updateHistory.js";
 // 字标（U Time WorkSpace + 下方哥特装饰线）的唯一创建口：刷新蒙版要「参考左上角标题」，
 // 两处共用同一份 DOM 构造，视觉仍由 styles.css 的 `.brand b` / `.brand-rule` 决定。
-import { brandRule } from "./brandWordmark.js";
+import { brandRule, replayBrandRule } from "./brandWordmark.js";
 import { withWaitMask } from "./waitMask.js";
+import { shrinkIconDataUrl } from "./iconShrink.js";
 
 // 注意：模块导入阶段 state 还未初始化，activeView 必须延迟到 renderShell 时读取
 let activeView = null;
@@ -435,7 +436,7 @@ export function renderShell(root) {
     role: "status",
     "aria-live": "polite",
     "data-privacy-skip": "",
-    title: "隐私展示模式已开启：人脸模糊、数字 9 化、三维图全满",
+    title: "隐私展示模式已开启：人脸模糊、数字 9 化、三维图全满、校名模糊",
   }, el("span", { class: "privacy-badge-dot", "aria-hidden": "true" }), "展示模式");
   const topbar = el("header", { class: "topbar", "data-tauri-drag-region": dragRegion },
       el("div", { class: "topbar-title-card", "data-tauri-drag-region": dragRegion },
@@ -733,12 +734,13 @@ export function renderShell(root) {
     try {
       if (!file.type.startsWith("image/")) throw new Error("请选择图片文件");
       if (file.size > 1024 * 1024) throw new Error("图标不能超过 1 MB");
-      const icon = await new Promise((resolve, reject) => {
+      // 落库前缩到 144px 以内（iconShrink.js）：原图 base64 直接进 settings，每次保存都要跟着整份重写。
+      const icon = await shrinkIconDataUrl(await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
         reader.onerror = () => reject(new Error("读取图标失败"));
         reader.readAsDataURL(file);
-      });
+      }));
       if (target.kind === "nav") {
         setNavOverride(target.id, { icon });
         refreshCorePresentation();
@@ -1365,7 +1367,8 @@ export function renderShell(root) {
     const b = el("button", { class: on ? "on" : "", "data-view": id },
       el("span", { class: "ic", style: isPlug ? `--plugin-accent:${pluginAccent(def.pluginView?.pluginId)}` : null }, imgIcon, outlineIcon),
       el("span", { class: "lb" }, def.title),
-      isPlug ? el("span", { class: "pv-count" }, pvLabel) : null,
+      // 侧栏只给导入的插件标来源：绝大多数插件都是内置的，每行一枚同样的「内置」只是噪音（v0.248.0）。
+      isPlug && pvLabel !== "内置" ? el("span", { class: "pv-count" }, pvLabel) : null,
       // 快捷键徽标：平时收着（opacity:0），悬停 / 选中 / 键盘聚焦时现形，不挤占常驻空间
       sc ? el("kbd", { class: "nav-kbd", "aria-hidden": "true" }, `${PLUGIN_SHORTCUT_MODIFIER}+${sc}`) : null,
     );
@@ -2013,6 +2016,7 @@ export function renderShell(root) {
       titleEl.textContent = def.title;
       subEl.textContent = def.sub ? ` · ${def.sub}` : "";
       renderTitleMark(def);
+      if (prevId !== targetId) replayBrandRule(document.querySelector(".rail .brand > .brand-rule"), reducedMotion());
       renderNav();
       if (settingsDockBtn) settingsDockBtn.classList.remove("on");
       renderStat();

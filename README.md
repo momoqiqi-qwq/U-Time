@@ -1,6 +1,6 @@
 # U-Time
 
-**By 梁逸乐（Yile Liang）** · 设计与开发 · [项目仓库](https://github.com/momoqiqi-qwq/U-Time)
+**By 梁逸乐（Yile Liang） · momoni · lele · liangyile** · 设计与开发 · [项目仓库](https://github.com/momoqiqi-qwq/U-Time)
 
 > 🤖 **AI / 协作者必读：[`AGENTS.md`](./AGENTS.md)** —— 项目铁律，含「每次更新必须升版本号」的完整操作步骤、不可回退的标识符清单、构建与合并禁忌。动手前先读。（中文别名 `AI必读.md` 指向同一份）
 
@@ -112,5 +112,37 @@
 ### 🙏 贡献
 
 欢迎 Issue 与 PR：时间解析规则扩充（`src/timeParser.js`）、新内置插件、Linux/Android 适配反馈都特别有价值。插件开发 API 文档见 [`le-time-management/README.md`](./le-time-management/README.md)，界面与插件**图标规范**（Icons8/iGoutu 图标集、81×81 随包 PNG 生成、授权署名、自检清单）见 [`le-time-management/docs/plugin-icons.md`](./le-time-management/docs/plugin-icons.md)。
+
+### ❤️ 赞助支持
+
+U-Time 从 `v0.3.0` 做到 `v0.244.0`，一直**免费、无广告、无内购、无账号**：不卖会员、不做付费功能、不埋广告位，数据全部留在你自己机器上。功能没有分等级，所有人拿到的是同一份完整版本 —— 装好就是全部。
+
+它也是**一个人在业余时间做的**。没有团队、没有融资、没有赞助商，服务器、证书、素材授权、构建与测试机器都是自费，晚上和周末挤出来的时间。
+
+#### 开发中最难的几件事
+
+| 难点 | 具体是什么 |
+|---|---|
+| **三端同源** | 一套数据模型与时间解析要同时喂 Windows（Tauri + Rust）、Android（同壳，但 WebView 安全区得在原生侧手写）、微信小程序（另一套原生 WXML 与 UI）。改一处要三端对齐，配套 149 个测试脚本逐个跑过。 |
+| **没有后端** | 所有"云"能力都要自己造：备份同步走 WebDAV、跨端传输走局域网直连 + 文件互导，没有一台能替它干活的服务器 —— 也不打算为此收集你的数据。 |
+| **Android 的坑** | 边到边渲染下 WebView 里 `env(safe-area-inset-*)` 恒为 0，四个方向的安全区只能由 `MainActivity` 读 `WindowInsets` 注入；`v0.49.0` 还因为把键盘 `ime` 混进底部安全区黑过屏。这类问题只能真机验证，一次排查就是几个晚上。 |
+| **版本纪律** | 三端版本号横跨 `package.json` / `Cargo.toml` / `tauri.conf.json` / `appMeta.js` / Android `versionName + versionCode`，漏一处就打出错版本包；`gen/android` 还会被 `tauri android init` 整个重建，原生代码得先存进仓库再同步。 |
+| **打磨** | 16 套主题 × 浅色/深色两态都要过 WCAG 对比度，894 处字号全部接上界面缩放，17 个内置插件的界面在暗色与 390px 窄屏下逐屏截图核对。 |
+
+#### 如果它帮到了你
+
+可以扫下面的码自愿赞助一点，让这个项目能继续做下去 —— 买台测试机、补一次素材授权、换掉跑到发烫的构建机器，都算。
+
+<p align="center">
+  <img src="./le-time-management/public/support/sponsor-qr.png" alt="赞助收款码（微信 / 支付宝均可扫）" width="240">
+  <br>
+  <sub>微信 / 支付宝均可扫 · 金额随意 · 不构成购买</sub>
+</p>
+
+赞助**不改变任何东西**：不解锁功能、不加速更新、不进任何名单，也不会显示给其他人看。不方便付费也完全可以 —— **提一个 Issue、报一个 bug、把 U-Time 推荐给同学，同样是让这个项目活下去的支持**，而且在项目维护者这里，这些往往比钱更有用。
+
+> 以上全部自愿：收不到赞助也不会停更，更不会把赞助做成功能门槛。这一节只是把「为什么需要支持」讲清楚，不影响你照原样使用 U-Time 的每一个功能。
+
+---
 
 > 本 README 按照 [App-Showcase-Template](https://github.com/yxs2003/App-Showcase-Template) 的展示流程编写。

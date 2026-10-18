@@ -1,4 +1,4 @@
-import { initStore, getState } from "./store.js";
+import { initStore, getState, persistSoon } from "./store.js";
 import { renderShell } from "./shell.js";
 import { initPluginHost } from "./pluginHost.js";
 import { initCapture } from "./capture.js";
@@ -24,6 +24,7 @@ import { renderStartupRecovery } from "./views/startupRecovery.js";
 import { mountStorageStatus } from "./views/storageStatus.js";
 import { finishRefreshMask, mountRefreshMask, revealRefreshMask } from "./loadingMask.js";
 import { initPrivacyMask } from "./privacyMask.js";
+import { shrinkStoredIcons } from "./iconShrink.js";
 
 // 首次启动的初始数据 —— 刻意全空，让空状态引导用户自己建第一条（对接 Rust seed_data()）。
 // ⚠️ 这里不要再塞示例任务：首启四象限/时间块该是干净的。样例请做成显式入口（如「恢复示例数据」）。
@@ -91,6 +92,11 @@ async function boot() {
   // 应用内更新：内部自己延迟 8s 再查，且不 await —— 绝不挡住首屏。
   initUpdateChecker();
   api.appInfo().then((x) => initAutomation(x?.version || ""), () => initAutomation(""));
+  // v0.248.0 之前上传的自定义图标是原图 base64（实测单个 1.3 MB）：补缩一次。放到首屏之后，
+  // 图片解码 + canvas 不和启动抢主线程；缩不动（解码失败 / 缩完更大）的原样保留。
+  setTimeout(() => {
+    shrinkStoredIcons(getState().settings).then((n) => { if (n) persistSoon(); }, () => {});
+  }, 4000);
   // 手机端（局域网）指令 → 应用统一数据层
   if (api.isTauri) {
     const { listen } = await import("@tauri-apps/api/event");

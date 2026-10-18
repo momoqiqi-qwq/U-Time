@@ -2,10 +2,11 @@
    由 src/privacyMask.js 的 ensurePrivacyMaskStyles() 插入，index.html 里也有一份静态
    引用（首屏前就位，避免开着模式启动时闪一下原值）。
 
-   三条规则与 js 模块头部注释一一对应：
+   三条规则与 js 模块头部注释一一对应（v0.245.0 起为四条）：
      ① 人脸模糊  → `[data-private-face]`（肖像、人脸、以及本人截图预览）
      ② 数字 9 化 → `.privacy-masked`（文本节点已由 js 改写，这里只做淡淡的「已遮蔽」质感）
      ③ 三维图全满 → `[data-private-full]` 里的空位星点按占用样式显示（宿舍床位星图）
+     ④ 校名模糊  → `[data-private-word]`（「警大」这类能定位到具体学校的词）
 
    只在 ON 时生效：宿主把 `data-privacy-mask="on"` 写在 <html> 上，关掉即整块失效。 */
 
@@ -61,6 +62,20 @@
   background: color-mix(in srgb, var(--panel, #fff) 72%, transparent) !important;
   color: var(--ink-2, #59656D) !important;
   font-weight: 700 !important;
+}
+
+/* ── ④ 校名模糊（v0.245.0）：警大 / 警察大学 / 中国人民警察大学 / CPPU ──────
+   命中的那一段由 js 包成 `<span data-private-word>`，这里只负责把它糊掉。
+   用 filter 而不是换字符：字符一换，宽度、断行、无障碍名称、复制出来的文本全跟着变。
+   inline-block 是给 filter 一个稳定的渲染块（行内元素上的 filter 在部分 WebView 里不稳）；
+   两三个字的词不会跨行，所以不影响折行，基线也不动。
+   不写 pointer-events: none —— 这一层只盖字，点击照样落到外层按钮 / 链接上。
+   也不留 margin：模糊本来就往四周洇一点，为它让位反而会让整行文字左右跳。 */
+:root[data-privacy-mask="on"] [data-private-word] {
+  display: inline-block;
+  filter: blur(5px);
+  /* 糊掉的字仍占原宽度：后面那几个字的位置不变，界面不会重排 */
+  overflow: visible;
 }
 
 /* ── 顶栏「展示模式」徽标 ──────────────────────────────────────────────── */

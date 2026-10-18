@@ -1,6 +1,6 @@
 # U-Time
 
-> **By 梁逸乐（Yile Liang）** · 设计与开发
+> **By 梁逸乐（Yile Liang） · momoni · lele · liangyile** · 设计与开发
 
 > v0.11.4：插件启停改为滑块；主 UI 采用 Icons8 / iGoutu iOS Filled 图标；警大通知正文展开/收起加入平滑动画。
 

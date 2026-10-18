@@ -1,7 +1,7 @@
 {
   "id": "pomodoro",
   "name": "番茄专注",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "author": "U-Time内置",
   "icon": "hourglass-half",
   "description": "环形番茄钟：可关联任务，预设或自定义时长；专注与休息提醒分别设置，完成记录计入统计。",

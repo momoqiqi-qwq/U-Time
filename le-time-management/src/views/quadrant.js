@@ -9,6 +9,15 @@ import { getKeywordHighlights, highlightedText } from "../keywordHighlights.js";
 import { getTaskPreferences } from "../taskPreferences.js";
 import { createKeyedNodes } from "../keyedNodes.js";
 import { withSearchGlyph } from "../searchField.js";
+import { emptyArt } from "../emptyArt.js";
+
+// v0.249.0 空象限的线稿说明：跟各象限 tip 同一口径（I 别再犹豫 / II 复利 / III 批量 / IV 休息）。
+const EMPTY_COPY = {
+  1: "现在没有火烧眉毛的事。真来了，别再犹豫，先做掉",
+  2: "重要不急的事最值得投入 —— 像复利一样慢慢长大",
+  3: "琐碎的事攒成一摞，批量处理更省心",
+  4: "这里空着正好，把时间留给真正的休息",
+};
 
 // 展开状态跨重渲染保持
 const expandedCards = new Set();
@@ -473,6 +482,12 @@ function attachListDrag(list) {
   return { cancel };
 }
 
+function emptyArtNode(q) {
+  const node = emptyArt(`q${q}`, EMPTY_COPY[q]);
+  node.classList.add("q-empty");
+  return node;
+}
+
 function quadrantCell(def, matches) {
   const list = el("div", { class: "tks" });
   const trash = el("div", { class: "task-trash-target", "aria-hidden": "true" },
@@ -484,7 +499,7 @@ function quadrantCell(def, matches) {
     el("div", { class: "qh" }, el("span", { class: "sq" }), el("b", {}, def.title),
       el("span", { class: "cnt" })),
     el("div", { class: "tip" }, def.tip),
-    list, trash,
+    list, emptyArtNode(def.q), trash,
   );
 
   // 先注册横滑，再注册拖拽：同一次 pointermove 里横向手势能优先声明所有权。
@@ -509,6 +524,8 @@ function quadrantCell(def, matches) {
     reconcileCards(tasks.map((task) => ({ key: task.id,
       signature: JSON.stringify([task, scheduled.get(task.id), appearance]), create: () => taskCard(task, scheduled.get(task.id)) })));
     cell.querySelector(".cnt").textContent = `${tasks.filter((t) => !t.done).length} 项`;
+    // 只有象限里真的一条任务都没有才出插画；被搜索 / 筛选筛空的不算（见 ui-accents.css）
+    cell.classList.toggle("is-empty", S.tasksOfQuad(def.q).length === 0);
   };
   renderList();
   cell._refresh = renderList;

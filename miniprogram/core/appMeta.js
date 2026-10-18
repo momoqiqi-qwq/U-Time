@@ -1,9 +1,9 @@
 // Generated/synchronized by tools/sync-version.js. Keep product copy here, version is checked automatically.
 module.exports = {
   name: "U-Time",
-  version: "0.243.0",
+  version: "0.250.0",
   edition: "微信小程序版",
-  author: "梁逸乐 (Yile Liang)",
+  author: "梁逸乐 (Yile Liang / momoni / lele / liangyile)",
   frameworks: ["微信小程序原生运行时", "CommonJS JavaScript", "与 Tauri 端同源的数据模型/时间解析"],
   releaseNotes: [
     "新增原生课程表、网页收藏、RSS 信息流；内置插件 15 个中 13 个有原生适配入口（联网能力需配置）",

@@ -59,6 +59,7 @@ export function createAboutCard(info, registry = []) {
           el("span", { class: "about-author-label" }, "By"),
           el("b", {}, AUTHOR.name),
           el("span", { class: "about-author-latin" }, AUTHOR.latin),
+          (AUTHOR.aliases || []).map((alias) => el("span", { class: "about-author-alias" }, alias)),
           el("span", { class: "about-author-role" }, AUTHOR.role),
         ),
       ),

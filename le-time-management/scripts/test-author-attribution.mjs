@@ -11,6 +11,9 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
 const CN = "梁逸乐";
 const EN = "Yile Liang";
+// v0.245.1：作者账号 / 昵称并入署名（用户原话「by momoni lele liangyile 添加到作者上面去」）。
+const ALIASES = ["momoni", "lele", "liangyile"];
+const FULL = `${CN} (${EN} / ${ALIASES.join(" / ")})`;
 
 const aboutData = read("../src/aboutData.js");
 const aboutCard = read("../src/views/aboutCard.js");
@@ -34,6 +37,14 @@ assert.ok(aboutData.includes(CN) && aboutData.includes(EN), `AUTHOR 常量里要
 for (const field of ["name", "latin", "role"]) {
   assert.match(aboutData, new RegExp(`${field}:\\s*"`), `AUTHOR 缺少 ${field} 字段`);
 }
+// 别名必须写在 AUTHOR 里、且三处渲染与样式都在，否则「关于」页会少名字。
+for (const alias of ALIASES) {
+  assert.ok(aboutData.includes(`"${alias}"`), `AUTHOR.aliases 缺少别名「${alias}」`);
+}
+assert.match(aboutData, /aliases:\s*\[/, "AUTHOR 必须有 aliases 数组");
+assert.match(aboutCard, /AUTHOR\.aliases/, "关于页必须渲染 AUTHOR.aliases");
+assert.match(aboutCard, /class:\s*"about-author-alias"/, "别名要用 .about-author-alias 渲染");
+assert.ok(styles.includes(".about-author-alias"), "缺少别名样式：.about-author-alias");
 assert.match(aboutCard, /import \{[^}]*\bAUTHOR\b[^}]*\} from "\.\.\/aboutData\.js"/, "aboutCard 必须导入 AUTHOR");
 assert.match(aboutCard, /class:\s*"about-author"/, "关于页必须真的渲染作者行");
 assert.ok(aboutCard.includes("AUTHOR.name") && aboutCard.includes("AUTHOR.latin"), "作者行要用常量而不是硬编码姓名");
@@ -46,22 +57,25 @@ assert.ok(!/#[0-9a-fA-F]{3,8}\b/.test(authorBlock), "作者行样式里不许写
 assert.ok(!/rgb\(|hsl\(/.test(authorBlock), "作者行样式里不许写死 rgb()/hsl() 色值");
 
 // 2) 桌面壳与三份打包元数据。
-assert.match(indexHtml, new RegExp(`<meta name="author" content="${CN} \\(${EN}\\)"`), "index.html 缺少 meta author");
-assert.equal(pkg.author, `${CN} (${EN})`, "package.json 的 author 与署名写法不一致");
-assert.match(cargo, new RegExp(`^authors = \\["${CN} \\(${EN}\\)"\\]$`, "m"), "Cargo.toml 的 authors 与署名写法不一致");
-assert.equal(tauriConf.bundle.publisher, `${CN} (${EN})`, "tauri.conf.json 缺少 bundle.publisher");
+assert.ok(indexHtml.includes(`<meta name="author" content="${FULL}"`), "index.html 缺少 meta author");
+assert.equal(pkg.author, FULL, "package.json 的 author 与署名写法不一致");
+assert.match(cargo, new RegExp(`^authors = \\["${CN} \\(${EN} / ${ALIASES.join(" / ")}\\)"\\]$`, "m"), "Cargo.toml 的 authors 与署名写法不一致");
+assert.equal(tauriConf.bundle.publisher, FULL, "tauri.conf.json 缺少 bundle.publisher");
 assert.ok(tauriConf.bundle.copyright.includes(CN), "tauri.conf.json 的 bundle.copyright 必须带作者名");
+assert.ok(tauriConf.bundle.copyright.includes(ALIASES[0]), "tauri.conf.json 的 bundle.copyright 必须带别名");
 
 // 3) 小程序：元数据 + 设置页「关于」区。
-assert.equal(appMeta.match(/author:\s*"([^"]+)"/)?.[1], `${CN} (${EN})`, "appMeta.js 的 author 与署名写法不一致");
+assert.equal(appMeta.match(/author:\s*"([^"]+)"/)?.[1], FULL, "appMeta.js 的 author 与署名写法不一致");
 assert.match(mpSettings, /\{\{about\.author\}\}/, "小程序设置页关于区没有渲染 about.author");
 
 // 4) 文档与说明：三份 README、开源说明、五个文档页脚。
 for (const [label, text] of [["根 README", rootReadme], ["le-time-management/README", appReadme], ["miniprogram/README", mpReadme], ["OPEN_SOURCE_NOTICES", notices]]) {
   assert.ok(text.includes(CN), `${label} 缺少作者署名`);
+  assert.ok(text.includes(ALIASES[0]) && text.includes(ALIASES[2]), `${label} 的署名缺少作者别名`);
 }
 for (const [name, html] of docPages) {
   assert.ok(html.includes(CN), `docs/${name} 页脚缺少作者署名`);
+  assert.ok(html.includes(ALIASES[0]), `docs/${name} 页脚缺少作者别名`);
 }
 
-console.log("PASS: 作者署名（关于页 / 三份打包元数据 / 小程序 / 三份 README / 开源说明 / 五个文档页脚）");
+console.log("PASS: 作者署名（关于页含别名胶囊 / 三份打包元数据 / 小程序 / 三份 README / 开源说明 / 五个文档页脚）");

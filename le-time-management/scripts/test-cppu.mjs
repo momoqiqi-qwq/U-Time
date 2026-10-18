@@ -162,7 +162,10 @@ assert.equal(await restoreCookies(),true);
 assert.equal(state.sid,'restored-sid');
 assert.equal(state.token,'saved-token');
 assert.equal(calls[0][0],'restore');
-assert.ok(source.includes('if (await loadPage(1)) { buildMain(el); return true; }'), '恢复的门户票据必须先验证，失效后继续走密码兜底');
+// v0.245.0 起这一支里多了「记上次自动登录时间」的记账（markLoginAt），v0.247.0 起首屏可能
+// 已用本地缓存画过（paintAfterLoad），断言只锁「先验票据、验过才把界面刷出来」这条顺序，
+// 不再按整行字面量匹配。
+assert.match(source, /if \(await loadPage\(1\)\) \{[^}]*(buildMain|paintAfterLoad)\(el\); return true; \}/, '恢复的门户票据必须先验证，失效后继续走密码兜底');
 assert.ok(!source.includes('if (state.token) { buildMain(el); return; }'), '每次重新进入插件都必须验证内存票据，不能直接信任旧 token');
 
 // 只有主 SSO CASTGC 可用时，应逐段走完主 SSO → bridge → sso-jw → portal。

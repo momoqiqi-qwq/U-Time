@@ -16,7 +16,7 @@ assert.match(shell, /market-plugin-switch/);
 assert.match(pluginSettings, /plugin-enable-switch/);
 // v0.42.0：主导航图标从 Icons8 iOS Filled CDN 直链改为随包 Color PNG（icons/nav/），与插件图标同一方案
 assert.match(icons, /icons\/\$\{bundledDir\}\/\$\{key\}\.png/);
-assert.match(icons, /bundled nav PNG \(Icons8 Color\)/);
+assert.match(icons, /bundled nav PNG \(flat masters\)/); // v0.250.0 起随包 PNG 来自自有母版
 assert.match(cppu, /pp-detail-shell/);
 assert.match(cppu, /grid-template-rows:0fr/);
 assert.match(cppu, /setCardExpanded\(card, false\)/);

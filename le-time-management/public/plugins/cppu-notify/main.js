@@ -42,6 +42,9 @@
   // 获奖名单视图（cppu-award）：获奖信息只在通知正文里，所以它得先把通知列表往回翻够页，
   // 再逐条读正文筛选。上限写死是为了别把一次刷新变成几百个详情请求。
   const AWARD_CACHE_KEY = "awardBoardCache";
+  // 大块可重抓的缓存走 tide.cache（宿主 v0.248.0 起，落独立文件、不进 data.json）；
+  // 旧宿主 / 测试桩没有它时退回 tide.storage，行为与以前一致。
+  const cacheStore = tide.cache || tide.storage;
   // 解析口径版本：缓存里存的是**解析结果**（不是正文），口径一变旧结果就不能再拿来看 ——
   // v2 之前「单行单名」只看「正文出现过级别行」，把落款与附件字体名 / 样式名（等线 / 仿宋 /
   // 无列表 / 教务处）一起收进了名单。这里不做迁移，版本不符就整份丢掉重新同步（正文在门户上）。
@@ -170,6 +173,8 @@
     sideOpen: false,       // 校园服务栏：默认收起。只活在本次插件会话里，重进插件回到收起
     jwOpen: true,          // 「教务」子菜单：默认展开 —— 这四个入口升级前本来就露在侧栏上，
                            // 默认收起等于把已有功能藏到一次点击之后。同样只活在本次会话里。
+    loginAt: 0,            // 上次自动登录成功的时间戳（storage autoLoginAt）：登录页拿它解释「为什么还是要我登录」
+    viewOpen: 0,           // 当前挂着的视图数：>0 说明前台正占着会话，启动预热不许插手
   };
   let ui = null, io = null, sentinelCb = null, paintToken = 0, autoRefreshTimer = null;
   let filterOutsideHandler = null; // 筛选下拉的「点外部收回」监听，重进插件时替换旧监听
@@ -357,17 +362,24 @@
       .pp-toggle{display:flex;align-items:center;gap:6px;font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;cursor:pointer;user-select:none}
       .pp-toggle i{width:34px;height:19px;border-radius:10px;background:#D8D2C6;display:inline-block;position:relative;transition:.15s}
       .pp-toggle i::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:.15s}
-      .pp-toggle.on i{background:#2EC4B6}
-      .pp-toggle.on i::after{left:17px}
+      .pp-toggle.on i{background:var(--deep,#0F4C5C)}
+      .pp-toggle.on i::after{left:17px;background:var(--on-deep,#fff)}
       .pp-status{font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;margin:2px 0 8px}
       .pp-status .err{color:#B03535}
-      .pp-month{font-size:calc(12.5px * var(--ui-text-scale));font-weight:700;color:#0F4C5C;padding:9px 2px 7px;letter-spacing:.05em}
+      .pp-month{font-size:calc(12.5px * var(--ui-text-scale));font-weight:700;color:var(--deep,#0F4C5C);padding:9px 2px 7px;letter-spacing:.05em}
       .pp-card{background:#fff;border:1px solid #E4DFD6;border-radius:14px;padding:12px 14px;margin-bottom:9px;cursor:pointer;content-visibility:auto;contain-intrinsic-size:auto 74px;transition:border-color .28s ease,box-shadow .28s ease,background .28s ease}
       .pp-card.open{border-color:#D5DED9;box-shadow:0 7px 24px rgba(34,48,58,.055)}
       .pp-heading{display:block;width:100%;text-align:left;background:transparent;border:0;color:inherit;padding:4px 0;cursor:pointer;font-family:inherit;min-height:44px}
       .pp-expand{margin-top:10px;min-height:44px;display:inline-flex;align-items:center;gap:7px;transition:background .2s ease,border-color .2s ease,color .2s ease}
       .pp-expand::after{content:"⌄";display:inline-block;font-size:calc(14px * var(--ui-text-scale));line-height:1;transform:translateY(-1px) rotate(0deg);transition:transform .36s cubic-bezier(.22,.8,.22,1)}
       .pp-card.open .pp-expand::after{transform:translateY(1px) rotate(180deg)}
+      /* v1.64.0：「展开正文」收成卡片右上角一颗圆形箭头，文字只留给读屏（span 文案与 aria-expanded 照旧切换）；
+         标题右侧让出位置，不被箭头压住。以前每张卡片底部一个文字按钮，长列表里像一排重复的噪音。 */
+      .pp-card{position:relative}
+      .pp-card .pp-heading{padding-right:42px}
+      .pp-expand{position:absolute;top:10px;right:10px;margin:0;width:36px;height:36px;min-height:36px;padding:0;justify-content:center;gap:0;border-radius:50%}
+      .pp-expand>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+      @media(max-width:600px){.pp-expand{top:6px;right:6px;width:44px;height:44px;min-height:44px}.pp-card .pp-heading{padding-right:50px}}
       .pp-heading:focus-visible,.pp-btn:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
       @media(max-width:600px){.pp-wrap{width:100%;min-width:0}.pp-login{margin:12px auto;padding:20px 16px;max-width:100%;box-sizing:border-box}.pp-title{font-size:calc(17px * var(--ui-text-scale))!important}.pp-meta{font-size:calc(13px * var(--ui-text-scale))!important}.pp-detail .c{font-size:calc(16px * var(--ui-text-scale))!important;max-height:none!important;overflow-wrap:anywhere}.pp-btn,.pp-chip{min-height:44px;font-size:calc(14px * var(--ui-text-scale))!important}.pp-kwbox{width:100%;flex-basis:100%;box-sizing:border-box}.pp-kwbox>.pp-kw{min-height:44px}.pp-card{padding:14px;cursor:default}.pp-caprow input{min-width:0}.pp-detail .pp-act{flex-wrap:wrap}}
       .pp-card:hover{background:#FBFAF5;border-color:#D8D2C4}
@@ -455,6 +467,9 @@
       .pp-side-toggle:hover,.pp-side-toggle:active{background:var(--paper)}
       .pp-side-toggle:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
       .pp-shell:not(.side-collapsed) .pp-side-toggle{max-width:0;max-height:0;padding-top:0;padding-bottom:0;padding-left:0;padding-right:0;margin-right:0;border-width:0;opacity:0;pointer-events:none}
+      /* v1.64.0：桌面端收起后的把手改成贴在左缘的竖排标签，不再横着占一整个按钮宽、把正文往右推。
+         只改排版方向，收 / 展的 max-width 过渡（上一条）照旧；窄屏仍是横向按钮。 */
+      @media(min-width:721px){.pp-shell.side-collapsed .pp-side-toggle{writing-mode:vertical-rl;padding:12px 7px;gap:6px;letter-spacing:.18em;border-radius:10px}}
       /* 头部：就是一个「收起」按钮（与收起后的把手 .pp-side-toggle 同一套视觉）。
          原来这里是 10.5px 灰金小字标题 + 右上角 18px 小三角，两个都太弱（v1.5.0 换成按钮）；
          当时还留着一条 border-bottom 分隔线，可卡片边框 + 这条线正好把头部圈成一个多余的方框，
@@ -728,6 +743,7 @@
     state.autoRefresh = await tide.storage.get("autoRefresh", true) !== false;
     state.loginRetries = cleanLoginRetries(await tide.storage.get("loginRetries", 2));
     state.seen = new Set(await tide.storage.get("seen", []));
+    state.loginAt = Number(await tide.storage.get("autoLoginAt", 0)) || 0;
     if (state.autoLogin && typeof tide.vault?.get === "function") {
       try { state.savedPassword = JSON.parse((await tide.vault.get("secret")) || "null")?.password || ""; } catch { state.savedPassword = ""; }
     }
@@ -751,12 +767,12 @@
         const key = itemKey(item), detail = state.details[key];
         if (detail && !detail.loading && !detail.error) details[key] = detail;
       }
-      await tide.storage.set("noticeCache", { username: state.username, notices, details, at: state.fetchedAt });
+      await cacheStore.set("noticeCache", { username: state.username, notices, details, at: state.fetchedAt });
     } catch { /* 写失败不影响已加载页面 */ }
   }
   async function restoreNoticeCache() {
     try {
-      const cache = await tide.storage.get("noticeCache", null);
+      const cache = await cacheStore.get("noticeCache", null);
       if (!cache || cache.username !== state.username || !Array.isArray(cache.notices)) return false;
       state.notices = cache.notices;
       state.details = cache.details && typeof cache.details === "object" ? cache.details : {};
@@ -770,6 +786,14 @@
     state.error = `登录或连接失败，正在显示缓存（${state.fetchedAt ? new Date(state.fetchedAt).toLocaleString("zh-CN") : "更新时间未知"}）。${error || "点这条状态条或上方「刷新」可重试，需要重新登录时点「重新登录」。"}`;
     buildMain(el);
     return true;
+  }
+
+  /* 本地缓存已经画过首屏时，网络回来只重画内容，别再 buildMain 重建整页 ——
+     重建会把刚渲染好的列表整段替换掉，阅读位置回到顶部，还会闪一帧。 */
+  let cacheFirstPaint = false;
+  function paintAfterLoad(el) {
+    if (cacheFirstPaint && el && el.isConnected) { paintAll(); return; }
+    buildMain(el);
   }
 
   /* ── 登录态持久化：Cookie 存密钥库，重启后恢复会话免验证码 ── */
@@ -802,12 +826,16 @@
 
   async function clearSavedLogin() {
     state.savedPassword = "";
+    state.loginAt = 0;
     forgetPdataAuth();
     jwSid = null;
     jwState.data = { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null };
     try {
       await tide.vault?.del?.("secret");
       await tide.vault?.del?.("cookies");
+      // 预热/登录时间戳一起清掉：留着会让下一个人（或清号后的自己）在登录页看到上一个人的登录时间。
+      await Promise.resolve(tide.storage.set("autoWarmAt", 0));
+      await Promise.resolve(tide.storage.set("autoLoginAt", 0));
     } catch { /* ignore */ }
   }
 
@@ -1092,6 +1120,27 @@
   let loginHint = null;
   const loginErrorText = e => String(e?.fatal || e?.retry || e?.message || "登录未成功");
 
+  /* 验证码「先看清再提交」（v0.246.0）：SSO 的验证码与会话绑定，一张图只能提交一次，
+     识别结果不管多模糊都直接 POST 等于白烧一次尝试（自动重试上限才 2 次）。现在置信度
+     偏低就原地换一张图重认，并且**始终提交最后那张图自己的识别结果** —— 换成旧图会
+     必然对不上，等于把重试次数手动烧掉。 */
+  const CAPTCHA_MIN_CONFIDENCE = 0.34;   // classify() 的相似度下限是 0.18，这里取「明显更清楚」的一档
+  const CAPTCHA_RESHOTS = 2;             // 最多再换两张，别把一次登录拖成验证码批发
+
+  /* 读一张验证码并识别到「够清楚」为止；始终不够清楚也把最后一次结果交出去试一次。 */
+  async function readCaptchaCode(checkActive) {
+    let last = null;
+    for (let shot = 0; shot <= CAPTCHA_RESHOTS; shot++) {
+      if (shot) { await fetchCaptcha(); checkActive(); }
+      last = await OCR.recognize(state.captcha);
+      if (!last?.code) return last;
+      // 老宿主 / 测试桩不给 confidence（非有限数）时按「可用」处理，不额外换图。
+      const conf = Number(last.confidence);
+      if (!Number.isFinite(conf) || conf >= CAPTCHA_MIN_CONFIDENCE) return last;
+    }
+    return last;
+  }
+
   async function runLoginAttempts({ username, password, code = "", onRetry = () => {}, isActive = () => true }) {
     if (loginBusy) throw { fatal: "已有登录正在进行，请稍候" };
     loginBusy = true;
@@ -1114,7 +1163,7 @@
             state.sid = null; await newSession(); checkActive();
             state.pending = { username, password, execution: await fetchLoginHtml() };
             await fetchCaptcha(); checkActive();
-            const ocr = await OCR.recognize(state.captcha);
+            const ocr = await readCaptchaCode(checkActive);
             if (!ocr?.code) throw { retry: "验证码未识别，请手动填写", retryable: true };
             code = ocr.code; samples = ocr.samples; recognized = true;
           } else {
@@ -1140,6 +1189,59 @@
     }
   }
 
+  /* 「上次自动登录」只给登录页做解释用；写盘失败不影响登录本身。 */
+  function markLoginAt(at = Date.now()) {
+    state.loginAt = at;
+    return Promise.resolve(tide.storage.set("autoLoginAt", at)).catch(() => {});
+  }
+
+  /* ── 启动预热（v0.246.0）──
+     门户的 rememberMe 只保 5 天，而且「用一次」才顺延。过去只有打开本插件视图才碰登录
+     态 ⇒ 隔几天再点开，第 6 天回来必弹验证码。现在应用启动 8 秒后在后台静默续期一次
+     （12 小时频控），把 CASTGC 的使用时间推后：代价是每半天 2~4 个请求，换来「打开插件
+     就是已登录」。只在没有视图占着会话时做，绝不与前台登录抢 state.sid。 */
+  const WARM_DELAY_MS = 8000;
+  const WARM_EVERY_MS = 12 * 60 * 60 * 1000;
+  let warmBusy = false, warmPromise = null;
+
+  async function warmSession() {
+    // 测试沙箱用 vm 造了 document 却没有 window：不排程、不发请求。
+    if (typeof window === "undefined") return false;
+    if (warmBusy || loginBusy || state.sid || state.viewOpen) return false;
+    if (typeof tide.vault?.get !== "function") return false;
+    const last = Number(await tide.storage.get("autoWarmAt", 0)) || 0;
+    if (Date.now() - last < WARM_EVERY_MS) return false;
+    warmBusy = true;
+    warmPromise = (async () => {
+      try {
+        await loadPrefs();
+        // 用户关掉自动登录、或没记住账号时不做后台登录 —— 后台登录只能在用户不知情时用账号密码，
+        // 这两项就是「他授权过」的全部凭据。
+        if (state.autoLogin === false || !state.username) return false;
+        if (!(await restoreCookies())) return false;
+        if (!(await silentRenew())) return false;
+        await saveCookies();
+        await markLoginAt();
+        return true;
+      } catch { return false; }
+      finally { warmBusy = false; }
+    })();
+    // 频控时间无论成败都记：网络抖动不该让下一次启动又立刻重试一遍。
+    try { return await warmPromise; }
+    finally { await Promise.resolve(tide.storage.set("autoWarmAt", Date.now())).catch(() => {}); }
+  }
+
+  function scheduleWarm() {
+    if (typeof window === "undefined" || typeof window.setTimeout !== "function") return;
+    const run = () => { warmSession().catch(() => {}); };
+    try {
+      window.setTimeout(run, WARM_DELAY_MS);
+      // 长期开着的应用（挂几天不关）也要一直把票据推着走：每 12 小时再叫一次，
+      // 闸门（前台会话/开关/频控）在 warmSession 里各自生效，叫了不等于会做。
+      if (typeof window.setInterval === "function") window.setInterval(run, WARM_EVERY_MS);
+    } catch { /* ignore */ }
+  }
+
   /* 密码兜底与人工按钮共享重试边界、退避和全新会话流程。 */
   async function passwordAutoLogin() {
     loginHint = null;
@@ -1147,7 +1249,8 @@
     try {
       await runLoginAttempts({ username: state.username, password: state.savedPassword });
       await persistCredentials(state.savedPassword);
-      await saveCookies();
+      saveCookies().catch(() => {});   // 票据落盘不挡首屏：晚几百毫秒写进密钥库不影响这次使用
+      markLoginAt();
       tide.notify("已自动完成登录（含验证码识别）");
       return true;
     } catch (error) {
@@ -1173,27 +1276,30 @@
     } catch { state.captcha = ""; }
   }
 
-  async function autoLogin(el) {
-    // ① 恢复上次会话票据（CASTGC 有效期内直达，不碰验证码）
-    const restored = await restoreCookies();
-    if (!restored) await newSession();
+  async function autoLogin(el, restored) {
+    // 启动预热正拿着会话找续期时先等它 —— 它做的正是第 ① 步，并行只会互相踩 state.sid。
+    if (warmBusy && warmPromise) { try { await warmPromise; } catch { /* 预热失败按无票据处理 */ } }
+    // ① 恢复上次会话票据（CASTGC 有效期内直达，不碰验证码）；render 已并发读好时直接用
+    const hasCookies = restored === undefined ? await restoreCookies() : await restored;
+    if (!hasCookies) await newSession();
     if (state.token) {
       // Cookie 中的 tp_up 可能已过期：先用列表接口做真实校验，失败后继续走
       // 主 SSO/密码兜底，不能把用户留在只有“会话过期”的空列表页。
-      if (await loadPage(1)) { buildMain(el); return true; }
+      if (await loadPage(1)) { markLoginAt(); paintAfterLoad(el); return true; }
       state.token = "";
       state.error = null;
     }
     if (await silentRenew()) {
-      await saveCookies();
+      saveCookies().catch(() => {});   // 同上：先让列表页走起来，票据稍后落盘
+      markLoginAt();
       tide.notify("已自动恢复门户登录，正在打开通知");
-      buildMain(el);
+      paintAfterLoad(el);
       loadPage(1);
       return true;
     }
     // ② 票据失效：有保存的密码就走「验证码识别 + 换图重试」全自动登录
     if (await passwordAutoLogin()) {
-      buildMain(el);
+      paintAfterLoad(el);
       loadPage(1);
       return true;
     }
@@ -3840,7 +3946,7 @@
 
   async function saveAwardCache() {
     try {
-      await tide.storage.set(AWARD_CACHE_KEY, {
+      await cacheStore.set(AWARD_CACHE_KEY, {
         ver: AWARD_CACHE_VER,
         username: state.username,
         syncedAt: awState.syncedAt,
@@ -3850,7 +3956,7 @@
   }
   async function restoreAwardCache() {
     try {
-      const cache = await tide.storage.get(AWARD_CACHE_KEY, null);
+      const cache = await cacheStore.get(AWARD_CACHE_KEY, null);
       if (!cache || cache.username !== state.username || !Array.isArray(cache.records) || !cache.records.length) return false;
       // 旧口径（ver < AWARD_CACHE_VER）的解析结果里混着等线 / 仿宋 / 无列表 / 教务处，
       // 直接作废：这一轮重新扫一遍正文，榜单才是干净的。
@@ -4342,7 +4448,7 @@
         cardState.balanceError = error?.message || "余额同步失败";
       }
       cardState.syncedAt = Date.now();
-      await tide.storage.set(CARD_CACHE_KEY, {
+      await cacheStore.set(CARD_CACHE_KEY, {
         rows: cardState.rows, syncedAt: cardState.syncedAt,
         balance: cardState.balance, balanceAt: cardState.balanceAt, billsPartial: cardState.billsPartial,
       });
@@ -4491,7 +4597,7 @@
     selectPage('summary');
     const ready=(async()=>{
       try {
-        const cache=await tide.storage.get(CARD_CACHE_KEY,null);
+        const cache=await cacheStore.get(CARD_CACHE_KEY,null);
         if(!alive)return;
         cardState.rows=cardCleanRows(cache?.rows||[]);cardState.syncedAt=Number(cache?.syncedAt||0);
         cardState.billsPartial=!!cache?.billsPartial||(cache?.rows?.length||0)>=5000;
@@ -4515,6 +4621,17 @@
   }
 
   /* ── 登录界面 ── */
+  /* 「上次自动登录：…」——票据过了 5 天失效时，这句话是唯一能说明不是白记了账号的证据。 */
+  function loginAtText() {
+    const t = Number(state.loginAt) || 0;
+    if (!t) return "";
+    try {
+      const d = new Date(t);
+      const pad = n => String(n).padStart(2, "0");
+      return `上次自动登录：${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}。`;
+    } catch { return ""; }
+  }
+
   function paintLogin(el, errMsg, opts = {}) {
     const hasSaved = !!state.username;
     const canVault = typeof tide.vault?.get === "function";
@@ -4524,7 +4641,7 @@
       <h3>登录智慧警大门户</h3>
       <div class="d">中国人民警察大学统一门户（portal-jw.cppu.edu.cn）。系统会先自动恢复上次会话，失败后自动识别验证码完成登录；都行不通才需要在这里核对信息。</div>
       <div class="d"><b>自动登录状态：</b>记住账号 ${state.rememberUsername ? "✓" : "✗"} · 票据静默续期 ✓ · 加密保存密码 ${state.autoLogin && canVault ? "✓" : "✗"} · 验证码自动识别 ✓</div>
-      ${hasSaved ? `<div class="saved">已自动填入账号 ${esc(state.username)}${state.autoLogin && state.savedPassword ? "与保存的密码" : ""}。验证码会自动识别预填，核对无误直接点「登 录」即可。</div>` : ""}
+      ${hasSaved ? `<div class="saved">已自动填入账号 ${esc(state.username)}${state.autoLogin && state.savedPassword ? "与保存的密码" : ""}。${loginAtText()}验证码会自动识别预填，核对无误直接点「登 录」即可。</div>` : ""}
       <label>学号 / 用户名</label><input data-u aria-label="学号 / 用户名" type="text" value="${esc(state.username)}" autocomplete="off">
       <label>密码</label><input data-p aria-label="密码" type="password" autocomplete="current-password" value="${esc(state.autoLogin ? state.savedPassword : "")}">
       <label>验证码</label>
@@ -4700,7 +4817,6 @@
     el.innerHTML = `<div class="${sideShellClass()}">
       <aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}
       <div class="pp-main"><div class="pp-wrap">
-      <div style="font-size:calc(11px * var(--ui-text-scale));letter-spacing:.3em;color:#7E8B94;margin:16px 0 4px">警 大 门 户 通 知 · 内 置 插 件</div>
       <div class="pp-toolbar">
         <button class="pp-btn pri" data-refresh>刷新</button>
         <span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span><input class="pp-kw" data-kw type="text" aria-label="关键词过滤：标题 / 发布人 / 单位 / 分类" title="关键词过滤：标题 / 发布人 / 单位 / 分类" placeholder=""></span>
@@ -4819,6 +4935,7 @@
 
   function render(el) {
     let disposed = false;
+    cacheFirstPaint = false;
     stopAutoRefresh();
     ensureStyle();
     el.innerHTML = `<div class="${sideShellClass()}"><aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}<div class="pp-main">`
@@ -4828,12 +4945,29 @@
     loadLinkMeta(el);
     // 整页等待：loadPrefs → 验票据/自动登录 → 首屏数据，走完才撤蒙版（抛错也撤）。
     const releaseWait = waitMask("正在载入警大门户通知…");
+    // 偏好走 storage、票据走密钥库，是两条互不依赖的通道：并发取，autoLogin 直接用读好的
+    // 那份，首屏少一个串行往返；票据读失败只当「没存过」，不影响下面的兜底链路。
+    // 预热正在换票时必须排在它后面读 —— 两边各自 restore 一个新会话，会把 state.sid 中途换掉。
+    const waitingWarm = warmBusy && warmPromise ? warmPromise.catch(() => {}) : Promise.resolve();
+    const sessionReady = waitingWarm.then(() => restoreCookies()).catch(() => false);
+    state.viewOpen++;
     loadPrefs().then(async () => {
+      if (disposed) return;
+      // ① 手里有上次的列表就先把内容画上屏（stale-while-revalidate，与「学生成长」v1.58.0 同口径）：
+      //    过去 render 无论有没有缓存都挂整屏蒙版等完登录 + 首屏请求，二次进入也要空等一个往返。
+      //    缓存按账号隔离（restoreNoticeCache 里比 username），换账号不会串台；画完立刻撤蒙版，
+      //    下面的校验/登录/刷新在后台跑，数据回来只重画内容（paintAfterLoad）。
+      cacheFirstPaint = false;
+      if (await restoreNoticeCache() && !disposed) {
+        cacheFirstPaint = true;
+        buildMain(el);
+        releaseWait();
+      }
       if (disposed) return;
       // 每次进入都重新验证票据，避免插件在应用内放置较久后拿着过期 token 直接进空列表。
       // 自动登录三级链路：恢复票据静默续期 → 保存的密码 + 验证码识别 → 人工表单（预填）
       let ok = false;
-      try { ok = await autoLogin(el); }
+      try { ok = await autoLogin(el, sessionReady); }
       catch (error) { ok = await showNoticeCache(el, loginErrorText(error)); }
       if (disposed) return;
       // autoLogin 失败路径里已经 paintLogin（含预填）；这里只兜「无凭据直接表单」
@@ -4842,7 +4976,7 @@
         paintLogin(el, "");
       }
     }).finally(releaseWait);
-    return () => { disposed = true; releaseWait(); stopAutoRefresh(); io?.disconnect(); };
+    return () => { if (!disposed) state.viewOpen--; disposed = true; releaseWait(); stopAutoRefresh(); io?.disconnect(); };
   }
 
   /* 警大校历（v0.216.0 从独立插件 cppu-calendar 并进来）：视图主体在 calendar.js，

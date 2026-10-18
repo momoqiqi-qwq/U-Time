@@ -87,7 +87,8 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   // 用户往下拖时以卡片当前实际高度为起点起算，往上拖则受内容高度限制（不会裁掉文字）。
   marketCardWidth: 180,
   marketCardHeight: 0,
-  // 隐私展示模式（v0.234.0）：人脸模糊 + 数字 9 化 + 三维图全满，见 src/privacyMask.js。
+  // 隐私展示模式（v0.234.0 / 校名模糊 v0.245.0）：人脸模糊 + 数字 9 化 + 三维图全满
+  // + 校名模糊，见 src/privacyMask.js。
   // 默认关闭 —— 它是「给人看给别人看」的展示态，不该影响日常读数。
   privacyMask: false,
 });

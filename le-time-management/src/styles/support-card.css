@@ -1,0 +1,79 @@
+/* 赞助支持（设置 → 赞助支持）。
+   收款码是 public/support/sponsor-qr.png 一张静态图：卡内给一个可点击放大的
+   按钮壳（点一下在 300px ↔ 420px 之间过渡），不做全屏浮层 —— 浮层要自己处理
+   Android 返回键与焦点陷阱，而这里只需要「大到另一台手机扫得到」。
+   颜色全部走主题令牌，深色主题下壳子跟随面板色，图本身自带白底/绿底不变。 */
+
+.support-card { display: grid; gap: 12px; }
+.support-card h2 { margin: 0; }
+
+.support-qr {
+  justify-self: start;
+  display: block;
+  width: min(100%, 300px);
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  cursor: zoom-in;
+  transition: width .24s cubic-bezier(.22, .8, .22, 1), box-shadow .24s ease;
+}
+.support-qr:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--focus-ring); }
+.support-qr.is-zoom { width: min(100%, 420px); cursor: zoom-out; box-shadow: var(--shadow-lg); }
+.support-qr[disabled] { cursor: default; }
+
+.support-qr-img { display: block; width: 100%; height: auto; border-radius: 10px; }
+.support-qr-missing {
+  display: block;
+  padding: 30px 14px;
+  color: var(--ink-3);
+  font-size: calc(13px * var(--ui-text-scale));
+  line-height: 1.7;
+  text-align: center;
+}
+
+.support-qr-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--ink-3);
+  font-size: calc(12px * var(--ui-text-scale));
+}
+.support-qr-pay { position: relative; padding-left: 11px; }
+.support-qr-pay::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.support-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.support-actions .btn[disabled] { opacity: .5; }
+
+.support-note {
+  padding: 2px 2px 4px;
+  color: var(--ink-2);
+  font-size: calc(13px * var(--ui-text-scale));
+  line-height: 1.75;
+}
+.support-note p { margin: 0 0 8px; }
+.support-note p:last-child { margin-bottom: 0; }
+
+/* 窄屏：二维码给满宽度上限 260px，放大时直接占满内容宽 —— 手机上「点一下变大」才有意义。 */
+@media (max-width: 760px) {
+  .support-qr { width: min(100%, 260px); }
+  .support-qr.is-zoom { width: 100%; }
+}
+
+/* 减少动效：尺寸直接切换，不做位移动画（铁律：跟随应用的减少动效设置）。 */
+:root[data-ui-motion="reduced"] .support-qr { transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  .support-qr { transition: none; }
+}

@@ -89,6 +89,22 @@ await tide.storage.set("count", 1);
 const count = await tide.storage.get("count", 0);
 ```
 
+### 插件缓存（大块、可重抓的数据）
+
+通知列表、正文、账单流水这类**丢了能重新抓回来**的数据，请用 `tide.cache`（与 `tide.storage` 同一个 `storage` 权限）。
+它落在数据目录的 `plugin-cache/<插件ID>/` 下，**不进主数据文件**：主数据每次保存都要整份重写，
+几百 KB 的缓存塞在 `tide.storage` 里，会让用户改一个任务标题也跟着搬这几百 KB。
+
+```js
+await tide.cache.set("noticeList", rows);          // 值需可 JSON 序列化；传 null 等于删除
+const rows = await tide.cache.get("noticeList", []);
+await tide.cache.remove("noticeList");
+```
+
+- 以前存在 `tide.storage` 里的同名键，第一次 `tide.cache.get` 时会自动搬过来，插件只需要把调用换掉。
+- 缓存不进备份与同步，卸载插件时一并删除 —— 收藏、已读标记、偏好设置等用户亲手产生的数据仍放 `tide.storage`。
+- 浏览器调试模式下没有文件层，`tide.cache` 自动退回 `tide.storage`，行为一致。
+
 ### 插件资源
 
 ```js

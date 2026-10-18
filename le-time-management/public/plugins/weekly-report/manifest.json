@@ -1,7 +1,7 @@
 {
   "id": "weekly-report",
   "name": "周度报告",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "author": "U-Time内置",
   "icon": "chart-column",
   "description": "按周汇总：每天的时间块分布、分类占比与任务完成度，一眼看清这一周。",

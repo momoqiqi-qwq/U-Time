@@ -941,7 +941,7 @@
       .gx-toggle{display:flex;align-items:center;gap:6px;font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;cursor:pointer;user-select:none}
       .gx-toggle i{width:34px;height:19px;border-radius:10px;background:#D8D2C6;display:inline-block;position:relative;transition:.15s}
       .gx-toggle i::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:.15s}
-      .gx-toggle.on i{background:#2EC4B6}
+      .gx-toggle.on i{background:var(--deep,#0F4C5C)}.gx-toggle.on i::after{background:var(--on-deep,#fff)}
       .gx-toggle.on i::after{left:17px}
       .gx-status{font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;margin:2px 0 8px}
       .gx-status .err{color:#B03535}
@@ -1393,7 +1393,6 @@
     const wrap = document.createElement("div");
     wrap.className = "gx-wrap";
     wrap.innerHTML = `
-      <div style="font-size:calc(11px * var(--ui-text-scale));letter-spacing:.3em;color:#7E8B94;margin:16px 0 4px">竞 赛 消 息 雷 达 · 内 置 插 件</div>
       <div class="gx-toolbar"><button class="gx-link" data-home>打开源站 ↗</button></div>
       <div class="gx-toolbar">
         <button class="gx-refresh">刷新</button>

@@ -477,8 +477,11 @@ pub async fn update_download<R: Runtime>(
         return Err("更新包体积异常，已中止下载".into());
     }
 
-    let mut file =
-        std::fs::File::create(&part_path).map_err(|e| format!("无法写入缓存文件：{e}"))?;
+    // 带 256KB 缓冲：网络 chunk 往往只有几 KB，逐块直写等于下载期间在异步线程上做上万次同步系统调用。
+    let mut file = std::io::BufWriter::with_capacity(
+        256 * 1024,
+        std::fs::File::create(&part_path).map_err(|e| format!("无法写入缓存文件：{e}"))?,
+    );
     // 进度节流：按总量切成约 200 份（下限 256KB），最多发 200 次事件，别把 IPC 打满。
     let step = (total / 200).max(256 * 1024);
     let mut last_sent: u64 = 0;
@@ -505,6 +508,8 @@ pub async fn update_download<R: Runtime>(
                 let _ = app.emit("update:progress", UpdateProgress { received, total });
             }
         }
+        // BufWriter 在 drop 时会吞掉 flush 错误，必须显式 flush 才能发现磁盘写满等问题。
+        file.flush().map_err(|e| format!("写入失败：{e}"))?;
         Ok(received)
     }
     .await;

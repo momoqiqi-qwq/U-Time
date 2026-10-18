@@ -140,9 +140,10 @@ fn query_param(url: &str, key: &str) -> Option<String> {
 fn qr_svg(content: &str) -> String {
     use qrcode::render::svg;
     use qrcode::QrCode;
-    let code = QrCode::with_error_correction_level(content.as_bytes(), qrcode::EcLevel::M)
-        .map_err(|e| e.to_string())
-        .expect("qr generate");
+    // 内容超出二维码容量时返回占位图，而不是 panic —— 服务线程一崩，整个局域网联动就停了。
+    let Ok(code) = QrCode::with_error_correction_level(content.as_bytes(), qrcode::EcLevel::M) else {
+        return r#"<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><text x="10" y="95" font-size="14">二维码生成失败</text></svg>"#.to_string();
+    };
     code.render()
         .min_dimensions(180, 180)
         .dark_color(svg::Color("#143844"))
@@ -251,8 +252,10 @@ pub fn spawn_server(
                     qr_svg(&format!("{base}/m?token={token_in}")),
                 ),
                 (&tiny_http::Method::Get, "/api/state") => {
-                    let data = std::fs::read_to_string(&data_path)
-                        .unwrap_or_else(|e| format!("{{\"error\":\"{e}\"}}"));
+                    // 错误信息里可能带引号 / 反斜杠，手拼字符串会产出非法 JSON；交给 serde_json 转义。
+                    let data = std::fs::read_to_string(&data_path).unwrap_or_else(|e| {
+                        serde_json::json!({ "error": format!("读取数据失败: {}", e.kind()) }).to_string()
+                    });
                     (200, json_headers(), data)
                 }
                 // 拉之前的「电脑上是什么货」：条数 + 落盘时间 + 肯不肯收回传。只读，不落任何盘。

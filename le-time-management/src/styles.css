@@ -1990,6 +1990,8 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, te
 .about-author { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:0; color:var(--ink-3); font-size:calc(12px * var(--ui-text-scale)); }
 .about-author-label { letter-spacing:.08em; text-transform:uppercase; font-size:calc(10px * var(--ui-text-scale)); font-weight:700; }
 .about-author b { color:var(--ink); font-size:calc(13px * var(--ui-text-scale)); font-weight:750; }
+/* 作者别名（v0.244.1）：账号 / 昵称做成轻描边胶囊，跟在拉丁名后面，同样只消费既有令牌。 */
+.about-author-alias { border:1px solid var(--line); border-radius:999px; padding:0 7px; line-height:1.7; font-size:calc(11px * var(--ui-text-scale)); color:var(--ink-3); }
 .about-author-role::before { content:"·"; margin-right:6px; }
 .about-version { flex:none; border:1px solid var(--line); border-radius:999px; padding:5px 9px; font-size:calc(12px * var(--ui-text-scale)); font-weight:750; background:var(--panel); color:var(--deep); }
 .about-meta-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin:14px 0 4px; }

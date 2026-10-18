@@ -3,6 +3,9 @@
 // fanyalogin -> reusable Cookie session -> notice.chaoxing.com inbox (no IP allow-list)
 // -> courses -> full notification body -> todo extraction -> local reminders.
 (function () {
+  // 大块可重抓的缓存走 tide.cache（宿主 v0.248.0 起，落独立文件、不进 data.json）；
+  // 旧宿主 / 测试桩没有它时退回 tide.storage，行为与以前一致。
+  const cacheStore = tide.cache || tide.storage;
   const LOGIN_PAGE = "https://passport2.chaoxing.com/login?fid=&newversion=true&refer=https%3A%2F%2Fi.chaoxing.com";
   const LOGIN_URL = "https://passport2.chaoxing.com/fanyalogin";
   const INBOX_URL = "https://notice.chaoxing.com/pc/notice/getNoticeList";
@@ -647,8 +650,8 @@ const CX_PY_DATA = {
     state.workStatus = await tide.storage.get("workStatus", null) || {};
     state.lastSyncAt = Number(await tide.storage.get("lastSyncAt", 0)) || 0;
     state.refreshMode = (await tide.storage.get("refreshMode", "auto")) === "throttle" ? "throttle" : "auto";
-    const cached = await tide.storage.get("inboxCache", []);
-    if (Array.isArray(cached) && cached.length) { state.inbox = cached; state.cacheLoaded = true; }
+    const cached = await cacheStore.get("inboxCache", []);
+    if (Array.isArray(cached) && cached.length) { state.inbox = cached.map((x) => (x?.raw ? { ...x, raw: slimRaw(x.raw) } : x)); state.cacheLoaded = true; }
     state.taskbarBadge = (await tide.storage.get("taskbarBadge", true)) !== false;
     publishInbox();
     syncTaskbarBadge();
@@ -686,6 +689,10 @@ const CX_PY_DATA = {
     state.loggedIn = true; await saveAuth();
   }
 
+  // 收件箱缓存只留最近 INBOX_CACHE_MAX 条，原始字段只留正文（详情页与「转为提醒」只读 rtf_content / content）。
+  // 以前整条接口返回原样存着（每条约 3 KB，2000 条就是近 1 MB），而且放在 data.json 里随每次保存重写。
+  const INBOX_CACHE_MAX = 500;
+  const slimRaw = (it) => ({ rtf_content: it?.rtf_content ?? "", content: it?.content ?? "" });
   function normalizeNotice(it) {
     const body = stripHtml(it.rtf_content) || stripHtml(it.content);
     const id = String(it.idCode || it.id || `${it.insertTime || ""}-${it.title || ""}`);
@@ -694,7 +701,7 @@ const CX_PY_DATA = {
       id, idCode: String(it.idCode || ""), title: stripHtml(it.title || "(无标题)"), body,
       sender: stripHtml(it.createrName || it.sender || ""), time: timeText(it.insertTime || it.sendTime),
       insertTime: Number(it.insertTime || 0), unread: !(it.isread === 1 || it.isread === "1" || it.isread === true),
-      tag, courseId: (tag.match(/courseId(\d+)/i) || [])[1] || "", raw: it,
+      tag, courseId: (tag.match(/courseId(\d+)/i) || [])[1] || "", raw: slimRaw(it),
     };
   }
 
@@ -732,7 +739,7 @@ const CX_PY_DATA = {
       ids.forEach((id) => state.knownIds.add(id));
       state.inbox = normalized;
       publishInbox();
-      await tide.storage.set("inboxCache", state.inbox.slice(0, 2000));
+      await cacheStore.set("inboxCache", state.inbox.slice(0, INBOX_CACHE_MAX));
       await saveKnown(); await saveAuth();
       // 插件联动：把新通知广播给订阅方（微信推送的「插件消息」通道订阅 notice:new）。
       // 只带前 5 条，避免一次大批量把推送频次额度打爆；广播失败绝不影响抓取本身。

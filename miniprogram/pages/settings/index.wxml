@@ -55,6 +55,16 @@
     </view>
   </view>
 
+  <!-- 赞助 -->
+  <view class="card">
+    <view class="at">赞 助</view>
+    <view class="desc">U-Time 免费、本地优先、不含广告与内购。如果它确实帮你省下了时间，可以扫码请作者喝一杯咖啡。</view>
+    <view class="support-qr" bindtap="onPreviewSponsor">
+      <image class="support-qr-img" src="/images/support/sponsor-qr.png" mode="widthFix" show-menu-by-longpress />
+    </view>
+    <view class="desc support-hint">微信 / 支付宝均可扫 · 点一下放大 · 长按可保存</view>
+  </view>
+
   <!-- 关于 -->
   <view class="card">
     <view class="about-head-mini">

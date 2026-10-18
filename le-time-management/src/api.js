@@ -394,6 +394,15 @@ export const api = {
     return invoke("plugin_vault_del", { pluginId, key });
   },
 
+  // 插件缓存（tide.cache，见 src/pluginCache.js）：可重抓的大块数据落到 <数据目录>/plugin-cache，不进 data.json。
+  // 只在 Tauri 下调用 —— 非 Tauri 时 pluginCache 直接退回 storage，这里不做降级。
+  async pluginCacheGet(pluginId, key) {
+    return invoke("plugin_cache_get", { pluginId, key });
+  },
+  async pluginCacheSet(pluginId, key, value) {
+    return invoke("plugin_cache_set", { pluginId, key, value: value ?? null });
+  },
+
   // 局域网联动服务
   async lanStart(port, token, allowPush = false) {
     if (!isTauri) throw new Error("仅 Tauri 环境可用");

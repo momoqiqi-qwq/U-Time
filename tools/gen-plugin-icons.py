@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""U-Time · 图标生成器（Icons8 / iGoutu Color 彩色图标集）
+"""U-Time · 图标生成器（自有扁平母版优先，Icons8 / iGoutu Color 兜底）
+
+v0.250.0 起的首选来源：tools/icon-masters/
+    统一的扁平双色风格（柔和两档明暗、奶油色内高光、圆润几何、无描边），由 AI 按同一张风格
+    参考图逐个生成，再抠成透明底 256px 母版入库。母版是本项目自有素材，无需第三方署名。
+    tools/icon-masters/<插件ID 或 视图ID>.png   ← 插件图标 / 插件内视图图标
+    tools/icon-masters/nav/<key>.png            ← 主导航图标（capture 复用 inbox 的母版）
+    有母版就用母版（风格列记为 `master`），没有才走下面的 Icons8 线路 ——
+    新增插件时先补母版；临时没有母版也能出图，只是风格会与其余图标不一致。
+    **仍然不要手工替换输出目录里的 PNG**：改母版，再重跑本脚本。
 
 用途
     ① 把内置插件的图标统一成 Icons8「Color」彩色风格（品牌类走 3D 图标）；
@@ -45,6 +54,9 @@ DESKTOP_OUT = REPO / "le-time-management" / "public" / "icons" / "plugins"
 NAV_OUT = REPO / "le-time-management" / "public" / "icons" / "nav"
 MINI_OUT = REPO / "miniprogram" / "images" / "plugins"
 CACHE = REPO / ".workbuddy" / "icon-cache"
+MASTERS = REPO / "tools" / "icon-masters"
+# 导航 key 与母版文件不一一对应时在这里映射（快速捕获与收件箱同形）
+NAV_MASTER_ALIAS = {"capture": "inbox"}
 
 CANVAS = 81          # 画布边长，与历史素材（FA 50px 落在 81px 画布）保持一致
 GLYPH = 58           # 图形最长边，略大于历史 50px，暗色底板下更清楚
@@ -149,6 +161,12 @@ def fetch_first(style: str, candidates: list, offline: bool):
     raise SystemExit(f"候选 slug 全部失败 {style}/{candidates}：{last}")
 
 
+def master_bytes(rel: str):
+    """母版存在就返回其字节，否则 None。rel 相对 MASTERS，如 "pomodoro.png"、"nav/inbox.png"。"""
+    p = MASTERS / rel
+    return p.read_bytes() if p.exists() else None
+
+
 def normalize(raw: bytes) -> Image.Image:
     """把任意尺寸的图标缩放到 81×81 画布，图形最长边统一为 GLYPH，居中（保留透明边）。"""
     src = Image.open(io.BytesIO(raw)).convert("RGBA")
@@ -232,7 +250,12 @@ def main() -> int:
         print(f"写入 {plugin_id:20} text/{text:14} {len(data):6} B  sha256={digest[:12]}")
 
     for plugin_id, (style, slug, note) in ICONS.items():
-        img = normalize(fetch(style, slug, args.offline))
+        raw = master_bytes(f"{plugin_id}.png")
+        if raw is not None:
+            style, slug = "master", f"icon-masters/{plugin_id}.png"
+        else:
+            raw = fetch(style, slug, args.offline)
+        img = normalize(raw)
         buf = io.BytesIO()
         img.save(buf, "PNG", optimize=True)
         data = buf.getvalue()
@@ -250,7 +273,12 @@ def main() -> int:
         print(f"写入 {plugin_id:20} {style}/{slug:18} {len(data):6} B  sha256={digest[:12]}")
 
     for view_id, (candidates, note) in VIEW_ICONS.items():
-        raw, slug = fetch_first("color", candidates, args.offline)
+        raw = master_bytes(f"{view_id}.png")
+        if raw is not None:
+            vstyle, slug = "master", f"icon-masters/{view_id}.png"
+        else:
+            raw, slug = fetch_first("color", candidates, args.offline)
+            vstyle = "color"
         img = normalize(raw)
         buf = io.BytesIO()
         img.save(buf, "PNG", optimize=True)
@@ -260,17 +288,22 @@ def main() -> int:
         existing = DESKTOP_OUT / f"{view_id}.png"
         if args.check:
             same = existing.exists() and hashlib.sha256(existing.read_bytes()).hexdigest() == digest
-            print(f"{'OK ' if same else 'DIFF'} [view] {view_id:20} color/{slug}")
+            print(f"{'OK ' if same else 'DIFF'} [view] {view_id:20} {vstyle}/{slug}")
             continue
 
         existing.write_bytes(data)
         (MINI_OUT / f"{view_id}.png").write_bytes(data)
-        rows.append((view_id, "color", slug, f"{note}（插件内视图）", digest))
-        print(f"写入 [view] {view_id:20} color/{slug:18} {len(data):6} B  sha256={digest[:12]}")
+        rows.append((view_id, vstyle, slug, f"{note}（插件内视图）", digest))
+        print(f"写入 [view] {view_id:20} {vstyle}/{slug:18} {len(data):6} B  sha256={digest[:12]}")
 
     nav_rows = []
     for key, (candidates, note) in NAV_ICONS.items():
-        raw, slug = fetch_first("color", candidates, args.offline)
+        mkey = NAV_MASTER_ALIAS.get(key, key)
+        raw = master_bytes(f"nav/{mkey}.png")
+        if raw is not None:
+            slug = f"icon-masters/nav/{mkey}.png"
+        else:
+            raw, slug = fetch_first("color", candidates, args.offline)
         img = normalize(raw)
         buf = io.BytesIO()
         img.save(buf, "PNG", optimize=True)
@@ -280,22 +313,28 @@ def main() -> int:
         existing = NAV_OUT / f"{key}.png"
         if args.check:
             same = existing.exists() and hashlib.sha256(existing.read_bytes()).hexdigest() == digest
-            print(f"{'OK ' if same else 'DIFF'} [nav] {key:20} color/{slug}")
+            print(f"{'OK ' if same else 'DIFF'} [nav] {key:20} {slug}")
             continue
 
         existing.write_bytes(data)
         nav_rows.append((key, slug, note, digest))
-        print(f"写入 [nav] {key:20} color/{slug:18} {len(data):6} B  sha256={digest[:12]}")
+        print(f"写入 [nav] {key:20} {slug:28} {len(data):6} B  sha256={digest[:12]}")
 
     if not args.check:
         text_rows = [r for r in rows if r[1] == "text"]
+        master_rows = [r for r in rows if r[1] == "master"]
+        icons8_rows = [r for r in rows if r[1] not in ("text", "master")]
         lines = [
             "# public/icons/plugins 素材台账（内置插件图标 + 插件内视图图标）",
             "",
-            f"共 {len(rows)} 个图标：{len(rows) - len(text_rows)} 个来自 **Icons8 / iGoutu** 的 **Color 彩色风格**"
-            "（`wechat-push` 用 `3d-fluency` 风格，因为 Color 风格没有微信标志）；"
-            f"{len(text_rows)} 个为印章式文字图标（`风格` 列为 `text`，由本脚本代码绘制，"
-            "非 Icons8 素材、无需署名）。",
+            f"共 {len(rows)} 个图标：",
+            "",
+            f"- {len(master_rows)} 个来自**本项目自有扁平母版**（`风格` 列为 `master`，`tools/icon-masters/`）："
+            "AI 按同一张风格参考图生成、抠成透明底后入库，是本产品自有素材，**无需第三方署名**；"
+            "品牌类插件（微信推送、GitHub 文档）是按用途重新设计的图形，不含任何品牌标志。",
+            f"- {len(icons8_rows)} 个仍来自 **Icons8 / iGoutu**（`风格` 列为 `color` / `3d-fluency`）："
+            "暂无母版的插件，按 Icons8 License 署名。",
+            f"- {len(text_rows)} 个为印章式文字图标（`风格` 列为 `text`，由本脚本代码绘制，无需署名）。",
             "",
             f"其中 {len(VIEW_ICONS)} 个是**插件内视图图标**（说明里带「插件内视图」）：同一个插件的不同分类"
             "在侧栏各用各的图标（v0.216.0），key = 视图 id，与插件图标同目录、同风格 —— "
@@ -305,9 +344,9 @@ def main() -> int:
             "CDN 直链格式：`https://img.icons8.com/<style>/96/<slug>.png`",
             "",
             "生成方式：`tools/gen-plugin-icons.py`（Pillow，输出 81×81 透明 PNG，"
-            f"图形最长边 {GLYPH}px）。**不要手工替换这些 PNG** —— 重新生成会覆盖。",
+            f"图形最长边 {GLYPH}px）。**不要手工替换这些 PNG** —— 改 `tools/icon-masters/` 的母版后重新生成。",
             "",
-            "| 插件 ID | 风格 | slug | 说明 | sha256 |",
+            "| 插件 ID | 风格 | 来源（母版路径 / Icons8 slug） | 说明 | sha256 |",
             "|---|---|---|---|---|",
         ]
         for plugin_id, style, slug, note, digest in rows:
@@ -316,6 +355,9 @@ def main() -> int:
             "",
             "## 许可",
             "",
+            "`master` 行：本项目自有素材，随本项目许可使用，无第三方署名要求。",
+            "",
+            "其余 Icons8 行（以及 `src/icons.js` 随包 PNG 加载失败时回落的 CDN 直链）："
             "Icons8 License（免费使用需在产品内署名）。署名入口见设置 → 关于（`src/aboutData.js`）"
             "与 `public/OPEN_SOURCE_NOTICES.md`。",
             "素材仅作为本产品界面的组成部分使用，**不得作为独立图标库转售或再分发**。",
@@ -336,8 +378,9 @@ def main() -> int:
         nav_lines = [
             "# public/icons/nav 素材台账（主导航图标）",
             "",
-            f"共 {len(nav_rows)} 个图标，全部来自 **Icons8 / iGoutu** 的 **Color 彩色风格**，"
-            "与插件图标同一套方案（v0.42.0 起随包化，此前导航走 iOS Filled CDN 直链）。",
+            f"共 {len(nav_rows)} 个图标，其中 {sum(1 for r in nav_rows if r[1].startswith('icon-masters/'))} 个来自"
+            "**本项目自有扁平母版**（`tools/icon-masters/nav/`，与插件图标同一套风格，无需第三方署名）；"
+            "其余（如有）来自 **Icons8 / iGoutu** 的 **Color 彩色风格**。",
             "",
             "`capture`（快速捕获）与 `inbox`（收件箱）同形，是刻意为之的两份独立文件。",
             "",
@@ -347,7 +390,7 @@ def main() -> int:
             "生成方式：`tools/gen-plugin-icons.py`（Pillow，输出 81×81 透明 PNG，"
             f"图形最长边 {GLYPH}px）。**不要手工替换这些 PNG** —— 重新生成会覆盖。",
             "",
-            "| key | 生效 slug | 说明 | sha256 |",
+            "| key | 来源（母版路径 / Icons8 slug） | 说明 | sha256 |",
             "|---|---|---|---|",
         ]
         for key, slug, note, digest in nav_rows:
@@ -356,12 +399,12 @@ def main() -> int:
             "",
             "## 许可与消费方",
             "",
-            "Icons8 License（免费使用需在产品内署名）。署名入口见设置 → 关于（`src/aboutData.js`）"
-            "与 `public/OPEN_SOURCE_NOTICES.md`。素材仅作为本产品界面的组成部分使用，"
-            "**不得作为独立图标库转售或再分发**。",
+            "母版图标为本项目自有素材。加载失败时回落的 CDN 直链仍是 Icons8 Color，"
+            "按 Icons8 License 署名（设置 → 关于 `src/aboutData.js` 与 `public/OPEN_SOURCE_NOTICES.md`），"
+            "仅作为本产品界面的组成部分使用，**不得作为独立图标库转售或再分发**。",
             "",
             "消费方：`le-time-management/public/icons/nav/*.png` ← `src/icons.js` 的 `appIcon()` 按导航 key 直读，"
-            "加载失败才回落 CDN 同风格直链（候选清单在 `NAV_ICONS8`，须与本台账 slug 对齐）。",
+            "加载失败才回落 Icons8 Color 的 CDN 直链（候选清单在 `NAV_ICONS8`）。",
             "微信小程序不需要这批 PNG（tabBar 是 FA 单色成对图标，由 `miniprogram/tools/sync-tab-icons.py` 管）。",
             "",
         ]

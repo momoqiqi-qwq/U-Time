@@ -1,6 +1,6 @@
 # U-Time · 微信小程序版
 
-> **By 梁逸乐（Yile Liang）** · 设计与开发
+> **By 梁逸乐（Yile Liang） · momoni · lele · liangyile** · 设计与开发
 
 原生 WXML / WXSS / CommonJS，不依赖桌面 DOM 或 Tauri。普通开发者工具导入后无需安装产品 npm 依赖。核心任务数据本地保存；联网插件、文件分享和局域网传输由用户主动操作。
 

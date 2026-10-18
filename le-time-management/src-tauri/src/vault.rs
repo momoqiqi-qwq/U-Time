@@ -1,5 +1,5 @@
 //! AI 与插件凭据的加密、验证与持久化；命令名称保持兼容。
-use super::{data_dir, valid_plugin_id};
+use super::{data_dir, off_main, valid_plugin_id};
 use std::{fs, path::PathBuf, collections::HashMap};
 use tauri::AppHandle;
 
@@ -222,6 +222,51 @@ fn plugin_vault_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(data_dir(app)?.join("plugin-vault.bin"))
 }
 
+/// 解密后的密钥库缓存 + 读改写互斥锁。
+/// 命令改为异步后可能并发执行：没有锁时两个插件同时 set 会互相覆盖（读旧 → 各改一键 → 后写者赢）。
+/// 有了缓存，get 不再每次都整份读盘 + 解密（插件启动时常连读多个键）。
+static PLUGIN_VAULT: std::sync::Mutex<Option<PluginVault>> = std::sync::Mutex::new(None);
+
+fn with_plugin_vault<T>(
+    app: &AppHandle,
+    job: impl FnOnce(&mut PluginVault) -> Result<(T, bool), String>,
+) -> Result<T, String> {
+    let mut slot = PLUGIN_VAULT.lock().map_err(|_| "插件密钥库锁不可用".to_string())?;
+    let mut vault = match slot.take() {
+        Some(vault) => vault,
+        None => load_plugin_vault(app)?,
+    };
+    let before = vault.clone();
+    match job(&mut vault) {
+        Ok((value, dirty)) => {
+            if dirty {
+                if let Err(e) = persist_plugin_vault(app, &vault) {
+                    *slot = Some(before); // 落盘失败：缓存回到磁盘上的状态
+                    return Err(e);
+                }
+            }
+            *slot = Some(vault);
+            Ok(value)
+        }
+        Err(e) => {
+            *slot = Some(before);
+            Err(e)
+        }
+    }
+}
+
+/// 空库直接删文件（与原 plugin_vault_del 行为一致），否则加密落盘。
+fn persist_plugin_vault(app: &AppHandle, vault: &PluginVault) -> Result<(), String> {
+    if vault.is_empty() {
+        let path = plugin_vault_path(app)?;
+        if path.exists() {
+            fs::remove_file(path).map_err(|e| format!("清除插件密钥库失败: {e}"))?;
+        }
+        return Ok(());
+    }
+    save_plugin_vault(app, vault)
+}
+
 fn load_plugin_vault(app: &AppHandle) -> Result<PluginVault, String> {
     let path = plugin_vault_path(app)?;
     if !path.exists() {
@@ -248,7 +293,7 @@ fn save_plugin_vault(app: &AppHandle, vault: &PluginVault) -> Result<(), String>
 }
 
 #[tauri::command]
-pub(crate) fn plugin_vault_set(
+pub(crate) async fn plugin_vault_set(
     app: AppHandle,
     plugin_id: String,
     key: String,
@@ -260,13 +305,17 @@ pub(crate) fn plugin_vault_set(
     if key.trim().is_empty() {
         return Err("密钥库名不能为空".into());
     }
-    let mut vault = load_plugin_vault(&app)?;
-    vault.entry(plugin_id).or_default().insert(key, value);
-    save_plugin_vault(&app, &vault)
+    off_main(move || {
+        with_plugin_vault(&app, |vault| {
+            vault.entry(plugin_id).or_default().insert(key, value);
+            Ok(((), true))
+        })
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn plugin_vault_get(
+pub(crate) async fn plugin_vault_get(
     app: AppHandle,
     plugin_id: String,
     key: String,
@@ -274,31 +323,31 @@ pub(crate) fn plugin_vault_get(
     if !valid_plugin_id(&plugin_id) {
         return Err(format!("插件 ID 不合法: {plugin_id}"));
     }
-    Ok(load_plugin_vault(&app)?
-        .get(&plugin_id)
-        .and_then(|m| m.get(&key))
-        .cloned())
+    off_main(move || {
+        with_plugin_vault(&app, |vault| {
+            Ok((vault.get(&plugin_id).and_then(|m| m.get(&key)).cloned(), false))
+        })
+    })
+    .await
 }
 
 #[tauri::command]
-pub(crate) fn plugin_vault_del(app: AppHandle, plugin_id: String, key: String) -> Result<(), String> {
+pub(crate) async fn plugin_vault_del(app: AppHandle, plugin_id: String, key: String) -> Result<(), String> {
     if !valid_plugin_id(&plugin_id) {
         return Err(format!("插件 ID 不合法: {plugin_id}"));
     }
-    let mut vault = load_plugin_vault(&app)?;
-    if let Some(entry) = vault.get_mut(&plugin_id) {
-        entry.remove(&key);
-        if entry.is_empty() {
-            vault.remove(&plugin_id);
-        }
-    }
-    if vault.is_empty() {
-        let path = plugin_vault_path(&app)?;
-        if path.exists() {
-            fs::remove_file(path).map_err(|e| format!("清除插件密钥库失败: {e}"))?;
-        }
-        return Ok(());
-    }
-    save_plugin_vault(&app, &vault)
+    off_main(move || {
+        with_plugin_vault(&app, |vault| {
+            let mut dirty = false;
+            if let Some(entry) = vault.get_mut(&plugin_id) {
+                dirty = entry.remove(&key).is_some();
+                if entry.is_empty() {
+                    vault.remove(&plugin_id);
+                }
+            }
+            Ok(((), dirty))
+        })
+    })
+    .await
 }
 

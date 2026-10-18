@@ -66,6 +66,8 @@ Page({
   onShowPluginDesc(e) { store.getState().settings.showPluginDesc = !!e.detail.value; store.saveNow(); this.refresh(); },
 
   onPlugins() { wx.navigateTo({ url: "/pages/plugins/index" }); },
+  // 赞助：小程序里没有「保存到下载目录」，走系统图片预览（长按可保存/转发）。
+  onPreviewSponsor() { wx.previewImage({ urls: ["/images/support/sponsor-qr.png"], current: "/images/support/sponsor-qr.png" }); },
 
   async onExport() {
     try { await files.copyText(JSON.stringify(transfer.fullBackup(appMeta.version), null, 2)); }

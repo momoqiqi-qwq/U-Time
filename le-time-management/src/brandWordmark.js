@@ -48,8 +48,8 @@ export function brandRule(gradientId) {
           <stop class="bg-4" offset="100%"></stop>
         </linearGradient>
       </defs>
-      <path class="br-line" d="M1 7 C3.6 6.2 6.4 5.7 9.4 6.1 L13 6.7 L15.6 5.9 L18.2 6.8 L21.5 6.15 L24 7 H72"></path>
-      <path class="br-line" d="M88 7 H136 L138.5 6.15 L141.8 6.8 L144.4 5.9 L147 6.7 C150 5.7 153.4 6.2 159 7"></path>
+      <path class="br-line" data-side="l" pathLength="1" d="M1 7 C3.6 6.2 6.4 5.7 9.4 6.1 L13 6.7 L15.6 5.9 L18.2 6.8 L21.5 6.15 L24 7 H72"></path>
+      <path class="br-line" data-side="r" pathLength="1" d="M88 7 H136 L138.5 6.15 L141.8 6.8 L144.4 5.9 L147 6.7 C150 5.7 153.4 6.2 159 7"></path>
       <path class="br-tip" d="M1 7 C4.5 5.5 8 5.2 12 7 C8 8.3 4.5 8.2 1 7 Z"></path>
       <path class="br-tip" d="M159 7 C155.5 5.5 152 5.2 148 7 C152 8.3 155.5 8.2 159 7 Z"></path>
       <g class="br-scroll">
@@ -68,6 +68,21 @@ export function brandRule(gradientId) {
         <circle cx="80" cy="7" r="4"></circle>
       </g>`;
   return svg;
+}
+
+/**
+ * 切换视图时把装饰线重画一遍（v0.249.0）：左右两条主线从中间向外描出来，卷草随后弹出。
+ * 动画本体在 styles/ui-accents.css（`.br-draw`）；两条主线带 pathLength="1" 就是为了这里的
+ * stroke-dasharray 能直接写 1。
+ * `reduced` 由调用方传 motion.js 的 reducedMotion() —— 这个模块保持零依赖（刷新蒙版在首屏前就要用它）。
+ * @param {SVGElement|null} svg brandRule() 建出来的那条线
+ * @param {boolean} [reduced] 减少动态效果时直接跳过
+ */
+export function replayBrandRule(svg, reduced = false) {
+  if (!svg || reduced) return;
+  svg.classList.remove("br-draw");
+  void svg.getBoundingClientRect(); // 强制回流，同一个类连着加两次也能重新播放
+  svg.classList.add("br-draw");
 }
 
 /**

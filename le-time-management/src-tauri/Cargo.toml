@@ -1,8 +1,8 @@
 [package]
 name = "letime"
-version = "0.243.0"
+version = "0.250.0"
 description = "Le时间管理 · 时间块与四象限"
-authors = ["梁逸乐 (Yile Liang)"]
+authors = ["梁逸乐 (Yile Liang / momoni / lele / liangyile)"]
 edition = "2021"
 
 [lib]

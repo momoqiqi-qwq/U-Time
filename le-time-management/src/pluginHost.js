@@ -15,6 +15,7 @@ import { BUILTIN_SOUNDS, playSound, resolveSound } from "./sound.js";
 import { attachPomodoroGlass } from "./pomodoroGlass.js";
 import { attachSelectionGlow } from "./selectionGlow.js";
 import { showWaitMask } from "./waitMask.js";
+import { createPluginCache } from "./pluginCache.js";
 
 const pluginDisposers = new Map();
 /* 每个插件当前挂着的刷新等待蒙版（pid -> Set<release>）。单独一张表而不是塞进
@@ -255,6 +256,16 @@ function makeApi(man, source) {
       async set(key, value) { requirePermission(man, pid, "storage"); ns()[key] = value; S.persistSoon(); },
     },
 
+    // 可重抓的大块缓存（通知列表、账单、名单…）落到独立文件，不进 data.json（见 pluginCache.js）。
+    // 与 storage 共用 storage 权限；旧数据在第一次 get 时从 storage 透明搬过去。
+    cache: createPluginCache({
+      pid,
+      storage: ns,
+      persist: () => S.persistSoon(),
+      backend: api.isTauri ? { get: (id, key) => api.pluginCacheGet(id, key), set: (id, key, value) => api.pluginCacheSet(id, key, value) } : null,
+      guard: () => requirePermission(man, pid, "storage"),
+    }),
+
     tasks: {
       list: () => { requirePermission(man, pid, "tasks"); return structuredClone(S.getState().tasks); },
       // 插件创建的任务自动记住来源插件（sourcePlugin），四象限/详情抽屉据此显示插件图标；
@@ -265,7 +276,7 @@ function makeApi(man, source) {
     },
 
     inbox: {
-      create: (item) => { requirePermission(man, pid, "tasks"); return pushInbox({ source: man.name || pid, ...item }); },
+      create: (item) => { requirePermission(man, pid, "tasks"); return pushInbox({ source: man.name || pid, sourcePlugin: pid, ...item }); },
     },
 
     blocks: {

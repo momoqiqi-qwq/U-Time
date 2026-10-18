@@ -1,0 +1,23 @@
+/* 插件页面统一外观（v0.248.0）
+   --plugin-content-max：内置插件正文的统一最大宽度。以前 RSS 900、周报 760、警大 1180 各写各的，
+   在插件之间切换时正文左右边缘一直跳；现在读这一个值（插件自己写 var(--plugin-content-max, 旧值) 兜底）。
+   只是普通设计变量；安全区变量（--sat 等）照旧不在 :root 定义。 */
+:root { --plugin-content-max: 1040px; }
+
+/* 「显示介绍」关掉时，插件中心卡片收成一行：图标 + 名称在左，开关与「⋯」在右。
+   介绍文字（描述 / 作者 / 版本 / 开关状态）本来就被 styles.css 隐藏了，但卡片仍按纵向排版，
+   操作区被挤到底部，中间留一大块空白。多功能入口（market-view-links）与加载错误另起整行。
+   高度仍听 --market-card-h（用户拖过就按拖的高度），只是不再有为介绍预留的最小高度。 */
+:root[data-plugin-descriptions="off"] .market-manage-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  align-content: center;
+  column-gap: 12px;
+  row-gap: 8px;
+  min-height: 0;
+}
+:root[data-plugin-descriptions="off"] .market-manage-card .market-card-head { grid-column: 1; grid-row: 1; min-width: 0; }
+:root[data-plugin-descriptions="off"] .market-manage-card .market-card-actions { grid-column: 2; grid-row: 1; margin: 0; align-self: center; }
+:root[data-plugin-descriptions="off"] .market-manage-card .market-view-links,
+:root[data-plugin-descriptions="off"] .market-manage-card .perr { grid-column: 1 / -1; }

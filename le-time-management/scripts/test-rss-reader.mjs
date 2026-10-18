@@ -26,6 +26,8 @@ const addDays = (d, n) => {
 
 const ctx = vm.createContext({
   console,
+  // 单源超时（withTimeout）要用到计时器：宿主里有，vm 里得显式给
+  setTimeout, clearTimeout,
   /* 最小 DOM 桩：只有 paintList() 会用到（造「显示更多」按钮与空态节点）。
      没有它就没法在 vm 里跑 setStyle() —— 而「换样式不能把分块进度收回去」这条
      恰恰只能在 paintList 真跑起来之后才断言得到。 */
@@ -72,6 +74,7 @@ vm.runInContext(
     + '    cardHtml, applyStyle, setStyle, STYLES, loadPrefs, focusAddBox, toggleBody, onManageToggle,\n'
     + '    get UI() { return ui; }, set UI(v) { ui = v; },\n'
     + '    DEFAULT_FEEDS, SUGGESTED_FEEDS, PER_FEED_KEEP, CACHE_MAX,\n'
+    + '    withTimeout, scrollTopOf, CONCURRENCY, FEED_TIMEOUT, PAINT_THROTTLE,\n'
     + '  };\n'
     + '  tide.ui.registerView({',
   ),
@@ -466,7 +469,7 @@ const JUYA = `<?xml version='1.0' encoding='utf-8'?>
   assert.equal(manifest.id, 'rss-reader');
   /* 版本号**故意钉死具体值**：插件内容改了（哪怕只是换一条预置源）就必须来这里确认一次。
      别把它改成 /^\d+\.\d+\.\d+$/ 之类的格式检查 —— 那样「改了内容却忘升版本」就再也拦不住了。 */
-  assert.equal(manifest.version, '1.7.1');
+  assert.equal(manifest.version, '1.9.1');
   for (const perm of ['ui', 'storage', 'notify', 'http', 'openUrl', 'tasks', 'blocks', 'timeParse', 'events']) {
     assert.ok(manifest.permissions.includes(perm), 'manifest 必须声明 ' + perm);
   }
@@ -896,4 +899,32 @@ const JUYA = `<?xml version='1.0' encoding='utf-8'?>
   fx.UI = null;
 }
 
-console.log('PASS: RSS/Atom/RDF 解析、实体与链接清洗、日期归一、订阅发现、合并保读、裁剪保护、筛选分组、筛选刷新契约、显示样式三档、description/content:encoded 取值优先级、卡片展开正文（含与同仓库插件同款的展开动画）、顶栏加源入口，以及清单/图标/生成物同步');
+/* ═══════════ 十六、抓取提速（v1.8.0）：单源超时、并发 4、增量落地 ═══════════ */
+{
+  assert.ok(fx.CONCURRENCY >= 4, '并发至少 4 —— 默认四个源要能一轮抓完');
+  /* 宿主 reqwest 的总超时是 15s：单源超时必须比它短，否则一个卡死的源会占着
+     并发槽整整 15s，后面排队的源全在等它。 */
+  assert.ok(fx.FEED_TIMEOUT > 0 && fx.FEED_TIMEOUT < 15000,
+    'FEED_TIMEOUT 必须小于宿主 15s 总超时，卡住的源才腾得出并发槽');
+
+  // 到点必须真 reject（不是挂死）：报错里要带上源名，用户才知道是哪个源慢
+  // （vm 里造出来的 Error 与宿主不同源，assert.rejects 的 instanceof 检查会误判，手工接）
+  const t0 = Date.now();
+  let timedOut = '';
+  try { await fx.withTimeout(new Promise(() => {}), 30, '慢源'); }
+  catch (e) { timedOut = String((e && e.message) || e); }
+  assert.match(timedOut, /慢源 响应超时/, '超时要掐断并点名是哪个源');
+  assert.ok(Date.now() - t0 < 2000, '超时到点要立刻掐断，不能拖到宿主 15s');
+  // 正常返回时不能因为计时器把结果也废掉
+  assert.equal(await fx.withTimeout(Promise.resolve('ok'), 50, '快源'), 'ok', '没超时照原样返回');
+
+  // 增量落地：第一个源回来就撤蒙版 + 列表已下滚时不把阅读位置拽回顶部
+  assert.match(src, /if \(!firstBack\) \{ firstBack = true; releaseWait\(\); \}/,
+    '第一个源抓完就撤蒙版，不能等全部源');
+  assert.match(src, /scrollTopOf\(ui\.list\) < 300/,
+    '列表已经下滚时只更新状态条，不重画列表（重画会把阅读位置拽回顶部）');
+  assert.match(src, /paintTimer = setTimeout\(flush, PAINT_THROTTLE\)/,
+    '增量重画要节流，否则每个源回来都整表重排一次');
+}
+
+console.log('PASS: RSS/Atom/RDF 解析、实体与链接清洗、日期归一、订阅发现、合并保读、裁剪保护、筛选分组、筛选刷新契约、显示样式三档、description/content:encoded 取值优先级、卡片展开正文（含与同仓库插件同款的展开动画）、顶栏加源入口、单源超时与增量落地，以及清单/图标/生成物同步');

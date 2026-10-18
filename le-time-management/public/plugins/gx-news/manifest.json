@@ -1,7 +1,7 @@
 {
   "id": "gx-news",
   "name": "竞赛消息雷达",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "author": "U-Time内置",
   "icon": "trophy",
   "description": "多源竞赛消息雷达：内置摩课云、赛氪等竞赛源，按性质 / 级别 / 学科筛选，可粘网址添加源，消息一键转提醒。",

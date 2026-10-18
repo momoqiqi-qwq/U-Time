@@ -353,7 +353,10 @@ export function renderTimeblock(container) {
     for (let i = -6; i <= 0; i++) {
       const d = S.addDays(curDate, i);
       const v = S.blocksOf(d).reduce((a, b) => a + b.durMin, 0);
-      rh.append(el("div", { class: "r", style: i === 0 ? "background:#DCEAEF" : "" },
+      // v0.249.0：当天高亮改成类名（颜色由 ui-accents.css 走主题变量，原来写死的浅色在深色下是奶白条）；
+      // 「cur」= 时间块正在看的那天，「today」= 真正的今天（两者不一定是同一根）。
+      const rcls = `r${i === 0 ? " cur" : ""}${d === S.todayStr() ? " today" : ""}`;
+      rh.append(el("div", { class: rcls, title: `${S.weekdayCN(d)} · 已排 ${S.durLabel(v)}`, "aria-current": i === 0 ? "date" : null },
         el("i", { style: `height:${Math.min(100, (v / 480) * 100)}%` }),
         el("em", {}, S.weekdayCN(d))));
     }

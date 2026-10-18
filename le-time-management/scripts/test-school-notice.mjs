@@ -131,7 +131,7 @@ assert.match(src, /if \(e\.target\.closest\("\[data-more-pages\]"\)\) return loa
   '按钮标记必须是 data-more-pages 并派发到 loadMorePages（别复用 data-refresh 之类会被前面的委托分支抢走）');
 assert.match(src, /async function loadMorePages\(site\) \{\s*const pager = pagers\.get\(site\.id\);\s*if \(!pager \|\| busy\) return;\s*busy = true; paint\(\);/,
   '翻页要置 busy 并重绘：五页请求要跑好几秒，没有「读取中」用户只当按钮坏了');
-assert.match(src, /pagers\.delete\(site\.id\);\s*\n\s*await tide\.storage\.set\(`notices:\$\{site\.id\}`, \[\]\);/,
+assert.match(src, /pagers\.delete\(site\.id\);\s*\n\s*await cacheStore\.set\(`notices:\$\{site\.id\}`, \[\]\);/,
   '改网址要作废分页表：页码网址是按旧目录推出来的，留着会往旧站点的页上翻');
 assert.match(src, /hiddenUrls = \[\]; pagers\.delete\(site\.id\);/, '删除站点要一起清掉分页状态');
 assert.doesNotMatch(src, /notices\.slice\(0, 100\)|storage\.set\(`notices:\$\{id\}`, notices\)/,

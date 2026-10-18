@@ -5,6 +5,27 @@ import { getLogs, undoLog, getRules, setRuleEnabled, runAutomation } from '../au
 import { createAiAutomationCard } from './aiAutomationPanel.js';
 import { pluginDisplayName, pluginDisplayIcon } from '../pluginAppearance.js';
 import { getKeywordHighlights, highlightedText } from '../keywordHighlights.js';
+import { BUILTIN_PLUGINS } from '../pluginCatalog.js';
+import { emptyArt } from '../emptyArt.js';
+
+// v0.249.0：来源 / 规则的小图形（内联 SVG，currentColor，颜色由 ui-accents.css 按 data-* 给）。
+const GLYPH_ATTR='viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"';
+const GLYPHS={
+  ai:'<path d="M10 3.5l1.6 4.4 4.4 1.6-4.4 1.6L10 15.5l-1.6-4.4L4 9.5l4.4-1.6z"/><path d="M17.5 14l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+  rule:'<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
+  'schedule-due':'<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M8.5 14.5h3v3h-3z"/>',
+  'exam-remind':'<path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
+  'course-sync':'<path d="M19.5 9A8 8 0 0 0 5 7.5M4.5 15A8 8 0 0 0 19 16.5"/><path d="M5 3.5v4h4M19 20.5v-4h-4"/>',
+  'daily-tidy':'<path d="M10 3.5l1.6 4.4 4.4 1.6-4.4 1.6L10 15.5l-1.6-4.4L4 9.5l4.4-1.6z"/><path d="M17.5 14l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/>',
+};
+function glyph(tag,cls,kind){const n=el(tag,{class:cls,'data-kind':kind});n.innerHTML=`<svg ${GLYPH_ATTR}>${GLYPHS[kind]||GLYPHS.rule}</svg>`;return n;}
+// 旧条目（v0.249.0 之前进收件箱的）只记了 source 文案没记 sourcePlugin：按内置插件名反查一次。
+// 插件推送的文案常是「插件名 + 后缀」（如「警大门户通知」），所以前缀匹配也算。
+function pluginIdBySource(label){
+  if(!label)return '';
+  const hit=BUILTIN_PLUGINS.find(p=>p.name===label)||BUILTIN_PLUGINS.find(p=>p.name&&p.name.length>=2&&label.startsWith(p.name));
+  return hit?hit.id:'';
+}
 
 export function renderInbox(container){
   const st=S.getState(); st.inbox??=[];
@@ -14,14 +35,16 @@ export function renderInbox(container){
   const grid=el('div',{class:'inbox-grid'});
   const inboxCard=el('section',{class:'card set-card'},el('h3',{},`收件箱 · ${st.inbox.filter(x=>x.status!=='done').length}`));
   const open=st.inbox.filter(x=>x.status!=='done');
-  if(!open.length) inboxCard.append(el('p',{class:'desc'},'没有待处理事项。'));
+  if(!open.length) inboxCard.append(Object.assign(emptyArt('inbox','收件箱清空了 —— 新的通知、考试节点和 AI 任务会出现在这里'),{className:'empty-art inbox-empty-art'}));
   for(const item of open.slice(0,30)){
     // 来源插件：带上插件图标，一眼看出这条是谁放进来的（通知 / 考试 / 收纳…）。
     // 图标走 pluginDisplayIcon，和抽屉里的「来源插件」完全是同一套 —— 免得同一个插件两处长得不一样。
     const srcLabel = item.source || (item.sourcePlugin ? pluginDisplayName(item.sourcePlugin) : '自动化');
-    const srcNode = item.sourcePlugin
-      ? el('span',{class:'inbox-src'},pluginDisplayIcon(item.sourcePlugin, srcLabel),el('span',{},srcLabel))
-      : el('span',{class:'inbox-src'},srcLabel);
+    // v0.249.0：没有插件来源的（AI 自动任务 / 内置规则）也给一个 16px 小图形，整列对齐。
+    const srcPid = item.sourcePlugin || pluginIdBySource(item.source);
+    const srcIcon = srcPid ? pluginDisplayIcon(srcPid, srcLabel)
+      : glyph('span','src-glyph',/AI/i.test(srcLabel)||item.sourceKey?.startsWith?.('ai')?'ai':'rule');
+    const srcNode = el('span',{class:'inbox-src'},srcIcon,el('span',{},srcLabel));
     // 附件（收纳进来的截图）：显示张数即可，点「建任务」会把它们一起带过去
     const nAtt = Array.isArray(item.attachments) ? item.attachments.length : 0;
     inboxCard.append(el('div',{class:'inbox-item'},
@@ -50,7 +73,7 @@ export function renderInbox(container){
   const ruleCard=el('section',{class:'card set-card'},el('h3',{},'自动化规则'));
   for(const r of getRules()){
     const ck=toggleSwitch({checked:r.enabled,ariaLabel:'启用自动化规则 '+r.name}); ck.onchange=()=>{setRuleEnabled(r.id,ck.checked);};
-    ruleCard.append(el('label',{class:'automation-rule'},el('span',{},el('b',{},r.name),el('small',{},`${r.trigger} → ${r.action}`)),ck));
+    ruleCard.append(el('label',{class:'automation-rule','data-action':r.action},glyph('i','ar-ico',r.action),el('span',{},el('b',{},r.name),el('small',{},`${r.trigger} → ${r.action}`)),ck));
   }
   const aiCard=createAiAutomationCard({rerender:()=>renderInbox(container)});
   const logCard=el('section',{class:'card set-card'},el('h3',{},'自动化日志'));

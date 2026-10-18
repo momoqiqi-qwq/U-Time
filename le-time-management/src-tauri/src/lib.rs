@@ -19,6 +19,7 @@ mod browser;
 mod storage;
 mod vault;
 mod ai_models;
+mod plugin_cache;
 use vault::{load_ai_secret, validate_ai_base_url, ai_chat_endpoint};
 #[cfg(test)]
 use vault::{aead_encrypt, aead_decrypt};
@@ -37,6 +38,27 @@ fn plugins_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = data_dir(app)?.join("plugins");
     fs::create_dir_all(&dir).map_err(|e| format!("无法创建插件目录: {e}"))?;
     Ok(dir)
+}
+
+/// 把同步重活（整份 JSON 序列化 + fsync、解压、整目录遍历）挪到阻塞线程池。
+/// Tauri 2 的同步命令在主线程执行：data.json 有几 MB 时，每次自动保存都会让窗口拖动/缩放卡一下。
+/// 前端对同一类写入本来就串行 await（persistence.js 的 chain），改成异步不会打乱写盘顺序。
+pub(crate) async fn off_main<T: Send + 'static>(
+    job: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(job)
+        .await
+        .map_err(|e| format!("后台任务异常终止: {e}"))?
+}
+
+/// 最近一次读入 / 写出的 `settings` 对象。关窗与建托盘只需要其中两个布尔值，
+/// 有缓存就不必为此把整个 data.json 再读一遍、全量解析一遍。
+static DESKTOP_SETTINGS: Mutex<Option<Value>> = Mutex::new(None);
+
+fn remember_desktop_settings(data: &Value) {
+    if let (Some(settings), Ok(mut slot)) = (data.get("settings"), DESKTOP_SETTINGS.lock()) {
+        *slot = Some(settings.clone());
+    }
 }
 
 const SCHOOL_IMPORT_BOOTSTRAP: &str = r#"
@@ -344,11 +366,19 @@ async fn ai_chat(
     {
         return Err("AI 消息角色不合法".into());
     }
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(8))
-        .timeout(std::time::Duration::from_secs(55))
-        .build()
-        .map_err(|e| format!("AI HTTP 客户端初始化失败: {e}"))?;
+    // 复用同一个客户端：连接池与 TLS 会话可以跨请求复用，不必每问一句都重新加载根证书、重新握手。
+    static AI_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    let client = match AI_CLIENT.get() {
+        Some(client) => client.clone(),
+        None => {
+            let built = reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(8))
+                .timeout(std::time::Duration::from_secs(55))
+                .build()
+                .map_err(|e| format!("AI HTTP 客户端初始化失败: {e}"))?;
+            AI_CLIENT.get_or_init(|| built).clone()
+        }
+    };
     let endpoint = ai_chat_endpoint(&secret.base_url);
     let mut body = json!({
         "model": secret.model,
@@ -440,18 +470,33 @@ fn js_datetoday() -> String {
 }
 
 #[tauri::command]
-fn load_data(app: AppHandle) -> Result<Value, String> {
-    storage::load(&data_dir(&app)?, seed_data)
+async fn load_data(app: AppHandle) -> Result<Value, String> {
+    off_main(move || {
+        let data = storage::load(&data_dir(&app)?, seed_data)?;
+        remember_desktop_settings(&data);
+        Ok(data)
+    })
+    .await
 }
 
 #[tauri::command]
-fn save_data(app: AppHandle, data: Value) -> Result<(), String> {
-    storage::save(&data_dir(&app)?, &data)
+async fn save_data(app: AppHandle, data: Value) -> Result<(), String> {
+    off_main(move || {
+        storage::save(&data_dir(&app)?, &data)?;
+        remember_desktop_settings(&data);
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-fn recover_data(app: AppHandle, data: Value) -> Result<(), String> {
-    storage::recover(&data_dir(&app)?, &data)
+async fn recover_data(app: AppHandle, data: Value) -> Result<(), String> {
+    off_main(move || {
+        storage::recover(&data_dir(&app)?, &data)?;
+        remember_desktop_settings(&data);
+        Ok(())
+    })
+    .await
 }
 
 #[derive(serde::Serialize)]
@@ -462,8 +507,12 @@ struct PluginInfo {
 
 /// 枚举用户插件目录：{data_dir}/plugins/<id>/manifest.json
 #[tauri::command]
-fn list_plugins(app: AppHandle) -> Result<Vec<PluginInfo>, String> {
-    let dir = plugins_dir(&app)?;
+async fn list_plugins(app: AppHandle) -> Result<Vec<PluginInfo>, String> {
+    off_main(move || list_plugins_blocking(&app)).await
+}
+
+fn list_plugins_blocking(app: &AppHandle) -> Result<Vec<PluginInfo>, String> {
+    let dir = plugins_dir(app)?;
     let mut out = Vec::new();
     let entries = fs::read_dir(&dir).map_err(|e| format!("读取插件目录失败: {e}"))?;
     for entry in entries.flatten() {
@@ -484,9 +533,13 @@ fn list_plugins(app: AppHandle) -> Result<Vec<PluginInfo>, String> {
 
 /// 读取插件文件内容（仅允许插件目录内的文件，防目录穿越）
 #[tauri::command]
-fn read_plugin_file(app: AppHandle, rel_path: String) -> Result<String, String> {
-    let root = plugins_dir(&app)?;
-    let target = root.join(&rel_path);
+async fn read_plugin_file(app: AppHandle, rel_path: String) -> Result<String, String> {
+    off_main(move || read_plugin_file_blocking(&app, &rel_path)).await
+}
+
+fn read_plugin_file_blocking(app: &AppHandle, rel_path: &str) -> Result<String, String> {
+    let root = plugins_dir(app)?;
+    let target = root.join(rel_path);
     let canon_root = root.canonicalize().map_err(|e| e.to_string())?;
     let canon_target = match target.canonicalize() {
         Ok(p) => p,
@@ -500,11 +553,15 @@ fn read_plugin_file(app: AppHandle, rel_path: String) -> Result<String, String> 
 
 /// 删除用户插件目录（仅允许 data_dir/plugins/<id> 一级目录，内置插件不可删除）
 #[tauri::command]
-fn delete_plugin(app: AppHandle, id: String) -> Result<(), String> {
+async fn delete_plugin(app: AppHandle, id: String) -> Result<(), String> {
+    off_main(move || delete_plugin_blocking(&app, id)).await
+}
+
+fn delete_plugin_blocking(app: &AppHandle, id: String) -> Result<(), String> {
     if id.contains('/') || id.contains('\\') || id == "." || id == ".." || id.trim().is_empty() {
         return Err("插件 ID 不合法".into());
     }
-    let root = plugins_dir(&app)?;
+    let root = plugins_dir(app)?;
     let target = root.join(&id);
     let canon_root = root
         .canonicalize()
@@ -521,7 +578,10 @@ fn delete_plugin(app: AppHandle, id: String) -> Result<(), String> {
     if !canon_target.join("manifest.json").exists() {
         return Err("目标目录缺少 manifest.json，拒绝删除".into());
     }
-    fs::remove_dir_all(&canon_target).map_err(|e| format!("删除插件失败: {e}"))
+    fs::remove_dir_all(&canon_target).map_err(|e| format!("删除插件失败: {e}"))?;
+    // 插件缓存（tide.cache）一起清；清不掉只是留下几份可重抓的数据，不能因此让卸载失败。
+    let _ = plugin_cache::clear_plugin_cache(app, &id);
+    Ok(())
 }
 
 fn valid_plugin_id(id: &str) -> bool {
@@ -537,9 +597,33 @@ fn valid_plugin_id(id: &str) -> bool {
 
 /// 从 zip 导入一个或多个用户插件。支持 `<id>/manifest.json` 和 zip 根目录直接放 manifest.json 两种格式。
 #[tauri::command]
-fn import_plugin_zip(app: AppHandle, bytes: Vec<u8>) -> Result<Vec<String>, String> {
+async fn import_plugin_zip(app: AppHandle, bytes: Vec<u8>) -> Result<Vec<String>, String> {
+    off_main(move || import_plugin_zip_blocking(&app, bytes)).await
+}
+
+/// 解压中途失败时把暂存目录清掉，不留半截插件。
+struct StagingGuard(PathBuf);
+impl Drop for StagingGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn import_plugin_zip_blocking(app: &AppHandle, bytes: Vec<u8>) -> Result<Vec<String>, String> {
     use std::io::{Cursor, Read};
-    let root = plugins_dir(&app)?;
+    let root = plugins_dir(app)?;
+    // 先完整解压到插件目录之外的暂存区（同在数据目录 → 同盘，rename 原子），全部成功再替换旧插件。
+    // 原先先 remove_dir_all 旧插件再解压：包损坏 / 磁盘满时旧插件已经没了，新插件只有半截。
+    // 暂存区不放在 plugins/ 里，免得解压期间被 list_plugins 当成插件枚举出来。
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let staging_root = root
+        .parent()
+        .unwrap_or(root.as_path())
+        .join(format!("plugins-import-{}-{stamp}", std::process::id()));
+    let _staging_guard = StagingGuard(staging_root.clone());
     let mut archive =
         zip::ZipArchive::new(Cursor::new(bytes)).map_err(|e| format!("ZIP 无法打开: {e}"))?;
 
@@ -581,11 +665,11 @@ fn import_plugin_zip(app: AppHandle, bytes: Vec<u8>) -> Result<Vec<String>, Stri
     plugins.sort();
     plugins.dedup();
 
-    let mut imported = Vec::new();
+    let mut staged: Vec<(String, PathBuf)> = Vec::new();
     for (prefix, id) in &plugins {
-        let dest = root.join(id);
+        let dest = staging_root.join(id);
         if dest.exists() {
-            fs::remove_dir_all(&dest).map_err(|e| format!("覆盖旧插件失败: {e}"))?;
+            fs::remove_dir_all(&dest).map_err(|e| format!("清理暂存目录失败: {e}"))?;
         }
         fs::create_dir_all(&dest).map_err(|e| format!("创建插件目录失败: {e}"))?;
 
@@ -626,21 +710,42 @@ fn import_plugin_zip(app: AppHandle, bytes: Vec<u8>) -> Result<Vec<String>, Stri
         if !dest.join("manifest.json").exists() {
             return Err(format!("插件 {id} 导入后缺少 manifest.json"));
         }
-        imported.push(id.clone());
+        staged.push((id.clone(), dest));
+    }
+    // 全部解压成功才动正式目录：旧版先挪到暂存区，新版换进来；换失败把旧版放回。
+    let mut imported = Vec::new();
+    for (id, from) in staged {
+        let dest = root.join(&id);
+        let old = staging_root.join(format!("{id}.old"));
+        let had_old = dest.exists();
+        if had_old {
+            fs::rename(&dest, &old).map_err(|e| format!("覆盖旧插件失败: {e}"))?;
+        }
+        if let Err(e) = fs::rename(&from, &dest) {
+            if had_old {
+                let _ = fs::rename(&old, &dest);
+            }
+            return Err(format!("写入插件 {id} 失败: {e}"));
+        }
+        imported.push(id);
     }
     Ok(imported)
 }
 
 /// 将所选用户插件打包为 zip，返回 base64，前端负责保存下载。
 #[tauri::command]
-fn export_plugins_zip(app: AppHandle, ids: Vec<String>) -> Result<String, String> {
+async fn export_plugins_zip(app: AppHandle, ids: Vec<String>) -> Result<String, String> {
+    off_main(move || export_plugins_zip_blocking(&app, ids)).await
+}
+
+fn export_plugins_zip_blocking(app: &AppHandle, ids: Vec<String>) -> Result<String, String> {
     use base64::Engine as _;
     use std::io::{Cursor, Write};
     use zip::write::SimpleFileOptions;
     if ids.is_empty() {
         return Err("请先选择要导出的用户插件".into());
     }
-    let root = plugins_dir(&app)?;
+    let root = plugins_dir(app)?;
     let mut cur = Cursor::new(Vec::<u8>::new());
     {
         let mut writer = zip::ZipWriter::new(&mut cur);
@@ -685,8 +790,8 @@ fn export_plugins_zip(app: AppHandle, ids: Vec<String>) -> Result<String, String
 /// 把前端给的文本保存到系统下载目录（重名自动追加 " (n)"），返回落盘的完整路径。
 /// WebView 里 <a download> 对 blob: 的下载在部分平台静默失败，统一走这里真正落盘。
 #[tauri::command]
-fn save_download(app: AppHandle, name: String, contents: String) -> Result<String, String> {
-    save_to_download_dir(&app, &name, contents.as_bytes())
+async fn save_download(app: AppHandle, name: String, contents: String) -> Result<String, String> {
+    off_main(move || save_to_download_dir(&app, &name, contents.as_bytes())).await
 }
 
 /// 二进制版落盘：收 base64，解码后写进同一个下载目录。
@@ -694,12 +799,15 @@ fn save_download(app: AppHandle, name: String, contents: String) -> Result<Strin
 /// 二进制根本进不来。入参格式与 `http_fetch` 的 `binary: true` 一致（STANDARD 字母表），
 /// 插件抓到即可存，不用自己再转一遍。
 #[tauri::command]
-fn save_download_base64(app: AppHandle, name: String, base64: String) -> Result<String, String> {
+async fn save_download_base64(app: AppHandle, name: String, base64: String) -> Result<String, String> {
     use base64::Engine as _;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(base64.trim().as_bytes())
-        .map_err(|e| format!("附件数据不完整（base64 解码失败）: {e}"))?;
-    save_to_download_dir(&app, &name, &bytes)
+    off_main(move || {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(base64.trim().as_bytes())
+            .map_err(|e| format!("附件数据不完整（base64 解码失败）: {e}"))?;
+        save_to_download_dir(&app, &name, &bytes)
+    })
+    .await
 }
 
 /// 下载目录落盘的公共部分：校验文件名 → 定位目录 → 重名追加 " (n)" → 写字节。
@@ -752,7 +860,8 @@ fn save_to_download_dir(app: &AppHandle, raw_name: &str, bytes: &[u8]) -> Result
 #[tauri::command]
 async fn capture_ui_shot(app: AppHandle, name: Option<String>) -> Result<String, String> {
     let bytes = capture_webview_png(&app).await?;
-    save_to_download_dir(&app, &shot_file_name(name.as_deref()), &bytes)
+    // 文件名在阻塞线程里现算：name 整个 move 进闭包，和附件下载走同一句落盘调用。
+    off_main(move || save_to_download_dir(&app, &shot_file_name(name.as_deref()), &bytes)).await
 }
 
 /// 截图文件名：调用方给的标签（一般写当前视图名）+ 时间戳，非法字符剔掉。
@@ -1905,8 +2014,14 @@ fn lan_push_resolve(handle: State<LanHandle>, id: String, approve: bool, note: S
 }
 
 #[tauri::command]
-fn lan_stop(handle: State<LanHandle>) -> Result<(), String> {
-    if let Some(inst) = handle.0.lock().map_err(|_| "锁占用")?.take() {
+async fn lan_stop(handle: State<'_, LanHandle>) -> Result<(), String> {
+    // 只在取实例时短暂持锁；等端口释放（最长 1.5s）放到阻塞线程池，不再占住主线程。
+    let instance = handle.0.lock().map_err(|_| "锁占用")?.take();
+    off_main(move || lan_stop_blocking(instance)).await
+}
+
+fn lan_stop_blocking(instance: Option<lan::LanInstance>) -> Result<(), String> {
+    if let Some(inst) = instance {
         inst.quit.store(true, std::sync::atomic::Ordering::Relaxed);
         // 发一个哑请求解除 recv 阻塞，让服务线程退出
         if let Ok(mut s) = std::net::TcpStream::connect(("127.0.0.1", inst.port)) {
@@ -2228,8 +2343,8 @@ async fn http_fetch(
 /// 主窗口的「关闭」是不是应该隐藏到托盘。
 ///
 /// 行为设置存放在前端 data.json 的 `settings.closeToTray`（默认 true = 隐藏到托盘）。
-/// 刻意**每次关闭时现读文件**而不是启动时缓存：设置改完立即生效，不需要重启应用。
-/// data.json 很小，同步读一次的代价可以忽略（CloseRequested 只在用户点关闭时触发）。
+/// 值取自每次 load_data / save_data 同步刷新的 settings 缓存：设置改完立即生效，
+/// 关窗时也不必在主线程上把几 MB 的 data.json 整份读一遍再解析。
 #[cfg(desktop)]
 fn close_to_tray(app: &tauri::AppHandle) -> bool {
     read_desktop_setting(app, "/settings/closeToTray", true)
@@ -2244,6 +2359,15 @@ fn tray_enabled(app: &tauri::AppHandle) -> bool {
 /// 从 data.json 里现读一个布尔设置，缺失 / 解析失败 / 类型不符一律返回 `default`。
 #[cfg(desktop)]
 fn read_desktop_setting(app: &tauri::AppHandle, pointer: &str, default: bool) -> bool {
+    // 优先用 load_data / save_data 时记下的 settings（与磁盘内容同步更新，改完设置照样立即生效）；
+    // 只有前端还没读过数据（如启动早期建托盘）才回退到现读文件。
+    if let Some(key) = pointer.strip_prefix("/settings") {
+        if let Ok(slot) = DESKTOP_SETTINGS.lock() {
+            if let Some(settings) = slot.as_ref() {
+                return settings.pointer(key).and_then(Value::as_bool).unwrap_or(default);
+            }
+        }
+    }
     let Ok(dir) = app.path().app_data_dir() else {
         return default;
     };
@@ -2554,6 +2678,8 @@ pub fn run() {
             vault::plugin_vault_set,
             vault::plugin_vault_get,
             vault::plugin_vault_del,
+            plugin_cache::plugin_cache_get,
+            plugin_cache::plugin_cache_set,
             vault::ai_vault_save,
             vault::ai_vault_status,
             vault::ai_vault_clear,

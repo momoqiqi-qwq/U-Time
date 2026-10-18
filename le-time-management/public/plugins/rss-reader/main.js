@@ -25,7 +25,9 @@
   const VIEW_ID = "rss-reader";
   const CACHE_MAX = 600;        // 全局缓存条目上限
   const PER_FEED_KEEP = 60;     // 每个源保留的最近条数
-  const CONCURRENCY = 3;        // 同时抓取的源数量
+  const CONCURRENCY = 4;        // 同时抓取的源数量（3 → 4：默认四个源一轮抓完，不再凑第二轮）
+  const FEED_TIMEOUT = 12 * 1000; // 单源超时：慢源不许占着 worker 等到宿主 15s 上限
+  const PAINT_THROTTLE = 250;   // 增量落地节流：抓到就画，但最多每 250ms 重画一次
   const CHUNK = 20;             // 每次渲染的条数
   const STALE_MS = 15 * 60 * 1000; // 距上次刷新超过这个时长，进视图自动抓一次
   const AUTO_CHOICES = [0, 15, 30, 60]; // 自动刷新间隔（分钟），0 = 关闭
@@ -526,9 +528,31 @@
     return res;
   }
 
+  /* 单源超时：宿主里 reqwest 的上限是 15s，一个卡住的源会占着并发槽整整 15s ——
+     源多时后面排队的源全在等它。这里自己先 12s 掐断，让 worker 立刻去抓下一个；
+     掐的是「这一轮这个源」，下一轮照常重试，不记成永久失败。 */
+  function withTimeout(promise, ms, label) {
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} 响应超时（${Math.round(ms / 1000)}s）`)), ms);
+    });
+    return Promise.race([promise.finally(() => { if (timer) clearTimeout(timer); }), timeout]);
+  }
+
+  /* 当前列表的滚动位置：滚动容器不一定是直接父级（桌面外壳是 .view，安卓在窗口上），
+     逐级往上找第一个真正能滚的元素；都不可滚就退回窗口。 */
+  function scrollTopOf(el) {
+    let node = el && el.parentElement;
+    while (node) {
+      if (node.scrollTop > 0 || node.scrollHeight > node.clientHeight + 1) return node.scrollTop;
+      node = node.parentElement;
+    }
+    return Math.max(0, window.scrollY || (document.scrollingElement && document.scrollingElement.scrollTop) || 0);
+  }
+
   async function fetchFeed(feed) {
     try {
-      const res = await httpGet(feed.url);
+      const res = await withTimeout(httpGet(feed.url), FEED_TIMEOUT, feed.title || hostOf(feed.url));
       const parsed = parseFeed(res.body, res.finalUrl || feed.url);
       if (!parsed) {
         throw new Error(looksLikeHtml(res.body) ? "这个地址返回的是网页，不是订阅源" : "内容不是有效的 RSS / Atom");
@@ -585,6 +609,23 @@
     let added = 0;
     const failures = [];
     const news = [];
+    /* 增量落地：过去要等**全部**源抓完才画一次，源多时十几秒里列表一条不动。
+       现在每抓完一个源就把已有内容推上屏（节流 250ms），第一个源回来就撤蒙版 ——
+       用户先看到内容，剩下的源在后台继续补。
+       列表已经往下滚过时只更新状态条、不重画列表：整段 innerHTML 重建会把
+       用户正在读的位置拽回顶部。 */
+    let firstBack = false;
+    let paintTimer = null;
+    const flush = () => {
+      paintTimer = null;
+      if (!ui) return;
+      paintStatus();
+      if (scrollTopOf(ui.list) < 300) paintList();
+    };
+    const schedulePaint = () => {
+      if (paintTimer) return;
+      paintTimer = setTimeout(flush, PAINT_THROTTLE);
+    };
     const worker = async () => {
       while (cursor < targets.length) {
         const feed = targets[cursor++];
@@ -592,10 +633,14 @@
         added += r.added;
         for (const item of r.news || []) news.push({ feed, item });
         if (r.error) failures.push(feed.title || hostOf(feed.url));
+        publishItems();
+        if (!firstBack) { firstBack = true; releaseWait(); }
+        schedulePaint();
       }
     };
     try {
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, targets.length) }, worker));
+      if (paintTimer) { clearTimeout(paintTimer); paintTimer = null; }
       state.fetchedAt = Date.now();
       state.error = failures.length ? "有 " + failures.length + " 个源抓取失败：" + failures.join("、") : null;
       await Promise.all([saveFeeds(), saveItems()]);
@@ -729,7 +774,7 @@
     const st = document.createElement("style");
     st.id = "rss-style";
     st.textContent = `
-.rss-wrap{max-width:900px;margin:0 auto;padding:14px 0 34px;color:var(--ink,#22303A)}
+.rss-wrap{max-width:var(--plugin-content-max,900px);margin:0 auto;padding:14px 0 34px;color:var(--ink,#22303A)}
 .rss-eyebrow{font-size:calc(11px * var(--ui-text-scale));letter-spacing:.3em;color:var(--ink-3,#A9B2BA)}
 .rss-hero{background:var(--panel,#fff);border:1px solid var(--line,#E4DFD6);border-radius:16px;padding:13px 14px}
 .rss-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -752,7 +797,8 @@
 .rss-toggle{display:inline-flex;align-items:center;gap:6px;font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#7E8B94);cursor:pointer;user-select:none;flex:none}
 .rss-toggle i{width:32px;height:18px;border-radius:10px;background:var(--line,#E4DFD6);display:inline-block;position:relative;transition:.15s;flex:none}
 .rss-toggle i::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--panel,#fff);transition:.15s}
-.rss-toggle.on i{background:var(--mint,#2EC4B6)}
+.rss-toggle.on i{background:var(--deep,#0F4C5C)}
+.rss-toggle.on i::after{background:var(--on-deep,#fff)}
 .rss-toggle.on i::after{left:16px}
 .rss-chips{display:flex;gap:7px;flex-wrap:wrap;flex:1;min-width:0}
 .rss-chip{font-size:calc(12px * var(--ui-text-scale));border:1px solid var(--line,#E4DFD6);background:var(--panel,#fff);border-radius:999px;padding:5px 12px;cursor:pointer;color:var(--ink-2,#7E8B94);display:inline-flex;align-items:center;gap:6px}
@@ -814,6 +860,10 @@
 .rss-expand{margin-top:7px;display:inline-flex;align-items:center;gap:7px;font-size:calc(11px * var(--ui-text-scale));transition:background .2s ease,border-color .2s ease,color .2s ease}
 .rss-expand::after{content:"⌄";display:inline-block;font-size:calc(14px * var(--ui-text-scale));line-height:1;transform:translateY(-1px);transition:transform .36s cubic-bezier(.22,.8,.22,1)}
 .rss-card.open .rss-expand::after{transform:translateY(1px) rotate(180deg)}
+/* v1.9.0：「展开正文」只留一颗圆形箭头，文字给读屏（span 文案与 aria-expanded 照旧切换）。
+   不像警大 / 学校通知那样挪到右上角：RSS 卡片右侧是一列动作按钮，放过去会撞上。 */
+.rss-expand{width:30px;height:30px;padding:0;justify-content:center;gap:0;border-radius:50%}
+.rss-expand>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .rss-detail-shell{display:grid;grid-template-rows:0fr;opacity:0;margin-top:0;transition:grid-template-rows .42s cubic-bezier(.2,.78,.2,1),opacity .24s ease,margin-top .42s cubic-bezier(.2,.78,.2,1)}
 .rss-card.open .rss-detail-shell{grid-template-rows:1fr;opacity:1;margin-top:9px}
 .rss-detail-clip{min-height:0;overflow:hidden}
@@ -827,6 +877,7 @@
 .rss-card-act button:hover{border-color:var(--deep,#0F4C5C);color:var(--deep,#0F4C5C)}
 .rss-card-act button.on{border-color:var(--sun,#E3A008);color:var(--sun,#E3A008)}
 .rss-empty{border:1.5px dashed var(--line,#E4DFD6);border-radius:14px;padding:26px;text-align:center;color:var(--ink-3,#A9B2BA);font-size:calc(12.5px * var(--ui-text-scale));line-height:1.9}
+.rss-empty svg{display:block;width:min(100%,168px);height:auto;margin:0 auto 8px;color:color-mix(in srgb,var(--ink,#22303A) 34%,transparent);--ea-accent:#F97316;--ea-on-accent:var(--panel,#fff)}
 .rss-more{display:flex;justify-content:center;padding:8px 0 4px}
 .rss-suggest{margin-top:11px;padding-top:11px;border-top:1px solid var(--line-soft,#EFEAE1)}
 /* ═══ 显示样式：三档共用同一个 .rss-card 容器，只改密度 ═══
@@ -995,6 +1046,8 @@
     b.addEventListener("click", () => Promise.resolve().then(fn).catch((e) => tide.notify("操作失败：" + String((e && e.message) || e))));
     return b;
   }
+  // 没有订阅源时的线稿（v0.249.0，与宿主空状态同一画风；插件不能 import 宿主源码，所以内联一份）
+  const NO_FEED_ART = '<svg viewBox="0 0 160 100" aria-hidden="true" focusable="false"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="58" cy="74" r="5.6"/><path d="M57.6 55.4Q76.6 55.6 76.8 74.4"/><path d="M57.4 41Q90.6 41.4 91 74.6" stroke-dasharray="3 4"/><path d="M40 35.5Q40.81 39.19 44.5 40Q40.81 40.81 40 44.5Q39.19 40.81 35.5 40Q39.19 39.19 40 35.5Z"/><path d="M118 60.4Q118.65 63.35 121.6 64Q118.65 64.65 118 67.6Q117.35 64.65 114.4 64Q117.35 63.35 118 60.4Z"/><circle cx="44" cy="58" r="1.1" fill="currentColor" stroke="none"/><circle cx="98" cy="50" r="1.1" fill="currentColor" stroke="none"/></g><circle cx="108" cy="30" r="10" style="fill:var(--ea-accent,#E8705F)"/><path fill="none" stroke-width="2" stroke-linecap="round" style="stroke:var(--ea-on-accent,#fff)" d="M108 25V35M103 30H113"/></svg>';
   function emptyNode(text) {
     const d = document.createElement("div");
     d.className = "rss-empty";
@@ -1124,7 +1177,7 @@
         ? "没有符合筛选条件的内容<br>换个关键词，或把筛选切回「全部」"
         : (state.feeds.length
           ? "还没有内容 —— 点上方「刷新」抓取订阅源"
-          : "还没有订阅源<br>展开下方「订阅管理」添加，或从推荐源里一键订阅")));
+          : NO_FEED_ART + "还没有订阅源<br>展开下方「订阅管理」添加，或从推荐源里一键订阅")));
       return;
     }
     const slice = rows.slice(0, state.rendered);
@@ -1316,7 +1369,7 @@
     wrap.innerHTML = `
       <div class="rss-hero">
         <div class="rss-top">
-          <span class="rss-eyebrow rss-grow">R S S 　信 息 流</span>
+          <span class="rss-grow"></span>
           <span class="rss-unread" data-unread hidden></span>
           <button class="rss-btn pri" data-refresh>刷新</button>
         </div>

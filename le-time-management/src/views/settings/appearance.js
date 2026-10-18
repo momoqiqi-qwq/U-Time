@@ -642,10 +642,13 @@ export function createThemeCard() {
 }
 
 /* ── 隐私展示模式（v0.234.0）────────────────────────────────────────────
-   屏摄 / 外发截图 / 投屏演示时用的「展示态」：人脸模糊 + 数字 9 化 + 三维图全满。
+   屏摄 / 外发截图 / 投屏演示时用的「展示态」：人脸模糊 + 数字 9 化 + 三维图全满
+   + 校名模糊（v0.245.0）。
    行为全在 src/privacyMask.js，这里只负责开关与说明 —— 这个分区存在的意义是
    把「会影响看到什么」的开关集中一处，而不是散在界面与交互里。
 
+   文案里一律**不写**要被糊掉的那几个词本身（学校简称 / 全称 / 缩写）：写了就会被
+   自己糊掉，说明文字当场变成一团，等于这卡在截图里也没法读。
    样例串用 maskDigitsPreserveWidth 现场算：文案与实际行为同源，改了规则不会不同步。 */
 export function createPrivacyCard({ rerender = () => {} } = {}) {
   const prefs = getUiPreferences();
@@ -659,8 +662,8 @@ export function createPrivacyCard({ rerender = () => {} } = {}) {
     toggleRow("隐私展示模式", on, (value) => {
       setPrivacyMask(value);
       rerender(); // 开关的 aria 状态与说明要跟着重画
-      toast(value ? "已开启隐私展示模式：人脸模糊、数字变 9" : "已关闭隐私展示模式");
-    }, "人脸模糊 · 数字 9 化 · 三维图全满"),
+      toast(value ? "已开启隐私展示模式：人脸模糊、数字变 9、校名模糊" : "已关闭隐私展示模式");
+    }, "人脸模糊 · 数字 9 化 · 三维图全满 · 校名模糊"),
     el("div", { class: "setting-row setting-col privacy-sub" },
       el("span", { class: "privacy-note" },
         el("b", {}, "人脸模糊："),
@@ -676,11 +679,15 @@ export function createPrivacyCard({ rerender = () => {} } = {}) {
         "示例：", sample, " → ", maskDigitsPreserveWidth(sample),
       ),
       el("span", { class: "privacy-note" },
+        el("b", {}, "校名模糊："),
+        "学校简称、全称与英文缩写（侧栏插件名、校历抬头那种也都算）统一糊掉，截图里看不出是哪所学校。",
+      ),
+      el("span", { class: "privacy-note" },
         el("b", {}, "三维图全满："),
         "三维床位星图之类画满显示，空位也按占用渲染，看不出哪张床空着。",
       ),
       el("span", { class: "privacy-note", "data-privacy-skip": "" },
-        "边界：只处理屏幕上的文字与图像，不改动存储的数据；关掉开关，数字立刻还原成原值。",
+        "边界：只处理屏幕上的文字与图像，不改动存储的数据；关掉开关，数字与校名立刻还原成原值。",
       ),
     ),
   );

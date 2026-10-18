@@ -1,6 +1,7 @@
 import * as S from './store.js';
 import { createAutoBackup } from './dataCenter.js';
 import { runDueAiAutomations } from './aiAutomation.js';
+import { LOG_UNDO_KEEP, pruneLogSnapshots, snapshotWithinLimit } from './automationLogs.js';
 
 const clone=x=>structuredClone(x);
 let running=false, timer=null, minuteTimer=null, hourTimer=null, listenerBound=false;
@@ -10,22 +11,33 @@ const DEFAULT_RULES=[
   {id:'course-sync',name:'课程自动同步时间块',enabled:false,trigger:'daily',action:'course-sync'},
   {id:'daily-tidy',name:'每日自动整理',enabled:true,trigger:'daily',action:'daily-tidy'},
 ];
-function cfg(){ const s=S.getState(); s.automation??={}; s.automation.rules??=clone(DEFAULT_RULES); s.automation.logs??=[]; return s.automation; }
+// 接手旧数据（v0.248.0 之前、导入的备份）时，日志里可能留着几百 KB 一份的撤销快照：每个日志数组首次经过这里时
+// 按条数 + 体积裁一遍，有改动就安排保存。log() 产出的新数组已经裁过，直接记为已检查。
+const checkedLogs=new WeakSet();
+function cfg(){ const s=S.getState(); s.automation??={}; s.automation.rules??=clone(DEFAULT_RULES); s.automation.logs??=[];
+  const logs=s.automation.logs;
+  if(Array.isArray(logs)&&!checkedLogs.has(logs)){checkedLogs.add(logs);const had=logs.filter(x=>x?.before).length;pruneLogSnapshots(logs,{checkSize:true});if(logs.filter(x=>x?.before).length!==had)S.persistSoon();}
+  return s.automation; }
 export function getRules(){return cfg().rules;}
 export function setRuleEnabled(id,on){const r=getRules().find(x=>x.id===id);if(r){r.enabled=on;S.touch();}}
 export function getLogs(){return cfg().logs;}
 function snapshot(){return {tasks:clone(S.getState().tasks),blocks:clone(S.getState().blocks),inbox:clone(S.getState().inbox||[])};}
-function log(rule,message,before=null){const a=cfg(); a.logs.unshift({id:S.uid('log'),at:Date.now(),rule,message,before});a.logs=a.logs.slice(0,120);S.touch();}
+// 撤销快照的条数 / 单条体积上限见 automationLogs.js（与 aiAutomation.js 共用）；这里转出，老调用方不用改。
+export { LOG_UNDO_KEEP, pruneLogSnapshots };
+function log(rule,message,before=null){const a=cfg(); a.logs.unshift({id:S.uid('log'),at:Date.now(),rule,message,before:snapshotWithinLimit(before)});a.logs=pruneLogSnapshots(a.logs.slice(0,120));checkedLogs.add(a.logs);S.touch();}
 export async function undoLog(id){const row=getLogs().find(x=>x.id===id);if(!row?.before)throw new Error('这条记录不可撤销');const st=S.getState();st.tasks=row.before.tasks;st.blocks=row.before.blocks;st.inbox=row.before.inbox;log('undo',`撤销：${row.message}`);await S.saveNow();}
 async function scheduleDue(){
   const st=S.getState(), today=S.todayStr();
   const scheduled=new Set(st.blocks.map(b=>b.taskId).filter(Boolean));
   const candidates=st.tasks.filter(t=>!t.done&&t.due&&!scheduled.has(t.id)).sort((a,b)=>String(a.due).localeCompare(String(b.due)));
   for(const t of candidates.slice(0,6)){
-    const d=S.daysBetween(today,t.due); if(d<0||d>14)continue; const before=snapshot();
+    const d=S.daysBetween(today,t.due); if(d<0||d>14)continue;
+    // 这条规则每次数据变化都会跑：原先对每个候选任务都先整份深拷贝，排不进去的任务也照拷不误。
+    // placeTask 只替换 blocks 数组、追加新块，不改已有对象 —— 先留一份浅拷贝，真排进去了才深拷贝成撤销快照。
+    const blocksBefore=S.getState().blocks.slice();
     let placed=null;
     for(let i=Math.max(0,d-3);i<=d;i++){const date=S.addDays(today,i);try{placed=S.placeTask(t,date,null,t.tags?.includes('学习')?'study':'work');break;}catch{}}
-    if(placed){scheduled.add(t.id);log('deadline-auto-schedule',`已自动安排「${t.title}」到 ${placed.date} ${placed.start}`,before);}
+    if(placed){scheduled.add(t.id);const cur=S.getState();log('deadline-auto-schedule',`已自动安排「${t.title}」到 ${placed.date} ${placed.start}`,{tasks:clone(cur.tasks),blocks:clone(blocksBefore),inbox:clone(cur.inbox||[])});}
   }
 }
 function addInbox(item){const s=S.getState();s.inbox??=[];const key=item.sourceKey||`${item.source}:${item.title}:${item.when||''}`;if(s.inbox.some(x=>x.sourceKey===key))return null;const row={id:S.uid('in'),status:'new',createdAt:Date.now(),...item,sourceKey:key};s.inbox.unshift(row);S.touch();return row;}

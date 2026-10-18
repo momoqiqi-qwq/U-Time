@@ -1,5 +1,6 @@
 import * as S from "./store.js";
 import { api } from "./api.js";
+import { pruneLogSnapshots, snapshotWithinLimit } from "./automationLogs.js";
 
 const clone = (x) => structuredClone(x);
 const MAX_AI_RULES = 30;
@@ -207,8 +208,10 @@ function beforeSnapshot() {
 
 function addAutomationLog(rule, message, before = null) {
   const a = automationState();
-  a.logs.unshift({ id: S.uid("log"), at: Date.now(), rule: `ai:${rule.id}`, message, before });
-  a.logs = a.logs.slice(0, 120);
+  // 撤销快照与 automation.js 同口径：最近 LOG_UNDO_KEEP 条、单条不超过 LOG_SNAPSHOT_MAX（automationLogs.js，
+  // 单独成模块正是为了不形成 automation.js ↔ aiAutomation.js 循环依赖）。
+  a.logs.unshift({ id: S.uid("log"), at: Date.now(), rule: `ai:${rule.id}`, message, before: snapshotWithinLimit(before) });
+  a.logs = pruneLogSnapshots(a.logs.slice(0, 120));
 }
 
 function applyOperations(rule, operations) {

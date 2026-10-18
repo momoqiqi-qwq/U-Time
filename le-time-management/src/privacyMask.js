@@ -1,34 +1,54 @@
-/* ── 隐私展示模式（v0.234.0）──────────────────────────────────────────────
+/* ── 隐私展示模式（v0.234.0 · v0.245.0 补第四条）────────────────────────────
    屏摄 / 外发截图 / 投屏演示时，把「私人信息」就地模糊掉，不改动任何业务数据。
-   三条规则（用户需求）：
+   四条规则（用户需求）：
      ① 人脸模糊：被标记的肖像元素加模糊滤镜（`data-private-face`）。
      ② 数据 9 化：屏幕上每一段数字，个位 / 十位 / 百位一律变 9 —— 按用户的话
         就是「每个数字位都成 9」，所以整串结果全 9：128 → 999、1280 → 9999、
         学号 2021005 → 9999999、87.5 → 99.9、2026-09-21 → 9999-99-99。
         （需求原文：「将所有数字的个位、十位、百位都变成 9」。）
      ③ 三维图全满：三维图（宿舍床位星图这种）整体画满观感，空位也按占用显示。
+     ④ 校名模糊（v0.245.0）：屏幕上出现的「警大 / 警察大学 / 中国人民警察大学 /
+        CPPU」一律就地模糊 —— 这四个字比学号更早暴露「截图里的人是谁」。
+        （需求原文：「隐私模式将警大 2 个字也模糊掉」。）
 
    实现取「先渲染再处理」的追加层，不动任何业务渲染路径：
      · 数字：只扫**文本节点**并就地改写；原串存 WeakMap，关掉开关即可逐节点
        还原成干净文本（不留包裹层、不动 DOM 结构）。不碰属性，也不碰
        input / textarea 的值，因此不会改变任何可交互元素的状态。
+     · 校名：模糊只能作用于**元素**，所以命中的那一段必须包一层 `<span
+       data-private-word>`（纯文本节点没法只糊两个字符）。未命中的文本节点仍然
+       走上面那条「就地改写、原样还原」的路，DOM 结构一点不变。
      · 人脸与三维图：CSS 单条规则命中，JS 一律不进扫描循环 —— 星图每帧在转、
        番茄钟每秒在刷，靠 querySelectorAll 去逐个加类会拖慢这两处。
      · 重扫走 MutationObserver + 时间节流：只扫本批新增的子树，1.2s 兜底全量一次。
 
-   已知取舍：整个应用一视同仁地 9 化（真机上要能一键验证），
-   需要保留原值的区域用 `data-privacy-skip` 标记，扫描时整棵子树跳过。 */
+   已知取舍：整个应用一视同仁地 9 化 / 模糊校名（真机上要能一键验证），
+   需要保留原值的区域用 `data-privacy-skip` 标记，扫描时整棵子树跳过。
+   另外只处理**屏幕上的文本节点**：`title` / `aria-label` / `alt` 这类属性里的校名
+   不动 —— 它们不在画面上，改了反而会弄坏无障碍名称与悬浮提示的语义。 */
 import { getUiPreferences, setUiPreferences } from "./uiPreferences.js";
 
 const HOST_ATTR = "data-privacy-mask";
+/** ④ 校名模糊用的包裹层标记：CSS 认它，扫描也靠它整棵跳过（否则自己会把自己无限包下去）。 */
+const WORD_ATTR = "data-private-word";
+const WORD_CLASS = "privacy-word";
 /** 文本节点里的连续数字串（半角 + 全角，中文全角数字不能漏）。 */
 const DIGIT_RUN_RE = /[0-9０-９]/;
 const DIGIT_RUN_RE_G = /[0-9０-９]+/g;
 /** 全角 0 的码位：9 化后按全角写回，宽度不变，排版不会被挤动。 */
 const FULLWIDTH_ZERO = 0xff10;
 const FULLWIDTH_NINE = "\uFF19";
-/** 扫描时整棵子树跳过的标记（隐私徽标、版本号区、代码块、URL 等）。 */
-const SKIP_SELECTOR = "[data-privacy-skip],code,pre,kbd,samp,script,style";
+
+/** ④ 要一起模糊掉的「能定位到具体学校」的词；长词在前，避免「警察大学」把
+    「中国人民警察大学」截成两段。CPPU 走 i 开关：`CPPU · ACADEMIC CALENDAR`
+    这种大写标题与 `jw.cppu.edu.cn` 这类小写域名一起命中。 */
+export const SENSITIVE_WORDS = Object.freeze(["中国人民警察大学", "警察大学", "警大", "CPPU"]);
+const WORD_SOURCE = SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+/** 不带 g：`test()` 复用带 g 的正则会因 lastIndex 忽真忽假。 */
+const WORD_TEST_RE = new RegExp(WORD_SOURCE, "i");
+
+/** 扫描时整棵子树跳过的标记（隐私徽标、版本号区、代码块、URL、已包好的校名等）。 */
+const SKIP_SELECTOR = `[data-privacy-skip],code,pre,kbd,samp,script,style,[${WORD_ATTR}]`;
 /** 这些容器里的文字是用户输入或表单状态，9 化会改坏表单语义、也可能与 value 打架。 */
 const FORM_SELECTOR = "input,textarea,select,option,[contenteditable='true'],[contenteditable='']";
 /** 重扫节流：连点 / 快速翻页时不至于每帧扫一遍。 */
@@ -41,6 +61,9 @@ const FULL_RESCAN_BATCH = 24;
 /** 节点 → { raw, masked }；WeakMap 不可迭代，另存一份键列表供还原时遍历。 */
 const NODE_TEXT = new WeakMap();
 const LIVE_NODES = new Set();
+/** 校名包裹组：{ raw, parent, nodes }。nodes 是被替换上去的那串（文本 + span），
+    还原时整段换回一个装着 raw 的文本节点 —— 还原与「怎么加的」严格互逆。 */
+const WORD_GROUPS = new Set();
 /** 一屏里被标记过模糊的肖像元素（仅在关闭模式时用一次，之后清空）。 */
 const MARKED_FACES = new Set();
 
@@ -67,6 +90,28 @@ export function maskDigitsPreserveWidth(text) {
 /** 语义直白的别名：给测试与插件复用的「9 化」入口。 */
 export const nineify = maskDigitsPreserveWidth;
 
+/** 这段文字里有没有要模糊掉的校名。 */
+export function hasSensitiveWord(text) {
+  const str = typeof text === "string" ? text : String(text ?? "");
+  return str.length > 0 && WORD_TEST_RE.test(str);
+}
+
+/** 按校名把一串文字切成 [{ text, word }]：word=true 的那几段要被包裹模糊。
+    纯函数，不碰 DOM —— 测试与插件想自己算「哪几段该糊」都从这里走。 */
+export function splitSensitiveWords(text) {
+  const str = typeof text === "string" ? text : String(text ?? "");
+  const parts = [];
+  let last = 0;
+  for (const m of str.matchAll(new RegExp(WORD_SOURCE, "gi"))) {
+    if (m.index > last) parts.push({ text: str.slice(last, m.index), word: false });
+    parts.push({ text: m[0], word: true });
+    last = m.index + m[0].length;
+  }
+  if (!parts.length) return [{ text: str, word: false }];
+  if (last < str.length) parts.push({ text: str.slice(last), word: false });
+  return parts;
+}
+
 export function isPrivacyMaskOn() {
   return typeof document !== "undefined" && document.documentElement.getAttribute(HOST_ATTR) === "on";
 }
@@ -75,11 +120,44 @@ function shouldScan(node) {
   const parent = node.parentElement;
   if (!parent) return false;
   const value = node.nodeValue;
-  if (!value || !DIGIT_RUN_RE.test(value)) return false;
+  if (!value) return false;
+  if (!DIGIT_RUN_RE.test(value) && !hasSensitiveWord(value)) return false;
   /* 输入框里的文本节点不属于「展示的数据」：contenteditable 富文本、select 的 option
      都走这条跳过；input 的 value 根本不是文本节点，天然不受影响。 */
   if (parent.closest(FORM_SELECTOR)) return false;
   return !parent.closest(SKIP_SELECTOR);
+}
+
+/** 校名包裹：把命中的那一段换成 `<span data-private-word>`，其余段落原样写回。
+    返回是否真的包成了 —— 拿不到 DOM 原语时（测试替身不全）退回纯 9 化，不抛。 */
+function wrapSensitiveWords(node, raw) {
+  const doc = node.ownerDocument || (typeof document !== "undefined" ? document : null);
+  const parent = node.parentNode;
+  if (!doc || !parent || typeof doc.createDocumentFragment !== "function"
+    || typeof doc.createTextNode !== "function" || typeof parent.replaceChild !== "function") return false;
+  const frag = doc.createDocumentFragment();
+  const nodes = [];
+  let digitsChanged = false;
+  for (const part of splitSensitiveWords(raw)) {
+    const text = maskDigitsPreserveWidth(part.text);
+    if (text !== part.text) digitsChanged = true;
+    if (!part.word) {
+      const textNode = doc.createTextNode(text);
+      frag.appendChild(textNode);
+      nodes.push(textNode);
+      continue;
+    }
+    const span = doc.createElement("span");
+    span.setAttribute(WORD_ATTR, "");
+    if (span.classList && typeof span.classList.add === "function") span.classList.add(WORD_CLASS);
+    span.textContent = text;
+    frag.appendChild(span);
+    nodes.push(span);
+  }
+  parent.replaceChild(frag, node);
+  if (digitsChanged && parent.classList) parent.classList.add("privacy-masked");
+  WORD_GROUPS.add({ raw, parent, nodes, maskedClass: digitsChanged });
+  return true;
 }
 
 function scan(root) {
@@ -89,9 +167,23 @@ function scan(root) {
   const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => (shouldScan(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
   });
+  /* 先收集、再处理：命中校名的文本节点会被换成 [文本, span, 文本]，
+     在 TreeWalker 迭代**途中**改树会让它的当前位置失效（下一跳直接 null），
+     后半棵树就被静悄悄漏掉了。 */
+  const targets = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (NODE_TEXT.has(node)) continue;
+    if (!NODE_TEXT.has(node)) targets.push(node);
+  }
+  pruneWordGroups();
+  for (const node of targets) {
+    if (!node.parentNode) continue; // 这一批里已被换掉
     const raw = node.nodeValue;
+    if (!raw) continue;
+    if (hasSensitiveWord(raw)) {
+      wrapSensitiveWords(node, raw);
+      continue;
+    }
+    if (NODE_TEXT.has(node)) continue;
     const masked = maskDigitsPreserveWidth(raw);
     if (masked === raw) continue; // 本来就是全 9：无需标记，也不必记账
     NODE_TEXT.set(node, { raw, masked });
@@ -99,6 +191,15 @@ function scan(root) {
     node.nodeValue = masked;
     const parent = node.parentElement;
     if (parent && parent.classList) parent.classList.add("privacy-masked");
+  }
+}
+
+/** 视图整片重建后，旧包裹组里的节点已经不在文档上 —— 丢掉这些记录，别让 Set 一直长。 */
+function pruneWordGroups() {
+  if (!WORD_GROUPS.size) return;
+  for (const group of WORD_GROUPS) {
+    const alive = group.nodes.some((node) => node.isConnected !== false);
+    if (!alive) WORD_GROUPS.delete(group);
   }
 }
 
@@ -114,6 +215,33 @@ function restore() {
       const parent = node.parentElement;
       if (parent && parent.classList) parent.classList.remove("privacy-masked");
     } catch { /* 文本节点已置空（.textContent = "" 的中间态）：跳过 */ }
+  }
+  restoreWords();
+}
+
+/** 校名包裹的还原：整段换回一个文本节点（与 wrapSensitiveWords 严格互逆）。 */
+function restoreWords() {
+  if (!WORD_GROUPS.size) return;
+  const groups = [...WORD_GROUPS];
+  WORD_GROUPS.clear();
+  for (const group of groups) {
+    const { parent, nodes, raw } = group;
+    try {
+      const intact = parent && nodes.length && nodes.every((node) => node.parentNode === parent);
+      if (!intact) {
+        // 上层已经重建过这段 DOM：只把残留的包裹层标记摘掉，绝不动别人的文本
+        for (const node of nodes) node.classList?.remove?.(WORD_CLASS);
+        if (group.maskedClass && parent?.classList) parent.classList.remove("privacy-masked");
+        continue;
+      }
+      const doc = parent.ownerDocument || (typeof document !== "undefined" ? document : null);
+      const textNode = doc?.createTextNode?.(raw);
+      if (!textNode) continue;
+      parent.replaceChild(textNode, nodes[0]);
+      for (let i = 1; i < nodes.length; i += 1) parent.removeChild(nodes[i]);
+      // 包裹时因为「这段里有数字也被 9 化」挂上去的记号，一起摘掉（否则关掉后那行仍偏淡）
+      if (group.maskedClass && parent.classList) parent.classList.remove("privacy-masked");
+    } catch { /* DOM 已卸载：跳过 */ }
   }
 }
 

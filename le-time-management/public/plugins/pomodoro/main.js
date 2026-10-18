@@ -430,9 +430,10 @@
     const title = document.createElement("div");
     title.className = "pomodoro-card-heading";
     title.style.cssText = "font-size:calc(11px * var(--ui-text-scale));letter-spacing:.3em;color:var(--ink-2,#7E8B94);margin-bottom:14px";
-    title.textContent = "番 茄 专 注 · 内 置 插 件";
+    // 字距小标题去掉（v0.8.1）：侧栏与页面已经说明了这是哪个插件；只留右侧的「设置」。
+    title.textContent = "";
     const header = document.createElement("div");
-    header.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px";
+    header.style.cssText = "display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px";
     title.style.marginBottom = "0";
     const settingsBtn = chip("设置", () => tide.util.openSettings("ui", "番茄计时卡液态玻璃"));
     settingsBtn.type = "button";

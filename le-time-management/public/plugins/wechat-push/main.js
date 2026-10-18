@@ -422,7 +422,13 @@
       // 全勾 = 回到「未细分」，这样以后新接入的消息源仍会被默认推送
       state.pluginPicks = on.length === boxes.length ? null : on;
     }
-    document.addEventListener("click", (e) => { if (!e.target.closest("[data-ms]")) setMsOpen(false); });
+    // 每次渲染都会走到这里：旧页面的监听在下一次点击时发现自己的 DOM 已经脱离文档，就把自己摘掉，
+    // 不再随着反复进出页面越积越多（v1.12.1 之前每次渲染多挂一个、永不移除）。
+    const onDocClick = (e) => {
+      if (!ui.msSrcs.isConnected) { document.removeEventListener("click", onDocClick); return; }
+      if (!e.target.closest("[data-ms]")) setMsOpen(false);
+    };
+    document.addEventListener("click", onDocClick);
 
     ensurePrefs().then(() => {
       ui.token.value = state.token; ui.topic.value = state.topic; ui.key.value = state.oldKey; ui.en.checked = state.enabled;

@@ -21,6 +21,7 @@ import { createTaskSettingsCard } from "./settings/tasks.js";
 import { createCppuLoginCard } from "./settings/cppuLogin.js";
 import { createCppuAwardCard } from "./settings/cppuAward.js";
 import { createTestingCard } from "./settings/testing.js";
+import { createSupportCard } from "./settings/support.js";
 
 let info = null;
 let navUnsub = null;
@@ -129,7 +130,7 @@ export function renderSettings(container, opts = {}) {
       { id: "tasks", create: ({ render }) => createTaskSettingsCard(), label: "任务与排程", icon: "sliders", hint: "新建默认值 / 自动排程", keywords: "任务 象限 预估 时长 截止 提醒 自动排程 起始时间 空白时间块 分类 默认" },
       { id: "ui", create: ({ render }) => createInterfaceCard({ rerender: render }), label: "界面与交互", icon: "layout-panel", hint: "密度 / 字号 / 缩放 / 动效 / 窗口", keywords: "密度 文字 字号 缩放 界面大小 整体缩放 放大 缩小 太大 太小 看不清 动效 手势 滑动 启动页 窗口 大小 尺寸 最大化 分辨率 顶部统计 副标题 托盘 关闭 退出 最小化" },
       { id: "theme", create: ({ render }) => createThemeCard(), label: "主题", icon: "palette", hint: "配色与阅读模式", keywords: "颜色 夜间 深海 樱花 松林 暮光 极简" },
-      { id: "privacy", create: ({ render }) => createPrivacyCard({ rerender: render }), label: "隐私展示", icon: "user-shield", hint: "人脸模糊 / 数字 9 化 / 三维图全满", keywords: "隐私 展示模式 屏摄 截图 分享 投屏 演示 模糊 打码 脱敏 人脸 头像 数字 9 化 遮挡 分享屏幕 录屏 直播" },
+      { id: "privacy", create: ({ render }) => createPrivacyCard({ rerender: render }), label: "隐私展示", icon: "user-shield", hint: "人脸模糊 / 数字 9 化 / 三维图全满 / 校名模糊", keywords: "隐私 展示模式 屏摄 截图 分享 投屏 演示 模糊 打码 脱敏 人脸 头像 数字 9 化 遮挡 校名 学校 简称 全称 缩写 警大 警察大学 CPPU 分享屏幕 录屏 直播" },
       { id: "highlights", create: ({ render }) => createKeywordHighlightsCard(), label: "关键词标注", icon: "highlighter", hint: "时间标红 / 字体 / 背景", keywords: "关键词 重点 标注 高亮 时间 日期 红色 字体 背景 颜色" },
       { id: "reminders", create: ({ render }) => createReminderCard({ settings: S.getState().settings, info, render }), label: "任务提醒", icon: "bell", hint: "预警时间与提示音", keywords: "提醒 预警 音量 提示音 音频 截止" },
       { id: "data", create: ({ render }) => createDataCard({ settings: S.getState().settings, info, render }), label: "数据中心", icon: "database", hint: "备份 / 恢复 / 交换", keywords: "备份 恢复 JSON CSV Excel ICS 自动恢复点 导入 导出" },
@@ -141,6 +142,7 @@ export function renderSettings(container, opts = {}) {
       { id: "cppu-login", create: ({ render }) => createCppuLoginCard(), label: "警大登录设置", icon: "gear", hint: "登录重试 / 自动登录", keywords: "警大 门户 账号 登录 自动登录 密码 验证码 重试" },
       { id: "cppu-award", create: ({ render }) => createCppuAwardCard(), label: "警大获奖名单", icon: "trophy", hint: "人名榜开关 / 读取并发", keywords: "警大 获奖 名单 人名榜 排名 个人 团体 绿色 黄色 红色 开关 并发 同时读取 加速" },
       { id: "testing", create: ({ render }) => createTestingCard(), label: "测试", icon: "mobile-screen-button", hint: "手机预览 / 尺寸 / 横竖屏", keywords: "测试 手机版 预览 模拟 手机 内置浏览器 横屏 竖屏" },
+      { id: "support", create: ({ render }) => createSupportCard(), label: "赞助支持", icon: "mug-hot", hint: "收款码 / 支持作者", keywords: "赞助 打赏 支持 捐赠 收款码 二维码 扫码 微信 支付宝 保存图片 请作者喝咖啡 donate sponsor" },
       // 更新入口在「关于」里（软件更新）：关键词挂这儿，搜「更新 / 升级」也能落到关于。
       { id: "about", create: ({ render }) => createAboutCard(info, getRegistry()), label: "关于", icon: "circle-info", hint: "版本 / 软件更新 / 免责声明 / 开源信息", keywords: "免责声明 使用说明 隐私 数据 官方 权限 版本 更新 更新历史 更新记录 历史版本 升级 检查更新 自动更新 弹窗提示 忽略此版本 卸载 卸载应用 清除数据 删除数据 卸载 U-Time 开源 框架 GitHub 发布 下载 Releases 插件开发 API 文档 项目仓库" },
     ];

@@ -1,6 +1,6 @@
 # U-Time · 开源项目与第三方来源说明
 
-> **作者：梁逸乐（Yile Liang）** · 设计与开发 · 版权所有 © 梁逸乐（Yile Liang）。
+> **作者：梁逸乐（Yile Liang · momoni · lele · liangyile）** · 设计与开发 · 版权所有 © 梁逸乐（Yile Liang）。
 > 本文件用于产品内“关于”页面的可读说明，不替代各依赖自身的 LICENSE / NOTICE，也不是完整的传递依赖 SBOM。发布二进制时，应继续保留项目中随附的许可证与归属文件。
 
 ## 核心框架与直接依赖
@@ -20,12 +20,14 @@
 
 ## 图标
 
-本项目的图标来自 **Icons8 / iGoutu**（igoutu.cn 是 Icons8 的中文镜像，slug 与风格完全一致），分两条线路：
+自 v0.250.0 起，主导航、内置插件与插件内分类视图的随包彩色图标统一为**本项目自有的扁平双色母版**（`tools/icon-masters/`，AI 按同一风格参考图生成后入库），无第三方署名要求；品牌类插件使用按用途重新设计的图形，不含品牌标志。
+
+**Icons8 / iGoutu**（igoutu.cn 是 Icons8 的中文镜像）仍用于以下两处：
 
 | 用途 | 风格 | 加载方式 |
 |---|---|---|
-| 主导航（四象限 / 时间块 / 收件箱 / 插件 / 设置 / 快速捕获） | Color 彩色（来源图标集「标志 · 色版」） | 随包 PNG，`public/icons/nav/<key>.png`，由 `tools/gen-plugin-icons.py` 生成；加载失败回落同风格 CDN 直链 |
-| 12 个内置插件 | Color 彩色（来源图标集「标志 · 色版」，`wechat-push` 用 3D 风格微信标志） | 随包 PNG，`public/icons/plugins/<插件ID>.png`，由 `tools/gen-plugin-icons.py` 生成 |
+| 随包 PNG 加载失败时的回落 | Color 彩色（来源图标集「标志 · 色版」） | CDN 直链 `img.icons8.com/color/96/<slug>.png`，slug 清单在 `src/icons.js` |
+| 尚无自有母版的个别插件（如 `mojinghub`） | Color 彩色 | 随包 PNG，由 `tools/gen-plugin-icons.py` 生成 |
 
 内置插件与主导航图标的来源台账（风格 / slug / sha256 / 消费方）分别见
 `public/icons/plugins/ATTRIBUTION.md` 与 `public/icons/nav/ATTRIBUTION.md`。

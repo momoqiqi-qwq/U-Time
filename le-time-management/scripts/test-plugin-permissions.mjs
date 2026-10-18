@@ -28,6 +28,7 @@ assert.ok(KNOWN_PERMISSIONS.has('notify') && KNOWN_PERMISSIONS.has('http'), '权
 /* ── tide.<ns> → 权限 ── */
 const NS_PERMISSION = {
   storage: 'storage',
+  cache: 'storage',
   tasks: 'tasks',
   inbox: 'tasks',
   blocks: 'blocks',
