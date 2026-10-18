@@ -873,7 +873,12 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
   // v0.235.0：上下边距再收一轮（26/18 → 10/12），左右上限 100px → 64px。
   // 用户原话「ai对话上面还可以再窄一点，让对话能看到更多地方」—— 减的是对话面自己的边距，
   // 不是内容宽度；.aichat 高度仍是 100%，省下来的全归消息流。
-  assert.match(mainSrc, /padding:10px clamp\(16px,5%,64px\) 12px;/, "上下边距收到 10px/12px，左右上限 64px");
+  // v0.243.0：左右内边距单独抽成 --pad-x 并再收一轮（5%/64px → 1.6%/24px）。
+  // 用户原话「侧边栏再左移一点」「右边再拉长一点，顶到界面差不多位置」—— 收的是对话面自己的
+  // 左右边距，侧栏左缘与消息流右缘同时往外吃，内容宽度本身不动。
+  assert.match(mainSrc, /padding:10px var\(--pad-x\) 12px;/, "上下边距 10px/12px，左右走 --pad-x");
+  assert.match(mainSrc, /--pad-x:clamp\(10px,1\.6%,24px\)/,
+    "左右内边距必须抽成变量：抽屉态侧栏的 left 与拖拽条的 left 都用它对齐，写死就会错位");
   assert.doesNotMatch(mainSrc, /padding:[^;}]*\b58px/, "别退回 58px：行下会多出 82px 空位");
   /* 对话框本体（v0.193.0）：以前 .aichat 是一层纯装饰壳，真正的输入区是壳里另起的一个带边框、
      带独立底色的小框 —— 用户看到的就是「框里套小框」，点发送还没反应。现在消息流与输入区是同一块
@@ -895,9 +900,13 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
       "消息流包裹层不能叫 .aichat-body —— 那是单条消息气泡容器的名字，同名会把 gap/column 套到每条气泡上");
   }
 
-  /* 输入区不许再画第二层框（自己的边框 + 独立底色 + 独立圆角），否则又回到「框里套小框」 */
-  assert.match(mainSrc, /\.aichat-bar\{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:6px;flex:none;padding:8px 2px 0;border:0;border-radius:0;border-top:1px solid #c9acd32e;background:transparent;box-shadow:none;transition:border-color \.3s\}/,
-    "输入区要跟对话框同一块面：只留一条顶部分隔线，不要自己的边框/底色/圆角；垂直 padding 与 gap 收紧到 8px/6px（省下的高度还给上面的消息流），并兼作档位浮层的定位祖先");
+  /* v0.243.0：输入区改成圆角输入卡（用户原话「将下面的对话框设置为圆角」）。
+     仍然是**一层**边界 —— 圆角/描边/底色只挂在 .aichat-bar 上，里面那颗 textarea 继续
+     彻底透明、圆角归零（见下一条 !important 规则），所以不是「框里再套个小框」的老毛病。 */
+  assert.match(mainSrc, /\.aichat-bar\{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:6px;flex:none;padding:9px 12px;border:1px solid #c9acd33d;border-radius:18px;background:#2b243b8f;/,
+    "输入区是圆角输入卡：自己的描边 + 18px 圆角 + 半透明底，并兼作档位浮层的定位祖先");
+  assert.doesNotMatch(mainSrc, /\.aichat-bar\{[^}]*border-radius:0[^}]*\}/,
+    "圆角不许再退回 0（用户要的就是圆角输入卡）");
 
   /* 宿主 src/styles.css 那条通用输入框规则（input/select/textarea，带 !important、特异性 (0,3,1)）
      会把 textarea 刷成 --control-bg 实底 + 8px 圆角，插件样式注入在 <head> 末尾也压不住 ——
@@ -1241,13 +1250,14 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
    ④「给AI的回答内容的多表现为对话卡片，颜色多样化一些」→ cardHtml() 按空行切卡、按内容哈希上色
    卡片的装帧全在新的 cardHtml() 里 —— md() 一个字没动（它的精确输出是上面那批断言钉死的）。 */
 {
-  // ① 更窄的顶部：减的是对话面自己的边距，不是内容宽度
-  assert.match(mainSrc, /padding:10px clamp\(16px,5%,64px\) 12px;/, "上下边距收到 10px/12px、左右上限 64px");
+  // ① 更窄的顶部：减的是对话面自己的边距，不是内容宽度（v0.243.0 起左右也走 --pad-x）
+  assert.match(mainSrc, /padding:10px var\(--pad-x\) 12px;/, "上下边距 10px/12px、左右走 --pad-x");
   assert.doesNotMatch(mainSrc, /padding:26px clamp\(22px,9%,100px\)/, "别退回 26px/100px 那套旧口径");
 
-  // ② 常驻侧栏：同一块 DOM 两态切换，列宽 260px ↔ 0px 插值（不是两套侧栏、也不是 display:none）
-  assert.match(mainSrc, /\.aichat\.side-docked\{grid-template-columns:260px minmax\(0,1fr\)/,
-    "常驻态给出一列 260px");
+  // ② 常驻侧栏：同一块 DOM 两态切换，列宽 --side-w ↔ 0px 插值（不是两套侧栏、也不是 display:none）
+  assert.match(mainSrc, /\.aichat\.side-docked\{grid-template-columns:var\(--side-w\) minmax\(0,1fr\)/,
+    "常驻态的第一列跟着 --side-w 走：默认 260px，用户拖过的值以内存变量写回 root");
+  assert.match(mainSrc, /--side-w:260px/, "未自定义时列宽必须还是 260px");
   assert.match(mainSrc, /\.aichat\.side-docked:not\(\.sidebar-open\)\{grid-template-columns:0px minmax\(0,1fr\)\}/,
     "收起要用 0px 轨道插值，才能有中间帧且不退化成删列");
   assert.doesNotMatch(mainSrc, /\.aichat\.side-docked \.aichat-sidebar\{[^}]*display:none/,
@@ -1256,8 +1266,8 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
     "内层固定 236px、外层裁切：不然收起过程中文字会一路重排");
   assert.match(mainSrc, /\.aichat\.side-docked \.aichat-backdrop\{opacity:0;visibility:hidden;pointer-events:none\}/,
     "常驻侧栏不是浮层，不该把对话面压暗");
-  assert.match(mainSrc, /\.aichat\.side-docked \.aichat-sidebar-in\{width:236px;flex:none\}/,
-    "内层固定宽 236px 靠外层裁切，而不是让文字一路重排（重排会抽动）");
+  assert.match(mainSrc, /\.aichat\.side-docked \.aichat-sidebar-in\{width:calc\(var\(--side-w\) - 24px\);flex:none\}/,
+    "内层跟着列宽走（减掉左右各 12px 内边距）靠外层裁切，而不是让文字一路重排（重排会抽动）");
   assert.match(mainSrc, /const dockQuery = window\.matchMedia\("\(min-width:860px\)"\)/,
     "断点只判一次宽度；用 matchMedia 而不是视口尺寸属性");
   assert.match(mainSrc, /if \(docked && !was && !sidebarOpen\) setSidebar\(true\)/, "首次进宽屏侧栏要直接摊开");
@@ -1270,6 +1280,29 @@ assert.ok(Object.keys(fx.ACTIONS).every((a) => /create|update|done/.test(a)), "�
     "四段各自成行必须靠 grid 命名区域，flex 列做不到「侧栏跨满整高、其余四段仍在右侧」");
   assert.match(mainSrc, /\.aichat-head\{grid-area:head\}\.aichat-flow\{grid-area:flow\}\.aichat-bar\{grid-area:bar\}\.aichat-shortcuts\{grid-area:quick\}/,
     "四段的名字要真的落到 grid-area 上");
+
+  /* ①′ 侧栏宽度可拖（v0.243.0，用户原话「宽度可以自由拖动、拉长或拉大」）：
+     拖拽条只在「常驻 + 展开」时出现，写内联 --side-w，落盘值单独过闸门。 */
+  assert.match(mainSrc, /<button type="button" class="aichat-rail-resizer" role="separator" aria-orientation="vertical"/,
+    "拖拽条要是可聚焦的 separator（键盘 ←/→ 才能微调）");
+  assert.match(mainSrc, /\.aichat-rail-resizer\{display:none\}/,
+    "默认不出现：抽屉态第一列是 0px，条会贴到左内边距上");
+  assert.match(mainSrc, /\.aichat\.side-docked\.sidebar-open \.aichat-rail-resizer\{display:grid;[^}]*left:calc\(var\(--pad-x\) \+ var\(--side-w\) - 8px\)/,
+    "只在常驻展开态出现，且用与列宽同一个变量定位 —— 写死像素拖完就错位");
+  assert.match(mainSrc, /\.aichat\.rail-dragging\{transition:none\}/,
+    "拖动期间必须关掉列宽插值，否则条一直追不上指针");
+  assert.match(mainSrc, /root\.style\.setProperty\("--side-w", `\$\{v\}px`\)/,
+    "宽度出口只有一个：内联写 root 的 --side-w");
+  assert.match(mainSrc, /railScale = \(\) => \{[\s\S]{0,220}?getBoundingClientRect\(\)\.width \|\| layout\) \/ layout/,
+    "位移要除过「视觉 px ÷ 布局 px」的缩放比，UI 缩放下才跟手");
+  assert.match(mainSrc, /if \(persist\) \{[\s\S]{0,120}?tide\.storage\.set\(RAIL_W_KEY, v\)/,
+    "落盘只在抬起 / 键盘改动时写，pointermove 每帧写会把存储刷爆");
+  assert.match(mainSrc, /railWidth = normalizeRailW\(await tide\.storage\.get\(RAIL_W_KEY, null\)\)/,
+    "存储值必须过落盘闸门（脏数据 → null 回默认）");
+  assert.match(mainSrc, /function clampRailW\(raw, containerW\)/,
+    "实时夹取与落盘闸门分开：拖动中的 0 / 负数只是「拖过头」，不该被当脏数据拒收");
+  assert.match(mainSrc, /resizer\.addEventListener\("dblclick", \(event\) => \{ event\.preventDefault\(\); resetRailW\(\); \}\)/,
+    "双击恢复默认宽度");
 
   // ③ 会话右键菜单：absolute（包含块是 .aichat 的 padding box，天然落在宿主安全区内）
   assert.match(mainSrc, /<div class="aichat-ctx" id="aichat-ctx" role="menu" aria-label="对话操作" aria-hidden="true" inert>/,

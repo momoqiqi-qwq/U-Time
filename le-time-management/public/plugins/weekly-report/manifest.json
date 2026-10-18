@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "author": "U-Time内置",
   "icon": "chart-column",
-  "description": "按周汇总：每天的时间块分布、分类占比、任务完成度，一眼看清这一周过得怎么样。",
+  "description": "按周汇总：每天的时间块分布、分类占比与任务完成度，一眼看清这一周。",
   "permissions": [
     "ui",
     "tasks",

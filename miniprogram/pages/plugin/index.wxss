@@ -49,7 +49,8 @@
 .exam-l1 { display: flex; align-items: center; gap: 8rpx; }
 .exam-dot { flex: none; width: 12rpx; height: 12rpx; border-radius: 50%; background: var(--mint); }
 .exam-dot.est { background: transparent; border: 2rpx solid var(--ink-3); box-sizing: border-box; }
-.exam-title { flex: 1; min-width: 0; font-size: 26rpx; font-weight: 680; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 考试名红色高亮（与桌面端 .ecal-name 同口径）：走危险色令牌，浅色 #C43C3C / 深色 #E08A8A */
+.exam-title { flex: 1; min-width: 0; font-size: 26rpx; font-weight: 680; line-height: 1.4; color: var(--danger-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exam-tag { flex: none; font-size: 19rpx; padding: 2rpx 8rpx; border-radius: 6rpx; background: var(--paper); color: var(--ink-2); }
 .exam-l2 { font-size: 20rpx; color: var(--ink-3); margin-top: 6rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .exam-cd { flex: none; font-size: 20rpx; color: var(--ink-3); white-space: nowrap; padding-top: 4rpx; }

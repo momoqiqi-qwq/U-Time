@@ -5,7 +5,7 @@
   "author": "U-Time内置",
   "icon": "comment-dots",
   "faIcon": "comment-dots",
-  "description": "通过 PushPlus 把时间块、任务截止和插件新消息推送到微信，可细选消息源。插件消息攒批 2 分钟合并发送；支持 Token、Topic、测试消息和本地微信消息样式预览，预览复用实际发送的标题与正文格式。兼容旧版 Server酱配置。",
+  "description": "通过 PushPlus 把时间块、任务截止和插件新消息推送到微信，可细选消息源并预览消息样式。",
   "permissions": ["ui", "tasks", "blocks", "storage", "notify", "events", "http", "openUrl"],
   "entry": "main.js",
   "order": 10,

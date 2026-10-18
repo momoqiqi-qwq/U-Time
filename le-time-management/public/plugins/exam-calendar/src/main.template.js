@@ -230,6 +230,9 @@
       // 看起来就是文字互相压住。现在容器不够宽时操作整块换到第二行。
       ".ecal-row{--ecal-date-w:92px;display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px 12px;padding:12px;border:1px solid var(--border,#E4DFD6);border-radius:10px;margin-bottom:6px}" +
       ".ecal-row:hover{border-color:var(--ink-3,#A9B2BA)}" +
+      // 整卡可点（v0.5.0）：有官方链接的行才有手指光标；行内按钮不截胡
+      ".ecal-row.clickable{cursor:pointer}" +
+      ".ecal-row.clickable:hover{border-color:var(--sea,#118AB2)}" +
       ".ecal-row.est{border-style:dashed;opacity:.72}" +
       ".ecal-row.hot{border-left:3px solid var(--coral,#FF6B6B)}" +
       ".ecal-row.join-next{margin-bottom:0;border-bottom-left-radius:0;border-bottom-right-radius:0}" +
@@ -244,7 +247,10 @@
       ".ecal-d2.same{opacity:.55}" +
       ".ecal-bcol{flex:1 1 0;min-width:0;overflow:hidden}" +
       ".ecal-l1{display:flex;align-items:center;gap:6px;min-width:0;font-size:calc(13px * var(--ui-text-scale));line-height:1.5}" +
-      ".ecal-name{font:inherit;font-size:calc(13px * var(--ui-text-scale));font-weight:600;background:none;border:none;color:inherit;padding:0;margin:0;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0}" +
+      // 考试名红色高亮（v0.5.0）：走 --danger 令牌 —— 浅色是 #B03535，深色由
+      // tools/gen-theme-dark.js 按各主题深色面板反解亮度写进 theme-derived.css，
+      // 不硬编码红色（硬编码在深色面板上只有 1.4~1.9:1）。
+      ".ecal-name{font:inherit;font-size:calc(13px * var(--ui-text-scale));font-weight:600;background:none;border:none;color:var(--danger,#B03535);padding:0;margin:0;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:0}" +
       ".ecal-name:hover{text-decoration:underline;text-underline-offset:3px}" +
       ".ecal-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--mint,#2EC4B6)}" +
       ".ecal-dot.est{background:transparent;box-shadow:inset 0 0 0 1px var(--ink-3,#A9B2BA)}" +
@@ -598,6 +604,18 @@
         const hot = cd.tone === "urgent" || cd.tone === "live";
         row.className = "ecal-row" + (ev.confirmed ? "" : " est") + (hot ? " hot" : "") + (joinNext ? " join-next" : "") + (sameDay ? " same-day" : "");
         row.dataset.search = (ev.name + " " + (ev.category || "") + " " + (ev.typeName || "")).toLowerCase();
+
+        /* 整卡可点（v0.5.0）：点卡片空白处直达官方页面。
+           行内按钮各有各的动作（考试名 → 全流程筛选、排进日程、公告），
+           用 closest("button,…") 把它们挡在外面 —— 否则点「排进日程」会被整卡点击截胡。 */
+        if (ev.url) {
+          row.classList.add("clickable");
+          row.title = (isWindow(ev) ? "点击打开官方报名入口：" : "点击打开官方公告：") + ev.url;
+          row.addEventListener("click", function (e) {
+            if (e.target && e.target.closest && e.target.closest("button, a, input, select, textarea, summary")) return;
+            tide.util.openUrl(ev.url);
+          });
+        }
 
         const dcol = document.createElement("div");
         dcol.className = "ecal-dcol";

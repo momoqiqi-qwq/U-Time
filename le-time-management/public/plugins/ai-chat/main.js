@@ -40,6 +40,15 @@
   const NAME_MAX = 12;      // 名称上限，再长气泡上方的标签就顶到边了
   const AVATAR_SIDE = 128;  // 头像统一压成正方形边长（圆形显示用）
   const DEFAULT_NAME = { me: "我", ai: "AI 助手" };
+  /* 侧栏宽度（v0.243.0，用户原话：「宽度可以自由拖动、拉长或拉大」）。
+     与宿主 .rail 的可拖拽同口径：落盘存**布局 px 整数**，未自定义/脏数据 = null（回 CSS 默认
+     260px）；拖动中的实时值允许越界，夹取而不是拒收。上限还要再被对话面宽度的 55% 压一次 ——
+     侧栏宽过对话列本身就没有「对话」可看了，窄窗口里尤其明显。 */
+  const RAIL_W_KEY = "railWidth";
+  const RAIL_W_DEFAULT = 260;
+  const RAIL_W_STEP = 16;
+  const RAIL_W_LIMITS = Object.freeze({ min: 200, max: 480 });
+  const RAIL_W_SHARE = 0.55;
 
   /* 思考强度（v0.175.0 加档位，v0.204.0 从「一颗循环按钮」改成输入区里的下拉栏）：
      四档，`id` 空串 = 不带 reasoning_effort 字段。
@@ -87,6 +96,8 @@
   // 「已归档」分组是展开还是收起。它必须活在重绘之外 —— 每次 saveThread() 都会重画侧栏，
   // 状态放在渲染函数里的话，打一个字进去分组就自己合上了。
   let archiveOpen = false;
+  // 侧栏宽度（布局 px）。null = 没自定义过，宽度回 CSS 的 --side-w 默认 260px。
+  let railWidth = null;
   /* 会话右键菜单的「收尾钩子」。paintSessions() 在模块层、菜单接线在 render() 里，而重画列表
      必须先收掉菜单（菜单锚在旧卡片上，卡片一换节点就悬空了）。用钩子而不是把 paintSessions
      搬进 render：它会重建，闭包会随每次重绘堆积。 */
@@ -233,6 +244,28 @@
   }
 
   /* ───────────────────────── 小工具 ───────────────────────── */
+
+  /**
+   * 侧栏宽度的落盘闸门：storage 里的值 → 布局 px 整数。
+   * 脏数据（非数字、0、空串、负数、NaN/Infinity）一律 null = 回 CSS 默认，宁可不要自定义；
+   * 越界值夹进区间 —— 语义是「上次拖过头了」，仍然是有效的自定义宽度。
+   */
+  function normalizeRailW(raw) {
+    if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return null;
+    return Math.min(RAIL_W_LIMITS.max, Math.max(RAIL_W_LIMITS.min, Math.round(raw)));
+  }
+
+  /**
+   * 拖动 / 键盘的实时宽度：只认有限数字 —— 0 与负数在这里是「往左拖过头」的合法中间态，
+   * 夹到下限即可，不当脏数据（`Number(null) === 0` 那种坑由 normalizeRailW 挡在存储侧）。
+   * 上限再被容器宽度的 55% 压一次；容器还没进布局（offsetWidth === 0）时退回常量上限。
+   */
+  function clampRailW(raw, containerW) {
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+    const byBox = containerW > 0 ? Math.round(containerW * RAIL_W_SHARE) : RAIL_W_LIMITS.max;
+    const hi = Math.max(RAIL_W_LIMITS.min, Math.min(RAIL_W_LIMITS.max, byBox));
+    return Math.min(hi, Math.max(RAIL_W_LIMITS.min, Math.round(raw)));
+  }
 
   const esc = (s) => String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -1524,7 +1557,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
    软阴影（它那边是 MultiEffect shadowColor rgba(0,0,0,.15) / blur .75 / offset 8）。
    底部 padding 从 58px 收到 18px —— 58px 是照「浮层底下要留出手影」抄的，但本视图不是浮层，
    快捷提问行下面那一段就白占了 82px（用户：「对话框下面太多空位了」）。 */
-.aichat{--ink:#f6f0ff;--ink-2:#c7b6d9;--ink-3:#bba8cf;--panel:#2b243b;--paper:#352d46;--line:#665573;--deep:#bb91ce;--on-deep:#fff;position:relative;isolation:isolate;box-sizing:border-box;max-width:none;min-height:0;gap:10px;padding:10px clamp(16px,5%,64px) 12px;background:radial-gradient(ellipse at 12% 95%,#67516f66,transparent 62%),linear-gradient(120deg,#51435e,#48425c);border-radius:18px;overflow:hidden;font-family:"Microsoft YaHei UI","PingFang SC",sans-serif;box-shadow:0 8px 22px #00000026,0 0 34px #cfa8dd21;animation:aichat-dialog-in 400ms cubic-bezier(.34,1.4,.64,1) both,aichat-dialog-fade 300ms cubic-bezier(.16,1,.3,1) both}
+.aichat{--ink:#f6f0ff;--ink-2:#c7b6d9;--ink-3:#bba8cf;--panel:#2b243b;--paper:#352d46;--line:#665573;--deep:#bb91ce;--on-deep:#fff;--pad-x:clamp(10px,1.6%,24px);--side-w:260px;position:relative;isolation:isolate;box-sizing:border-box;max-width:none;min-height:0;gap:10px;padding:10px var(--pad-x) 12px;background:radial-gradient(ellipse at 12% 95%,#67516f66,transparent 62%),linear-gradient(120deg,#51435e,#48425c);border-radius:18px;overflow:hidden;font-family:"Microsoft YaHei UI","PingFang SC",sans-serif;box-shadow:0 8px 22px #00000026,0 0 34px #cfa8dd21;animation:aichat-dialog-in 400ms cubic-bezier(.34,1.4,.64,1) both,aichat-dialog-fade 300ms cubic-bezier(.16,1,.3,1) both}
 /* 布局改用 grid（v0.235.0）：对话面要能容纳左侧一整列常驻侧栏（见下面 .aichat.side-docked），
    而 flex 列做不到「侧栏跨满整高、其余四段仍在右侧各自成行」。grid-area 的名字把这四段钉死，
    浮层（.aichat-backdrop / .aichat-id / .aichat-ctx）是 absolute，不参与轨道分配。 */
@@ -1557,7 +1590,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
    于是那 14px padding 与 1px 边框会往外再加 30px —— 常驻态下它比给它的 260px 网格列宽 30px，
    正好压住右侧对话区左边 16px（实测：浮层右缘 368 / 对话列左缘 352，首批字符被盖）。
    抽屉态同样虚胖 30px，calc(100% - 32px) 也就不是写这句话时想的意思了。 */
-.aichat-sidebar{position:absolute;box-sizing:border-box;z-index:5;left:clamp(16px,5%,64px);top:52px;width:min(320px,calc(100% - 32px));max-height:min(520px,calc(100% - 74px));display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid #bc9acd4d;border-radius:16px;background:#30273eee;box-shadow:0 8px 28px #1c132866;backdrop-filter:blur(16px);transform-origin:top left;opacity:0;transform:scale(.92);visibility:hidden;pointer-events:none;transition:opacity 180ms ease-in,transform 220ms ease-in,visibility 0s 220ms}
+.aichat-sidebar{position:absolute;box-sizing:border-box;z-index:5;left:var(--pad-x);top:52px;width:min(320px,calc(100% - 32px));max-height:min(520px,calc(100% - 74px));display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid #bc9acd4d;border-radius:16px;background:#30273eee;box-shadow:0 8px 28px #1c132866;backdrop-filter:blur(16px);transform-origin:top left;opacity:0;transform:scale(.92);visibility:hidden;pointer-events:none;transition:opacity 180ms ease-in,transform 220ms ease-in,visibility 0s 220ms}
 .sidebar-open .aichat-sidebar{opacity:1;transform:scale(1);visibility:visible;pointer-events:auto;transition:opacity 220ms cubic-bezier(.22,1,.36,1),transform 320ms cubic-bezier(.34,1.4,.64,1),visibility 0s}
 .aichat-sidebar-heading{display:flex;align-items:center;gap:8px;font-size:calc(16px * var(--ui-text-scale,1))}
 .aichat-sidebar-heading b{flex:1}
@@ -1580,14 +1613,30 @@ button.aichat-avatar{padding:0;cursor:pointer}
    那条 absolute 规则），因为手机上一条 260px 的常驻列会把对话挤没。
    列宽用 grid-template-columns 插值收起（Chromium 107+ 支持轨道插值），同时钳掉遮罩 ——
    常驻侧栏不是浮层，不该把对话面压暗。 */
-.aichat.side-docked{grid-template-columns:260px minmax(0,1fr);grid-template-areas:"side head" "side flow" "side bar" "side quick";column-gap:14px;transition:grid-template-columns 280ms cubic-bezier(.22,1,.36,1)}
+.aichat.side-docked{grid-template-columns:var(--side-w) minmax(0,1fr);grid-template-areas:"side head" "side flow" "side bar" "side quick";column-gap:14px;transition:grid-template-columns 280ms cubic-bezier(.22,1,.36,1)}
 .aichat.side-docked:not(.sidebar-open){grid-template-columns:0px minmax(0,1fr)}
 .aichat.side-docked .aichat-sidebar{position:relative;left:auto;top:auto;z-index:3;grid-area:side;width:100%;max-height:none;opacity:1;visibility:visible;pointer-events:auto;transform:none;overflow-x:clip;transition:opacity 200ms ease,padding 280ms cubic-bezier(.22,1,.36,1)}
 .aichat.side-docked:not(.sidebar-open) .aichat-sidebar{opacity:0;visibility:hidden;pointer-events:none;padding-left:0;padding-right:0}
-/* 内层固定 260px：收起时靠外层 overflow-x:clip 裁掉，而不是让文字一路重排（重排会「抽动」） */
-.aichat.side-docked .aichat-sidebar-in{width:236px;flex:none}
+/* 内层跟着外层列宽走（减 24px = 网格列宽减去侧栏左右各 12px 的内边距），
+   拖动改的是 --side-w，内层不必再单独测量：收起时靠外层 overflow-x:clip 裁掉，
+   而不是让文字一路重排（重排会「抽动」）。 */
+.aichat.side-docked .aichat-sidebar-in{width:calc(var(--side-w) - 24px);flex:none}
 .aichat.side-docked .aichat-backdrop{opacity:0;visibility:hidden;pointer-events:none}
 .aichat.side-docked .aichat-sidebar-close{display:none}
+/* ─── 侧栏宽度拖拽条（v0.243.0，用户原话：「宽度可以自由拖动、拉长或拉大」）───
+   拖的是 --side-w，跟 .aichat.side-docked 的第一列共用同一个变量：样式表只留默认 260px，
+   用户拖过的值以**内联**变量写回 root（内联天然压过样式表档位）。
+   absolute 让它在 grid 里不占轨道 —— .aichat 是 grid 容器，多一个流内子项会另起一行。
+   只在「常驻 + 展开」时出现：窄屏抽屉态第一列是 0px，条会贴到左内边距上、拖了也没意义。
+   收起 / 展开的过渡期间同样不管：那时列宽在插值，条的 left 会跟着跑一段。 */
+.aichat-rail-resizer{display:none}
+.aichat.side-docked.sidebar-open .aichat-rail-resizer{display:grid;place-items:center;position:absolute;z-index:6;top:8px;bottom:8px;left:calc(var(--pad-x) + var(--side-w) - 8px);width:16px;padding:0;border:0;border-radius:8px;background:transparent;cursor:col-resize;touch-action:none;transition:background 220ms ease}
+.aichat-rail-resizer::before{content:"";width:2px;height:30px;border-radius:2px;background:#c9acd31f;transition:background 220ms ease,height 220ms ease}
+.aichat-rail-resizer:hover,.aichat-rail-resizer:focus-visible{background:#b58fc32e;outline:none}
+.aichat-rail-resizer:hover::before,.aichat-rail-resizer:focus-visible::before,.aichat.rail-dragging .aichat-rail-resizer::before{background:#e0c4ecb3;height:46px}
+/* 拖动期间关掉列宽插值：280ms 的轨道过渡会让条一直追不上指针（感觉像「越拖越远」）。
+   必须排在上面 .aichat.side-docked 那条之后 —— 两边特异性相同，比的是先后。 */
+.aichat.rail-dragging{transition:none}
 /* ─── 会话右键菜单（改名 / 归档 / 删除）───
    位置口径是 absolute（不是 fixed）：包含块是 .aichat 的 padding box，天然落在宿主 .view 的
    四条安全边内，不需要自己去读 --sat/--sab（铁律四）。坐标由 JS 按 .aichat 的矩形夹取。 */
@@ -1652,10 +1701,16 @@ button.aichat-avatar{padding:0;cursor:pointer}
    改名要同步改测试，所以长相换了、名字保留。
    v0.205.0：垂直方向的 padding 与 gap 一起收紧（16px/12px → 8px/6px），并把档位浮层的定位
    祖先交给它（position:relative）—— 省下的每一像素都还给上面的消息流。 */
-.aichat-bar{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:6px;flex:none;padding:8px 2px 0;border:0;border-radius:0;border-top:1px solid #c9acd32e;background:transparent;box-shadow:none;transition:border-color .3s}
+/* v0.243.0：这里从「一条顶部分隔线 + 透明底」改成**圆角输入卡**（用户原话：
+   「将下面的对话框设置为圆角」）。上一版为了消掉「框里再套一个小框」，把外壳与输入面
+   抹成了同一块 —— 代价是整颗输入区在深色底上几乎没有边界，看不出「说」的区域到哪为止。
+   现在边界回到 .aichat-bar 自己身上（1px 描边 + 18px 圆角 + 半透明底 + 一点内阴影），
+   里面那颗 textarea 仍然彻底透明、圆角归零（见下一条 !important 规则），所以还是
+   **一层**边界，不是又套了个小框。聚焦时的呼吸光继续用 :focus-within 那条。 */
+.aichat-bar{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:6px;flex:none;padding:9px 12px;border:1px solid #c9acd33d;border-radius:18px;background:#2b243b8f;box-shadow:0 6px 18px #1c132833,inset 0 1px 0 #e6d2f20f;transition:border-color .3s,box-shadow .3s}
 .aichat-bar:focus-within{border-color:#b99cc7;animation:aichat-bar-glow 3s ease-in-out infinite alternate}
 @keyframes aichat-bar-glow{from{border-color:#b99cc7;box-shadow:0 0 0 1px #b99cc729,0 0 16px #cfa8dd33}to{border-color:#cdb0d8;box-shadow:0 0 0 1px #cdb0d847,0 0 28px #d9b6ea59}}
-.aichat-input{width:100%;box-sizing:border-box;flex:none;border:0;border-radius:0;padding:3px 0;min-height:34px;background:transparent;font-size:calc(15px * var(--ui-text-scale,1));color:#f5eaff;line-height:1.6}
+.aichat-input{width:100%;box-sizing:border-box;flex:none;border:0;border-radius:0;padding:4px 2px;min-height:34px;background:transparent;font-size:calc(15px * var(--ui-text-scale,1));color:#f5eaff;line-height:1.6}
 .aichat-input::placeholder{color:#bca9cf;opacity:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 为什么这里要写一长串 :not() —— 宿主 src/styles.css 有一条全局 !important 规则
    （input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea
@@ -2107,6 +2162,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
     notices = (await tide.storage.get(NOTICE_KEY, [])) || [];
     identity = normalizeIdentity(await tide.storage.get(ID_KEY, null));
     draft = String((await tide.storage.get(DRAFT_KEY, "")) || "");
+    railWidth = normalizeRailW(await tide.storage.get(RAIL_W_KEY, null));
     const saved = await tide.storage.get(SESSIONS_KEY, null);
     sessions = Array.isArray(saved?.items) ? saved.items.filter((s) => s && typeof s.id === "string" && typeof s.title === "string" && Array.isArray(s.thread)) : [];
     sessionId = typeof saved?.activeId === "string" && saved.activeId ? saved.activeId : newSessionId();
@@ -2167,6 +2223,7 @@ button.aichat-avatar{padding:0;cursor:pointer}
           <button type="button" class="aichat-btn" data-id aria-controls="aichat-id-panel" aria-expanded="false">头像与名称</button>
         </div>
       </aside>
+      <button type="button" class="aichat-rail-resizer" role="separator" aria-orientation="vertical" aria-label="拖动调整对话历史宽度" aria-valuemin="200" aria-valuemax="480" aria-valuenow="260" title="拖动调整宽度 · 双击恢复默认 · 聚焦后 ←/→ 微调" tabindex="0"></button>
       <div class="aichat-id" id="aichat-id-panel" role="dialog" aria-modal="true" aria-label="头像与名称" aria-hidden="true" tabindex="-1" inert>
         <div class="aichat-id-head"><b>头像与名称</b><button type="button" class="aichat-id-close" data-id-close aria-label="关闭头像与名称">×</button></div>
         ${["me", "ai"].map((role) => `
@@ -2479,6 +2536,73 @@ button.aichat-avatar{padding:0;cursor:pointer}
     dockQuery.addEventListener("change", applyDock);
     const onViewportLayout = () => { applyDock(); closeCtx(); };
     window.addEventListener("resize", onViewportLayout);
+    /* ─── 侧栏宽度拖拽（v0.243.0，用户原话：「宽度可以自由拖动、拉长或拉大」）────────
+       出口只有一个 applyRailW()：往 root 写/删**内联** --side-w，样式表只留默认 260px
+       （内联值天然压过任何档位，用户显式拖过的宽度优先，与宿主 .rail 同口径）。
+       缩放口径：插件的指针坐标与 getBoundingClientRect() 都是**视觉 px**，而 offsetWidth 是
+       布局 px —— UI 缩放下两者不等（宿主 uiScale 是根节点 zoom，插件读不到那条 API）。这里
+       就地用「矩形宽 ÷ offsetWidth」现算比例，位移除过它才跟手。
+       落盘只在抬起与键盘改动时写一次：pointermove 每帧都写会把存储刷爆。 */
+    const resizer = root.querySelector(".aichat-rail-resizer");
+    const railScale = () => {
+      const layout = root.offsetWidth || 0;
+      if (!layout) return 1;
+      return (root.getBoundingClientRect().width || layout) / layout;
+    };
+    const railNow = () => sidebar.offsetWidth || RAIL_W_DEFAULT;
+    const applyRailW = (px, persist = false) => {
+      const v = clampRailW(px, root.offsetWidth);
+      if (v == null) return null;
+      root.style.setProperty("--side-w", `${v}px`);
+      resizer.setAttribute("aria-valuenow", String(v));
+      if (persist) {
+        railWidth = v;
+        tide.storage.set(RAIL_W_KEY, v);
+      }
+      return v;
+    };
+    const resetRailW = () => {
+      root.style.removeProperty("--side-w");
+      railWidth = null;
+      resizer.setAttribute("aria-valuenow", String(RAIL_W_DEFAULT));
+      tide.storage.set(RAIL_W_KEY, null);
+    };
+    // DOM 是整棵重建的：把用户上次拖的宽度立刻接回来（存储值已在 loadOnce 里过闸门）。
+    if (railWidth) applyRailW(railWidth);
+    let railDrag = null;
+    resizer.addEventListener("pointerdown", (event) => {
+      if (event.button > 0) return;
+      railDrag = { id: event.pointerId, x: event.clientX, w: railNow(), scale: railScale() || 1 };
+      root.classList.add("rail-dragging");
+      resizer.setPointerCapture?.(event.pointerId);
+      event.preventDefault();
+    });
+    resizer.addEventListener("pointermove", (event) => {
+      if (!railDrag || event.pointerId !== railDrag.id) return;
+      applyRailW(railDrag.w + (event.clientX - railDrag.x) / railDrag.scale);
+      event.preventDefault();
+    });
+    /* 抬起时按**实测列宽**落盘：拖动过程中的值可能被夹取过，与真正渲染出来的列宽差一两像素。 */
+    const endRailDrag = (event) => {
+      if (!railDrag) return;
+      if (event?.pointerId != null && event.pointerId !== railDrag.id) return;
+      railDrag = null;
+      root.classList.remove("rail-dragging");
+      applyRailW(railNow(), true);
+    };
+    resizer.addEventListener("pointerup", endRailDrag);
+    resizer.addEventListener("pointercancel", endRailDrag);
+    resizer.addEventListener("lostpointercapture", endRailDrag);
+    resizer.addEventListener("dblclick", (event) => { event.preventDefault(); resetRailW(); });
+    // 键盘微调：separator 可聚焦，←/→ ±16，Home 回默认（与宿主 .rail-resizer 的手感一致）。
+    resizer.addEventListener("keydown", (event) => {
+      if (event.key === "Home") { event.preventDefault(); resetRailW(); return; }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      applyRailW(railNow() + (event.key === "ArrowRight" ? RAIL_W_STEP : -RAIL_W_STEP), true);
+    });
+    /* 视口变窄后重放一次：480px 的列在小窗口里会占超过一半，得按新的容器宽重新夹。 */
+    window.addEventListener("resize", () => { if (railWidth) applyRailW(railWidth); });
     /* 「头像与名称」= 居中弹窗 + 背后蒙版（v0.200.0）。开合两向都由 root 上的 .id-open 驱动，
        收起时内容留在 DOM 里直到过渡结束，不许 hidden 闪没（铁律七）。 */
     let idReturnTo = null;

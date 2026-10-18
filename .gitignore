@@ -107,3 +107,6 @@ cloudflare-pages/plugin-guide/.wrangler/
 /tools/shots/out/
 # 技能 letime-plugin-ui-check 落在插件工程根下的预览页（__cx2-<tag>-<theme>.html，每次重跑覆盖）
 /le-time-management/__cx2-*.html
+
+# 根目录误产生的空 lock 文件（真正的 lock 在 le-time-management/）
+/package-lock.json

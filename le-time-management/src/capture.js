@@ -8,6 +8,7 @@ import { openIngestPanel } from "./views/ingestPanel.js";
 import { openTaskDrawer } from "./views/drawer.js";
 import { previewSchedule } from "./scheduleConflict.js";
 import { closeLayer, removeWithMotion } from "./motion.js";
+import { looksLikeNoise } from "./captureNoise.js";
 
 let overlay = null;
 let dragDepth = 0;
@@ -140,6 +141,12 @@ function placeCapturedBlock(patch) {
 
 /* ── 文本：自动解析并创建 ── */
 function handleText(text) {
+  // 名单 / 碎片守卫：从聊天里复制的人名接龙（"1\n刘2\n梁3\n冯"）拼出来
+  // 只剩单字与数字，建出来的待办既看不懂也删不干净 —— 一律不进任务池。
+  if (looksLikeNoise(text)) {
+    toast("这段内容像是名单或碎片，没当成一件事：没有创建任务", { ms: 6000 });
+    return;
+  }
   const p = parseWhen(text);
   const cat = guessCategory(text);
   const title = p.title;

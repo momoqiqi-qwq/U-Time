@@ -19,6 +19,10 @@
   // 打开插件时的刷新策略（用户可在界面按钮里二选一，选择持久化）：
   // auto = 每次打开都自动刷新（默认）；throttle = 距上次成功同步不足 10 分钟直接用缓存。
   const AUTO_REFRESH_THROTTLE_MS = 10 * 60 * 1000;
+  // 作业探测的按记录冷却：过去 40 秒内已获取过消息的记录不再重复拉取，40 秒之后才能再拉取。
+  // 刷新入口有三条（打开插件时的自动刷新、手点「刷新」、任务栏角标每 5 分钟的后台刷新），
+  // 全部汇到 probePendingWorks()；不设冷却时连着点两下刷新就把同一批作业再向学习通打一遍。
+  const PROBE_COOLDOWN_MS = 40 * 1000;
   const REFRESH_MODES = {
     auto: {
       label: "自动刷新",
@@ -1219,7 +1223,11 @@ const CX_PY_DATA = {
        · title「作答详情 / 查看详情 / 作业详情」→ 已提交后的查看页；
      是否已批改没有静态信号（批改结果页是 Vue 异步渲染），所以已提交统一记为「正在批改」，
      批改完成以平台通知为准。每轮刷新按列表分批探（未截止 ≤6、逾期 ≤4、无截止近期 ≤4），
-     逐条串行进行，避免一次性打太多触发风控。 */
+     逐条串行进行，避免一次性打太多触发风控。
+
+     按记录冷却（PROBE_COOLDOWN_MS = 40 秒）：同一条作业刚探过就整轮跳过，40 秒后才再排进来。
+     没有它时，「打开插件自动刷新 → 马上手点刷新 → 角标后台刷新」会在几十秒内把同一批作业
+     反复打给学习通；探测是串行的，冷却也顺带让每轮分批稳定往后推进，而不是围着最先几条打转。 */
 
   function parseWorkRef(n) {
     const m = String(n?.raw?.rtf_content || "").match(/<iframe[^>]*\bname="([A-Za-z0-9+/=]{40,})"/);
@@ -1255,7 +1263,11 @@ const CX_PY_DATA = {
   let probing = false;
   async function probePendingWorks() {
     if (probing || !state.loggedIn) return;
-    const unknown = (n) => { const r = parseWorkRef(n); return r && state.workStatus[r.id] !== "grading"; };
+    // 40 秒冷却：过去 40 秒内已获取过消息（probeTimes 记了时间戳）的记录不重复拉取，
+    // 40 秒之后才能再拉取。探测失败也记时间戳 —— 请求已经打出去了，冷却同样生效，
+    // 下一轮刷新（通常隔好几分钟）自然重试，不会趁着失败连续重打。
+    const cooling = (id) => Date.now() - (probeTimes.get(id) || 0) < PROBE_COOLDOWN_MS;
+    const unknown = (n) => { const r = parseWorkRef(n); return r && state.workStatus[r.id] !== "grading" && !cooling(r.id); };
     const oldestFirst = (a, b) => (probeTimes.get(parseWorkRef(a)?.id) || 0) - (probeTimes.get(parseWorkRef(b)?.id) || 0);
     // 未截止的先探（≤6）；逾期的一并探一批（≤4）—— 不探就没法把「其实早就交了」的那批从逾期里摘出去；
     // 再给无截止时间的近期作业留一批（≤4），它们不在上面两个列表里，不专门排进来就永远探不到。

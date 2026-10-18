@@ -598,6 +598,12 @@
       .jg-metrics>div{display:flex;flex-direction:column;gap:2px;padding:6px 0 10px;min-width:0}
       .jg-metrics small{color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale))}
       .jg-metrics b{color:var(--ink);font-size:calc(19px * var(--ui-text-scale))}
+      /* 指标图标（请假汇总卡）：左图标 + 右「数值在上、标签在下」，与一卡通三张卡的 .yk-amount 同一语言 */
+      .jg-metrics .jg-metric{display:flex;align-items:center;gap:11px;min-width:0}
+      .jg-metrics .jg-metric .pp-metric-ico{flex:none;display:block}
+      .jg-metrics .jg-metric-text{min-width:0}
+      .jg-metrics .jg-metric-text b{display:block;line-height:1.15}
+      .jg-metrics .jg-metric-text small{display:block;margin-top:1px}
       .jg-divider{height:1px;background:var(--line-soft);margin:4px 0}
       .jg-note{color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.55;margin:4px 0 7px}
       .jg-pair,.jg-course{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:calc(12.5px * var(--ui-text-scale))}
@@ -642,6 +648,9 @@
       .yk-spent b{color:var(--danger)}
       [data-theme-mode="dark"] .yk-status.warn{color:color-mix(in srgb,var(--sun) 55%,var(--ink))}
       .yk-total span,.yk-spent span,.yk-balance span{display:block;color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale));line-height:1.7;margin-top:4px}
+      /* 三张卡的图标行：图标与金额并排，金额仍是卡片主角（图标 44px / 金额 30px） */
+      .yk-total .yk-amount,.yk-spent .yk-amount,.yk-balance .yk-amount{display:flex;align-items:center;gap:12px;min-width:0}
+      .yk-total .yk-amount .pp-metric-ico,.yk-spent .yk-amount .pp-metric-ico,.yk-balance .yk-amount .pp-metric-ico{flex:none;display:block}
       .yk-login{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;display:grid;grid-template-columns:minmax(140px,1fr) minmax(160px,1fr) auto;gap:8px;align-items:center}
       .yk-login input{min-width:0;height:36px;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--ink);padding:0 10px;font:inherit;font-size:calc(12px * var(--ui-text-scale))}
       .yk-login small{grid-column:1/-1;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));line-height:1.7}
@@ -2814,6 +2823,32 @@
   /* 请假状态四档 → 成绩页分数四档的同名色（见 .jw-leave .jw-tag.* 注释）：
      2 已同意 → ok、1 审批中 → warn、3 未同意 → bad、0 已撤销 → muted，校方新加的未知码不给色。 */
   const jwLeaveTone = (code) => ({ "2": "ok", "1": "warn", "3": "bad", "0": "muted" }[String(code ?? "").trim()] || "");
+  /* 指标行图标（v1.61.0）：与校历图标同一套语言 —— 纯线条、无底板、无投影、无渐变，
+     线外一律不铺底色，落在 16 套主题的浅/深面板上都不带自己的色块。
+     颜色取「白卡与深紫卡上都能看」的中间调（对 #FFF ≥3:1、对 #232029 ≥4.6:1），
+     所以不需要按 data-theme-mode 出两套色板；线条与实心小块统一走 currentColor。
+     画在标准 24 网格上（stroke 2.2、圆头圆角），width/height 就是视觉尺寸 —— 96 网格留白多，
+     44px 盒里图形实际只有 22px，比例会偏小；24 网格下 30px 盒 ≈ 22.5px 图形，与 30px 金额相称。 */
+  const METRIC_ICONS = {
+    /* 一卡通三卡 */
+    total: { color: "#4C8DE8", glyph: `<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>` },
+    spent: { color: "#D98A0F", glyph: `<path d="M6.2 8.2h11.6v10.6a2.2 2.2 0 0 1-2.2 2.2H8.4a2.2 2.2 0 0 1-2.2-2.2V8.2z"/><path d="M9 8.2V6.6a3 3 0 0 1 6 0v1.6"/>` },
+    balance: { color: "#22A55E", glyph: `<ellipse cx="12" cy="7.6" rx="6.2" ry="2.6"/><path d="M5.8 7.6v5.1c0 1.44 2.78 2.6 6.2 2.6s6.2-1.16 6.2-2.6V7.6"/><path d="M5.8 12.7v5.1c0 1.44 2.78 2.6 6.2 2.6s6.2-1.16 6.2-2.6v-5.1"/>` },
+    /* 请假汇总四指标 */
+    applyTotal: { color: "#4C8DE8", glyph: `<rect x="6" y="3.4" width="12" height="17.2" rx="2.2"/><path d="M9.2 8.4h5.6M9.2 12h5.6M9.2 15.6h3.6"/>` },
+    approved: { color: "#22A55E", glyph: `<path d="M5.4 12.6l4.1 4.4L18.6 7"/>` },
+    pending: { color: "#D98A0F", glyph: `<path d="M6.8 3.4h10.4M6.8 20.6h10.4"/><path d="M8 3.4c0 4.2 4 5.2 4 8.6s-4 4.4-4 8.6"/><path d="M16 3.4c0 4.2-4 5.2-4 8.6s4 4.4 4 8.6"/>` },
+    rejected: { color: "#D9453F", glyph: `<path d="M7.2 7.2l9.6 9.6M16.8 7.2L7.2 16.8"/>` },
+  };
+  const METRIC_ICON_KEYS = Object.keys(METRIC_ICONS);
+  function metricIcon(key, size = 28) {
+    const set = METRIC_ICONS[key];
+    if (!set) return "";
+    return `<svg class="pp-metric-ico" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"`
+      + ` style="color:${set.color}" aria-hidden="true" focusable="false">`
+      + `<g stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">`
+      + set.glyph + `</g></svg>`;
+  }
   /* 首屏汇总与成绩页同构：同一个 .jg-card + .jg-metrics 骨架，指标名 11px --ink-3、数值 19px --ink，
      语义数字借 .jg-good / .jg-warn / .jg-bad —— 两页的「一屏概览」看起来才是同一套界面。 */
   function jwLeaveSummaryHtml() {
@@ -2824,8 +2859,8 @@
     const ok = count("2");
     const pending = count("1");
     const rest = rec.length - ok - pending;
-    const metrics = [["申请总数", rec.length, ""], ["已同意", ok, "jg-good"], ["审批中", pending, "jg-warn"], ["未通过 / 已撤销", rest, rest ? "jg-bad" : ""]]
-      .map(([label, value, tone]) => `<div><small>${label}</small><b${tone ? ` class="${tone}"` : ""}>${value}</b></div>`).join("");
+    const metrics = [["申请总数", rec.length, "", "applyTotal"], ["已同意", ok, "jg-good", "approved"], ["审批中", pending, "jg-warn", "pending"], ["未通过 / 已撤销", rest, rest ? "jg-bad" : "", "rejected"]]
+      .map(([label, value, tone, key]) => `<div><div class="jg-metric">${metricIcon(key, 26)}<span class="jg-metric-text"><b${tone ? ` class="${tone}"` : ""}>${value}</b><small>${label}</small></span></div></div>`).join("");
     return `<section class="jg-card"><div class="jg-metrics">${metrics}</div>
       <div class="jg-note">可请假课次 ${courses.length} 节 · 汇总按教务返回的申请状态统计，提交入口仍在学校教务。</div></section>`;
   }
@@ -4105,9 +4140,9 @@
     const synced = cardState.syncedAt ? new Date(cardState.syncedAt).toLocaleString("zh-CN", { hour12: false }) : "尚未同步";
     const balanceSynced = cardState.balanceAt ? new Date(cardState.balanceAt).toLocaleString("zh-CN", { hour12: false }) : "尚未同步";
     return `<div class="yk-stat">
-      <div class="yk-total"><small>总充值量</small><b>${esc(cardMoney(total))}</b><span>共 ${inCount} 笔一卡通平台充值记录，可按年份 / 月份 / 日期汇总查看。</span></div>
-      <div class="yk-spent"><small>已花费</small><b>${esc(cardMoney(spent))}</b><span>共 ${outCount} 笔一卡通平台消费流水（含食堂、商超、洗浴等刷卡支出）。</span></div>
-      <div class="yk-balance"><small>当前余额</small><b>${cardState.balance == null ? "--" : esc(cardMoney(cardState.balance))}</b><span>一卡通平台实时余额（校园卡账户 + 电子账户，含未结算金额） · ${esc(balanceSynced)}${cardState.balanceError ? ` · ${esc(cardState.balanceError)}` : ""}</span></div>
+      <div class="yk-total"><small>总充值量</small><div class="yk-amount">${metricIcon("total", 28)}<b>${esc(cardMoney(total))}</b></div><span>共 ${inCount} 笔一卡通平台充值记录，可按年份 / 月份 / 日期汇总查看。</span></div>
+      <div class="yk-spent"><small>已花费</small><div class="yk-amount">${metricIcon("spent", 28)}<b>${esc(cardMoney(spent))}</b></div><span>共 ${outCount} 笔一卡通平台消费流水（含食堂、商超、洗浴等刷卡支出）。</span></div>
+      <div class="yk-balance"><small>当前余额</small><div class="yk-amount">${metricIcon("balance", 28)}<b>${cardState.balance == null ? "--" : esc(cardMoney(cardState.balance))}</b></div><span>一卡通平台实时余额（校园卡账户 + 电子账户，含未结算金额） · ${esc(balanceSynced)}${cardState.balanceError ? ` · ${esc(cardState.balanceError)}` : ""}</span></div>
       <div class="yk-account"><span>账单来源：<b>一卡通平台</b></span><span>最后同步：${esc(synced)}</span>${cardState.error ? `<span class="warn">${esc(cardState.error)}</span>` : ""}</div>
     </div>
     <div data-card-averages><p>${esc(cardAverageError || "正在载入日均餐费统计…")}</p></div>

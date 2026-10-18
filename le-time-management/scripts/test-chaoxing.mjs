@@ -56,7 +56,7 @@ const context = vm.createContext({
   tide,
 });
 
-const EXPORTS = '{state,pickTargetLink,isAnonymousUrl,isChaoxingSessionUrl,linkScore,cardActionsHtml,ignoreNotice,restoreIgnored,visibleInbox,filteredInbox,todos,submittedOpen,lateAll,overdueTodos,submittedOverdue,noDueWorks,recentNoDueWorks,gradingNoDue,noticeTimeMs,todoHtml,openTarget,openWithLogin,startCookieSession,fetchInbox,LOGIN_JUMP,loadCourses,termOf,currentTerm,gradeOf,detectEnrollYear,courseStatus,courseCardHtml,coursesHtml,parseWorkRef,statusOf,gradingBadge,probeWorkStatus,probePendingWorks,noticeAcademicYear,catYears,catsHtml,inboxCardHtml,cxInitials,cxKwHit}';
+const EXPORTS = '{state,pickTargetLink,isAnonymousUrl,isChaoxingSessionUrl,linkScore,cardActionsHtml,ignoreNotice,restoreIgnored,visibleInbox,filteredInbox,todos,submittedOpen,lateAll,overdueTodos,submittedOverdue,noDueWorks,recentNoDueWorks,gradingNoDue,noticeTimeMs,todoHtml,openTarget,openWithLogin,startCookieSession,fetchInbox,LOGIN_JUMP,loadCourses,termOf,currentTerm,gradeOf,detectEnrollYear,courseStatus,courseCardHtml,coursesHtml,parseWorkRef,statusOf,gradingBadge,probeWorkStatus,probePendingWorks,probeTimes,noticeAcademicYear,catYears,catsHtml,inboxCardHtml,cxInitials,cxKwHit}';
 vm.runInContext(
   source.replace('  tide.ui.registerView({', `  globalThis.cx = ${EXPORTS};\n  tide.ui.registerView({`),
   context,
@@ -66,7 +66,7 @@ const { state, pickTargetLink, isAnonymousUrl, isChaoxingSessionUrl, cardActions
   noDueWorks, recentNoDueWorks, gradingNoDue, noticeTimeMs,
   todoHtml, openTarget, openWithLogin, startCookieSession, fetchInbox, LOGIN_JUMP,
   loadCourses, termOf, currentTerm, gradeOf, detectEnrollYear, courseStatus, courseGroups, coursesHtml,
-  parseWorkRef, statusOf, gradingBadge, probeWorkStatus, probePendingWorks,
+  parseWorkRef, statusOf, gradingBadge, probeWorkStatus, probePendingWorks, probeTimes,
   noticeAcademicYear, catYears, catsHtml, inboxCardHtml, cxInitials, cxKwHit } = context.cx;
 
 const HW = 'https://mooc1.chaoxing.com/mooc-ans/work/doHomeWorkNew?courseId=1&workId=99';
@@ -471,7 +471,12 @@ assert.equal(state.workStatus['9002'], 'grading', '落地页是详情查看页 �
 assert.equal(workFetches(), 2, '每个未知作业只探一次');
 assert.equal(storage.workStatus['9002'], 'grading', '状态要落到插件存储，刷新后不用重探');
 await probePendingWorks();
-assert.equal(workFetches(), 3, '未提交状态每轮重新探测，已提交状态继续复用');
+assert.equal(workFetches(), 2, '40 秒冷却（v0.242.2）：紧接着的第二轮不重探未提交作业');
+assert.equal(statusOf(state.inbox.find((x) => x.id === 'w2')), 'grading');
+// 把 9001 的探测时间戳拨回 41 秒前 ⇒ 冷却过期：未提交作业恢复探测，已提交的依旧复用不探
+probeTimes.set('9001', Date.now() - 41000);
+await probePendingWorks();
+assert.equal(workFetches(), 3, '冷却过期后未提交作业恢复每轮探测');
 assert.equal(statusOf(state.inbox.find((x) => x.id === 'w2')), 'grading');
 assert.match(gradingBadge(state.inbox.find((x) => x.id === 'w2')), /正在批改/, '已提交未批改的标题后要有标签');
 assert.equal(gradingBadge(state.inbox.find((x) => x.id === 'w1')), '', '未提交的不打标');

@@ -1,0 +1,380 @@
+
+      .pp-wrap{--campus-green:#18783C;max-width:880px;margin:0 auto}
+      [data-theme-mode="dark"] .pp-wrap{--campus-green:#72D698}
+      .pp-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
+      .pp-lab{font-size:calc(11px * var(--ui-text-scale));color:#A9B2BA;letter-spacing:.14em;flex:none;width:34px}
+      .pp-chips{display:flex;gap:8px;flex-wrap:wrap;flex:1}
+      /* 搜索框只留一颗放大镜（用户要求「删除所有搜索框内的中文，仅保留搜索图标」） */
+      .pp-kwbox{position:relative;display:flex;align-items:center;flex:1;min-width:170px}
+      .pp-kwbox>.pp-kw{flex:1 1 auto;min-width:0;padding-left:32px}
+      .pp-kw-ico{position:absolute;left:11px;width:14px;height:14px;display:inline-flex;color:#7E8B94;pointer-events:none}
+      .pp-kw-ico svg{width:100%;height:100%;display:block}
+      .pp-kw{flex:1;min-width:170px;height:34px;border:1px solid #E4DFD6;border-radius:9px;padding:0 11px;background:#fff}
+      .pp-chip{font-size:calc(12px * var(--ui-text-scale));border:1px solid #E4DFD6;background:#fff;border-radius:16px;padding:6px 13px;cursor:pointer;color:#7E8B94}
+      .pp-chip.on{background:#0F4C5C;color:#fff;border-color:#0F4C5C}
+      .gx-btn:hover,.pp-btn:hover{border-color:#0F4C5C;color:#0F4C5C}
+      .pp-btn{font-size:calc(12px * var(--ui-text-scale));border:1px solid #E4DFD6;border-radius:8px;padding:7px 13px;background:#fff;cursor:pointer;color:#22303A;white-space:nowrap}
+      .pp-btn.pri{background:#0F4C5C;color:#fff;border-color:#0F4C5C;font-weight:600}
+      .pp-btn.pri:hover{background:#0B3D4A;color:#fff}
+      .pp-toggle{display:flex;align-items:center;gap:6px;font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;cursor:pointer;user-select:none}
+      .pp-toggle i{width:34px;height:19px;border-radius:10px;background:#D8D2C6;display:inline-block;position:relative;transition:.15s}
+      .pp-toggle i::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:.15s}
+      .pp-toggle.on i{background:#2EC4B6}
+      .pp-toggle.on i::after{left:17px}
+      .pp-status{font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;margin:2px 0 8px}
+      .pp-status .err{color:#B03535}
+      .pp-month{font-size:calc(12.5px * var(--ui-text-scale));font-weight:700;color:#0F4C5C;padding:9px 2px 7px;letter-spacing:.05em}
+      .pp-card{background:#fff;border:1px solid #E4DFD6;border-radius:14px;padding:12px 14px;margin-bottom:9px;cursor:pointer;content-visibility:auto;contain-intrinsic-size:auto 74px;transition:border-color .28s ease,box-shadow .28s ease,background .28s ease}
+      .pp-card.open{border-color:#D5DED9;box-shadow:0 7px 24px rgba(34,48,58,.055)}
+      .pp-heading{display:block;width:100%;text-align:left;background:transparent;border:0;color:inherit;padding:4px 0;cursor:pointer;font-family:inherit;min-height:44px}
+      .pp-expand{margin-top:10px;min-height:44px;display:inline-flex;align-items:center;gap:7px;transition:background .2s ease,border-color .2s ease,color .2s ease}
+      .pp-expand::after{content:"⌄";display:inline-block;font-size:calc(14px * var(--ui-text-scale));line-height:1;transform:translateY(-1px) rotate(0deg);transition:transform .36s cubic-bezier(.22,.8,.22,1)}
+      .pp-card.open .pp-expand::after{transform:translateY(1px) rotate(180deg)}
+      .pp-heading:focus-visible,.pp-btn:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
+      @media(max-width:600px){.pp-wrap{width:100%;min-width:0}.pp-login{margin:12px auto;padding:20px 16px;max-width:100%;box-sizing:border-box}.pp-title{font-size:calc(17px * var(--ui-text-scale))!important}.pp-meta{font-size:calc(13px * var(--ui-text-scale))!important}.pp-detail .c{font-size:calc(16px * var(--ui-text-scale))!important;max-height:none!important;overflow-wrap:anywhere}.pp-btn,.pp-chip{min-height:44px;font-size:calc(14px * var(--ui-text-scale))!important}.pp-kwbox{width:100%;flex-basis:100%;box-sizing:border-box}.pp-kwbox>.pp-kw{min-height:44px}.pp-card{padding:14px;cursor:default}.pp-caprow input{min-width:0}.pp-detail .pp-act{flex-wrap:wrap}}
+      .pp-card:hover{background:#FBFAF5;border-color:#D8D2C4}
+      .pp-card.seen{opacity:.6}
+      .pp-title{font-size:calc(13.5px * var(--ui-text-scale));font-weight:600;line-height:1.5}
+      .pp-meta{display:flex;gap:8px;align-items:center;font-size:calc(11px * var(--ui-text-scale));color:#7E8B94;margin-top:5px;flex-wrap:wrap}
+      .pp-tag{border-radius:6px;padding:2px 8px;background:#E1EEF3;color:#0F4C5C;font-size:calc(10px * var(--ui-text-scale))}
+      .pp-tag.top{background:#FFF0E1;color:#B26A00}
+      .pp-tag.unread{background:#FDE8E8;color:#C64545}
+      .pp-tag.kind{background:#F6F3EC;color:#6D5B3F;border:1px solid #E4DFD6}
+      .pp-detail-shell{display:grid;grid-template-rows:0fr;opacity:0;margin-top:0;transition:grid-template-rows .42s cubic-bezier(.2,.78,.2,1),opacity .24s ease,margin-top .42s cubic-bezier(.2,.78,.2,1)}
+      .pp-card.open .pp-detail-shell{grid-template-rows:1fr;opacity:1;margin-top:10px}
+      .pp-detail-clip{min-height:0;overflow:hidden}
+      .pp-detail{border-top:1px dashed #EFEAE1;padding-top:10px;transform:translateY(-7px);transition:transform .36s cubic-bezier(.2,.78,.2,1)}
+      .pp-card.open .pp-detail{transform:translateY(0)}
+      .pp-detail .c{font-size:calc(12px * var(--ui-text-scale));color:#4B565E;line-height:1.9;white-space:pre-wrap;max-height:320px;overflow-y:auto;overscroll-behavior:contain}
+      .pp-detail .pp-act{display:flex;gap:8px;margin-top:10px}
+      .pp-att-list{margin-top:10px;border:1px solid var(--line-soft);border-radius:10px;background:var(--bg);color:var(--ink);padding:9px 10px}
+      .pp-att-list>b{display:block;font-size:calc(11px * var(--ui-text-scale));color:var(--deep);margin-bottom:6px}
+      .pp-att{display:flex;align-items:center;gap:8px;width:100%;padding:8px 2px;border:0;border-top:1px solid var(--line-soft);background:transparent;text-align:left;cursor:pointer;min-width:0;color:var(--ink)}
+      .pp-att:hover,.pp-att:focus-visible{color:var(--deep);background:var(--panel)}
+      .pp-att:focus-visible{outline:2px solid var(--deep);outline-offset:-2px}
+      .pp-att:first-of-type{border-top:0}
+      .pp-att span:first-child{flex:1;min-width:0;overflow-wrap:anywhere;font-size:calc(12px * var(--ui-text-scale))}
+      .pp-att-action{flex:none;font-size:calc(11px * var(--ui-text-scale));color:var(--deep)}
+      .pp-login{max-width:440px;margin:26px auto;background:#fff;border:1px solid #E4DFD6;border-radius:18px;padding:28px 30px;box-shadow:0 2px 10px rgba(34,48,58,.07)}
+      .pp-login h3{font-size:calc(16px * var(--ui-text-scale));margin-bottom:4px}
+      .pp-login .d{font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;line-height:1.7;margin-bottom:12px}
+      .pp-login label{display:block;font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;margin:12px 0 5px}
+      .pp-login input{width:100%;height:38px;border:1px solid #E4DFD6;border-radius:9px;padding:0 12px;background:#fff;box-sizing:border-box}
+      .pp-caprow{display:flex;gap:10px;align-items:flex-end}
+      .pp-caprow .capbox{flex:none;width:120px;text-align:center;cursor:pointer}
+      .pp-caprow img{width:120px;height:40px;border:1px solid #E4DFD6;border-radius:8px;background:#fff;display:block}
+      .pp-caprow small{font-size:calc(10px * var(--ui-text-scale));color:#A9B2BA;display:block;margin-top:3px}
+      .pp-login .err{color:#B03535;font-size:calc(12px * var(--ui-text-scale));margin-top:10px;min-height:16px}
+      .pp-login .sec{font-size:calc(10.5px * var(--ui-text-scale));color:#A9B2BA;margin-top:12px;line-height:1.7}
+      .pp-login .saved{background:#F6FBFA;border:1px solid #D6EBE8;color:#42656A;border-radius:10px;padding:9px 11px;font-size:calc(12px * var(--ui-text-scale));line-height:1.65;margin:10px 0 12px}
+      .pp-empty{border:1.5px dashed #CFC8BA;border-radius:12px;padding:20px;text-align:center;color:#A9B2BA;font-size:calc(12.5px * var(--ui-text-scale));line-height:1.8}
+      .pp-banner{background:color-mix(in srgb,var(--deep,#0F4C5C) 14%,var(--bg,#F2EFEA));border:1px solid color-mix(in srgb,var(--deep,#0F4C5C) 38%,var(--bg,#F2EFEA));color:var(--ink,#22303A);border-radius:12px;padding:12px 15px;font-size:calc(12px * var(--ui-text-scale));line-height:1.8;margin-bottom:10px}
+      /* 横幅升级成刷新入口（v0.189.0）：.pp-banner 原样保留，这里只叠加「可点」的表现。
+         button 默认 text-align:center、且不继承 font-family / line-height，三者都得显式给回正文的左对齐长相。
+         宽度用 width:100% + border-box：button 改成 display:flex 后，width:auto 在部分 WebView 里仍按
+         shrink-to-fit 收成一小块，显式 100% 才稳。min-height:44px 是触摸目标下限；
+         touch-action:manipulation 去掉移动端双击缩放那 300ms 等待。 */
+      .pp-banner-act{display:flex;align-items:center;gap:10px;width:100%;box-sizing:border-box;min-height:44px;text-align:left;font-family:inherit;appearance:none;-webkit-appearance:none;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .18s ease,border-color .18s ease}
+      .pp-banner-txt{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+      /* 右侧「点击刷新」提示：让「这条能点」自己说出来，不靠用户去猜或悬停试探。
+         用词跟通知里那条可点横幅的 onClickHint（「点击定位文件」）保持一致。 */
+      .pp-banner-act-hint{flex:none;display:inline-flex;align-items:center;gap:5px;font-size:calc(11px * var(--ui-text-scale));font-weight:600;color:color-mix(in srgb,var(--deep,#0F4C5C) 30%,var(--ink,#22303A));white-space:nowrap}
+      .pp-banner-act-hint::before{content:"↻";font-size:calc(13px * var(--ui-text-scale));line-height:1;transition:transform .18s ease}
+      /* 底色 / 强调色由 --deep 混进视图底色 --bg 派生（v0.190.0），不再用米黄硬编码：换主题、切深浅、开 Nephele 都自动跟随
+         （Nephele 把 --deep 换成 #81559b / 深色 #d3afe9，这条横幅就变成同色系薰衣草紫，跟外壳一致）。
+         三档底都是 --deep 与 --bg 的 color-mix：静止 14% / 悬停 22% / 按下 32%；
+         文字用 --ink，右侧提示用 --deep 30% + --ink 70%。34 张色板实测最低 5.03:1（正文最低 6.23:1），都在 AA 之上。
+         混的是 --bg（视图自己的底）而不是 --panel：横幅挂在视图顶部、不在卡片里，而 Nephele 的 --bg(#ece5f4)
+         恰好落在 --deep 与 --panel 的 12% 处，混 --panel 会让底色和背景只差 1 个通道（等于看不见）；
+         混 --bg 则无论哪套色板都保证「底色离所在底面至少 19 个通道」，这条有测试卡着。
+         提示那两个数字也是量出来的：55% 时按下态在 classic / citrus 深色上只剩 4.30:1，所以往 --ink 多混一点。
+         color-mix(in srgb) 对不透明色就是逐通道线性插值，跟 tools/lib/theme-tokens.js 里算出来的数字一致。 */
+      .pp-banner-act:hover{background:color-mix(in srgb,var(--deep,#0F4C5C) 22%,var(--bg,#F2EFEA));border-color:color-mix(in srgb,var(--deep,#0F4C5C) 52%,var(--bg,#F2EFEA))}
+      .pp-banner-act:hover .pp-banner-act-hint::before{transform:rotate(-90deg)}
+      .pp-banner-act:active{background:color-mix(in srgb,var(--deep,#0F4C5C) 32%,var(--bg,#F2EFEA))}
+      .pp-banner-act:focus-visible{outline:3px solid var(--deep,#0F4C5C);outline-offset:2px}
+      .pp-more{display:flex;justify-content:center;padding:8px 0 4px}
+      .pp-more .pp-btn{padding:8px 20px;font-size:calc(12px * var(--ui-text-scale))}
+      /* ── 左侧校园服务栏：只用主题变量配色，夜里自动跟随深色 ── */
+      .pp-shell{display:flex;align-items:flex-start;max-width:1180px;margin:0 auto;padding:0 20px;box-sizing:border-box;width:100%}
+      .pp-main{flex:1;min-width:0}
+      /* 校园服务栏可收起：收 / 展靠 .pp-side 的 width 过渡，.pp-main 是 flex:1 会跟着一起走
+         （这就是「警大通知随收缩而动」）。内层固定宽度 + 外层 overflow:hidden --
+         否则宽度动画期间文字一直在重排，看着很脏。
+         🔴 内层宽度必须是【卡片的内容盒】宽，不能照抄卡片的 214px 外框宽：214 会让内层比
+         内容盒宽 24px，多出来的部分被 overflow:hidden 裁掉 —— 右对齐的东西只会剩半个
+         （「重新识别」的 ↻ 就是这么被裁的）。190 = 214 − 2×1px 边框 − 2×11px 内边距，
+         改 .pp-side 的 width 或 padding 时必须一起改（test-cppu.mjs 有算式守卫）。
+         展开方向 = 内层 transform-origin:left top 的缩放，内容自左上角往右下角长出来。 */
+      .pp-side{width:214px;flex:none;position:sticky;top:16px;margin-right:16px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:11px 11px 9px;box-shadow:0 1px 6px rgba(34,48,58,.05);overflow:hidden;transition:width .34s cubic-bezier(.22,.8,.22,1),margin-right .34s cubic-bezier(.22,.8,.22,1),padding .34s cubic-bezier(.22,.8,.22,1),border-width .3s ease,opacity .24s ease}
+      .pp-side-inner{width:190px;transform-origin:left top;transition:transform .34s cubic-bezier(.22,.8,.22,1),opacity .26s ease}
+      .pp-shell.side-collapsed .pp-side{width:0;margin-right:0;padding-left:0;padding-right:0;border-left-width:0;border-right-width:0;opacity:0}
+      .pp-shell.side-collapsed .pp-side-inner{transform:scale(.88) translate(-10px,-10px);opacity:0}
+      /* 收起后留在原地的把手。它是 .pp-shell 的正经 flex 子项（不是浮层），所以永远压不住正文；
+         展开时 max-width 收到 0，与侧栏的 width 过渡同时进行 → 没有跳变。
+         sticky 保证列表滚很长时也够得着。 */
+      .pp-side-toggle{flex:none;display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:calc(12px * var(--ui-text-scale));font-weight:600;color:var(--deep);background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:8px 12px;cursor:pointer;box-shadow:0 1px 6px rgba(34,48,58,.06);position:sticky;top:8px;align-self:flex-start;z-index:4;white-space:nowrap;overflow:hidden;max-width:160px;max-height:52px;margin-right:12px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:max-width .34s cubic-bezier(.22,.8,.22,1),max-height .34s cubic-bezier(.22,.8,.22,1),padding .34s cubic-bezier(.22,.8,.22,1),margin-right .34s cubic-bezier(.22,.8,.22,1),border-width .3s ease,opacity .24s ease,background .16s ease}
+      .pp-side-toggle:hover,.pp-side-toggle:active{background:var(--paper)}
+      .pp-side-toggle:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
+      .pp-shell:not(.side-collapsed) .pp-side-toggle{max-width:0;max-height:0;padding-top:0;padding-bottom:0;padding-left:0;padding-right:0;margin-right:0;border-width:0;opacity:0;pointer-events:none}
+      /* 头部：就是一个「收起」按钮（与收起后的把手 .pp-side-toggle 同一套视觉）。
+         原来这里是 10.5px 灰金小字标题 + 右上角 18px 小三角，两个都太弱（v1.5.0 换成按钮）；
+         当时还留着一条 border-bottom 分隔线，可卡片边框 + 这条线正好把头部圈成一个多余的方框，
+         右边那个「重新识别」的 ↻ 又因为内层比卡片内容盒宽 24px 被 overflow:hidden 裁掉半个
+         —— 两个都删掉（v1.6.0）。 */
+      .pp-side-head{display:flex;align-items:center;padding:0 0 9px;margin-bottom:7px}
+      .pp-side-head-toggle{flex:1 1 auto;min-width:0;display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:calc(12px * var(--ui-text-scale));font-weight:600;letter-spacing:normal;color:var(--deep);background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:8px 12px;cursor:pointer;box-shadow:0 1px 6px rgba(34,48,58,.06);touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .16s ease}
+      .pp-side-head-toggle:hover,.pp-side-head-toggle:active{background:var(--paper)}
+      .pp-side-head-toggle:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
+      .pp-side-list{display:flex;flex-direction:column;gap:3px}
+      .pp-side-btn{display:flex;align-items:center;gap:9px;width:100%;border:0;background:transparent;border-radius:10px;padding:6px 8px;cursor:pointer;text-align:left;color:var(--ink);font-family:inherit;min-height:46px;transition:background .16s ease,color .16s ease}
+      .pp-side-btn:hover{background:var(--paper);color:var(--deep)}
+      .pp-side-btn:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
+      /* 换票要往返 1~3 次请求，期间给出「正在处理」的视觉反馈，避免点了像没反应 */
+      .pp-side-btn[aria-busy="1"]{opacity:.55;cursor:progress}
+      .pp-side-ico{width:28px;height:28px;flex:none;border-radius:9px;background:var(--paper);border:1px solid var(--line-soft);display:grid;place-items:center;overflow:hidden}
+      .pp-side-ico img{width:17px;height:17px;object-fit:contain}
+      .pp-side-ico svg{width:14px;height:14px;fill:var(--deep)}
+      .pp-side-txt{min-width:0;display:flex;flex-direction:column;gap:1px}
+      .pp-side-txt b{font-size:calc(12.5px * var(--ui-text-scale));font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:142px}
+      .pp-side-txt small{font-size:calc(10px * var(--ui-text-scale));color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:142px}
+      .pp-side-note{font-size:calc(10px * var(--ui-text-scale));color:var(--ink-3);line-height:1.6;padding:8px 4px 1px;border-top:1px solid var(--line-soft);margin-top:7px}
+      /* ── 「教务」父项与子菜单 ── */
+      /* 整行按钮 + 右侧独立箭头。button 不能嵌 button，所以两者是 .pp-side-row 的兄弟而非父子。 */
+      .pp-side-row{display:flex;align-items:stretch;gap:2px}
+      .pp-side-row>.pp-side-btn{flex:1;min-width:0}
+      .pp-side-sub-btn{flex:none;width:30px;display:grid;place-items:center;border:0;background:transparent;border-radius:9px;color:var(--ink-3);font-family:inherit;font-size:calc(11px * var(--ui-text-scale));cursor:pointer;transition:background .16s ease,color .16s ease;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+      .pp-side-sub-btn:hover{background:var(--paper);color:var(--deep)}
+      .pp-side-sub-btn:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
+      /* 展开沿用仓库既有的 grid-template-rows 0fr→1fr（.pp-detail-shell / .id-fold-body 同款），
+         内层必须 min-height:0 + overflow:hidden 才真能从 0 长起来。
+         visibility 收拢时延后 .3s（等折叠跑完）、展开时三通道延迟全归零 ——
+         只靠 aria-hidden 的话，折叠着的四个子项还能被 Tab 走到。 */
+      .pp-side-sub{display:grid;grid-template-rows:0fr;opacity:0;visibility:hidden;transition:grid-template-rows .3s cubic-bezier(.22,.8,.22,1),opacity .22s ease,visibility 0s .3s}
+      .pp-side-sub.open{grid-template-rows:1fr;opacity:1;visibility:visible;transition-delay:0s,0s,0s}
+      .pp-side-sub-in{min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:3px}
+      /* 子项：缩进一档 + 去掉「在 U-Time 内查看」副行（四行已经够高，副行是噪音） */
+      .pp-side-sub .pp-side-btn{padding-left:22px;min-height:38px}
+      .pp-side-sub .pp-side-txt small{display:none}
+      .pp-side-sub .pp-side-ico{width:22px;height:22px;border-radius:7px}
+      .pp-side-sub .pp-side-ico svg{width:12px;height:12px}
+      .pp-side-sub .pp-side-ico img{width:14px;height:14px}
+      /* ── 教务只读视图（选课 / 请假 / 创新学分）：一律用主题变量，深色模式自动跟随 ── */
+      .jw-kicker{font-size:calc(11px * var(--ui-text-scale));letter-spacing:.3em;color:var(--ink-3);margin:16px 0 4px}
+      .jw-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+      .jw-head h3{font-size:calc(19px * var(--ui-text-scale));font-weight:700;color:var(--deep);margin:0}
+      .jw-head span{font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-3)}
+      .jw-tip{font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-3);line-height:1.75;margin:2px 0 6px}
+      .jw-sec{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:calc(12.5px * var(--ui-text-scale));font-weight:700;color:var(--deep);padding:14px 2px 8px;letter-spacing:.04em}
+      .jw-sec small{font-weight:400;font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3)}
+      .jw-group{font-size:calc(11.5px * var(--ui-text-scale));font-weight:600;color:var(--deep);padding:8px 2px 6px;border-bottom:1px solid var(--line-soft);margin-bottom:8px}
+      .jw-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:11px 13px;margin-bottom:8px}
+      .jw-card-t{font-size:calc(13.5px * var(--ui-text-scale));font-weight:600;line-height:1.5;color:var(--ink)}
+      .jw-why{font-size:calc(11.5px * var(--ui-text-scale));line-height:1.8;color:var(--ink-3);margin-top:7px;padding-top:7px;border-top:1px dashed var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
+      .jw-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:7px 4px;border-bottom:1px solid var(--line-soft);font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-3)}
+      .jw-row b{color:var(--ink);font-weight:600;font-size:calc(12px * var(--ui-text-scale))}
+      .jw-row span{color:var(--deep);font-weight:600}
+      .jw-row small{flex:1;min-width:120px}
+      .jw-tag{display:inline-block;border-radius:6px;padding:2px 8px;background:var(--paper);border:1px solid var(--line-soft);color:var(--deep);font-size:calc(10.5px * var(--ui-text-scale))}
+      .jw-tag.ok{background:rgba(46,196,182,.14);border-color:rgba(46,196,182,.45);color:#0B6B60}
+      .jw-tag.warn{background:rgba(242,217,166,.24);border-color:#E3C384;color:#8A6420}
+      .jw-tag.live{background:rgba(220,53,69,.13);border-color:rgba(220,53,69,.52);color:#B42318;font-weight:700}
+      /* 上面三个语义色是浅色硬编码，深色面板上实测只有 1.38~2.17:1 —— 「1 学分」这种
+         10.5px 小字几乎读不出。深色必须整组重给：底色改成同色相浅掺（比 --panel 更深，
+         沿用 --q*-bg 的「深底亮字」路子），文字把强调色与 --ink 混亮。
+         公式与宿主 styles.css 的「内置插件深色兼容层」一致，16 套主题下都过 5.3:1。 */
+      [data-theme-mode="dark"] .jw-tag.ok{background:color-mix(in srgb,var(--mint) 18%,var(--panel));border-color:color-mix(in srgb,var(--mint) 42%,transparent);color:color-mix(in srgb,var(--mint) 55%,var(--ink))}
+      [data-theme-mode="dark"] .jw-tag.warn{background:color-mix(in srgb,var(--sun) 18%,var(--panel));border-color:color-mix(in srgb,var(--sun) 42%,transparent);color:color-mix(in srgb,var(--sun) 55%,var(--ink))}
+      [data-theme-mode="dark"] .jw-tag.live{background:color-mix(in srgb,var(--danger) 18%,var(--panel));border-color:color-mix(in srgb,var(--danger) 42%,transparent);color:color-mix(in srgb,var(--danger) 55%,var(--ink))}
+      .jw-tag.credit,[data-theme-mode="dark"] .jw-tag.credit{color:var(--campus-green);background:color-mix(in srgb,var(--campus-green) 12%,var(--panel));border-color:color-mix(in srgb,var(--campus-green) 36%,var(--line))}
+      .jw-credit-value,.jg-metrics b.jw-credit-value{color:var(--campus-green)}
+      .jw-task-card{display:block;width:100%;font:inherit;text-align:left;color:inherit;cursor:pointer;transition:border-color .16s ease,background .16s ease,opacity .16s ease;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+      .jw-task-card:hover{border-color:var(--deep);background:var(--paper)}
+      .jw-task-card:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
+      .jw-task-card.live{border-color:rgba(220,53,69,.55);box-shadow:inset 3px 0 0 #D93645}
+      .jw-task-card.expired{opacity:.54;filter:grayscale(.32);background:var(--paper)}
+      .jw-task-card.expired:hover{opacity:.68}
+      .jw-task-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:8px 0 10px}
+      .jw-task-detail-head .jw-card-t{font-size:calc(16px * var(--ui-text-scale));color:var(--deep)}
+      .jw-task-courses{margin-top:8px}
+      .jw-card-act{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+      .jw-card-act .pp-btn{min-height:34px;padding:5px 10px;font-size:calc(11.5px * var(--ui-text-scale))}
+      .jw-leave-draft{margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
+      .jw-leave-draft textarea{width:100%;min-height:82px;resize:vertical;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);padding:9px 10px;font:inherit;font-size:calc(12px * var(--ui-text-scale));line-height:1.7}
+      .jw-leave-draft small,.jw-detail-grid small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));line-height:1.7;margin-top:6px}
+      /* ── 请假页：状态四档沿用「警大成绩」的分数四档色相 ──
+         成绩页把分数分四档（.jg-good / .jg-warn / .jg-bad + --deep），请假状态同样只有
+         「已同意 / 审批中 / 未同意 / 已撤销」四态，这里直接复用那四个色相，两页说同一种颜色语言。
+         文字色在色相内取「压得住浅掺底」的一档：成绩页的 #1B7F4B / #B06A00 当 10.5px 小字压在
+         同色底上只有 4.29 / 3.65:1（成绩页自己是色字压白底 5.02:1），所以标签档各加深一档；
+         掺底取 8% 而不是 10% —— 16 套主题（含各自派生深色）实算的最差值：10% 时深色红只有
+         4.38:1（褐底主题 fresh/claude/dunhuang/citrus 的深色面板 #202F2D / #2F2A20 最伤），
+         8% 时四档最差 4.55:1，浅色最差 4.84:1，全部 ≥WCAG AA。作用域限定 .jw-leave ——
+         选课 / 创新学分页的 .jw-tag 旧色各有主题对比度断言（test-theme-contrast.mjs 数着那三条），不连带改。 */
+      .jw-leave .jw-tag.ok{background:rgba(21,112,63,.08);border-color:rgba(21,112,63,.34);color:#15703F}
+      .jw-leave .jw-tag.warn{background:rgba(150,89,0,.08);border-color:rgba(150,89,0,.34);color:#965900}
+      .jw-leave .jw-tag.bad{background:rgba(200,16,46,.08);border-color:rgba(200,16,46,.34);color:#C8102E}
+      .jw-leave .jw-tag.muted{background:var(--paper);border-color:var(--line-soft);color:var(--ink-2)}
+      [data-theme-mode="dark"] .jw-leave .jw-tag.ok{background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.34);color:#4ADE80}
+      [data-theme-mode="dark"] .jw-leave .jw-tag.warn{background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.34);color:#FBBF24}
+      [data-theme-mode="dark"] .jw-leave .jw-tag.bad{background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.34);color:#F87171}
+      [data-theme-mode="dark"] .jw-leave .jw-tag.muted{background:var(--paper);border-color:var(--line-soft);color:var(--ink-2)}
+      /* 请假理由 / 课次行的课程信息是「内容」不是「注释」：--ink-3 在浅色面板上只有 3.49:1，
+         这两处提到 --ink-2（浅色 5.4:1 / 深色 7.4:1），与成绩页正文同档。 */
+      .jw-leave .jw-why{color:var(--ink-2)}
+      .jw-leave .jw-row small{color:var(--ink-2)}
+      .jw-leave .jw-leave-draft small{color:var(--ink-2)}
+      .jw-leave .jw-card-t{color:var(--deep)}
+      .jw-detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line)}
+      .jw-detail-cell{background:var(--paper);border:1px solid var(--line-soft);border-radius:10px;padding:8px 10px;min-width:0}
+      .jw-detail-cell b{display:block;color:var(--ink-3);font-size:calc(10px * var(--ui-text-scale));font-weight:500;margin-bottom:3px}
+      .jw-detail-cell span{display:block;color:var(--ink);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.55;overflow-wrap:anywhere}
+      .jw-sum{display:flex;align-items:baseline;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:6px 0 10px}
+      .jw-sum b{font-size:calc(30px * var(--ui-text-scale));color:var(--campus-green);line-height:1}
+      .jw-sum span{font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-3)}
+      .jw-credit-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:8px 0 4px}
+      .jw-credit-stat{display:block;width:100%;font:inherit;text-align:left;color:inherit;cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0;transition:border-color .16s ease,background .16s ease;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+      .jw-credit-stat:hover{border-color:var(--deep);background:var(--paper)}
+      .jw-credit-stat:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
+      .jw-credit-stat.on{border-color:#2EC4B6;background:var(--paper)}
+      .jw-credit-stat small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));margin-bottom:5px}
+      .jw-credit-stat b{display:block;color:var(--campus-green);font-size:calc(22px * var(--ui-text-scale));line-height:1.2}
+      .jw-credit-stat span{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));margin-top:4px}
+      .jw-credit-stat em{display:block;color:var(--ink-3);font-style:normal;font-size:calc(10px * var(--ui-text-scale));margin-top:7px}
+      .jw-credit-detail{animation:jw-credit-in .26s ease both}
+      .jw-credit-detail.out{animation:jw-credit-out .2s ease both}
+      @keyframes jw-credit-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+      @keyframes jw-credit-out{from{opacity:1;transform:none}to{opacity:0;transform:translateY(-8px)}}
+      .jw-credit-bar{height:7px;border-radius:99px;background:var(--paper);border:1px solid var(--line-soft);overflow:hidden;margin-top:9px}
+      .jw-credit-bar i{display:block;height:100%;background:#2EC4B6;border-radius:inherit}
+      .jw-credit-course.done{opacity:.62}
+      .jw-credit-course.fail{border-color:rgba(220,53,69,.48)}
+      .jw-cx-project{border-left:3px solid #2EC4B6}
+      .jw-cx-project.pending{border-left-color:#E3C384}
+      .jw-cx-term{margin-top:12px}.jw-cx-term>summary{display:flex;align-items:baseline;gap:8px;cursor:pointer;color:var(--deep);font-weight:700;padding:10px 2px;border-bottom:1px solid var(--line);list-style:none}.jw-cx-term>summary::-webkit-details-marker,.jw-cx-project>summary::-webkit-details-marker{display:none}.jw-cx-term>summary::before,.jw-cx-project>summary::before{content:"▸";font-size:calc(12px * var(--ui-text-scale));color:var(--ink-3);transition:transform .15s}.jw-cx-term[open]>summary::before,.jw-cx-project[open]>summary::before{transform:rotate(90deg)}.jw-cx-term>summary small{font-size:calc(10.5px * var(--ui-text-scale));font-weight:400;color:var(--ink-3)}.jw-cx-project{margin-top:8px}.jw-cx-project>summary{display:flex;align-items:flex-start;gap:8px;cursor:pointer;list-style:none}.jw-cx-project>summary .jw-card-t{min-width:0;flex:1;overflow-wrap:anywhere}.jw-cx-project>summary .jw-tag{flex:none}.jw-cx-project .pp-meta{margin-top:7px}.jw-cx-project .jw-detail-grid{margin-bottom:2px}
+      .jw-cx-project>summary{flex-wrap:wrap}.jw-cx-project>summary .jw-card-t{flex-basis:calc(100% - 24px)}
+      .jg-status{padding:12px 16px 8px;font-size:calc(15px * var(--ui-text-scale));font-weight:700;color:var(--ink);line-height:1.5}
+      .jg-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:6px 0}
+      .jg-card h4{margin:0 0 8px;color:var(--deep);font-size:calc(13.5px * var(--ui-text-scale));font-weight:700}
+      .jg-metrics{display:grid;grid-template-columns:1fr 1fr;gap:0;border-bottom:1px solid var(--line-soft)}
+      .jg-metrics>div{display:flex;flex-direction:column;gap:2px;padding:6px 0 10px;min-width:0}
+      .jg-metrics small{color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale))}
+      .jg-metrics b{color:var(--ink);font-size:calc(19px * var(--ui-text-scale))}
+      /* 指标图标（请假汇总卡）：左图标 + 右「数值在上、标签在下」，与一卡通三张卡的 .yk-amount 同一语言 */
+      .jg-metrics .jg-metric{display:flex;align-items:center;gap:11px;min-width:0}
+      .jg-metrics .jg-metric .pp-metric-ico{flex:none;display:block}
+      .jg-metrics .jg-metric-text{min-width:0}
+      .jg-metrics .jg-metric-text b{display:block;line-height:1.15}
+      .jg-metrics .jg-metric-text small{display:block;margin-top:1px}
+      .jg-divider{height:1px;background:var(--line-soft);margin:4px 0}
+      .jg-note{color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.55;margin:4px 0 7px}
+      .jg-pair,.jg-course{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:calc(12.5px * var(--ui-text-scale))}
+      .jg-pair span{color:var(--ink-3);flex:1;min-width:0}.jg-pair b{color:var(--ink);font-weight:700;text-align:right}
+      .jg-bar-row{padding:4px 0}.jg-bar-row>div:first-child{display:flex;justify-content:space-between;gap:8px;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale))}
+      .jg-bar-row b{font-size:calc(12.5px * var(--ui-text-scale))}.jg-track{height:8px;background:var(--paper);border-radius:4px;overflow:hidden;margin-top:3px}.jg-track i{display:block;height:100%;border-radius:4px;min-width:0}
+      .jg-segments{height:14px;background:var(--paper);border-radius:4px;overflow:hidden;display:flex;margin:2px 0 6px}.jg-segments i{height:100%;display:block}
+      .jg-good{color:#1B7F4B}.jg-mid{color:var(--deep)}.jg-warn{color:#B06A00}.jg-bad{color:#C8102E}.jg-muted{color:var(--ink-3)}
+      .jg-track .jg-good{background:#1B7F4B}.jg-track .jg-mid{background:#1B3A6B}.jg-track .jg-warn{background:#B06A00}.jg-track .jg-bad{background:#C8102E}
+      [data-theme-mode="dark"] .jg-good{color:#4ADE80}[data-theme-mode="dark"] .jg-mid{color:#60A5FA}[data-theme-mode="dark"] .jg-warn{color:#FBBF24}[data-theme-mode="dark"] .jg-bad{color:#F87171}
+      .jg-export{display:block;width:100%;min-height:42px;margin:8px 0 0}.jg-course{border-top:1px solid var(--line-soft);padding:4px 0}.jg-course:first-of-type{border:0}.jg-course span{flex:1;min-width:0;overflow-wrap:anywhere;color:var(--ink)}.jg-course b{width:34px;font-size:calc(13px * var(--ui-text-scale));text-align:right}.jg-course small{width:30px;color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale));text-align:right}
+      /* 绩点排名情况 / 六维图（数据来自学生个人成长中心） */
+      .jg-rank-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 10px;margin:8px 0 10px}
+      .jg-rank-item{display:flex;align-items:center;gap:16px;min-width:0}
+      .jg-rank-badge{flex:none;width:65px;height:65px;border-radius:50%;background:#e8f4fc;display:flex;align-items:center;justify-content:center}
+      .jg-rank-badge img{width:36px;height:40px;display:block}
+      .jg-rank-right{display:flex;flex-direction:column;gap:1px;min-width:0}
+      .jg-rank-num{color:#2a7eff;font-size:calc(20px * var(--ui-text-scale));line-height:1.15;font-weight:600}
+      .jg-rank-right small{color:var(--ink-3);font-size:calc(12px * var(--ui-text-scale));white-space:nowrap}
+      [data-theme-mode="dark"] .jg-rank-badge{background:rgba(42,126,255,.16)}
+      [data-theme-mode="dark"] .jg-rank-num{color:#7CB6FF}
+      .jg-legend{display:flex;gap:14px;flex-wrap:wrap;margin:2px 0 4px;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale))}
+      .jg-legend span{display:inline-flex;align-items:center;gap:5px}
+      .jg-legend i{width:9px;height:9px;border-radius:3px;display:inline-block}
+      .jg-legend i.mine{background:#FB951E}.jg-legend i.top{background:#2A7EFF}
+      .jg-radar{display:block;width:100%;max-width:290px;height:auto;margin:0 auto}
+      .jg-radar-grid polygon,.jg-radar-grid line{fill:none;stroke:var(--line);stroke-width:1}
+      .jg-radar-top{fill:rgba(42,126,255,.18);stroke:#2A7EFF;stroke-width:1.6}
+      .jg-radar-mine{fill:rgba(251,149,30,.2);stroke:#FB951E;stroke-width:1.6}
+      .jg-radar-label text{fill:var(--ink-3);font-size:calc(11px * var(--ui-text-scale))}
+      [data-theme-mode="dark"] .jg-radar-top{stroke:#7CB6FF}[data-theme-mode="dark"] .jg-radar-mine{stroke:#FBBF24}
+      .yk-frame-shell{margin-top:10px;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;min-height:620px;height:calc(100vh - 190px);box-shadow:0 1px 10px rgba(34,48,58,.05)}
+      [data-card-web][hidden],[data-card-stats][hidden]{display:none!important}
+      .yk-frame{display:block;width:100%;height:100%;border:0;background:var(--paper)}
+      .yk-status{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3);line-height:1.7;margin:7px 0 0}
+      .yk-status.warn{color:#8A6420}
+      .yk-stat{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:10px 0}
+      .yk-total,.yk-spent,.yk-balance{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+      .yk-total small,.yk-spent small,.yk-balance small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));margin-bottom:4px}
+      .yk-total b,.yk-spent b,.yk-balance b{display:block;color:var(--deep);font-size:calc(30px * var(--ui-text-scale));line-height:1.15}
+      .yk-balance b{color:var(--campus-green)}
+      .yk-spent b{color:var(--danger)}
+      [data-theme-mode="dark"] .yk-status.warn{color:color-mix(in srgb,var(--sun) 55%,var(--ink))}
+      .yk-total span,.yk-spent span,.yk-balance span{display:block;color:var(--ink-3);font-size:calc(11px * var(--ui-text-scale));line-height:1.7;margin-top:4px}
+      /* 三张卡的图标行：图标与金额并排，金额仍是卡片主角（图标 44px / 金额 30px） */
+      .yk-total .yk-amount,.yk-spent .yk-amount,.yk-balance .yk-amount{display:flex;align-items:center;gap:12px;min-width:0}
+      .yk-total .yk-amount .pp-metric-ico,.yk-spent .yk-amount .pp-metric-ico,.yk-balance .yk-amount .pp-metric-ico{flex:none;display:block}
+      .yk-login{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;display:grid;grid-template-columns:minmax(140px,1fr) minmax(160px,1fr) auto;gap:8px;align-items:center}
+      .yk-login input{min-width:0;height:36px;border:1px solid var(--line);border-radius:9px;background:var(--paper);color:var(--ink);padding:0 10px;font:inherit;font-size:calc(12px * var(--ui-text-scale))}
+      .yk-login small{grid-column:1/-1;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));line-height:1.7}
+      .yk-account{grid-column:1/-1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale))}
+      .yk-account b{color:var(--ink)}
+      .yk-groups{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+      .yk-group-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+      .yk-group-head b{font-size:calc(12.5px * var(--ui-text-scale));color:var(--deep)}
+      .yk-bars{display:flex;flex-direction:column;gap:6px}
+      .yk-bar{display:grid;grid-template-columns:92px 1fr 88px;align-items:center;gap:8px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink)}
+      .yk-bar i{display:block;height:9px;border-radius:99px;background:linear-gradient(90deg,#2EC4B6,#0F4C5C);min-width:2px}
+      .yk-bars.out .yk-bar i{background:var(--danger)}
+      .yk-bars.out .yk-bar span:last-child{color:var(--danger)}
+      .yk-bar span:last-child{text-align:right;color:var(--deep);font-weight:650}
+      .yk-ledger{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+      .yk-ledger-row{display:grid;grid-template-columns:100px 1fr auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line-soft);font-size:calc(11.5px * var(--ui-text-scale))}
+      .yk-ledger-row:first-child{border-top:0}
+      .yk-ledger-row b{color:var(--deep)}
+      .yk-ledger-row.out b{color:var(--danger)}
+      .yk-empty{color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.7}
+      @media(max-width:600px){.jw-card-t{font-size:calc(14.5px * var(--ui-text-scale))}.jw-head h3{font-size:calc(17px * var(--ui-text-scale))}.jw-sum b{font-size:calc(26px * var(--ui-text-scale))}.jw-row small{min-width:0;flex-basis:100%}.jw-credit-overview{grid-template-columns:1fr}}
+      @media(max-width:820px){
+        .pp-shell{flex-direction:column;padding:0 14px}
+        /* 窄屏时侧栏是整层叠在正文上面的，收起要收"高度"而不是宽度 */
+        .pp-side{width:100%;position:static;padding:10px;margin-right:0;margin-bottom:12px;max-height:1400px;transition:max-height .34s cubic-bezier(.22,.8,.22,1),margin-bottom .34s cubic-bezier(.22,.8,.22,1),padding .34s cubic-bezier(.22,.8,.22,1),border-width .3s ease,opacity .24s ease}
+        .pp-side-inner{width:100%}
+        .pp-shell.side-collapsed .pp-side{width:100%;max-height:0;padding-top:0;padding-bottom:0;margin-bottom:0;border-top-width:0;border-bottom-width:0;opacity:0}
+        /* 手机上的两个开关（收起后的把手 / 展开态头部的收起按钮）都要 44px 触控区，手指才点得准 */
+        .pp-side-toggle{margin-right:0;margin-bottom:12px;max-width:100%;min-height:44px;padding:10px 14px;font-size:calc(13px * var(--ui-text-scale))}
+        .pp-side-head-toggle{min-height:44px;padding:10px 14px;font-size:calc(13px * var(--ui-text-scale))}
+        /* 展开时把手要整体藏掉：min-height 会压过 max-height，所以必须把 min-height 也归零，
+           否则窄屏上会在侧栏与正文之间留一条 44px 的隐形空隙 */
+        .pp-shell:not(.side-collapsed) .pp-side-toggle{margin-bottom:0;min-height:0}
+        .pp-side-list{flex-direction:row;flex-wrap:wrap}
+        .pp-side-btn{width:auto;flex:1 1 132px;min-width:0;min-height:52px;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+        /* 窄屏侧栏是换行的 chip 流，不是竖列：父项 = chip + 箭头的实际宽度，且刻意不给 flex-grow
+           —— 给了它会在自己那行里撑满，箭头被推到最右边、和教务 chip 中间空一大段。
+           箭头 44px 触控区并描一圈边，否则在 chip 流里只像个游离的小灰点，读不出是个按钮。
+           子菜单整体独占一行、里面的子项继续按 chip 换行排；
+           子项的缩进在 chip 流里没有意义（那是竖列的层级线索），退回常规内边距。 */
+        .pp-side-row{flex:0 0 auto}
+        .pp-side-row>.pp-side-btn{flex:1 1 132px}
+        .pp-side-sub-btn{width:44px;border:1px solid var(--line);background:var(--panel)}
+        .pp-side-sub{flex:1 1 100%}
+        .pp-side-sub-in{flex-direction:row;flex-wrap:wrap}
+        .pp-side-sub .pp-side-btn{padding-left:8px;min-height:44px}
+        /* 手机上工具栏不能靠自动换行碰运气（原来「刷新」会独占一整行）：
+           关键词搜索独占一行，其余按钮/开关挤一行，并统一给到 44px 的点击高度 */
+        .pp-toolbar{gap:8px}
+        .pp-kwbox{flex:1 1 100%;order:2;min-width:0}.pp-kwbox>.pp-kw{height:44px}
+        .pp-toolbar>span:not(.pp-lab){order:1}
+        .pp-toolbar>.pp-btn,.pp-toggle{order:1;min-height:44px}
+        .pp-toolbar>.pp-btn{padding:0 14px;font-size:calc(13px * var(--ui-text-scale))}
+        .pp-side-txt b,.pp-side-txt small{max-width:96px}
+        .pp-side-note{display:none}
+        .yk-stat{grid-template-columns:1fr}
+        .yk-login{grid-template-columns:1fr}
+        .yk-login small{grid-column:auto}
+        .yk-login .pp-btn{min-height:44px}
+        .yk-bar{grid-template-columns:78px 1fr 76px}
+        .yk-ledger-row{grid-template-columns:86px 1fr auto}
+        .yk-frame-shell{height:calc(100vh - 230px);min-height:520px}
+      }
+      @media(prefers-reduced-motion:reduce){.pp-card,.pp-expand,.pp-expand::after,.pp-detail-shell,.pp-detail,.pp-side,.pp-side-inner,.pp-side-toggle,.pp-side-sub,.pp-banner-act,.pp-banner-act-hint::before{transition-duration:.01ms!important}}
+    
