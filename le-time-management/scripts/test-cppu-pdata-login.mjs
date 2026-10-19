@@ -33,7 +33,7 @@ const context = vm.createContext({
   tide: {
     ui: { registerView: () => {} },
     http: {
-      session: async () => 's1',
+      session: async () => { log.push('session'); return 's1'; },
       restoreCookies: async (dump) => { log.push('restore'); return dump?.length ? 'restored-sid' : null; },
       fetch: async (sid, method, url, opts) => { log.push('fetch ' + url); return response(sid, method, url, opts || {}); },
     },
@@ -124,17 +124,38 @@ await api.openPdataLink('https://evil.invalid/stu/home/');
 assert.deepEqual(opened[1], ['pdata', 'https://pdata.cppu.edu.cn/stu/home/', 's1'],
   '外链必须折回 pdata 首页：会话不能被带去非 pdata 地址');
 
-/* ── ④ 重新登录 / 清除凭据后，旧 token 不能留在密钥库里 ── */
+/* ── ④ 冷启动但密钥库里已有 pdata 的票：ensurePdataAuth 会直接短路，
+       整条链路上没人建过会话 —— 取数层必须自己补一个，否则 invoke("http_fetch")
+       收到的 sid 是 null，被 Rust 侧挡回来：
+       invalid args `sid` for command `http_fetch`: invalid type: null, expected a string */
+log.length = 0;
+context.testApi.state.sid = null; // 模拟「本次进程还没建过会话」
+vaultData.pdataToken = JSON.stringify({ token: 'TK-2', userId: '2025290058', at: Date.now() });
+response = (sid, method, url) => {
+  if (url.startsWith('https://pdata.cppu.edu.cn/tsa/shc/')) return { status: 200, body: JSON.stringify({ code: 2000, data: { yktye: '12.00' } }) };
+  return { status: 404, body: '' };
+};
+const fromVault = await Promise.all([
+  api.pdataApi('/tsa/shc/homepage/personInfo'),
+  api.pdataApi('/tsa/shc/learnInfo/learnSituation'),
+  api.pdataApi('/tsa/shc/homepage/getKpiList'),
+]);
+for (const one of fromVault) assert.equal(one.ok, true, '密钥库里的票还能用时，冷启动不该因为「没有会话」而整页报「个人成长中心暂时不可用」');
+assert.equal(context.testApi.state.sid, 's1', '取数前必须自己建一个会话，不能把 sid=null 交给 http_fetch');
+assert.equal(log.filter((l) => l === 'session').length, 1, '成长页首屏 8 个接口并发，会话只能建一个');
+
+/* ── ⑤ 重新登录 / 清除凭据后，旧 token 不能留在密钥库里 ── */
 vaultData.pdataToken = JSON.stringify({ token: 'TK-STALE', userId: '2025290058', at: 1 });
 await api.clearSavedLogin();
 await flush();
 assert.equal(vaultData.pdataToken, undefined, '清除凭据必须连 pdata 的 token 一起清，否则下个人接着用上个人的数据');
 
-/* ── ⑤ 源码级接线：链路的每一步都必须在文件里，而不是只在这份测试里 ── */
+/* ── ⑥ 源码级接线：链路的每一步都必须在文件里，而不是只在这份测试里 ── */
 assert.match(source, /function forgetPdataAuth\(\)/, 'finishPortalTicket / clearSavedLogin 共用的失效钩子不能丢');
 assert.match(source, /if \(direct\) \{ state\.token = direct; forgetPdataAuth\(\); return true; \}/, '门户会话重建时必须让 pdata 的票失效');
 assert.match(source, /async function exchangePdataToken\(\)/, '换票 + 消费票 + 落库必须是同一步，供三条回落路径复用');
 assert.match(source, /await restoreCookies\(\);\s*\n\s*await newSession\(\);/, '换票前必须先恢复通知留下的会话票据');
+assert.match(source, /const sid = await ensureSid\(\);\s*\n\s*if \(!sid\)/, '取数入口要自己兜会话：sid 为空时宁可直接报错，也不能把 null 交给 http_fetch');
 assert.match(source, /if \(await silentRenew\(\)\) \{/, '票据过期但 CASTGC 还在时要走静默续期');
 assert.match(source, /if \(await passwordAutoLogin\(\)\) \{/, '主 SSO 也没了时要用通知那份账号密码自动登一次');
 assert.match(source, /tide\.util\.openPdataPage\(url, state\.sid\)/, '网页窗口必须走带会话的宿主 API');

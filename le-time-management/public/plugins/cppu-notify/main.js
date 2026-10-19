@@ -330,6 +330,11 @@
   ];
   function explainHttpError(e) {
     const msg = String(e && (e.message || e) || "");
+    // 参数层被 Rust 挡回来（sid 是 null）不是网络问题：这类原文只对开发者有意义，
+    // 界面上一句「invalid type: null」帮不了用户，换成能照做的动作。
+    if (/invalid args `?sid`?|invalid type: null, expected a string/i.test(msg)) {
+      return "本机取数会话没建起来（sid 为空），点「刷新」重试一次；仍然这样就重启应用。";
+    }
     if (/Failed to fetch|Load failed|NetworkError/i.test(msg)) {
       return "网络桥不可用：浏览器预览会被智慧警大跨域策略拦截，请在桌面版 U-Time 中打开本插件。";
     }
@@ -473,7 +478,17 @@
       .pp-shell:not(.side-collapsed) .pp-side-toggle{max-width:0;max-height:0;padding-top:0;padding-bottom:0;padding-left:0;padding-right:0;margin-right:0;border-width:0;opacity:0;pointer-events:none}
       /* v1.64.0：桌面端收起后的把手改成贴在左缘的竖排标签，不再横着占一整个按钮宽、把正文往右推。
          只改排版方向，收 / 展的 max-width 过渡（上一条）照旧；窄屏仍是横向按钮。 */
-      @media(min-width:721px){.pp-shell.side-collapsed .pp-side-toggle{writing-mode:vertical-rl;padding:12px 7px;gap:6px;letter-spacing:.18em;border-radius:10px}}
+      /* 🔴 v1.67.2：竖排后内容沿【高度】方向排，而上面那条 max-height:52px 是横排时代留下的
+         （横排一行 33px 就够）。竖排「▸校园服务」实测 scrollHeight=101 —— 52px 的框 + overflow:hidden
+         把「园服务」整段裁掉，用户看到的只剩「▸校」（截图实测：32×52 的框里塞 101px 的内容）。
+         这里按内容给足 max-height；收 / 展仍走「展开态 max-height:0」那条过渡，动画不变。
+         断点同时从 721px 提到 821px：窄屏那套是 max-width:820px（整层叠放、把手 width:100%），
+         721~820 两段会同时命中 —— 竖排字落在满宽按钮里，比裁字更难看。 */
+      @media(min-width:821px){
+        .pp-shell.side-collapsed .pp-side-toggle{writing-mode:vertical-rl;max-height:168px;padding:11px 6px;gap:7px;letter-spacing:.16em;border-radius:10px}
+        /* 竖排里几何符号按 UTR50 会被旋转 90°（▸ 变 ▾，读不出「从这边展开」）；把箭头单独摆正。 */
+        .pp-shell.side-collapsed .pp-side-toggle>span{text-orientation:upright;line-height:1}
+      }
       /* 头部：就是一个「收起」按钮（与收起后的把手 .pp-side-toggle 同一套视觉）。
          原来这里是 10.5px 灰金小字标题 + 右上角 18px 小三角，两个都太弱（v1.5.0 换成按钮）；
          当时还留着一条 border-bottom 分隔线，可卡片边框 + 这条线正好把头部圈成一个多余的方框，
@@ -843,13 +858,39 @@
     } catch { /* ignore */ }
   }
 
+  /* ── 会话通道：取数之前必须已经有一个会话 ──
+     冷启动直接进「学生成长 / 一卡通 / 个人信息」会踩这条：pdata 的 token 就躺在密钥库里，
+     ensurePdataAuth 第一行 `if (pdataAuth.token) return` 直接短路 —— 整条链路谁都没调过
+     newSession，state.sid 还是 null。把它交给 invoke("http_fetch") 会被 Rust 侧挡回来：
+
+       invalid args `sid` for command `http_fetch`:
+       invalid type: null, expected a string
+
+     所以「没有就建」压在这一层，与调用顺序无关。并发只建一个：成长页首屏同时打 8 个接口，
+     它们会同时发现 sid 是空的。 */
+  let sidPending = null;
+  function ensureSid() {
+    if (state.sid) return Promise.resolve(state.sid);
+    if (!sidPending) {
+      sidPending = Promise.resolve(tide.http.session())
+        .then((sid) => {
+          if (!state.sid && sid) state.sid = sid;
+          return state.sid;
+        })
+        .finally(() => { sidPending = null; });
+    }
+    return sidPending;
+  }
+
   /* ── SSO 登录链路 ── */
-  async function newSession() { if (!state.sid) state.sid = await tide.http.session(); }
+  async function newSession() { if (!state.sid) await ensureSid(); }
   const referer = () => PORTAL + "/tp_up/view;tp_up=" + state.token + "?m=up";
 
   async function getPage(url, useBinary = false, opts = {}) {
     try {
-      return await tide.http.fetch(state.sid, "GET", url, { ...opts, binary: useBinary });
+      const sid = await ensureSid();
+      if (!sid) throw new Error("本机取数会话没建起来，请重启应用后再试一次");
+      return await tide.http.fetch(sid, "GET", url, { ...opts, binary: useBinary });
     } catch (e) {
       throw new Error(explainHttpError(e));
     }
@@ -2161,7 +2202,9 @@
   async function ensurePdataAuth(force = false) {
     if (force) await dropPdataAuth();
     else await loadPdataAuth();
-    if (pdataAuth.token) return pdataAuth;
+    // 手上有票也要有会话 —— token 是从密钥库读出来的，可这条通道之外没人建过 session：
+    // 少了这一步，下面的 getPage / openPdataLink 都会拿着 sid=null 出门。
+    if (pdataAuth.token) { await ensureSid(); return pdataAuth; }
     // 同一时刻只允许有一次换票在飞：七个接口并发拉的时候不能各换一次。
     if (pdataAuthPending) return pdataAuthPending;
     pdataAuthPending = (async () => {
@@ -2404,6 +2447,240 @@
     } finally {
       if (btn && btn.removeAttribute) btn.removeAttribute("aria-busy");
     }
+  }
+
+  /* ── 警大邮箱 · 取数桥（v0.255.0）─────────────────────────────────────────
+     自动登录已经由 ensureMailSession() 走完（vault 里的账号密码 → coremail 登录 →
+     拿到带 sid 的落地页），这里只负责「用同一个 native 会话去读邮件」。
+
+     为什么走老 XT 的 /coremail/s/json 而不是 Sirius 的 /corp-mail/mail/api/*：
+     后者是登录态之后才发得动的 GraphQL 风格接口，未登录一律 401，路径也没逆全；
+     而 mbox:listMessages / mbox:getAllFolders 是老接口，同一份 Cookie 就能用，
+     换站点改版的概率也低（XT 这套十几年没动过）。JSON 变体比 /coremail/s 的 XML
+     好解析，所以固定用 /json，但**两种都解析**——实测这个端点的 Content-Type 会
+     谎报 text/xml，返回什么得看 body 首字符，不能看头。
+
+     sid 双路：Coremail 有的部署认 Cookie，有的必须 URL 带 sid。这里先不带 sid 试，
+     回 FA_INVALID_SESSION 再带 sid 重试一次；两条都失败才算「会话失效」。 */
+  const MAIL_JSON_API = "https://mail.cppu.edu.cn/coremail/s/json";
+  const MAIL_PAGE = 20;
+  let mailInFlight = 0;
+
+  /* 键名大小写不可信（JSON 是 suc/error_code，XML 是 code/var），一律忽略大小写取值。 */
+  function mailPick(obj, keys, dflt = "") {
+    if (!obj || typeof obj !== "object") return dflt;
+    const map = new Map();
+    for (const [k, v] of Object.entries(obj)) map.set(String(k).toLowerCase(), v);
+    for (const k of keys) {
+      const v = map.get(String(k).toLowerCase());
+      if (v !== undefined && v !== null && v !== "") return v;
+    }
+    return dflt;
+  }
+
+  /* 端点偶尔回 XML（同一路径，同一个 func）。转成与 JSON 同形的对象，下游只写一套解析。 */
+  function mailXmlTree(text) {
+    try {
+      if (typeof DOMParser !== "function") return null;
+      const doc = new DOMParser().parseFromString(text, "text/xml");
+      if (!doc || doc.querySelector("parsererror") || !doc.documentElement) return null;
+      const conv = (node) => {
+        const out = {};
+        for (const a of Array.from(node.attributes || [])) out[a.name] = a.value;
+        for (const ch of Array.from(node.children || [])) {
+          const key = String(ch.tagName || "").replace(/^.*:/, "");
+          const val = ch.children && ch.children.length ? conv(ch) : (ch.textContent || "");
+          if (key in out) out[key] = [].concat(out[key], val);
+          else out[key] = val;
+        }
+        return out;
+      };
+      return conv(doc.documentElement);
+    } catch { return null; }
+  }
+
+  function mailIsSessionDead(data) {
+    if (!data || typeof data !== "object") return false;
+    const code = String(mailPick(data, ["error_code", "errorCode", "code", "error_msg"], "")).toUpperCase();
+    const suc = String(mailPick(data, ["suc", "success"], "")).toLowerCase();
+    if (/INVALID_SESSION|FA_SESSION|NEED_LOGIN|NOT_LOGIN|AUTH_FAILED/.test(code)) return true;
+    return suc === "false" && Boolean(code) && code !== "S_OK";
+  }
+
+  /* Inbox 的未读/总数：先看 getAllFolders 里的收件箱那一项，退而取 listMessages 的顶层计数，
+     最后才用「取回的这几封自己数」兜底 —— 后者只是让 0 不显示成空白，不代表真实总数。 */
+  function mailFolderStat(foldersPayload, listPayload, mails) {
+    const folderRoot = foldersPayload && foldersPayload.var && typeof foldersPayload.var === "object" ? foldersPayload.var : foldersPayload;
+    let folders = null;
+    if (folderRoot && typeof folderRoot === "object") {
+      for (const k of ["folder", "folders"]) {
+        const v = mailPick(folderRoot, [k], null);
+        if (Array.isArray(v)) { folders = v; break; }
+        if (v && typeof v === "object") { folders = [v]; break; }
+      }
+    }
+    if (folders) {
+      const inbox = folders.find((f) => {
+        if (!f || typeof f !== "object") return false;
+        const name = String(mailPick(f, ["name", "fullname", "path", "showname"], "")).toLowerCase();
+        const id = String(mailPick(f, ["id", "fid"], ""));
+        return /收件箱|inbox/.test(name) || id === "1";
+      });
+      if (inbox) {
+        const unread = Number(mailPick(inbox, ["unread", "unreadcount", "newcount", "new"], 0)) || 0;
+        const total = Number(mailPick(inbox, ["total", "count", "totalcount", "msgcount"], 0)) || 0;
+        if (unread || total) return { unread, total };
+      }
+    }
+    const listRoot = listPayload && listPayload.var && typeof listPayload.var === "object" ? listPayload.var : listPayload;
+    const total = Number(mailPick(listRoot, ["total", "count", "msgcount"], 0)) || 0;
+    const unread = Number(mailPick(listRoot, ["unread", "unreadcount", "newcount"], 0)) || 0;
+    const rows = Array.isArray(mails) ? mails : [];
+    return {
+      unread: unread || rows.filter((m) => !m.read).length,
+      total: total || rows.length,
+    };
+  }
+
+  /* 条目挂在哪个键上不可信（var.i / var.message / 顶层 list 都见过），
+     字段名同理（subject|subj、from|sender、sentDate|date、id|mid）。
+     解析出 0 条不算错误：调用方会把「会话通但没解析出」单独呈现。 */
+  function mailItems(payload) {
+    const pools = [];
+    if (payload && typeof payload === "object") {
+      if (payload.var && typeof payload.var === "object") pools.push(payload.var);
+      pools.push(payload);
+    }
+    let arr = null;
+    for (const p of pools) {
+      for (const k of ["i", "message", "messages", "list", "items", "mail"]) {
+        const v = mailPick(p, [k], null);
+        if (Array.isArray(v)) { arr = v; break; }
+        if (v && typeof v === "object") { arr = [v]; break; }
+      }
+      if (arr) break;
+    }
+    if (!arr) return [];
+    const out = [];
+    for (const it of arr) {
+      if (!it || typeof it !== "object") continue;
+      const flags = mailPick(it, ["flags"], null);
+      let flagArr = [];
+      if (Array.isArray(flags)) flagArr = flags;
+      else if (flags && typeof flags === "object") {
+        const f = mailPick(flags, ["flag", "flags"], null);
+        flagArr = Array.isArray(f) ? f : (f ? [f] : []);
+      }
+      const readRaw = String(mailPick(it, ["read", "isread", "seen"], "")).toLowerCase();
+      const read = readRaw === "true" || readRaw === "1" || flagArr.some((f) => /read/i.test(String(f)) && !/unread/i.test(String(f)));
+      const id = cleanText(mailPick(it, ["id", "mid", "messageid", "msgid"], ""));
+      const subject = cleanText(mailPick(it, ["subject", "subj"], ""));
+      const from = cleanText(mailPick(it, ["from", "sender", "fromname", "fromaddr", "sendername"], ""));
+      const date = mailPick(it, ["sentdate", "receiveddate", "date", "time", "sent"], "");
+      const size = Number(mailPick(it, ["size", "bodysize", "msgsize"], 0)) || 0;
+      if (!id && !subject && !from) continue;
+      out.push({ id: id || subject || from, subject, from, date, size, read });
+    }
+    return out;
+  }
+
+  /* 落地页 URL 里的 sid 只在这一处用：给 mbox 接口当兜底参数。取不到就靠 Cookie。 */
+  async function mailApiSid(httpSid) {
+    try {
+      const res = await tide.http.fetch(httpSid, "GET", MAIL, { headers: { "Accept": "text/html,*/*" } });
+      const target = mailSessionUrlFromResponse(res, res?.finalUrl || MAIL);
+      if (!target) return "";
+      try { return decodeURIComponent(new URL(target).searchParams.get("sid") || ""); } catch { return ""; }
+    } catch { return ""; }
+  }
+
+  async function mailCoremail(httpSid, func, params, mailSid) {
+    const once = async (withSid) => {
+      const q = new URLSearchParams({ func, ...(params || {}) });
+      if (withSid) q.set("sid", withSid);
+      const res = await tide.http.fetch(httpSid, "GET", `${MAIL_JSON_API}?${q.toString()}`, {
+        headers: { "Referer": MAIL, "Accept": "application/json,text/xml,*/*" },
+      });
+      const body = String(res?.body || "");
+      const t = body.trim();
+      let data = null;
+      if (t.startsWith("{") || t.startsWith("[")) {
+        try { data = JSON.parse(t); } catch { data = null; }
+      }
+      if (!data && t.startsWith("<")) data = mailXmlTree(t);
+      return { status: Number(res?.status) || 0, data, body };
+    };
+    const first = await once("");
+    if (!mailSid || !mailIsSessionDead(first.data)) return first;
+    return once(mailSid);
+  }
+
+  async function mailLoad() {
+    if (mailInFlight) return mailInFlight;
+    mailInFlight = (async () => {
+      try {
+        const httpSid = await ensureMailSession();
+        if (!httpSid) {
+          return {
+            ok: false, needLogin: true,
+            error: "没拿到邮箱登录态：密钥库里没有可用密码、或站点要求图形/短信验证码。先在「警大通知」里勾选记住密码登录一次，再回本页重试。",
+          };
+        }
+        const mailSid = await mailApiSid(httpSid);
+        const folders = await mailCoremail(httpSid, "mbox:getAllFolders", {}, mailSid);
+        if (mailIsSessionDead(folders.data)) {
+          return {
+            ok: false, needLogin: true,
+            error: `邮箱接口不认这个会话（${String(mailPick(folders.data, ["error_code", "code"], "FA_INVALID_SESSION"))}）。Cookie 在，但 mbox 接口拒绝 —— 多半是落地页 sid 已过期，点「重新登录」会重走一次自动登录。`,
+          };
+        }
+        const list = await mailCoremail(httpSid, "mbox:listMessages", { mbox: "Inbox", start: "0", limit: String(MAIL_PAGE) }, mailSid);
+        const mails = mailItems(list.data);
+        const stat = mailFolderStat(folders.data, list.data, mails);
+        return {
+          ok: true,
+          account: MAIL_ACCOUNT,
+          unread: stat.unread,
+          total: stat.total,
+          mails,
+          syncedAt: Date.now(),
+        };
+      } catch (e) {
+        return { ok: false, error: String(e?.message || e) };
+      } finally {
+        mailInFlight = 0;
+      }
+    })();
+    return mailInFlight;
+  }
+
+  const mailBridge = {
+    load: () => mailLoad(),
+    open: () => openMailWeb(null),
+  };
+
+  let mailModule = null, mailView = null;
+  function mountMailView(el) {
+    let disposed = false, teardown = null;
+    ensureStyle();
+    el.innerHTML = `<div class="${sideShellClass()}"><aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}`
+      + `<div class="pp-main"><div data-ml-host><div style="padding:30px;text-align:center;color:#A9B2BA;font-size:calc(12.5px * var(--ui-text-scale))">正在载入邮箱…</div></div></div></div>`;
+    bindSide(el);
+    loadLinkMeta(el);
+    (mailModule || (mailModule = import("/plugins/cppu-notify/mail.js")))
+      .then((mod) => {
+        if (disposed) return;
+        const host = el.querySelector("[data-ml-host]");
+        if (!host) return;
+        mailView = mailView || mod.createMailView(tide, mailBridge);
+        teardown = mailView.render(host);
+      })
+      .catch(() => {
+        mailModule = null;
+        const host = el.querySelector("[data-ml-host]");
+        if (host && !disposed) host.innerHTML = '<p class="pp-tip" style="padding:24px;text-align:center">邮箱模块加载失败，请重新打开本视图重试</p>';
+      });
+    return () => { disposed = true; if (typeof teardown === "function") teardown(); };
   }
 
   function bindSide(root) {
@@ -5330,6 +5607,11 @@
   // 账号密码与门户同一套。icon 用 network-wired —— 与 chart-line（警大成绩）区分开，
   // 后者是图表语义，这里是「联网」语义，同一个侧栏里也不撞。
   tide.ui.registerView({ id: "cppu-net", title: "上网记录", icon: "network-wired", render: mountNetLogView });
+  // 邮箱（mail.cppu.edu.cn / 雪球 Sirius Web，v0.255.0）：取数走老 XT 的 mbox 接口，
+  // 点一封邮件走 openMailPage（原生端从 Cookie Jar 注入登录态，sid 不进 URL）。
+  // icon 用 envelope —— 侧栏「警大邮箱」快捷入口本来就是信封，视图与入口同形更好认；
+  // VIEW_ICONS8 / VIEW_FA_ICONS 里此前没有任何视图用过信封，不会撞。
+  tide.ui.registerView({ id: "cppu-mail", title: "邮箱", icon: "envelope", render: mountMailView });
   // 获奖名单：通知正文里的获奖段落抽出来单独看（个人/团体排名 + 按时间的奖项项目）
   // icon 用 award 不用 trophy：trophy 已是「竞赛消息」插件的侧栏图标，同一个侧栏里不能撞。
   tide.ui.registerView({ id: "cppu-award", title: "警大获奖名单", icon: "award", render: mountAwardView });

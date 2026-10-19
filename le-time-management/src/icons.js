@@ -55,6 +55,7 @@ const VIEW_ICONS8 = {
   "cppu-profile": ["contact-card", "id-card", "business-contact"],
   // 上网记录：Dr.COM 自助服务的流量账单，取「联网」语义（不是图表 —— line-chart 已是警大成绩）。
   "cppu-net": ["network", "data-transfer", "network-wireless"],
+  "cppu-mail": ["email", "mail", "envelope"],
 };
 
 // 视图 id → 轮廓图标用的 FontAwesome 名（与 registerView 的 icon 一致）。
@@ -75,6 +76,7 @@ const VIEW_FA_ICONS = {
   "cppu-profile": "address-card",
   // 上网记录 用 network-wired（chart-line 已是警大成绩、chart-column 已被周度报告占用）。
   "cppu-net": "network-wired",
+  "cppu-mail": "envelope",
 };
 
 const ICONS8 = { ...NAV_ICONS8, ...PLUGIN_ICONS8, ...VIEW_ICONS8 };

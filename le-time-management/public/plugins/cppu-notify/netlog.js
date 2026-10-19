@@ -2,10 +2,12 @@
 //
 // 独立界面，不照搬网页：Dr.COM 自助服务系统那页是 bootstrap-table 的整站风格，
 // 一屏只有一张 10 行的表 + 一个 60 天的日期选择框，塞进插件只会变成更窄的浏览器。
-// 这里按 U-Time 的卡片语言重排成三块：
+// 这里按 U-Time 的卡片语言重排成四块：
 //   ① 概览（在线时长 / 流量 / 费用 / 上网次数，来自接口自带的 summary）
-//   ② 每日分布（按本地日期聚合的细条，一眼看出哪天挂得多）
-//   ③ 明细（按天分组，点一行展开国际/国内上下行、MAC、NAS）
+//      每张卡一个语义图标 + 一套语义色（--c 由一个类给出，数字与小标题都用它的混色）
+//   ② 熬夜（按「夜」合并在线区间，超过学期阈值的部分才计时；春季 22:20 / 冬学期 22:00）
+//   ③ 趋势（每日在线时长折线 + 每日流量上下行堆叠柱 + 国际/国内占比条）
+//   ④ 明细（按天分组，整块可一键收起、单天也能折叠，两者都是双向动画）
 //
 // 边界：本模块**不碰**账号、密码、vault、Cookie、验证码 —— 那是 main.js 的事。
 // 一切取数走 bridge.logs({start,end,force})，drcom 的登录（含验证码识别与重试）
@@ -22,6 +24,11 @@ export function createNetLogView(tide, bridge) {
   const MAX_SPAN = 60;   // 服务端 daterangepicker 的 dateLimit：一次查询最多 60 天
   const SLICE = 40;      // 明细「再显示 N 条」的步长
   const FRESH_MS = 60 * 1000;
+  const TREND_DAYS = 14; // 趋势图最多铺 14 个自然日（缺网的日子补 0，不跳过）
+  const NIGHT_SHOW = 12; // 熬夜条最多列 12 夜（再往前翻明细看）
+  // 一夜最多算到「阈值 + 8 小时」（春季 22:20 → 次日 06:20，冬学期 22:00 → 06:00）。
+  // 不设上限的话，挂机两天没下线的那条记录会把「熬夜」算成 30 小时，数值失去意义。
+  const NIGHT_SPAN = 8 * 60;
 
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const clean = (v) => {
@@ -44,6 +51,12 @@ export function createNetLogView(tide, bridge) {
     const [y, m, d] = String(dayStr).split("-").map(Number);
     const dt = new Date(y, (m || 1) - 1, (d || 1) + n);
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  };
+  /* 某天 00:00 的本地时间戳（熬夜按「夜」切区间，基准就是这一夜的零点）。 */
+  const stampOf = (dayStr) => {
+    const m = String(dayStr || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return 0;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0).getTime();
   };
 
   /* 秒级时间戳也照收：接口给的是毫秒，但换成秒级时不能整屏变成 1970。 */
@@ -105,11 +118,67 @@ export function createNetLogView(tide, bridge) {
   const rowUp = (r) => mb(r.internetUpFlow) + mb(r.chinanetUpFlow);
   const rowDown = (r) => mb(r.internetDownFlow) + mb(r.chinanetDownFlow);
 
+  /* ── 语义图标 ─────────────────────────────────────────────────────────
+     内联 SVG：插件视图里取 /icons/... 是静默失败（file:// 或路径不对就一片空白），
+     而这几个图标只服务于本页的卡片标题，内联比走图标库更稳。stroke 走 currentColor，
+     颜色由所在卡片的 --c 决定。 */
+  const ICON = {
+    clock: '<circle cx="12" cy="12" r="8.4"/><path d="M12 7.4v4.9l3.1 1.8"/>',
+    flow: '<path d="M12 3.6v11.6"/><path d="M8.1 11.6 12 15.5l3.9-3.9"/><path d="M4.6 19.4h14.8"/>',
+    money: '<path d="M12 3.6v16.8"/><path d="M15.9 7.3H9.7a2.7 2.7 0 0 0 0 5.4h4.6a2.7 2.7 0 0 1 0 5.4H7.7"/>',
+    plug: '<path d="M9 3.6v4"/><path d="M15 3.6v4"/><path d="M7.2 7.6h9.6v2.6a4.8 4.8 0 0 1-9.6 0Z"/><path d="M12 15v5.4"/>',
+    moon: '<path d="M20.2 14.4A8.4 8.4 0 0 1 9.6 3.8 8.6 8.6 0 1 0 20.2 14.4Z"/>',
+    activity: '<path d="M3.4 13h3.2L9.5 5.8l4 12.4 2.7-5.2h4.4"/>',
+    bars: '<path d="M5 19.2V10.4"/><path d="M10.3 19.2V4.8"/><path d="M15.7 19.2v-6.2"/><path d="M21 19.2V8.4"/>',
+    list: '<path d="M8.4 6.4h11.2"/><path d="M8.4 12h11.2"/><path d="M8.4 17.6h11.2"/><circle cx="4.4" cy="6.4" r=".9"/><circle cx="4.4" cy="12" r=".9"/><circle cx="4.4" cy="17.6" r=".9"/>',
+  };
+  const svgIcon = (name, cls = "nlog-ico") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICON[name] || ""}</svg>`;
+
+  /* ── 熬夜口径 ─────────────────────────────────────────────────────────
+     用户口径：春季学期 22:20 之后、冬学期 22:00 之后仍连着校园网的时间算熬夜。
+     学期怎么定：校历（calendar 那份 storage）里存了当前学期名，名字里带「春」按春季、
+     带「冬 / 秋」按冬学期；校历没同步过就按月份兜底（2–7 月春季，8 月–次年 1 月冬学期）。
+     阈值按**每一夜自己的日期**取，这样 60 天区间跨过学期边界时不会用错阈值。 */
+  const SEM = {
+    spring: { id: "spring", label: "春季学期", cutoff: 22 * 60 + 20, text: "22:20" },
+    winter: { id: "winter", label: "冬学期", cutoff: 22 * 60, text: "22:00" },
+  };
+  const semOfDay = (dayStr) => {
+    const m = Number(String(dayStr || "").slice(5, 7));
+    return m >= 2 && m <= 7 ? SEM.spring : SEM.winter;
+  };
+  const currentSem = () => {
+    const name = state.termName;
+    if (name) {
+      if (/春/.test(name)) return SEM.spring;
+      if (/冬|秋/.test(name)) return SEM.winter;
+    }
+    return semOfDay(todayStr());
+  };
+
+  /* 一条记录归属于哪一「夜」：06:00 之前上线的算前一晚（凌晨补网不算新的一夜）。 */
+  const nightKeyOf = (dt) => {
+    const d = dayKey(dt);
+    if (!d) return "";
+    return dt.getHours() < 6 ? shiftDay(d, -1) : d;
+  };
+  /* 分钟 → 时钟（跨零点标「次日」）。熬夜最晚下线常用到。 */
+  const clockOf = (min) => {
+    const m = Math.max(0, Math.round(num(min)));
+    const day = Math.floor(m / 1440);
+    const hh = String(Math.floor((m % 1440) / 60)).padStart(2, "0");
+    const mm = String(m % 60).padStart(2, "0");
+    return `${day > 0 ? "次日 " : ""}${hh}:${mm}`;
+  };
+
   const state = {
     root: null, disposed: false, loading: false, error: "", needLogin: false, stale: "",
     range: "30", customStart: "", customEnd: "", customOpen: false,
     rows: [], summary: null, span: null, expanded: new Set(), visible: SLICE,
-    loadedAt: 0, inFlight: 0, user: "",
+    loadedAt: 0, inFlight: 0, user: "", termName: "",
+    detailOpen: true, collapsedDays: new Set(),
+    /* 熬夜是唯一按「整个学期」而不是按当前区间统计的一块，独立取一份行数据。 */
+    nightOpen: true, nightRows: null, nightLoading: false, nightInFlight: 0, nightLoadedAt: 0,
   };
   const glowHandles = [];
 
@@ -136,7 +205,7 @@ export function createNetLogView(tide, bridge) {
 .nlog-tabs button{font:inherit;font-size:calc(12.5px * var(--ui-text-scale));color:inherit;background:transparent;border:0;padding:8px 13px;min-height:36px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .18s ease,color .18s ease;white-space:nowrap}
 .nlog-tabs button+button{border-left:1px solid var(--line)}
 .nlog-tabs button[aria-pressed=true]{background:var(--deep,#0F4C5C);color:var(--on-accent,#fff)}
-.nlog-btn{font:inherit;font-size:calc(12px * var(--ui-text-scale));color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 13px;min-height:36px;cursor:pointer;touch-action:manipulation}
+.nlog-btn{font:inherit;font-size:calc(12px * var(--ui-text-scale));color:inherit;background:var(--panel);border:1px solid color-mix(in srgb,var(--ink,#22303A) 16%,var(--line));border-radius:10px;padding:8px 13px;min-height:36px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .nlog-btn.nlog-primary{background:var(--deep,#0F4C5C);border-color:var(--deep,#0F4C5C);color:var(--on-accent,#fff)}
 .nlog-btn:disabled{opacity:.5;cursor:default}
 .nlog-when{margin-left:auto;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-3,#7E8B94);font-variant-numeric:tabular-nums}
@@ -149,34 +218,94 @@ export function createNetLogView(tide, bridge) {
 .nlog-custom label{display:inline-flex;align-items:center;gap:6px;font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#4A5A66)}
 .nlog-custom input{font:inherit;font-size:calc(12px * var(--ui-text-scale));color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 9px;min-height:34px;color-scheme:light dark}
 .nlog-custom .nlog-hint{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#7E8B94);margin-left:auto}
-/* ① 概览 */
+/* 图标：尺寸与线宽固定，颜色一律 currentColor（由所在卡片的 --c 给） */
+.nlog-ico{width:15px;height:15px;flex:0 0 auto;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+/* ① 概览：每张卡一套语义色 --c，底 / 边 / 字 / 图标全从它派生 */
 .nlog-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:15px 16px 0}
-.nlog-stat{border:1px solid var(--line);border-radius:12px;padding:11px 13px;background:color-mix(in srgb,var(--deep,#0F4C5C) 5%,var(--panel))}
-.nlog-stat small{display:block;font-size:calc(11px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 78%,var(--ink-2,#4A5A66));margin-bottom:6px;white-space:nowrap}
-.nlog-stat strong{font-size:calc(19px * var(--ui-text-scale));font-weight:600;font-variant-numeric:tabular-nums;color:var(--deep,#0F4C5C);overflow-wrap:anywhere}
-.nlog-stat em{font-style:normal;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2,#4A5A66);margin-left:3px}
+.nlog-stat{--c:var(--deep,#0F4C5C);border:1px solid color-mix(in srgb,var(--c) 26%,var(--line));border-radius:12px;padding:11px 13px;background:color-mix(in srgb,var(--c) 8%,var(--panel))}
+.nlog-stat.s-time{--c:var(--sea,#118AB2)}
+/* 总流量用「绿」：mint 太青、q4 太灰，两者混出来的绿松石才对得上语义，
+   且与「在线时长」的 sea（青蓝）色相差约 35°，扫一眼分得开。 */
+.nlog-stat.s-flow,.nlog-bar-up,.nlog-sw-up{--flow-c:color-mix(in srgb,var(--mint,#2EC4B6) 58%,var(--q4,#5B8F7B))}
+.nlog-stat.s-flow{--c:var(--flow-c)}
+.nlog-bar-up{fill:var(--flow-c)}
+.nlog-sw-up{color:var(--flow-c)}
+.nlog-stat.s-cost{--c:var(--sun,#E0A32E)}
+.nlog-stat.s-count{--c:var(--grape,#7B61A8)}
+.nlog-stat-hd{display:flex;align-items:center;gap:6px;margin-bottom:6px;color:color-mix(in srgb,var(--c) 72%,var(--ink))}
+.nlog-stat-hd small{font-size:calc(11px * var(--ui-text-scale));white-space:nowrap;color:inherit}
+.nlog-stat strong{font-size:calc(19px * var(--ui-text-scale));font-weight:600;font-variant-numeric:tabular-nums;color:color-mix(in srgb,var(--c) 58%,var(--ink));overflow-wrap:anywhere}
+.nlog-stat em{font-style:normal;font-size:calc(11px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 72%,var(--ink-2,#4A5A66));margin-left:3px}
 .nlog-stat .nlog-cardsub{display:block;margin-top:4px;font-size:calc(10.5px * var(--ui-text-scale));line-height:1.45;color:color-mix(in srgb,var(--ink,#22303A) 78%,var(--ink-2,#4A5A66));font-variant-numeric:tabular-nums;white-space:normal}
-/* ② 每日分布 */
-.nlog-daily{display:grid;gap:6px;padding:14px 16px 16px}
-.nlog-day{display:grid;grid-template-columns:96px 1fr auto;align-items:center;gap:10px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#4A5A66)}
+/* 流量占比条（国际 / 国内，各自再分上下行） */
+.nlog-split{display:grid;gap:8px;padding:13px 16px 16px}
+.nlog-split-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;font-size:calc(11px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 80%,var(--ink-2,#4A5A66))}
+.nlog-mix{display:flex;height:9px;border-radius:999px;overflow:hidden;background:color-mix(in srgb,var(--ink,#22303A) 8%,var(--panel))}
+.nlog-mix i{display:block;height:100%}
+.nlog-mix .mix-up{background:var(--sea,#118AB2)}
+.nlog-mix .mix-down{background:var(--deep,#0F4C5C)}
+.nlog-split-v{font-variant-numeric:tabular-nums;white-space:nowrap}
+/* ② 熬夜 */
+.nlog-night-top{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:13px}
+.nlog-night-big{--c:var(--coral,#E4572E);display:grid;gap:3px}
+.nlog-night-big strong{font-size:calc(21px * var(--ui-text-scale));font-weight:600;color:color-mix(in srgb,var(--c) 56%,var(--ink));font-variant-numeric:tabular-nums}
+.nlog-night-big small{font-size:calc(11px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 76%,var(--ink-2,#4A5A66))}
+.nlog-night-facts{margin-left:auto;display:flex;gap:14px;flex-wrap:wrap;font-size:calc(11.5px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 78%,var(--ink-2,#4A5A66))}
+.nlog-night-facts b{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}
+.nlog-night-list{display:grid;gap:6px}
+.nlog-night .nlog-fill{background:linear-gradient(90deg,color-mix(in srgb,var(--coral,#E4572E) 62%,var(--deep,#0F4C5C)),var(--coral,#E4572E))}
+.nlog-night>.nlog-night-note{margin-top:9px;font-size:calc(11.5px * var(--ui-text-scale))}
+.nlog-night>header .nlog-nightfold{margin-left:8px;flex:0 0 auto}
+/* 每日条（熬夜列表复用） */
+.nlog-day{display:grid;grid-template-columns:96px minmax(0,1fr) auto;align-items:center;gap:10px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2,#4A5A66)}
 .nlog-day b{font-weight:600;color:var(--ink);white-space:nowrap}
 .nlog-track{position:relative;height:9px;border-radius:999px;background:color-mix(in srgb,var(--ink,#22303A) 8%,var(--panel));overflow:hidden}
 .nlog-fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:linear-gradient(90deg,color-mix(in srgb,var(--sea,#118AB2) 78%,var(--deep,#0F4C5C)),var(--deep,#0F4C5C));min-width:3px;transition:width .3s ease}
 .nlog-day span{font-variant-numeric:tabular-nums;white-space:nowrap;color:color-mix(in srgb,var(--ink,#22303A) 82%,var(--ink-2,#4A5A66))}
-/* ③ 明细 */
-.nlog-daygroup+ .nlog-daygroup{margin-top:12px}
-.nlog-ghead{display:flex;align-items:baseline;gap:9px;padding:0 2px 7px;border-bottom:1px solid var(--line);font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#4A5A66)}
+/* ③ 趋势图：viewBox 固定、宽度 100%、preserveAspectRatio=none，
+   所以图内不放任何文字（会被横向拉伸），刻度与日期一律用 HTML 排在上下 */
+.nlog-charts{display:grid;gap:16px;padding:14px 16px 16px}
+.nlog-chart{display:grid;gap:7px;min-width:0}
+.nlog-chart-hd{display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:calc(12px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 78%,var(--ink-2,#4A5A66))}
+.nlog-chart-hd b{font-size:calc(13px * var(--ui-text-scale));font-weight:600;color:var(--ink)}
+.nlog-chart-hd .nlog-legend{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3,#7E8B94);font-variant-numeric:tabular-nums}
+.nlog-legend i{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:4px;vertical-align:-1px;background:currentColor}
+.nlog-plot{border:1px solid var(--line);border-radius:11px;background:color-mix(in srgb,var(--deep,#0F4C5C) 3%,var(--panel));padding:6px 4px}
+.nlog-plot svg{display:block;width:100%;height:132px}
+.nlog-grid{stroke:color-mix(in srgb,var(--ink,#22303A) 13%,transparent);stroke-width:1;vector-effect:non-scaling-stroke}
+.nlog-stroke{fill:none;stroke:var(--sea,#118AB2);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
+.nlog-area{stroke:none}
+.nlog-grad-a{stop-color:color-mix(in srgb,var(--sea,#118AB2) 46%,transparent)}
+.nlog-grad-b{stop-color:color-mix(in srgb,var(--sea,#118AB2) 4%,transparent)}
+.nlog-peak{stroke:color-mix(in srgb,var(--coral,#E4572E) 72%,transparent);stroke-width:1.4;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
+.nlog-bar-down{fill:var(--grape,#7B61A8)}
+.nlog-xaxis{display:flex;justify-content:space-between;font-size:calc(10px * var(--ui-text-scale));color:var(--ink-3,#7E8B94);font-variant-numeric:tabular-nums}
+/* ④ 明细 */
+.nlog-detail-head{align-items:flex-start}
+.nlog-detail-head .nlog-sub{margin-left:0}
+.nlog-hd-acts{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.nlog-btn.nlog-mini{min-height:36px;padding:6px 11px;font-size:calc(11.5px * var(--ui-text-scale))}
+/* 整块收起 / 单天收起：都是 grid-template-rows 0fr↔1fr，收的那一刻就把内容设成 inert */
+.nlog-dwrap,.nlog-gfold{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .32s cubic-bezier(.2,.8,.2,1),opacity .22s ease}
+.nlog-dwrap.open,.nlog-daygroup.open .nlog-gfold{grid-template-rows:1fr;opacity:1}
+.nlog-dclip,.nlog-gclip{min-height:0;overflow:hidden}
+.nlog-daygroup+.nlog-daygroup{margin-top:12px}
+.nlog-ghead{display:flex;align-items:center;gap:9px;width:100%;box-sizing:border-box;font:inherit;text-align:left;color:var(--ink-2,#4A5A66);background:transparent;border:0;border-bottom:1px solid var(--line);padding:8px 2px;min-height:40px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;font-size:calc(12px * var(--ui-text-scale))}
+.nlog-ghead:hover{color:var(--ink)}
+.nlog-ghead:focus-visible{outline:2px solid color-mix(in srgb,var(--deep,#0F4C5C) 55%,transparent);outline-offset:-2px;border-radius:8px}
 .nlog-ghead b{font-size:calc(12.5px * var(--ui-text-scale));font-weight:600;color:var(--ink)}
 .nlog-ghead span{margin-left:auto;font-variant-numeric:tabular-nums;color:color-mix(in srgb,var(--ink,#22303A) 82%,var(--ink-2,#4A5A66));white-space:nowrap}
+.nlog-gchev{display:inline-block;transition:transform .3s cubic-bezier(.2,.78,.2,1);color:var(--ink-3,#7E8B94)}
+.nlog-daygroup.open .nlog-gchev{transform:rotate(90deg)}
 .nlog-rows{margin:8px 0 0;padding:0;list-style:none;display:grid;gap:6px}
 .nlog-row{border:1px solid var(--line);border-radius:11px;background:var(--panel);overflow:hidden}
 .nlog-hit{display:grid;grid-template-columns:1fr auto;gap:4px 12px;width:100%;box-sizing:border-box;font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:9px 12px;min-height:44px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .nlog-hit:hover{background:color-mix(in srgb,var(--deep,#0F4C5C) 6%,var(--panel))}
 .nlog-hit:focus-visible{outline:2px solid color-mix(in srgb,var(--deep,#0F4C5C) 55%,transparent);outline-offset:-2px}
 .nlog-hit .nlog-when2{font-size:calc(12.5px * var(--ui-text-scale));font-variant-numeric:tabular-nums;color:var(--ink)}
-.nlog-hit .nlog-flow{font-size:calc(12px * var(--ui-text-scale));font-weight:600;color:var(--deep,#0F4C5C);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.nlog-hit .nlog-flow{font-size:calc(12px * var(--ui-text-scale));font-weight:600;color:color-mix(in srgb,var(--sea,#118AB2) 52%,var(--ink));font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
 .nlog-hit .nlog-meta2{font-size:calc(11px * var(--ui-text-scale));color:var(--ink-3,#7E8B94);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.nlog-hit .nlog-alt{display:block;margin-top:1px;font-style:normal;font-size:calc(10px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 68%,var(--ink-2,#4A5A66))}
+.nlog-hit .nlog-alt{display:block;margin-top:1px;font-style:normal;font-size:calc(10px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 78%,var(--ink-2,#4A5A66))}
 .nlog-hit .nlog-chev{display:inline-block;transition:transform .3s cubic-bezier(.2,.78,.2,1);color:var(--ink-3,#7E8B94);margin-left:5px}
 .nlog-row.open .nlog-chev{transform:rotate(90deg)}
 .nlog-fold{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .3s cubic-bezier(.2,.8,.2,1),opacity .2s ease}
@@ -186,6 +315,7 @@ export function createNetLogView(tide, bridge) {
 .nlog-detail div{min-width:0}
 .nlog-detail small{display:block;font-size:calc(10.5px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 78%,var(--ink-2,#4A5A66));margin-bottom:2px}
 .nlog-detail b{font-weight:600;font-size:calc(12px * var(--ui-text-scale));font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.nlog-hintline{margin:10px 0 0;font-size:calc(11px * var(--ui-text-scale));line-height:1.8;color:var(--ink-3,#7E8B94)}
 .nlog-more{display:flex;justify-content:center;padding:12px 0 0}
 .nlog-empty{border:1px dashed var(--line);border-radius:11px;padding:18px;text-align:center;color:var(--ink-3,#7E8B94);font-size:calc(12px * var(--ui-text-scale));line-height:1.85}
 .nlog-loading{padding:26px 16px;text-align:center;color:var(--ink-3,#7E8B94);font-size:calc(12.5px * var(--ui-text-scale))}
@@ -194,11 +324,32 @@ export function createNetLogView(tide, bridge) {
 @media(max-width:760px){.nlog-stats{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:440px){
 .nlog-tabs button{padding:8px 10px;font-size:calc(12px * var(--ui-text-scale))}
-.nlog-day{grid-template-columns:78px 1fr auto}
+.nlog-day{grid-template-columns:78px minmax(0,1fr) auto}
 .nlog-detail{grid-template-columns:1fr 1fr}
 .nlog-when{display:none}
+.nlog-night-facts{gap:10px}
+.nlog-hd-acts{margin-left:0}
 }
-@media(prefers-reduced-motion:reduce){.nlog-cwrap,.nlog-fold,.nlog-hit .nlog-chev,.nlog-fill,.nlog-tabs button{transition-duration:.01ms!important}}`;
+/* 深色模式：--sun / --grape 这类语义色在暗底上会被吞掉半格对比度，
+   数字与标签按 ink 提亮一次，明细小字与口径说明同理。走 data-theme-mode
+   而不是某个主题名 —— 每套主题都有自己的深色变体（见 styles.css 的派生层）。 */
+[data-theme-mode="dark"] .nlog-stat strong{color:color-mix(in srgb,var(--c) 34%,var(--ink,#E6EDF3))}
+[data-theme-mode="dark"] .nlog-stat-hd{color:color-mix(in srgb,var(--c) 48%,var(--ink,#E6EDF3))}
+/* 总流量的绿在暗底上混 34% 会被稀释成近白，认不出是绿：单独抬到 64%。 */
+[data-theme-mode="dark"] .nlog-stat.s-flow strong{color:color-mix(in srgb,var(--c) 80%,var(--ink,#E6EDF3))}
+[data-theme-mode="dark"] .nlog-stat.s-flow .nlog-stat-hd{color:color-mix(in srgb,var(--c) 88%,var(--ink,#E6EDF3))}
+/* 浅色下沿用本色（混 ink 会变墨绿，绿就看不出来了）。 */
+[data-theme-mode="light"] .nlog-stat.s-flow strong{color:var(--c)}
+[data-theme-mode="light"] .nlog-stat.s-flow .nlog-stat-hd{color:color-mix(in srgb,var(--c) 88%,var(--ink,#1F2328))}
+[data-theme-mode="dark"] .nlog-hit .nlog-alt{color:color-mix(in srgb,var(--ink,#E6EDF3) 84%,var(--ink-2,#9FB0BC))}
+[data-theme-mode="dark"] .nlog-hintline{color:color-mix(in srgb,var(--ink,#E6EDF3) 72%,var(--ink-3,#8C9AA4))}
+/* 熬夜卡的小字（累计/平均/最晚/熬夜率/逐夜时长）在暗色下原来偏灰，实测「能读但不轻松」，抬到 86% 以上才算够。 */
+[data-theme-mode="dark"] .nlog-night-big small{color:color-mix(in srgb,var(--ink,#E6EDF3) 86%,var(--ink-2,#9FB0BC))}
+[data-theme-mode="dark"] .nlog-night-facts{color:color-mix(in srgb,var(--ink,#E6EDF3) 88%,var(--ink-2,#9FB0BC))}
+[data-theme-mode="dark"] .nlog-night .nlog-day span:last-child{color:color-mix(in srgb,var(--ink,#E6EDF3) 88%,var(--ink-2,#9FB0BC))}
+[data-theme-mode="dark"] .nlog-night .nlog-night-note{color:color-mix(in srgb,var(--ink,#E6EDF3) 84%,var(--ink-3,#8C9AA4))}
+[data-theme-mode="dark"] .nlog-track{background:color-mix(in srgb,var(--ink,#E6EDF3) 15%,var(--panel))}
+@media(prefers-reduced-motion:reduce){.nlog-cwrap,.nlog-dwrap,.nlog-gfold,.nlog-fold,.nlog-hit .nlog-chev,.nlog-gchev,.nlog-fill,.nlog-tabs button,.nlog-night-fill{transition-duration:.01ms!important}}`;
     document.head.append(node);
   }
 
@@ -253,6 +404,9 @@ export function createNetLogView(tide, bridge) {
         state.loadedAt = Date.now();
         state.expanded.clear();
         state.visible = SLICE;
+        /* 熬夜的口径是整个学期，和上面这个区间不是一回事：单独再取一次（分片），
+           拿到了再重画一次，首屏不等它。 */
+        if (force || !state.nightRows) loadNight();
       })
       .catch((e) => { state.error = e?.message || "取数失败"; })
       .finally(() => {
@@ -264,11 +418,59 @@ export function createNetLogView(tide, bridge) {
     return state.inFlight;
   }
 
+  /* 熬夜统计范围＝一个学期（约 5 个月），远超服务端单次 60 天的上限，所以要分片取。
+     学期首日按校历节奏估：春季 2/10 起，冬季 8/25 起（1 月仍属上一年开始的冬季学期）。
+     终点固定取今天 —— 未来日期拉了也是空。 */
+  function semBounds() {
+    const today = todayStr();
+    const year = Number(today.slice(0, 4));
+    const month = Number(today.slice(5, 7));
+    if (month >= 2 && month <= 7) return { start: `${year}-02-10`, end: today };
+    return { start: `${month === 1 ? year - 1 : year}-08-25`, end: today };
+  }
+
+  function semChunks() {
+    const { start, end } = semBounds();
+    const list = [];
+    let from = start;
+    for (let guard = 0; guard < 12 && from <= end; guard += 1) {
+      const to = shiftDay(from, MAX_SPAN - 1);
+      const chunkEnd = to > end ? end : to;
+      list.push({ start: from, end: chunkEnd });
+      if (chunkEnd >= end) break;
+      from = shiftDay(chunkEnd, 1);
+    }
+    return list;
+  }
+
+  function loadNight() {
+    if (state.nightInFlight) return state.nightInFlight;
+    state.nightLoading = true;
+    const chunks = semChunks();
+    state.nightInFlight = Promise.all(chunks.map((c) => call(c)))
+      .then((list) => {
+        const rows = [];
+        for (const r of list) {
+          if (r && r.ok && r.data && Array.isArray(r.data.rows)) rows.push(...r.data.rows);
+        }
+        /* 一片都没成功（比如登录过期）就别把「上面已经算好的」清空。 */
+        if (rows.length || !state.nightRows) state.nightRows = rows;
+        state.nightLoadedAt = Date.now();
+      })
+      .catch(() => { if (!state.nightRows) state.nightRows = []; })
+      .finally(() => {
+        state.nightInFlight = 0;
+        state.nightLoading = false;
+        if (!state.disposed) paint();
+      });
+    return state.nightInFlight;
+  }
+
   /* ── 派生数据 ─────────────────────────────────────────────────────────── */
-  /* 每条记录先解析出本地日期与时刻，之后概览 / 每日条 / 明细三处共用同一份，
-     避免三遍各自 new Date（几百行时没必要）。 */
-  function decorated() {
-    return state.rows.map((raw, i) => {
+  /* 每条记录先解析出本地日期与时刻，之后概览 / 熬夜 / 趋势 / 明细四处共用同一份，
+     避免四遍各自 new Date（几百行时没必要）。 */
+  function decorateRows(list) {
+    return list.map((raw, i) => {
       const login = toDate(raw.loginTime);
       const logout = toDate(raw.logoutTime);
       return {
@@ -291,6 +493,7 @@ export function createNetLogView(tide, bridge) {
       };
     });
   }
+  const decorated = () => decorateRows(state.rows);
 
   /* 区间汇总按网页页脚的字段口径拆开：国际 / 国内各自上下行，加上 flow 原值。
      多段拉取时 drcom 不给 summary（各段各自的汇总不能相加成整区间），改走 rows 累加。 */
@@ -337,6 +540,158 @@ export function createNetLogView(tide, bridge) {
     return [...map.values()].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
   }
 
+  /* 趋势窗口：以区间结束日为右端，往前铺 N 个**自然日**（没有记录的日子补 0）。
+     跳过缺日的日子会让「周一没上网、周二挂 8 小时」在折线上变成一条假上升，
+     补零才能看出真实的空档。 */
+  function trendList(rows) {
+    const days = Number(state.range) || 30;
+    const span = Math.max(2, Math.min(TREND_DAYS, days));
+    const end = clean(state.span?.end) || todayStr();
+    const groups = new Map(dayGroups(rows).map((g) => [g.day, g]));
+    const list = [];
+    for (let i = span - 1; i >= 0; i--) {
+      const day = shiftDay(end, -i);
+      const g = groups.get(day);
+      let up = 0, down = 0, minutes = 0;
+      if (g) for (const r of g.rows) { up += r.up; down += r.down; minutes += r.minutes; }
+      list.push({ day, label: String(day).slice(5), hours: minutes / 60, up, down, total: up + down });
+    }
+    return list;
+  }
+
+  /* 熬夜：先把同一夜里的多段在线区间合并成并集，再对阈值之后的部分计时。
+     直接按条相加会重复计算重叠时段（换 IP 重连时 drcom 会留下首尾相接的两条）。 */
+  function nightSummary(rows) {
+    const byNight = new Map();
+    for (const r of rows) {
+      if (!r.login) continue;
+      const key = nightKeyOf(r.login);
+      if (!key) continue;
+      if (!byNight.has(key)) byNight.set(key, []);
+      byNight.get(key).push(r);
+    }
+    const nights = [];
+    for (const [key, list] of byNight) {
+      const sem = semOfDay(key);
+      const base = stampOf(key);
+      const spans = [];
+      let lastEnd = 0;
+      for (const r of list) {
+        const out = r.logout && r.logout > r.login ? r.logout : new Date();
+        const startMin = (r.login.getTime() - base) / 60000;
+        const endMin = (out.getTime() - base) / 60000;
+        if (endMin > lastEnd) lastEnd = endMin;
+        const s = Math.max(startMin, sem.cutoff);
+        const e = Math.min(endMin, sem.cutoff + NIGHT_SPAN);
+        if (e > s) spans.push([s, e]);
+      }
+      spans.sort((a, b) => a[0] - b[0]);
+      let minutes = 0;
+      let cur = null;
+      for (const [s, e] of spans) {
+        if (!cur) { cur = [s, e]; continue; }
+        if (s <= cur[1]) { if (e > cur[1]) cur[1] = e; }
+        else { minutes += cur[1] - cur[0]; cur = [s, e]; }
+      }
+      if (cur) minutes += cur[1] - cur[0];
+      nights.push({ key, sem, minutes: Math.round(minutes), lastEnd, count: list.length });
+    }
+    nights.sort((a, b) => (a.key < b.key ? 1 : a.key > b.key ? -1 : 0));
+    const late = nights.filter((n) => n.minutes > 0);
+    const total = late.reduce((s, n) => s + n.minutes, 0);
+    const latest = nights.reduce((m, n) => (n.lastEnd > m ? n.lastEnd : m), 0);
+    return {
+      nights,
+      late: late.length,
+      all: nights.length,
+      total,
+      avg: late.length ? total / late.length : 0,
+      latest: latest > 0 ? clockOf(latest) : "—",
+      longest: late.reduce((m, n) => Math.max(m, n.minutes), 0),
+    };
+  }
+
+  /* ── 图表（无依赖的 SVG）──────────────────────────────────────────────
+     两个图都用固定 viewBox + preserveAspectRatio="none" + 固定像素高度，
+     好处是宽屏窄屏都不变形、不出现「宽屏下 300px 高的怪物」；
+     代价是图形会被横向拉伸，所以**图里一个字都不放**，刻度与日期全用 HTML 排。 */
+  const SVG_W = 480;
+  const SVG_H = 150;
+  const PAD = { l: 6, r: 6, t: 12, b: 12 };
+
+  /* 把最大值抬到 1 / 2 / 5 × 10^n，网格线与峰值位置才稳定。 */
+  function niceMax(v) {
+    if (!(v > 0)) return 1;
+    const exp = Math.pow(10, Math.floor(Math.log10(v)));
+    const n = v / exp;
+    const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+    return step * exp;
+  }
+
+  function gridHtml(max) {
+    const innerH = SVG_H - PAD.t - PAD.b;
+    const base = PAD.t + innerH;
+    return [0.25, 0.5, 0.75, 1].map((k) => `<line class="nlog-grid" x1="${PAD.l}" y1="${(base - innerH * k).toFixed(1)}" x2="${SVG_W - PAD.r}" y2="${(base - innerH * k).toFixed(1)}"/>`).join("");
+  }
+
+  function lineChart(list) {
+    const n = list.length;
+    if (!n) return "";
+    const innerW = SVG_W - PAD.l - PAD.r;
+    const innerH = SVG_H - PAD.t - PAD.b;
+    const base = PAD.t + innerH;
+    const max = niceMax(Math.max(...list.map((d) => d.hours), 0.5));
+    const x = (i) => PAD.l + (n === 1 ? innerW / 2 : (i * innerW) / (n - 1));
+    const y = (v) => PAD.t + innerH - (Math.max(0, Math.min(v, max)) / max) * innerH;
+    const pts = list.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(d.hours).toFixed(1)}`).join(" ");
+    const stroke = n === 1 ? `M${x(0).toFixed(1)} ${base} L${x(0).toFixed(1)} ${y(list[0].hours).toFixed(1)}` : pts;
+    const area = n === 1 ? "" : `${pts} L${x(n - 1).toFixed(1)} ${base} L${x(0).toFixed(1)} ${base} Z`;
+    let top = 0;
+    list.forEach((d, i) => { if (d.hours > list[top].hours) top = i; });
+    const peak = list[top].hours > 0
+      ? `<line class="nlog-peak" x1="${x(top).toFixed(1)}" y1="${PAD.t}" x2="${x(top).toFixed(1)}" y2="${base}"/>`
+      : "";
+    return `<svg viewBox="0 0 ${SVG_W} ${SVG_H}" preserveAspectRatio="none" role="img" aria-label="每日在线时长折线图">
+<defs><linearGradient id="nlog-grad-line" x1="0" y1="0" x2="0" y2="1"><stop class="nlog-grad-a" offset="0"/><stop class="nlog-grad-b" offset="1"/></linearGradient></defs>
+${gridHtml(max)}${peak}${area ? `<path class="nlog-area" fill="url(#nlog-grad-line)" d="${area}"/>` : ""}<path class="nlog-stroke" d="${stroke}"/></svg>`;
+  }
+
+  function barChart(list) {
+    const n = list.length;
+    if (!n) return "";
+    const innerW = SVG_W - PAD.l - PAD.r;
+    const innerH = SVG_H - PAD.t - PAD.b;
+    const base = PAD.t + innerH;
+    const max = niceMax(Math.max(...list.map((d) => d.total), 1));
+    const slot = innerW / n;
+    const bw = Math.max(2.5, Math.min(24, slot * 0.6));
+    const bars = list.map((d, i) => {
+      const cx = PAD.l + slot * i + slot / 2;
+      const hDown = (d.down / max) * innerH;
+      const hUp = (d.up / max) * innerH;
+      const x0 = cx - bw / 2;
+      const yDown = base - hDown;
+      /* 上行通常只占总量的一小截，按真实比例常常不足 1px 就看不见了；
+         有上行数据时给一个 2.2px 的可见下限（真值仍在 title 里）。 */
+      const upH = d.up > 0 ? Math.max(hUp, 2.2) : 0;
+      const yUp = yDown - upH;
+      const tip = `${d.label} 上行 ${fmtSize(d.up)} · 下行 ${fmtSize(d.down)}`;
+      const down = hDown > 0.4 ? `<rect class="nlog-bar-down" x="${x0.toFixed(1)}" y="${yDown.toFixed(1)}" width="${bw.toFixed(1)}" height="${hDown.toFixed(1)}" rx="1.4"><title>${esc(tip)}</title></rect>` : "";
+      const up = upH > 0 ? `<rect class="nlog-bar-up" x="${x0.toFixed(1)}" y="${yUp.toFixed(1)}" width="${bw.toFixed(1)}" height="${upH.toFixed(1)}" rx="1.4"><title>${esc(tip)}</title></rect>` : "";
+      /* 当天没记录：画一条贴着基线的浅色小横线，避免「空柱」被误读成漏数据。 */
+      const idle = d.total <= 0 ? `<rect class="nlog-grid" x="${x0.toFixed(1)}" y="${(base - 1).toFixed(1)}" width="${bw.toFixed(1)}" height="1"/>` : "";
+      return down + up + idle;
+    }).join("");
+    return `<svg viewBox="0 0 ${SVG_W} ${SVG_H}" preserveAspectRatio="none" role="img" aria-label="每日流量上下行柱状图">${gridHtml(max)}${bars}</svg>`;
+  }
+
+  function axisHtml(list) {
+    if (!list.length) return "";
+    const n = list.length;
+    const idx = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
+    return `<div class="nlog-xaxis">${idx.map((i) => `<span>${esc(list[i].day === todayStr() ? "今天" : list[i].label)}</span>`).join("")}</div>`;
+  }
+
   /* ── 渲染 ─────────────────────────────────────────────────────────────── */
   function toolbarHtml() {
     const tabs = [
@@ -367,32 +722,94 @@ ${customHtml()}`;
 </div></div></div>`;
   }
 
+  /* ① 概览：四张卡各带一个语义图标与配色（时钟 / 流量箭头 / 金额 / 插头）。 */
   function statsHtml(rows) {
     const t = totals(rows);
-    /* 总流量 = 国际 + 国内；两者各自上下行只在副行出现一次，明细里不再逐条重复汇总。 */
     const cards = [
-      { k: "在线时长", v: fmtDur(t.minutes) },
+      { cls: "s-time", icon: "clock", k: "在线时长", v: fmtDur(t.minutes), sub: [`${fmtHours(t.minutes)} · ${fmtDays(t.minutes)}`] },
       {
-        k: "总流量",
-        v: fmtSize(t.up + t.down),
+        cls: "s-flow", icon: "flow", k: "总流量", v: fmtSize(t.up + t.down),
         sub: [`国际 ↑${fmtSize(t.intraUp)} ↓${fmtSize(t.intraDown)}`, `国内 ↑${fmtSize(t.cnUp)} ↓${fmtSize(t.cnDown)}`],
       },
-      { k: "计费金额", v: fmtMoney(t.cost) },
-      { k: "上网次数", v: String(t.count || 0), u: "次" },
+      { cls: "s-cost", icon: "money", k: "计费金额", v: fmtMoney(t.cost) },
+      { cls: "s-count", icon: "plug", k: "上网次数", v: String(t.count || 0), u: "次" },
     ];
-    return `<div class="nlog-stats">${cards.map((c) => `<div class="nlog-stat"><small>${esc(c.k)}</small><strong>${esc(c.v)}${c.u ? `<em>${esc(c.u)}</em>` : ""}</strong>${Array.isArray(c.sub) ? `<span class="nlog-cardsub">${c.sub.map((s) => esc(s)).join("<br>")}</span>` : ""}</div>`).join("")}</div>`;
+    return `<div class="nlog-stats">${cards.map((c) => `<div class="nlog-stat ${c.cls}">
+<div class="nlog-stat-hd">${svgIcon(c.icon)}<small>${esc(c.k)}</small></div>
+<strong>${esc(c.v)}${c.u ? `<em>${esc(c.u)}</em>` : ""}</strong>
+${Array.isArray(c.sub) ? `<span class="nlog-cardsub">${c.sub.map((s) => esc(s)).join("<br>")}</span>` : ""}</div>`).join("")}</div>`;
   }
 
-  function dailyHtml(rows) {
-    const groups = dayGroups(rows);
-    if (!groups.length) return "";
-    const top = Math.max(...groups.map((g) => g.total), 1);
-    return `<div class="nlog-daily">${groups.slice(0, 14).map((g) => {
-      const pct = Math.max(2, Math.round((g.total / top) * 100));
-      return `<div class="nlog-day"><b>${esc(dayLabel(g.day))}</b>
+  /* 流量构成：国际 / 国内各自的上行与下行，按占总量比例铺满同一条轨道。 */
+  function splitHtml(rows) {
+    const t = totals(rows);
+    const all = t.intraUp + t.intraDown + t.cnUp + t.cnDown;
+    if (!(all > 0)) return "";
+    const pct = (v) => Math.max(0, Math.min(100, (v / all) * 100));
+    const line = (k, up, down) => `<div class="nlog-split-row"><span>${esc(k)}</span>
+<span class="nlog-mix"><i class="mix-up" style="width:${pct(up).toFixed(1)}%"></i><i class="mix-down" style="width:${pct(down).toFixed(1)}%"></i></span>
+<span class="nlog-split-v">↑${esc(fmtSize(up))} ↓${esc(fmtSize(down))}</span></div>`;
+    return `<div class="nlog-split">${line("国际", t.intraUp, t.intraDown)}${line("国内", t.cnUp, t.cnDown)}</div>`;
+  }
+
+  /* ② 熬夜：整个学期为范围；累计时长 + 三事实在最外，逐夜列表可整块收起。 */
+  function nightHtml(rows) {
+    /* 学期分片取回来的是原始行，和首屏一样要先解析出 login / logout 才能算熬夜。 */
+    const scope = state.nightRows && state.nightRows.length ? decorateRows(state.nightRows) : rows;
+    const s = nightSummary(scope);
+    const sem = currentSem();
+    const open = state.nightOpen;
+    const bodyId = "nlog-night-body";
+    if (!s.nights.length) {
+      return `<div class="nlog-card nlog-sec nlog-night">
+<header>${svgIcon("moon")}<h3>熬夜</h3><span class="nlog-sub">${esc(`${sem.label} · ${sem.text} 后`)}</span></header>
+<p class="nlog-hintline" data-nlog-night-empty>${state.nightLoading ? "正在统计本学期…" : "本学期还没有记录到熬夜。"}</p>
+</div>`;
+    }
+    const top = Math.max(s.longest, 1);
+    const rate = s.all ? Math.round((s.late / s.all) * 100) : 0;
+    const bars = s.nights.slice(0, NIGHT_SHOW).map((n) => {
+      const pct = n.minutes > 0 ? Math.max(3, Math.round((n.minutes / top) * 100)) : 0;
+      return `<div class="nlog-day"><b>${esc(dayLabel(n.key))}</b>
 <span class="nlog-track"><i class="nlog-fill" style="width:${pct}%"></i></span>
-<span>${esc(fmtSize(g.total))}</span></div>`;
-    }).join("")}</div>`;
+<span>${esc(n.minutes > 0 ? fmtDur(n.minutes) : "未熬夜")}</span></div>`;
+    }).join("");
+    const more = s.nights.length > NIGHT_SHOW
+      ? `<p class="nlog-hintline nlog-night-note">只列最近 ${NIGHT_SHOW} 夜 · 本学期共 ${s.nights.length} 夜有记录</p>`
+      : "";
+    return `<div class="nlog-card nlog-sec nlog-night">
+<header>${svgIcon("moon")}<h3>熬夜</h3><span class="nlog-sub" title="同一夜的多条记录先合并去重；一夜最多算到阈值后 8 小时（挂机整夜不会算成几十小时）">${esc(`${sem.label} · ${sem.text} 后`)}</span><button class="nlog-btn nlog-mini nlog-nightfold" type="button" data-nlog-nightfold aria-expanded="${open ? "true" : "false"}" aria-controls="${bodyId}">${open ? "收起" : "展开"}</button></header>
+<div class="nlog-night-top">
+<div class="nlog-night-big"><strong>${esc(fmtDur(s.total))}</strong><small>累计 · ${s.late} 夜</small></div>
+<div class="nlog-night-facts"><span>平均 <b>${esc(fmtDur(s.avg))}</b></span><span>最晚下线 <b>${esc(s.latest)}</b></span><span>熬夜率 <b>${rate}%</b></span></div>
+</div>
+<div class="nlog-dwrap${open ? " open" : ""}" id="${bodyId}" aria-hidden="${open ? "false" : "true"}"${open ? "" : " inert"}><div class="nlog-dclip">
+<div class="nlog-night-list">${bars}</div>${more}
+</div></div>
+</div>`;
+  }
+
+  /* ③ 趋势：上「每日在线时长」折线，下「每日流量」上下行堆叠柱。 */
+  function trendHtml(rows) {
+    /* 窗口里一条记录都没有时，趋势会铺满 0 值：折线贴底、柱图全空，
+       看着像「这些天都是 0 小时」而不是「没有数据」，比不画更误导。 */
+    if (!rows.length) return "";
+    const list = trendList(rows);
+    if (!list.length) return "";
+    const maxH = Math.max(...list.map((d) => d.hours));
+    const maxT = Math.max(...list.map((d) => d.total));
+    const sumH = list.reduce((s, d) => s + d.hours, 0);
+    const avgH = sumH / list.length;
+    return `<div class="nlog-card"><div class="nlog-charts">
+<div class="nlog-chart">
+<div class="nlog-chart-hd">${svgIcon("activity")}<b>上网时间</b><span>每日在线时长 · 近 ${list.length} 天</span><span class="nlog-legend"><span>最高 ${esc(fmtHours(maxH * 60))}</span><span>日均 ${esc(fmtHours(avgH * 60))}</span></span></div>
+<div class="nlog-plot">${lineChart(list)}</div>${axisHtml(list)}
+</div>
+<div class="nlog-chart">
+<div class="nlog-chart-hd">${svgIcon("bars")}<b>流量使用</b><span>每日上下行 · 近 ${list.length} 天</span><span class="nlog-legend"><span><i class="nlog-sw-up"></i>上行</span><span><i style="color:var(--grape,#7B61A8)"></i>下行</span><span>最高 ${esc(fmtSize(maxT))}</span></span></div>
+<div class="nlog-plot">${barChart(list)}</div>${axisHtml(list)}
+</div>
+</div></div>`;
   }
 
   /* 明细列序对齐网页 /bill/userOnlineLog 的表格：序号 / 上线时间 / 下线时间 / 使用时长 /
@@ -444,9 +861,15 @@ ${details.map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(v)}</b></div>`)
       if (used >= state.visible) break;
       const take = g.rows.slice(0, Math.max(0, state.visible - used));
       used += take.length;
-      blocks.push(`<div class="nlog-daygroup">
-<div class="nlog-ghead"><b>${esc(dayLabel(g.day))}</b><span>${g.count} 次</span></div>
-<ul class="nlog-rows">${take.map((r) => rowHtml(r, state.expanded.has(r.key))).join("")}</ul></div>`);
+      const dayOpen = !state.collapsedDays.has(g.day);
+      const gid = `nlog-day-${g.day}`;
+      blocks.push(`<div class="nlog-daygroup${dayOpen ? " open" : ""}" data-nlog-daygroup="${esc(g.day)}">
+<button class="nlog-ghead" type="button" data-nlog-daytoggle aria-expanded="${dayOpen ? "true" : "false"}" aria-controls="${esc(gid)}">
+<b>${esc(dayLabel(g.day))}</b><i class="nlog-gchev" aria-hidden="true">›</i>
+<span>${g.count} 次 · ${esc(fmtSize(g.total))}</span></button>
+<div class="nlog-gfold" id="${esc(gid)}" aria-hidden="${dayOpen ? "false" : "true"}"><div class="nlog-gclip">
+<ul class="nlog-rows">${take.map((r) => rowHtml(r, state.expanded.has(r.key))).join("")}</ul>
+</div></div></div>`);
     }
     const more = rows.length > state.visible
       ? `<div class="nlog-more"><button class="nlog-btn" type="button" data-nlog-more>再显示 ${Math.min(SLICE, rows.length - state.visible)} 条（还有 ${rows.length - state.visible} 条）</button></div>`
@@ -458,6 +881,20 @@ ${details.map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(v)}</b></div>`)
     if (state.loading && !rows.length) return "正在读取…";
     if (!rows.length) return "";
     return `共 ${rows.length} 条`;
+  }
+
+  /* 明细卡：header 上两个动作 —— 整块收起（全部收起 / 全部展开）。
+     整块收起后内容立刻 inert（动画仍在播，但点不到、也无法 Tab 进去）。 */
+  function detailHtml(rows) {
+    const open = state.detailOpen;
+    return `<header class="nlog-detail-head">${svgIcon("list")}<h3>上网明细</h3>
+<span class="nlog-sub">${esc(titleSub(rows))}</span>
+<div class="nlog-hd-acts"><button class="nlog-btn nlog-mini" type="button" data-nlog-fold aria-expanded="${open ? "true" : "false"}" aria-controls="nlog-detail-body">${open ? "全部收起" : "全部展开"}</button></div>
+</header>
+<div class="nlog-dwrap${open ? " open" : ""}" id="nlog-detail-body" data-nlog-detail-wrap aria-hidden="${open ? "false" : "true"}"><div class="nlog-dclip">
+<div data-nlog-list>${listHtml(rows)}</div>
+<p class="nlog-note">${esc(state.span ? `区间 ${state.span.start} → ${state.span.end}（含起止两天，最长 60 天）。` : "")}时长与流量以自助服务系统记录为准；flow 字段恒为 0，真实用量按国际 / 国内上下行合计。</p>
+</div></div>`;
   }
 
   function paint() {
@@ -477,14 +914,13 @@ ${details.map(([k, v]) => `<div><small>${esc(k)}</small><b>${esc(v)}</b></div>`)
       bind(root);
       return;
     }
-    const span = state.span ? `${state.span.start} → ${state.span.end}` : "";
     root.innerHTML = `<div class="nlog-wrap">
 ${toolbarHtml()}
 ${state.stale ? `<div class="nlog-card nlog-sec"><div class="nlog-alert">${esc(state.stale)}</div></div>` : ""}
-<div class="nlog-card">${statsHtml(rows)}${dailyHtml(rows)}</div>
-<div class="nlog-card nlog-sec"><header><h3>上网明细</h3><span class="nlog-sub">${esc(titleSub(rows))}</span></header>
-<div data-nlog-list>${listHtml(rows)}</div>
-<p class="nlog-note">${esc(span ? `区间 ${span}（含起止两天，最长 60 天）。` : "")}时长与流量以自助服务系统记录为准；flow 字段恒为 0，真实用量按国际 / 国内上下行合计。</p></div></div>`;
+<div class="nlog-card">${statsHtml(rows)}${splitHtml(rows)}</div>
+${nightHtml(rows)}
+${trendHtml(rows)}
+<div class="nlog-card nlog-sec">${detailHtml(rows)}</div></div>`;
     bind(root);
   }
 
@@ -508,12 +944,65 @@ ${state.stale ? `<div class="nlog-card nlog-sec"><div class="nlog-alert">${esc(s
     const hit = li.querySelector("[data-nlog-hit]");
     if (hit) hit.setAttribute("aria-expanded", open ? "true" : "false");
     const fold = li.querySelector(".nlog-fold");
-    if (fold) fold.setAttribute("aria-hidden", open ? "false" : "true");
+    if (fold) {
+      fold.setAttribute("aria-hidden", open ? "false" : "true");
+      try { fold.inert = !open; } catch { /* 老 WebView 没有 inert，只是少一层可达性保护 */ }
+    }
+  }
+
+  /* 整块明细收起 / 展开（双向动画；收起瞬间就 inert）。 */
+  function toggleDetail(root) {
+    const wrap = root.querySelector("[data-nlog-detail-wrap]");
+    const btn = root.querySelector("[data-nlog-fold]");
+    state.detailOpen = !state.detailOpen;
+    if (wrap) {
+      wrap.classList.toggle("open", state.detailOpen);
+      wrap.setAttribute("aria-hidden", state.detailOpen ? "false" : "true");
+      try { wrap.inert = !state.detailOpen; } catch { /* ignore */ }
+    }
+    if (btn) {
+      btn.setAttribute("aria-expanded", state.detailOpen ? "true" : "false");
+      btn.textContent = state.detailOpen ? "全部收起" : "全部展开";
+    }
+    persist();
+  }
+
+  /* 熬夜逐夜列表收起 / 展开：与明细同一套 grid-rows 双向过渡，收起瞬间 inert。 */
+  function toggleNight(root) {
+    const wrap = root.querySelector("#nlog-night-body");
+    const btn = root.querySelector("[data-nlog-nightfold]");
+    if (!wrap || !btn) return;
+    state.nightOpen = !state.nightOpen;
+    wrap.classList.toggle("open", state.nightOpen);
+    wrap.setAttribute("aria-hidden", state.nightOpen ? "false" : "true");
+    try { wrap.inert = !state.nightOpen; } catch { /* ignore */ }
+    btn.setAttribute("aria-expanded", state.nightOpen ? "true" : "false");
+    btn.textContent = state.nightOpen ? "收起" : "展开";
+    persist();
+  }
+
+  /* 单天收起 / 展开：与整块收起同一套 grid-rows 过渡，箭头同步旋转。 */
+  function toggleDay(btn) {
+    const group = btn.closest?.("[data-nlog-daygroup]");
+    if (!group) return;
+    const key = group.getAttribute("data-nlog-daygroup") || "";
+    const open = !state.collapsedDays.has(key);
+    if (open) state.collapsedDays.delete(key); else state.collapsedDays.add(key);
+    group.classList.toggle("open", open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    const fold = group.querySelector(".nlog-gfold");
+    if (fold) {
+      fold.setAttribute("aria-hidden", open ? "false" : "true");
+      try { fold.inert = !open; } catch { /* ignore */ }
+    }
+    persist();
   }
 
   function bind(root) {
     const on = (sel, fn) => { const n = root.querySelector(sel); if (n) n.onclick = fn; };
     on("[data-nlog-refresh]", () => load(true));
+    on("[data-nlog-fold]", () => toggleDetail(root));
+    on("[data-nlog-nightfold]", () => toggleNight(root));
     on("[data-nlog-more]", () => {
       state.visible += SLICE;
       const host = root.querySelector("[data-nlog-list]");
@@ -547,6 +1036,9 @@ ${state.stale ? `<div class="nlog-card nlog-sec"><div class="nlog-alert">${esc(s
         load(true);
       };
     }
+    for (const btn of root.querySelectorAll("[data-nlog-daytoggle]")) {
+      btn.onclick = () => toggleDay(btn);
+    }
     bindRows(root);
     attachGlow(root);
   }
@@ -559,7 +1051,14 @@ ${state.stale ? `<div class="nlog-card nlog-sec"><div class="nlog-alert">${esc(s
 
   function persist() {
     try {
-      tide.storage?.set?.(KEY, { range: state.range, customStart: state.customStart, customEnd: state.customEnd });
+      tide.storage?.set?.(KEY, {
+        range: state.range,
+        customStart: state.customStart,
+        customEnd: state.customEnd,
+        detailOpen: state.detailOpen,
+        nightOpen: state.nightOpen,
+        collapsedDays: [...state.collapsedDays],
+      });
     } catch { /* ignore */ }
   }
 
@@ -574,8 +1073,18 @@ ${state.stale ? `<div class="nlog-card nlog-sec"><div class="nlog-alert">${esc(s
         if (["7", "30", "60", "custom"].includes(saved.range)) state.range = saved.range;
         state.customStart = clean(saved.customStart);
         state.customEnd = clean(saved.customEnd);
+        if (typeof saved.detailOpen === "boolean") state.detailOpen = saved.detailOpen;
+        if (typeof saved.nightOpen === "boolean") state.nightOpen = saved.nightOpen;
+        if (Array.isArray(saved.collapsedDays)) state.collapsedDays = new Set(saved.collapsedDays.filter((k) => typeof k === "string"));
       }
-    }).catch(() => {}).finally(() => { if (!state.disposed) load(); });
+    }).catch(() => {});
+    /* 学期名只服务于熬夜阈值：校历同步过就用它，没同步过 semester 会退回按月份判断。 */
+    Promise.resolve(tide.storage?.get?.("calendar", null)).then((saved) => {
+      if (state.disposed) return;
+      const name = clean(saved?.term?.name);
+      if (name) state.termName = name;
+    }).catch(() => {});
+    Promise.resolve().then(() => load());
     return () => {
       state.disposed = true;
       state.root = null;

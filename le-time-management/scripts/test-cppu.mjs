@@ -458,6 +458,22 @@ assert.match(source, /@media\(max-width:820px\)[\s\S]*?\.pp-side-btn\{[^}]*min-h
 assert.ok(source.includes('-webkit-tap-highlight-color:transparent'), '触屏点击不应出现系统高亮块');
 assert.match(source, /@media\(prefers-reduced-motion:reduce\)\{[^}]*\.pp-side,[^}]*\.pp-side-toggle[^}]*transition-duration/,
   '开了「移除动画」（Android 省电模式）时，侧栏与把手的过渡也必须跟着降级');
+/* v1.67.2：桌面端收起后的把手是竖排标签，内容沿【高度】方向排。
+   竖排「▸校园服务」实测 scrollHeight=101，而横排时代留下的 max-height:52px 把它裁成「▸校」
+   （用户截图：32×52 的框里塞 101px 内容）。两条断言：够高 + 断点不许撞窄屏那套。 */
+{
+  const vert = source.match(/@media\(min-width:(\d+)px\)\{\s*\.pp-shell\.side-collapsed \.pp-side-toggle\{([^}]*)\}/);
+  assert.ok(vert, '桌面端收起后的把手必须是竖排标签（min-width 媒体查询里给 .pp-side-toggle 上竖排）');
+  assert.ok(+vert[1] >= 821,
+    `竖排把手的断点必须 ≥821px：窄屏那套是 max-width:820px（整层叠放、把手 width:100%），`
+    + `两段同时命中会让竖排字落进满宽按钮（当前 ${vert[1]}px）`);
+  const mh = vert[2].match(/max-height:(\d+)px/);
+  assert.ok(mh && +mh[1] >= 120,
+    `竖排把手的 max-height 必须 ≥120px（竖排 5 个字实测要 101px）：沿用横排的 52px 会把`
+    + `「园服务」整段裁掉，只剩「▸校」（当前 ${mh ? mh[1] : '未设'}px）`);
+}
+assert.match(source, /\.pp-shell\.side-collapsed \.pp-side-toggle>span\{[^}]*text-orientation:upright/,
+  '竖排里 ▸ 会被按 UTR50 旋转成 ▾，箭头必须单独摆正（text-orientation:upright）');
 assert.ok(source.includes('AUTO_REFRESH_MS') && source.includes('data-ar'), '插件必须提供低打扰的定时自动刷新开关');
 const hostSrc = readProductSource(new URL('../src/pluginHost.js', import.meta.url), 'utf8');
 assert.ok(hostSrc.includes('vault: "加密密钥库'), '插件宿主必须定义 vault 权限标签');
@@ -688,8 +704,8 @@ assert.ok(source.includes('const JW_LOAD = JWAPP + "/je/load"'), '教务取数�
 
 /* 警大学分原入口成为警大成绩，避免教务菜单出现两张重复成绩页；校历 v0.216.0 从独立插件并入；
    学生个人成长中心（pdata）v0.217.0 并入；个人信息 v0.221.0 并入。 */
-assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-growth', 'cppu-net', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-xk'],
-  '必须注册通知、获奖名单、警大校历、学生成长、个人信息、上网记录及五个教务/一卡通视图，登录设置属于应用设置');
+assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-growth', 'cppu-mail', 'cppu-net', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-xk'],
+  '必须注册通知、获奖名单、警大校历、学生成长、个人信息、上网记录、邮箱及五个教务/一卡通视图，登录设置属于应用设置');
 assert.ok(views.filter((v) => v.id !== 'cppu-notify').every((v) => typeof v.render === 'function'), '插件子视图必须有 render');
 assert.ok(views.some((v) => v.id === 'cppu-cx' && v.title === '警大创新学分'), '创新学分视图要有独立标题');
 assert.ok(views.some((v) => v.id === 'cppu-credit' && v.title === '警大成绩'), '原警大学分视图应以警大成绩注册');
