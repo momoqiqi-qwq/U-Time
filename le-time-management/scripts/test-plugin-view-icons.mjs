@@ -58,8 +58,8 @@ for (const m of jwBlock.matchAll(/^\s*id: "([\w-]+)", title: "[^"]+", icon: "([\
 
 assert.equal(declared.get(PLUGIN), "building-columns", "插件主视图的图标仍是插件自己的（视图 id === 插件 id）");
 const views = [...declared.keys()].filter((id) => id !== PLUGIN).sort();
-assert.deepEqual(views, ["cppu-award", "cppu-calendar", "cppu-card", "cppu-credit", "cppu-cx", "cppu-growth", "cppu-profile", "cppu-qj", "cppu-xk"],
-  "cppu-notify 现在注册 9 个分类视图；新增/删除分类要同步更新本测试与 src/icons.js 的两张表");
+assert.deepEqual(views, ["cppu-award", "cppu-calendar", "cppu-card", "cppu-credit", "cppu-cx", "cppu-growth", "cppu-net", "cppu-profile", "cppu-qj", "cppu-xk"],
+  "cppu-notify 现在注册 10 个分类视图；新增/删除分类要同步更新本测试与 src/icons.js 的两张表");
 
 /* ── ② 声明与消费口径不许漂移 ── */
 const icons = read("src/icons.js");
@@ -146,4 +146,4 @@ assert.match(appearance, /const custom = getPluginOverride\(id\)\.icon;/,
   "用户给插件换的图标与 accent 色仍按插件 id，对它所有分类生效");
 
 console.log(`侧栏分类图标：${views.length} 个分类，彩色 PNG 与 FA 轮廓两两不同，且不与同侧栏 ${sidebar.size} 个图标相撞`);
-console.log("PASS: sidebar icons per plugin view (cppu-notify 7 categories), bundled PNG uniqueness and FA sprite coverage");
+console.log("PASS: sidebar icons per plugin view (cppu-notify 10 categories), bundled PNG uniqueness and FA sprite coverage");

@@ -65,7 +65,7 @@ const fx = loadPlugin("http:");
 }
 
 /* ── 一、默认条目的文案 ── */
-assert.equal(fx.DEFAULT_ITEMS.length, 2, '默认条目应仍是两条');
+assert.equal(fx.DEFAULT_ITEMS.length, 4, '默认条目应为四条');
 for (const item of fx.DEFAULT_ITEMS) {
   assert.ok(item.note.startsWith('默认：'), `默认条目备注应以「默认：」开头，实际「${item.note}」`);
   assert.ok(!item.note.includes('默认收集'), `默认条目不该再出现「默认收集」，实际「${item.note}」`);
@@ -100,21 +100,25 @@ assert.equal(storage.has('items'), false, '没有需要迁移的条目就不该�
 storage.clear();
 fx.items = [];
 await fx.ensureDefaults();
-assert.equal(fx.items.length, 2);
+assert.equal(fx.items.length, 4);
 for (const item of fx.items) assert.ok(item.note.startsWith('默认：'), item.note);
 
 /* ── 五、已存在的默认条目不该被重复补（缺的那条仍要补上）── */
 fx.items = [
   { id: 'x', url: 'http://daxue.qiyemulu.cn/', note: '默认：大学名录' },
   { id: 'y', url: 'https://www.resource.edu.cn', note: '默认：教育资源入口' }, // 无尾斜杠也要认作同一条
+  { id: 'z', url: 'https://www.cppu.edu.cn/index.htm', note: '默认：学校官网' },
+  { id: 'w', url: 'https://portal.cppu.edu.cn', note: '默认：学校门户' },
 ];
 await fx.ensureDefaults();
-assert.equal(fx.items.length, 2, '两条默认都已存在时不该再补');
+assert.equal(fx.items.length, 4, '四条默认都已存在时不该再补');
 
 fx.items = [{ id: 'x', url: 'http://daxue.qiyemulu.cn/', note: '默认：大学名录' }];
 await fx.ensureDefaults();
-assert.equal(fx.items.length, 2, '缺的那条默认仍要补上');
+assert.equal(fx.items.length, 4, '缺的默认条目仍要补上');
 assert.ok(fx.items.some((x) => x.url === 'https://www.resource.edu.cn/'), '补的应该是缺的那条');
+assert.ok(fx.items.some((x) => x.url === 'https://www.cppu.edu.cn/index.htm'), '学校官网那条也要补上');
+assert.ok(fx.items.some((x) => x.url === 'https://portal.cppu.edu.cn/'), '学校门户那条也要补上');
 
 /* ── 六、render 必须真的接上迁移，否则老用户永远看不到新文案 ── */
 assert.match(src, /await ensureDefaults\(\);\s*await migrateNotes\(\);/, 'render 里必须调用 migrateNotes');
@@ -135,7 +139,9 @@ const manifest = JSON.parse(fs.readFileSync(new URL('../public/plugins/web-colle
 // 1.7.0 → 卡片改成从底边翻起的抽屉（正面看网站，翻起来改名称 / 备注 / 图标）。
 // 1.9.0 → 点卡片直接打开网站（详情层里不再有「打开」按钮），详情改由右上角「⋯」翻起。
 // 这条断言的作用是「改了行为就必须动版本号」，所以每加一批行为就往上抬一格，别删。
-assert.equal(manifest.version, '1.9.0', '改了网页收集的行为必须升 manifest 版本号');
+// 1.10.0 → 默认收藏新增学校官网 www.cppu.edu.cn 与学校门户 portal.cppu.edu.cn（第三、四条默认条目）。
+// 这条断言的作用是「改了行为就必须动版本号」，所以每加一批行为就往上抬一格，别删。
+assert.equal(manifest.version, '1.10.0', '改了网页收集的行为必须升 manifest 版本号');
 assert.equal(manifest.platforms.miniprogram, 'native', '原生收藏管理已实现，任意网站内嵌不在适配范围');
 
 /* ── 六之二、点卡片直接打开（v1.9.0）──

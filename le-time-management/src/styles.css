@@ -4919,6 +4919,7 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
    但图标用 Font Awesome SVG（.fa-ic）而非 .app-icon（PNG <img>），需要单独给尺寸。
    v0.69.0：缩放视图按钮同理（compress / expand 也是 .fa-ic）。 */
 .rail-bottom > .theme-toggle-btn .ic .fa-ic,
+.rail-bottom > .privacy-off-btn .ic .fa-ic,
 .rail-bottom > .window-focus-btn .ic .fa-ic {
   width: 15px;
   height: 15px;
@@ -4931,6 +4932,9 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
    几乎看不见、只剩个轮廓 —— 而 FA 的 sun 轮廓与隔壁设置键的真齿轮几乎同形，
    用户看到的就是「一个深色齿轮」。 */
 .rail-bottom > .theme-toggle-btn .ic { color: var(--ink); }
+/* v0.252.0：隐私展示模式的「关闭」键同款 —— 它与深浅色键落在同一种磁贴上，
+   写死深字在深色模式下同样只剩 1.07:1。 */
+.rail-bottom > .privacy-off-btn .ic { color: var(--ink); }
 .rail-bottom > .window-focus-btn .ic { color: var(--ink); }
 /* 缩放视图处于「已收成固定尺寸」态时给个按下去的底色，与快捷入口面板的 .on 同一套配色。
    选择器必须带上 .window-focus-btn：老 rails 上挂着一条 `.rail-bottom > button.on .ic { background: var(--sun) }`

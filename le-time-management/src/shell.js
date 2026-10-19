@@ -20,6 +20,7 @@ import { hasNavOverride, navDisplayIcon, navDisplayName, navDisplayOutlineIcon, 
 import { PLUGIN_SHORTCUT_MODIFIER, attachPluginShortcutKeys, computePluginShortcutMap, effectivePluginShortcutLetter, getPluginShortcutCustoms, normalizeShortcutLetter, setPluginShortcut } from "./pluginShortcuts.js";
 import { pluginShortcutEntries } from "./pluginShortcutEntries.js";
 import { getUiPreferences, coreViewIds } from "./uiPreferences.js";
+import { setPrivacyMask } from "./privacyMask.js";
 import { listRailActions, normalizeRailActionOrder, registerRailAction, slotIndexFor } from "./railActions.js";
 import { closeLayer, enterPage, fadeAway, flipByKey, foldClose, foldOpen, observePluginMotion, reducedMotion, removeWithMotion } from "./motion.js";
 import { FOCUS_WINDOW_SIZE, isDesktopRuntime, isFocusWindowActive, toggleFocusWindow } from "./windowSize.js";
@@ -1482,6 +1483,34 @@ export function renderShell(root) {
     label: "设置",
     icon: () => outlineAppIcon("settings", "设置"),
     onClick: () => openSettingsModal(),
+  });
+
+  /* v0.252.0：隐私展示模式的一键关闭键（用户需求：「开启隐私模式后，在左下角添加一个按钮，
+     用于一键关闭该模式」）。
+     注册表里**常驻**、只靠 `hidden` 收放 —— 动态注册 / 注销会连带触发 renderRailDock 重建
+     与顺序归一化，拖拽落点也跟着跳；而这里要的只是「开着才看得见」。
+     显示条件读偏好、不读 data-privacy-mask：偏好是唯一事实源，宿主属性只是它的投影
+     （启动时 renderShell 早于 initPrivacyMask，读属性会读到还没写的值）。
+     data-privacy-skip：这颗键自己不许被 9 化 / 校名模糊改字 —— 它是「关掉模式」的唯一
+     固定入口，必须在整屏都被打码时仍然认得出来。 */
+  registerRailAction({
+    id: "privacy-off",
+    label: "关闭隐私展示模式",
+    title: "关闭隐私展示模式：还原人脸、数字与校名",
+    mobileLabel: "展示模式",
+    className: "privacy-off-btn",
+    icon: () => faIcon("shield-halved"),
+    onMount: (btn) => {
+      btn.setAttribute("data-privacy-skip", "");
+      const sync = () => { btn.hidden = getUiPreferences().privacyMask !== true; };
+      sync();
+      // 与 initPrivacyMask 订阅同一个事件：设置页开关、托盘/快捷键、这颗键自己都走它
+      window.addEventListener("tide:ui-preferences-changed", sync);
+    },
+    onClick: () => {
+      setPrivacyMask(false);
+      toast("已关闭隐私展示模式");
+    },
   });
 
   // v0.69.0：缩放视图 —— 按下后窗口收成 FOCUS_WINDOW_SIZE 并居中，再按回到按之前的

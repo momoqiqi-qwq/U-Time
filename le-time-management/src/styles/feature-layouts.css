@@ -171,6 +171,11 @@
 }
 .rail-dock.drag-live { cursor: grabbing; user-select: none; -webkit-user-select: none; }
 .rail-dock.drag-live > .rail-dock-btn { cursor: grabbing; }
+/* v0.252.0：取消显示的按钮必须彻底退出布局（隐私展示模式的「关闭」键就靠 hidden 收放）。
+   ⚠️ 不能只靠 UA 的 `[hidden]{display:none}`：styles.css 的 `.rail-bottom > button`
+   给这些按钮写了 `display:flex`，**作者样式压得过 UA 样式**（与选择器权重无关），
+   不补这条，关掉模式后仍会留一颗 34px 的空槽把设置键挤到右边。 */
+.rail-dock > .rail-dock-btn[hidden] { display: none; }
 /* 被按住的那颗留在流里当「空槽」占位，半透明表示它已经浮起来了 */
 .rail-dock > .rail-dock-btn.dragging { opacity: .3; cursor: grabbing; }
 /* 幽灵卡：跟随指针的副本。它挂在 body 下 ⇒ 拿不到 `.rail-bottom > …` 那批后代规则，

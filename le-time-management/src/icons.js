@@ -1,8 +1,9 @@
 import { el } from "./ui.js";
 import { BUILTIN_PLUGINS } from "./pluginCatalog.js";
 
-// 随包彩色图标（v0.250.0 起统一为本项目自有的扁平双色母版，tools/icon-masters/ → gen-plugin-icons.py；
-// 来源台账见 public/icons/{plugins,nav}/ATTRIBUTION.md）。下面的 Icons8 slug 只用于随包 PNG 加载失败时的 CDN 回落：
+// 随包彩色图标：插件与插件内视图用 Icons8 Color 彩色素材（v0.250.0 曾统一为自有扁平双色母版，
+// 侧栏观感退回上一版后只保留主导航那套母版），主导航用自有扁平母版（tools/icon-masters/nav/）；
+// 来源台账见 public/icons/{plugins,nav}/ATTRIBUTION.md。下面的 Icons8 slug 只用于随包 PNG 加载失败时的 CDN 回落：
 //  · 内置插件：随包 PNG public/icons/plugins/<插件ID>.png（tools/gen-plugin-icons.py 生成）；
 //  · 主导航（四象限/时间块/收件箱/插件/设置/快速捕获）：随包 PNG public/icons/nav/<key>.png，
 //    与插件同一套 Color 风格 —— v0.42.0 前导航走 CDN 的 iOS Filled 直链，离线即裂且风格不统一；
@@ -52,6 +53,8 @@ const VIEW_ICONS8 = {
   "cppu-calendar": ["calendar", "calendar--v1"],
   "cppu-growth": ["sprout", "seedling", "plant-under-sun"],
   "cppu-profile": ["contact-card", "id-card", "business-contact"],
+  // 上网记录：Dr.COM 自助服务的流量账单，取「联网」语义（不是图表 —— line-chart 已是警大成绩）。
+  "cppu-net": ["network", "data-transfer", "network-wireless"],
 };
 
 // 视图 id → 轮廓图标用的 FontAwesome 名（与 registerView 的 icon 一致）。
@@ -70,6 +73,8 @@ const VIEW_FA_ICONS = {
   "cppu-growth": "seedling",
   // 个人信息 用 address-card（不是 id-card，那是本插件侧栏「学工」入口的图标）。
   "cppu-profile": "address-card",
+  // 上网记录 用 network-wired（chart-line 已是警大成绩、chart-column 已被周度报告占用）。
+  "cppu-net": "network-wired",
 };
 
 const ICONS8 = { ...NAV_ICONS8, ...PLUGIN_ICONS8, ...VIEW_ICONS8 };
@@ -110,7 +115,7 @@ export function appIcon(key, title = "") {
     loading: "eager",
     decoding: "async",
     draggable: "false",
-    "data-icon-source": bundledDir === "plugins" ? "bundled plugin PNG (flat masters)"
+    "data-icon-source": bundledDir === "plugins" ? "bundled plugin PNG (Icons8 Color)"
       : bundledDir === "nav" ? "bundled nav PNG (flat masters)"
       : "Icons8 Color",
     "data-icon-key": manifestIcon || candidates[0],

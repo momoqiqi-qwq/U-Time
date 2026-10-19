@@ -98,6 +98,9 @@ VIEW_ICONS = {
     "cppu-calendar": (["calendar", "calendar--v1"],                    "警大门户通知 · 警大校历"),
     "cppu-growth":   (["sprout", "seedling", "plant-under-sun"],       "警大门户通知 · 学生成长"),
     "cppu-profile":  (["contact-card", "id-card", "business-contact"], "警大门户通知 · 个人信息"),
+    # 上网记录（v0.253.0）：Dr.COM 自助服务的流量账单。取「联网」语义而不是图表语义 ——
+    # line-chart 已经是警大成绩，同侧栏里再放一张图表图标会读成同一类东西。
+    "cppu-net":      (["network", "data-transfer", "network-wireless"], "警大门户通知 · 上网记录"),
 }
 
 # 印章式文字图标：plugin-id -> (文字(至多 2 字，竖排堆叠), 说明)。

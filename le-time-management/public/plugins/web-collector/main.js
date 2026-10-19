@@ -9,6 +9,11 @@
   const DEFAULT_ITEMS = [
     { url: "http://daxue.qiyemulu.cn/", title: "大学名录", host: "daxue.qiyemulu.cn", iconUrl: "http://daxue.qiyemulu.cn/favicon.ico", iconName: "school", note: "默认：大学名录" },
     { url: "https://www.resource.edu.cn/", title: "国家教育资源公共服务平台", host: "resource.edu.cn", iconUrl: "https://www.resource.edu.cn/favicon.ico", iconName: "school", note: "默认：教育资源入口" },
+    /* 学校官网：站点没有 favicon.ico（实测 404），图标只能取首页那颗站标 sr-logo1.png */
+    { url: "https://www.cppu.edu.cn/index.htm", title: "中国人民警察大学", host: "cppu.edu.cn", iconUrl: "https://www.cppu.edu.cn/images/sr-logo1.png", iconName: "school", note: "默认：学校官网" },
+    /* 学校门户：根地址 301 到 sso.cppu.edu.cn 统一身份认证，登录后落到 /sopcb/ 智慧门户。
+       favicon 用 portal 自己的（SSO 那颗 favicon 是苏迪默认图，各校通用）。 */
+    { url: "https://portal.cppu.edu.cn/", title: "学校门户", host: "portal.cppu.edu.cn", iconUrl: "https://portal.cppu.edu.cn/favicon.ico", iconName: "school", note: "默认：学校门户" },
   ];
   // v1.1.0 起默认条目的备注前缀由「默认收集：」改为「默认：」。老用户的条目早已存进
   // storage，只改 DEFAULT_ITEMS 不会生效 —— 下面做一次性改写兜住老数据。

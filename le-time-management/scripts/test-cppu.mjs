@@ -688,8 +688,8 @@ assert.ok(source.includes('const JW_LOAD = JWAPP + "/je/load"'), '教务取数�
 
 /* 警大学分原入口成为警大成绩，避免教务菜单出现两张重复成绩页；校历 v0.216.0 从独立插件并入；
    学生个人成长中心（pdata）v0.217.0 并入；个人信息 v0.221.0 并入。 */
-assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-growth', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-xk'],
-  '必须注册通知、获奖名单、警大校历、学生成长、个人信息及五个教务/一卡通视图，登录设置属于应用设置');
+assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-growth', 'cppu-net', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-xk'],
+  '必须注册通知、获奖名单、警大校历、学生成长、个人信息、上网记录及五个教务/一卡通视图，登录设置属于应用设置');
 assert.ok(views.filter((v) => v.id !== 'cppu-notify').every((v) => typeof v.render === 'function'), '插件子视图必须有 render');
 assert.ok(views.some((v) => v.id === 'cppu-cx' && v.title === '警大创新学分'), '创新学分视图要有独立标题');
 assert.ok(views.some((v) => v.id === 'cppu-credit' && v.title === '警大成绩'), '原警大学分视图应以警大成绩注册');

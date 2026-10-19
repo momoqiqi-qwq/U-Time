@@ -429,6 +429,32 @@ assert.match(css, /\[data-private-word\] \{\s*\n\s*display: inline-block;\s*\n\s
   "校名那层也要用 filter（换字符会改宽度、断行与复制结果），且得给 filter 一个稳定渲染块");
 assert.match(html, /styles\/privacy-mask\.css/, "index.html 要静态引一份（开着模式启动时首屏就位）");
 
+/* ── ⑤ v0.252.0 · 左下角一键关闭键 ────────────────────────────────────────
+   需求原文：「开启隐私模式后，在左下角添加一个按钮，用于一键关闭该模式」。
+   三条必须钉死的事：
+     ① 它走 railActions 注册表（不是手写 DOM），否则拖拽重排会漏掉它；
+     ② 显隐读**偏好**而不是宿主属性 —— renderShell 早于 initPrivacyMask，
+        读 data-privacy-mask 会读到还没写上去的值（开机即开着模式 → 键不出现）；
+     ③ 它自己必须 data-privacy-skip：整屏都被 9 化 / 糊校名时，这个入口不能跟着糊掉。 */
+const layouts = read("../src/styles/feature-layouts.css");
+assert.match(shell, /registerRailAction\(\{\s*\n\s*id: "privacy-off"/,
+  "关闭键必须走注册表（id: privacy-off）");
+assert.match(shell, /btn\.hidden = getUiPreferences\(\)\.privacyMask !== true/,
+  "显隐必须由偏好驱动");
+assert.match(shell, /btn\.setAttribute\("data-privacy-skip", ""\)/,
+  "关闭键自己不许被打码（它是唯一固定入口）");
+assert.match(shell, /setPrivacyMask\(false\)/, "点击必须真的把模式关掉（写偏好而不是改 DOM）");
+assert.match(shell, /window\.addEventListener\("tide:ui-preferences-changed", sync\)/,
+  "设置页开关也要能把它收回去（同一个事件源）");
+assert.match(layouts, /\.rail-dock > \.rail-dock-btn\[hidden\] \{ display: none; \}/,
+  "hidden 必须显式 display:none（.rail-bottom > button 的 display:flex 压得过 UA 的 [hidden]）");
+// 它和深浅色键落在同一种磁贴上 ⇒ 图标色必须随主题反色（写死 #17323A 在深色下只有 1.07:1）
+const mainCss = read("../src/styles.css");
+assert.match(mainCss, /\.rail-bottom > \.privacy-off-btn \.ic \{ color: var\(--ink\); \}/,
+  "关闭键的图标色要走 --ink（与 .theme-toggle-btn 同一条对比度根因）");
+assert.match(mainCss, /\.rail-bottom > \.privacy-off-btn \.ic \.fa-ic,/,
+  "FA 图标要单独给 15px 尺寸（app-icon 那条管不到它）");
+
 console.log("PASS: 隐私展示模式 —— 数字 9 化（2021005 → 9999999）、人脸模糊、三维图全满、"
   + "校名模糊（警大 / 警察大学 / 中国人民警察大学 / CPPU 只糊命中段、长词优先、重扫不二次包裹）、"
   + "跳过规则（input / 代码块 / 可编辑区 / data-privacy-skip）与关闭还原全部通过；"

@@ -110,6 +110,10 @@
     // 直接打开 cardRecharge 这类受保护深链，平台还没建立自己的 H5 session 时会先报「未授权」；
     // 所以这里改成 U-Time 内部视图：先加载一卡通 H5 首页/登录壳，再由视图内按钮跳充值等子页。
     { view: "cppu-card", label: "一卡通", icon: "credit-card" },
+    // 上网记录（drcom.cppu.edu.cn 自助服务系统）：**另一套会话** —— JSESSIONID + 4 位图形验证码，
+    // 不走统一身份认证的票据，只是账号密码同一套。做成内部视图的理由是网页那页本身不好用：
+    // 一次最多 60 天、一屏只有 10 行、summary 趴在页脚，而这里能整区间按天聚合（见 netlog.js）。
+    { view: "cppu-net", label: "上网记录", icon: "network-wired" },
     // 获奖名单与「警大通知」同源（名单就长在通知正文里，共用同一份正文缓存），
     // 所以入口放在校园服务这一侧，跟着通知走，而不是挂到「教务」子菜单下。
     { view: "cppu-award", label: "获奖名单", icon: "trophy" },
@@ -5068,8 +5072,264 @@
     return () => { disposed = true; if (typeof teardown === "function") teardown(); };
   }
 
+  /* ── 上网记录（drcom.cppu.edu.cn 自助服务系统）─────────────────────────────
+     与上面三站都不同：drcom 是 Dr.COM 的 Spring MVC 站，**完全没有统一身份认证票据链路**，
+     会话就是一枚 JSESSIONID，登录 = 账号 + 密码 + 4 位图形验证码（表单里要同时带
+     `code` 与 `random` 两个字段，只带一个必失败）。账号密码与门户同一套，所以凭据源仍复用
+     ensureLoginPrefs / readSavedPassword，**不新增任何存储**。
+
+     取数口径（实测 /bill/getUserOnlineLog，别照抄网页的 limit/offset —— 那套会被忽略）：
+       pageSize / pageNumber 驼峰分页，sortName=loginTime&sortOrder=DESC，
+       startTime / endTime 为 YYYY-MM-DD，**服务端最多接受 60 天跨度**（网页 daterangepicker
+       的 dateLimit），超出要分段拉再合并。
+     登录成功判定不用读 302 的 Location（无错误文案、失败/成功都 302），而是拿一次接口看
+     返回是不是 JSON —— 落到登录页时拿到的是 HTML。
+
+     边界：Cookie、密码、验证码识别全在本文件内，netlog.js 只拿 drcomBridge.logs()。 */
+  const DRCOM = "https://drcom.cppu.edu.cn";
+  const DRCOM_COOKIE_KEY = "drcomCookies";    // 密钥库里的一份会话快照，重启后免验证码
+  const DRCOM_TRIES = 6;                      // 一次登录最多换几张验证码
+  const DRCOM_TTL = 30 * 60 * 1000;           // 手上的会话在本进程内复用多久
+  const DRCOM_SPAN = 60;                      // 单次查询的日期上限（服务端约束）
+  const DRCOM_PAGE = 100;                     // 分页尺寸（网页给的是 10/20/50/100）
+  const DRCOM_CAP = 1200;                     // 单区间行数保护，避免极端账号把界面拖死
+  let drcomSession = { sid: "", at: 0, user: "" };
+  let drcomPending = null;
+
+  function drcomYmd(offsetDays) {
+    const base = (tide.util?.today?.() || "");
+    if (!base) return "";
+    try { return tide.util.addDays(base, offsetDays); } catch { return base; }
+  }
+
+  /** 取一次账单接口：返回解析后的 JSON，落回登录页（HTML）时返回 null。 */
+  async function drcomProbe(sid, start, end) {
+    const s = start || drcomYmd(-1);
+    const e = end || drcomYmd(0);
+    const qs = `pageSize=1&pageNumber=1&sortName=loginTime&sortOrder=DESC&startTime=${encodeURIComponent(s)}&endTime=${encodeURIComponent(e)}`;
+    const res = await tide.http.fetch(sid, "GET", `${DRCOM}/bill/getUserOnlineLog?${qs}`, {
+      headers: { Accept: "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest" },
+    });
+    const text = String(res?.body || "").trim();
+    if (!text.startsWith("{")) return null;
+    try { return JSON.parse(text); } catch { return null; }
+  }
+
+  async function drcomRestoreSid() {
+    try {
+      const raw = await tide.vault?.get?.(DRCOM_COOKIE_KEY);
+      const cookies = raw ? JSON.parse(raw) : null;
+      if (!Array.isArray(cookies) || !cookies.length) return "";
+      return (await tide.http.restoreCookies(cookies)) || "";
+    } catch { return ""; }
+  }
+
+  async function drcomSaveCookies(sid) {
+    try {
+      const cookies = await tide.http.exportCookies(sid, [DRCOM]);
+      if (Array.isArray(cookies) && cookies.length) await tide.vault?.set?.(DRCOM_COOKIE_KEY, JSON.stringify(cookies));
+    } catch { /* 存不下就算了：下次重登一次（多花一张验证码） */ }
+  }
+
+  function drcomForget() {
+    drcomSession = { sid: "", at: 0, user: "" };
+    Promise.resolve(tide.vault?.del?.(DRCOM_COOKIE_KEY)).catch(() => {});
+  }
+
+  /** 拿下一条可用会话：先试密钥库里那份，再走密码 + 验证码。失败抛错（needLogin 标记凭据缺失）。 */
+  async function drcomLogin() {
+    if (drcomSession.sid && Date.now() - drcomSession.at < DRCOM_TTL) return drcomSession.sid;
+    if (drcomPending) return drcomPending;
+    drcomPending = (async () => {
+      await ensureLoginPrefs();
+      const user = String(state.username || "");
+      const password = String((await readSavedPassword().catch(() => "")) || "");
+      if (!user || !password) {
+        const err = new Error("没有保存账号或密码");
+        err.needLogin = true;
+        throw err;
+      }
+
+      // ① 续期：上次的 JSESSIONID 还有效就不用再认验证码。
+      const saved = await drcomRestoreSid();
+      if (saved) {
+        const probe = await drcomProbe(saved).catch(() => null);
+        if (probe) {
+          drcomSession = { sid: saved, at: Date.now(), user };
+          return saved;
+        }
+      }
+
+      // ② 密码登录。每次失败都**重取新图**：验证码与会话绑定，复用旧图等于白烧一次机会。
+      const sid = await tide.http.session();
+      let lastError = "";
+      for (let i = 0; i < DRCOM_TRIES; i++) {
+        const page = await tide.http.fetch(sid, "GET", `${DRCOM}/login/`);
+        const body0 = String(page?.body || "");
+        const checkcode = body0.match(/name=["']checkcode["']\s+value=["']([^"']*)["']/)?.[1] || "";
+        const img = await tide.http.fetch(sid, "GET", `${DRCOM}/login/randomCode?t=${Date.now()}`, { binary: true });
+        const dataUrl = img?.body ? `data:image/png;base64,${img.body}` : "";
+        const ocr = dataUrl ? await OCR.recognize(dataUrl).catch(() => null) : null;
+        const code = String(ocr?.code || "").replace(/\D/g, "");
+        if (code.length !== 4) { lastError = "验证码没认出来"; continue; }
+        const body = tide.util.web.formEncode({
+          account: user,
+          password,
+          code,
+          // 服务端两个验证码字段都要（code 与 random），少一个必 302 回登录页。
+          random: code,
+          checkcode,
+          submit: "",
+        });
+        await tide.http.fetch(sid, "POST", `${DRCOM}/login/verify`, {
+          headers: { "Content-Type": "application/x-www-form-urlencoded", Referer: `${DRCOM}/login/` },
+          body,
+        });
+        const probe = await drcomProbe(sid).catch(() => null);
+        if (probe) {
+          try { if (ocr?.samples?.length) await OCR.confirmSamples(ocr.samples); } catch { /* 回存样板失败不影响登录 */ }
+          drcomSession = { sid, at: Date.now(), user };
+          await drcomSaveCookies(sid);
+          return sid;
+        }
+        lastError = "账号、密码或验证码不对";
+      }
+      const err = new Error(lastError || "上网记录登录失败");
+      err.needLogin = true;
+      throw err;
+    })().finally(() => { drcomPending = null; });
+    return drcomPending;
+  }
+
+  /** ≤60 天分段：服务端超限不会报错，只会静默按自己的上限裁，所以必须自己切。 */
+  function drcomSpans(start, end) {
+    const spans = [];
+    let cursor = start;
+    let guard = 0;
+    while (cursor <= end && guard < 24) {
+      guard += 1;
+      let stop = cursor;
+      try { stop = tide.util.addDays(cursor, DRCOM_SPAN - 1); } catch { stop = end; }
+      if (stop > end) stop = end;
+      spans.push({ start: cursor, end: stop });
+      if (stop >= end) break;
+      try { cursor = tide.util.addDays(stop, 1); } catch { break; }
+    }
+    return spans.length ? spans : [{ start, end }];
+  }
+
+  async function drcomFetchSpan(sid, span) {
+    const rows = [];
+    let summary = null;
+    let total = 0;
+    for (let page = 1; page <= 20; page++) {
+      const qs = `pageSize=${DRCOM_PAGE}&pageNumber=${page}&sortName=loginTime&sortOrder=DESC`
+        + `&startTime=${encodeURIComponent(span.start)}&endTime=${encodeURIComponent(span.end)}`;
+      const res = await tide.http.fetch(sid, "GET", `${DRCOM}/bill/getUserOnlineLog?${qs}`, {
+        headers: { Accept: "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest" },
+      });
+      if (Number(res?.status) !== 200) throw new Error(`上网记录接口返回 ${res?.status || "?"} `);
+      const text = String(res?.body || "").trim();
+      if (!text.startsWith("{")) {
+        const err = new Error("上网记录会话已失效");
+        err.expired = true;
+        throw err;
+      }
+      let data = null;
+      try { data = JSON.parse(text); } catch { throw new Error("上网记录接口返回的不是 JSON"); }
+      if (!summary && data?.summary && typeof data.summary === "object") summary = data.summary;
+      total = Number(data?.total) || total;
+      const got = Array.isArray(data?.rows) ? data.rows : [];
+      rows.push(...got);
+      if (!got.length || rows.length >= total || rows.length >= DRCOM_CAP) break;
+    }
+    return { rows, summary, total };
+  }
+
+  /** 多段合并：按 loginTime + IP + NAS 端口去重，统一按上线时间倒序。 */
+  async function drcomAggregate(sid, spans) {
+    const rows = [];
+    let summary = null;
+    for (const span of spans) {
+      const one = await drcomFetchSpan(sid, span);
+      if (spans.length === 1) summary = one.summary || null;
+      rows.push(...one.rows);
+    }
+    const seen = new Set();
+    const unique = [];
+    for (const r of rows) {
+      if (!r || typeof r !== "object") continue;
+      const key = `${r.loginTime || ""}|${r.userIp || ""}|${r.nasPort || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(r);
+    }
+    unique.sort((a, b) => (Number(b.loginTime) || 0) - (Number(a.loginTime) || 0));
+    // 多段时各段 summary 不能相加口径不一（COU 是条数、TIME 是分钟），交给视图从 rows 自算。
+    return { rows: unique, summary, total: unique.length, span: { start: spans[0].start, end: spans[spans.length - 1].end } };
+  }
+
+  async function drcomLogs(params = {}) {
+    const today = tide.util?.today?.() || "";
+    const isDay = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ""));
+    let start = isDay(params.start) ? String(params.start) : today;
+    let end = isDay(params.end) ? String(params.end) : today;
+    if (start > end) { const t = start; start = end; end = t; }
+    if (!start || !end) return { ok: false, message: "日期区间不可用" };
+    try {
+      let sid = await drcomLogin();
+      const spans = drcomSpans(start, end);
+      let data;
+      try {
+        data = await drcomAggregate(sid, spans);
+      } catch (err) {
+        if (!err?.expired) throw err;
+        // 会话失效：丢 Cookie 重登一次（只一次，别把账号试到锁）。
+        drcomForget();
+        sid = await drcomLogin();
+        data = await drcomAggregate(sid, spans);
+      }
+      return { ok: true, data };
+    } catch (err) {
+      return { ok: false, message: err?.message || explainHttpError(err) || "上网记录取数失败", needLogin: Boolean(err?.needLogin) };
+    }
+  }
+
+  const netBridge = { logs: (params) => drcomLogs(params) };
+
+  /* 上网记录：视图主体在 netlog.js，与成长 / 个人信息同一套边界（只借 storage / ui）。
+     外壳（校园服务侧栏）由本文件画，记录页只画 [data-nl-host] 里那一块。
+     实例缓存住：netlog.js 持有选中光句柄与偏好状态，每次进入都新建会叠起来。 */
+  let netModule = null, netView = null;
+  function mountNetLogView(el) {
+    let disposed = false, teardown = null;
+    ensureStyle();
+    el.innerHTML = `<div class="${sideShellClass()}"><aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}`
+      + `<div class="pp-main"><div data-nl-host><div style="padding:30px;text-align:center;color:#A9B2BA;font-size:calc(12.5px * var(--ui-text-scale))">正在载入上网记录…</div></div></div></div>`;
+    bindSide(el);
+    loadLinkMeta(el);
+    (netModule || (netModule = import("/plugins/cppu-notify/netlog.js")))
+      .then((mod) => {
+        if (disposed) return;
+        const host = el.querySelector("[data-nl-host]");
+        if (!host) return;
+        netView = netView || mod.createNetLogView(tide, netBridge);
+        teardown = netView.render(host);
+      })
+      .catch(() => {
+        netModule = null;
+        const host = el.querySelector("[data-nl-host]");
+        if (host && !disposed) host.innerHTML = '<p class="pp-tip" style="padding:24px;text-align:center">上网记录模块加载失败，请重新打开本视图重试</p>';
+      });
+    return () => { disposed = true; if (typeof teardown === "function") teardown(); };
+  }
+
   tide.ui.registerView({ id: "cppu-notify", title: "警大通知", icon: 'building-columns', render });
   tide.ui.registerView({ id: "cppu-card", title: "警大一卡通", icon: "credit-card", render: mountCardView });
+  // 上网记录（drcom.cppu.edu.cn 自助服务系统）：另一套会话（JSESSIONID + 图形验证码），
+  // 账号密码与门户同一套。icon 用 network-wired —— 与 chart-line（警大成绩）区分开，
+  // 后者是图表语义，这里是「联网」语义，同一个侧栏里也不撞。
+  tide.ui.registerView({ id: "cppu-net", title: "上网记录", icon: "network-wired", render: mountNetLogView });
   // 获奖名单：通知正文里的获奖段落抽出来单独看（个人/团体排名 + 按时间的奖项项目）
   // icon 用 award 不用 trophy：trophy 已是「竞赛消息」插件的侧栏图标，同一个侧栏里不能撞。
   tide.ui.registerView({ id: "cppu-award", title: "警大获奖名单", icon: "award", render: mountAwardView });
