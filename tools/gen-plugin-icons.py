@@ -104,6 +104,14 @@ VIEW_ICONS = {
     # 邮箱（v0.255.0）：取「信封」语义。侧栏「警大邮箱」快捷入口用的也是信封，
     # 视图图标与入口图标同形，扫一眼就知道是同一个东西。
     "cppu-mail":     (["email", "mail", "envelope"],                    "警大门户通知 · 警大邮箱"),
+    # 自习室查询（v0.265.0）：取「教室 / 敞开的门」语义 —— 自习室看的是「这间屋现在能不能进」，
+    # 不用日历 / 图表那类（calendar 已是校历、line-chart 已是成绩，同侧栏里会读成同一类东西）。
+    # 图标口径与其它视图一致：Icons8 Color 随包 PNG，**不放母版**
+    # （有 tools/icon-masters/cppu-room.png 就会被 master_bytes 优先读取，侧栏静默退回扁平风格，
+    #  scripts/test-icon-masters.mjs 也守着这条）。
+    # 首选 classroom：本机 img.icons8.com 握手被重置，走镜像 img.icons8.ru 取到并缓存
+    # （door* 三个 slug 在该镜像上是 404）。book 类排后面只是语义兜底，正常不会用到。
+    "cppu-room":     (["classroom", "door-open", "door", "open-door", "books"], "警大门户通知 · 自习室查询"),
 }
 
 # 印章式文字图标：plugin-id -> (文字(至多 2 字，竖排堆叠), 说明)。
@@ -128,8 +136,15 @@ NAV_ICONS = {
 UA = {"User-Agent": "Mozilla/5.0 (compatible; Le-time-management-icon-sync/1.0)"}
 
 
-def cdn_url(style: str, slug: str) -> str:
-    return f"https://img.icons8.com/{style}/96/{slug}.png"
+# 下载主机按序尝试：主站 + 俄语镜像。本机实测 img.icons8.com 与 maxst.icons8.com
+# 的 TLS 握手直接被重置（SSL EOF / Connection reset，走 127.0.0.1:7897 代理也一样），
+# 而 img.icons8.ru 可直连 200 —— 两边是同一套 slug 与 style，只是域名不同。
+# 对外文档与 src/icons.js 的 CDN 回落仍写 img.icons8.com（用户端能连的是主站）。
+CDN_HOSTS = ("img.icons8.com", "img.icons8.ru")
+
+
+def cdn_url(style: str, slug: str, host: str = CDN_HOSTS[0]) -> str:
+    return f"https://{host}/{style}/96/{slug}.png"
 
 
 def fetch(style: str, slug: str, offline: bool) -> bytes:
@@ -140,17 +155,18 @@ def fetch(style: str, slug: str, offline: bool) -> bytes:
     if offline:
         raise SystemExit(f"缓存缺失且处于 --offline：{cache_file}")
     last = None
-    for _ in range(3):
-        try:
-            req = urllib.request.Request(cdn_url(style, slug), headers=UA)
-            with urllib.request.urlopen(req, timeout=25) as res:
-                body = res.read()
-            if len(body) < 600:
-                raise RuntimeError(f"返回内容异常（{len(body)} 字节）")
-            cache_file.write_bytes(body)
-            return body
-        except Exception as exc:  # noqa: BLE001
-            last = exc
+    for host in CDN_HOSTS:
+        for _ in range(2):
+            try:
+                req = urllib.request.Request(cdn_url(style, slug, host), headers=UA)
+                with urllib.request.urlopen(req, timeout=25) as res:
+                    body = res.read()
+                if len(body) < 600:
+                    raise RuntimeError(f"返回内容异常（{len(body)} 字节）")
+                cache_file.write_bytes(body)
+                return body
+            except Exception as exc:  # noqa: BLE001
+                last = exc
     raise SystemExit(f"下载失败 {style}/{slug}：{last}")
 
 

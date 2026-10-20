@@ -101,16 +101,38 @@ assert.ok((stroke.match(/L/g) || []).length >= 1, '折线至少两个点');
 assert.ok(html.includes('url(#nlog-grad-line)'), '折线下方要有渐变面积');
 assert.ok(html.includes('class="nlog-peak"'), '折线要标出峰值那天');
 
+/* 走势图必须「有数据」：纵轴刻度 + 每天一个数据点 + 每日时长数值行。
+   夹具里三行落在连续三天：昨天 22:30→次日 01:00（150 分，跨天拆成 90+60）、
+   今天 20:00→22:10（130 分）、前天 21:00→21:40（40 分）。 */
+assert.ok(html.includes('nlog-yaxis'), '折线要有纵轴刻度');
+assert.ok(html.includes('nlog-xvals'), '默认 14 天窗口也要有一行实际时长');
+const dots = (html.match(/ style="left:/g) || []).length;
+assert.equal(dots, 3, `有记录的 3 天各要一个数据点，实际 ${dots} 个`);
+/* 与 netlog.js 里 fmtHours 同一口径：分钟 → "3.17h" */
+const fmtHours = (v) => {
+  const h = v / 60;
+  if (h <= 0) return '0h';
+  if (h >= 100) return `${Math.round(h)}h`;
+  return `${h.toFixed(2).replace(/\.?0+$/, '')}h`;
+};
+assert.ok(html.includes(fmtHours(190)), '今天的时长要写成数值（190 分 → 3.17h）');
+assert.ok(html.includes('—'), '没有记录的日子在数值行里标「—」，不能画成 0 小时');
+/* 跨天会话按自然日拆开：昨天拿到 90 分、今天拿到 60 分，两天都是真实数据 */
+assert.ok(html.includes(fmtHours(90)), '跨天会话要拆到两天上（昨天拿到 90 分）');
+assert.ok(/最高 3\.17h/.test(html), '最高要按拆开后的单日值算（不能把跨天整段堆在上线那天）');
+
 /* 流量柱：上下行两段都要出现 */
 assert.ok(html.includes('class="nlog-bar-down"') && html.includes('class="nlog-bar-up"'), '流量图必须是上下行堆叠柱');
 assert.ok(html.includes('nlog-split-row'), '国际 / 国内占比条必须渲染');
 assert.equal((html.match(/nlog-split-row/g) || []).length, 2, '占比条固定两行：国际 + 国内');
 
-/* 熬夜：阈值按当月，累计时长按并集口径 */
+/* 熬夜：阈值按当月，累计时长按并集口径。窗口统一收在次日 06:00（冬 8 小时 / 春 7 小时 40 分），
+   不按「阈值 + 8 小时」—— 那样春季会拖到 06:20。 */
+const NIGHT_END = 30 * 60; // 该夜 00:00 起算 → 次日 06:00
 const cYesterday = cutoffOf(at(-1, 22, 30));
 const cToday = cutoffOf(at(0, 20, 0));
 const tonight1 = 24 * 60 + 60 - Math.max(22 * 60 + 30, cYesterday); // 昨天 22:30 → 次日 01:00
-const tonight2 = Math.max(0, Math.min(22 * 60 + 10, cToday + 8 * 60) - Math.max(20 * 60, cToday));
+const tonight2 = Math.max(0, Math.min(22 * 60 + 10, NIGHT_END) - Math.max(20 * 60, cToday));
 const expectTotal = Math.round(tonight1 + tonight2);
 assert.ok(html.includes('nlog-night'), '熬夜卡必须渲染');
 assert.ok(html.includes('累计 ·'), '熬夜卡要有累计时长');
@@ -156,15 +178,22 @@ assert.ok(html.includes('data-nlog-fold') && html.includes('全部收起'), '明
 assert.equal((html.match(/data-nlog-daytoggle/g) || []).length, 3, '三个有记录的日子各有一个折叠头');
 assert.ok((html.match(/nlog-daygroup open/g) || []).length >= 1, '默认展开的日子要带 open 类');
 
-/* ── ② 熬夜上限：连挂三天只算一夜 8 小时 ─────────────────────────────── */
+/* ── ② 熬夜上限：连挂三天只算一夜，且封顶在「次日 06:00」 ─────────────── */
 const longHost = hostOf();
 const longView = createNetLogView(tideOf(), {
   logs: async () => ({ ok: true, data: { rows: [row(at(-1, 22, 0), at(-1, 22, 0) + 72 * 3600 * 1000, 4320)], summary: null } }),
 });
 longView.render(longHost);
 await sleep(30);
-assert.ok(longHost.innerHTML.includes('8 小时'), '挂机三夜也必须封顶在阈值后 8 小时');
+/* 一夜的窗口是「阈值 → 次日 06:00」：冬季 22:00 起 = 8 小时，春季 22:20 起 = 7 小时 40 分。
+   挂机 72 小时也只取这一夜（再往后 06:00 之后不算）。 */
+const capped = 1440 + 360 - cutoffOf(at(-1, 22, 0));
+assert.ok(
+  longHost.innerHTML.includes(fmtDur(capped)),
+  `挂机三夜也必须封顶在次日 06:00（应出现 ${fmtDur(capped)}）`,
+);
 assert.ok(longHost.innerHTML.includes('累计 · 1 夜'), '同一条跨天记录只算一夜');
+assert.ok(longHost.innerHTML.includes('超出窗口'), '下线时刻越过 06:00 时要标「超出窗口」，别让人以为熬夜算到了下午');
 
 /* ── ③ 空数据：不画图、不报错 ─────────────────────────────────────────── */
 const emptyHost = hostOf();

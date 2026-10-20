@@ -249,6 +249,57 @@ assert.equal(lisi.fromTeams, 0);
 assert.equal(names.filter((n) => n.rank === 2).length, 5, "同数量并列，名次不跳号");
 assert.ok(!names.some((n) => n.name === "孙老师"), "指导教师不进人名榜");
 assert.deepEqual(rankNames([]), []);
+
+/* ── 4c. 同一奖项发了两条通知（名单一遍、附件成绩单再一遍）不许重复计数 ──
+   真实截图（用户报的 bug）：王晨昕的「《出入境证件信息录入》科目 二等奖」在展开里出现两次，
+   两条 rid 不同、项目/级别/日期一模一样 —— 门户把同一批成绩既写了正文通知、又发了附件通知。 */
+const DUP_TITLE = "第九届“精武杯”技能比武《一击命中》科目获奖名单";
+const DUP_TEXT = ["获奖名单如下：", "一等奖", "周子衿", "二等奖", "张三", "三等奖", "李四"].join("\n");
+const dupA = parseAwardNotice({ rid: "2001", title: DUP_TITLE, date: new Date("2026-10-16T10:00:00").getTime(), text: DUP_TEXT });
+const dupB = parseAwardNotice({ rid: "2002", title: DUP_TITLE, date: new Date("2026-10-16T10:35:00").getTime(), text: DUP_TEXT });
+const dupBoard = buildAwardBoard([dupA, dupB]);
+assert.equal(dupBoard.items.length, 1, "同项目 + 同级别 + 名单有交集 ⇒ 同一次评奖，合并成一条");
+assert.equal(dupBoard.stats.merged, 1, "合并掉的副本数要报出来");
+assert.deepEqual(dupBoard.items[0].mergedRids, ["2001", "2002"]);
+assert.equal(dupBoard.items[0].rid, "2002", "主来源取更新的那条通知：点回去要能在里面找到人");
+const dupZhang = dupBoard.names.find((r) => r.name === "张三");
+assert.equal(dupZhang.count, 1, "同一次评奖只记 1 项");
+assert.equal(dupZhang.hits.length, 1, "展开里不许出现两条一模一样的记录");
+
+// 级别不同 = 两次获奖，同一项目也不能合并
+const lvlBoard = buildAwardBoard([
+  parseAwardNotice({ rid: "2101", title: DUP_TITLE, date: 1, text: "获奖名单如下：\n一等奖：张三" }),
+  parseAwardNotice({ rid: "2102", title: DUP_TITLE, date: 2, text: "获奖名单如下：\n二等奖：张三" }),
+]);
+assert.equal(lvlBoard.items.length, 2, "级别不同是两次获奖");
+assert.equal(lvlBoard.names.find((r) => r.name === "张三").count, 2);
+
+// 项目相同、级别相同，但名单没有交集 = 两条不同赛事，绝不错并
+const apartBoard = buildAwardBoard([
+  parseAwardNotice({ rid: "2201", title: DUP_TITLE, date: 1, text: "获奖名单如下：\n一等奖：张三" }),
+  parseAwardNotice({ rid: "2202", title: DUP_TITLE, date: 2, text: "获奖名单如下：\n一等奖：李四" }),
+]);
+assert.equal(apartBoard.items.length, 2, "名单无交集就不合并");
+
+// 一条通知里同时有一二三等奖：每条记录带自己的级别，不能都显示成整条通知的汇总级别
+const multiBoard = buildAwardBoard([parseAwardNotice({
+  rid: "2301", title: "第九届“精武杯”技能比武《特勤综合体能》科目获奖名单", date: 1,
+  text: ["获奖名单如下：", "一等奖", "石昊璇", "二等奖", "赵子焱", "三等奖", "王晨昕"].join("\n"),
+})]);
+const multiRow = rankNames(multiBoard.items).find((r) => r.name === "王晨昕");
+assert.equal(multiRow.hits[0].level, "三等奖", "级别取这条记录自己的，不是整条通知的汇总级别");
+
+// 同一条通知里同名同级别重复出现（正文与附件粗扫各扫到一个）：只算一项
+const foldBoard = buildAwardBoard([{
+  rid: "2401", title: "t", project: "某科目", date: 1, level: "二等奖",
+  groups: [
+    { kind: "person", name: "张三", level: "二等奖", members: [], note: "一队" },
+    { kind: "person", name: "张三", level: "二等奖", members: [], note: "二队" },
+  ],
+}]);
+assert.equal(foldBoard.items[0].groups.length, 1, "同名同级别先折成一项");
+assert.equal(foldBoard.names[0].count, 1);
+
 assert.equal(rankTone(1), "good");
 assert.equal(rankTone(10), "good");
 assert.equal(rankTone(11), "warn");
@@ -365,6 +416,95 @@ assert.match(bodyHtml(), /张三/);
 assert.match(bodyHtml(), /其中 1 次来自团体获奖成员/, "只从团体名单里出现的人要标出来源");
 assert.match(bodyHtml(), /aw-no good/, "第 1 名用绿色");
 
+/* ── 5b1. 搜索：工具行右侧一个放大镜图标，点开才铺成输入框；三档共用同一个词 ──
+    用户的问法就是「可以搜索人名，还是一个搜索图标即可」——落地形态：图标常驻 + 点开变输入框，
+    收起时关键词保留（只看全榜，不是清空）。 */
+const searchBox = () => root.querySelector("[data-aw-search]");
+const searchInput = () => root.querySelector("[data-aw-q]");
+const searchToggle = () => root.querySelector("[data-aw-search-toggle]");
+const searchClear = () => root.querySelector("[data-aw-search-clear]");
+assert.ok(searchBox(), "搜索入口常驻工具行（和排序 / 类别同一行）");
+assert.equal(searchBox().dataset.open, "false", "默认只是一个图标，不占输入框宽度");
+assert.equal(searchToggle().getAttribute("aria-expanded"), "false", "收起态要能被读屏读出");
+assert.equal(String(searchInput().value ?? ""), "", "默认没有关键词");
+searchToggle().onclick();
+assert.equal(searchBox().dataset.open, "true", "点图标才铺开（宽度过渡交给 CSS）");
+assert.equal(searchToggle().getAttribute("aria-expanded"), "true");
+assert.equal(searchClear().hidden, true, "没关键词时不显示清除按钮");
+
+// 人名档：搜一个名字 → 只剩这个人，总数摊开「匹配 x / 全部 y」
+searchInput().value = "赵六";
+searchInput().oninput();
+assert.match(bodyHtml(), /赵六/, "搜到的人要在");
+assert.doesNotMatch(bodyHtml(), /王五|陈晓/, "没匹配的人要被滤掉");
+assert.match(root.querySelector("[data-aw-total]").textContent, /匹配 1 \/ 6/,
+  "总数报「匹配 x / 全部 y」，不许假装名单只剩 1 人");
+assert.equal(searchClear().hidden, false, "有关键词才露出清除按钮");
+
+// 清除：一键回到全部
+searchClear().onclick();
+assert.equal(String(searchInput().value ?? ""), "");
+assert.match(bodyHtml(), /王五/, "清除后全部人回来");
+assert.match(root.querySelector("[data-aw-total]").textContent, /6 位/);
+
+// 空白与全角空格不该把匹配弄丢（中文输入最容易踩）
+searchInput().value = "  张　三 ";
+searchInput().oninput();
+assert.match(bodyHtml(), /张三/, "前后空格 / 全角空格不该让人漏搜");
+searchClear().onclick();
+
+/* 拼音：用拼音输入法的人不会为搜一个人去切中文 —— 首字母（zs）与跳字简写（sjm）都要认 */
+searchInput().value = "zs";
+searchInput().oninput();
+assert.match(bodyHtml(), /张三/, "拼音首字母要能命中（zs → 张三）");
+searchInput().value = "s";
+searchInput().oninput();
+assert.match(bodyHtml(), /张三/, "单字母按首字母包含也要命中");
+searchInput().value = "sxjm";
+searchInput().oninput();
+assert.match(bodyHtml(), /张三|李四/, "奖项项目名的全首字母要命中（sxjm → 数学建模）");
+searchInput().value = "sjm";
+searchInput().oninput();
+assert.match(bodyHtml(), /张三|李四/, "跳字简写要命中（sjm ⊂ sxjm）");
+searchInput().value = "qqqzz";
+searchInput().oninput();
+assert.match(bodyHtml(), /没有匹配/, "首字母也对不上时仍然给空结果，不能因为支持拼音就放行所有人");
+searchClear().onclick();
+
+// 反过来按奖项项目名查：拿着比赛名问「谁得过」
+searchInput().value = "数学建模";
+searchInput().oninput();
+assert.match(bodyHtml(), /张三|李四/, "按奖项项目名要能查到人");
+assert.match(root.querySelector("[data-aw-total]").textContent, /匹配/);
+
+// 搜不到时说人话，而不是一片空白
+searchInput().value = "查无此人";
+searchInput().oninput();
+assert.match(bodyHtml(), /没有匹配「查无此人」/, "无匹配要有明确说明");
+assert.doesNotMatch(bodyHtml(), /class="aw-item"/, "无匹配时不残留旧条目");
+
+// 换档：关键词跟着走，不用重输
+root.querySelectorAll("[data-aw-mode]").find((b) => b.dataset.awMode === "items").onclick();
+assert.match(root.querySelector("[data-aw-total]").textContent, /匹配 0 \//, "换到奖项项目档仍带着这个词");
+
+// Esc：第一次清词、第二次才收起（别一按就把框关了还删了词）
+searchInput().onkeydown({ key: "Escape" });
+assert.equal(String(searchInput().value ?? ""), "", "第一次 Esc 清掉关键词");
+assert.equal(searchBox().dataset.open, "true", "框还开着，方便接着改词");
+assert.match(root.querySelector("[data-aw-total]").textContent, /个奖项项目/, "清词后全部项目回来");
+searchInput().onkeydown({ key: "Escape" });
+assert.equal(searchBox().dataset.open, "false", "第二次 Esc 才收成图标");
+// 收起不等于清空：再点开时关键词还在（只看全榜不该丢词）
+searchToggle().onclick();
+searchInput().value = "张三";
+searchInput().oninput();
+searchToggle().onclick();
+assert.equal(searchBox().dataset.open, "false", "再点一次图标收起");
+assert.match(root.querySelector("[data-aw-total]").textContent, /匹配/, "收起时过滤仍然生效（只是框变窄）");
+searchClear().onclick();
+root.querySelectorAll("[data-aw-mode]").find((b) => b.dataset.awMode === "names").onclick();
+
+
 /* ── 5b2. 团体获奖只用成员姓名署名：队名在整页任何位置都不出现 ──
    口径：获奖的是人不是队。团体列了成员 → 按成员姓名署名；只写队名、没列成员 → 没有姓名可署名，
    该条目不进人员清单、不进排名，只在条目里报一个「未列成员」的个数。 */
@@ -408,6 +548,19 @@ assert.doesNotMatch(teamBody(), /星火代表队/, "团体排名档不出现队�
 assert.doesNotMatch(teamBody(), /无成员代表队/, "没列成员的队整条不进榜");
 assert.doesNotMatch(teamBody(), /原队名/, "队名不再进悬停气泡");
 assert.match(teamRoot.querySelector(".aw-note").textContent, /团体获奖一律按获奖人姓名署名，队名不出现在本页任何位置/);
+
+// 搜索口径：队名不参与匹配（与「队名不出现在本页任何位置」同一条边界），成员姓名照常命中
+const teamSearch = teamRoot.querySelector("[data-aw-q]");
+assert.ok(teamSearch, "这份面板也有同一个搜索框");
+teamRoot.querySelectorAll("[data-aw-mode]").find((b) => b.dataset.awMode === "items").onclick();
+teamSearch.value = "星火";
+teamSearch.oninput();
+assert.match(teamBody(), /没有匹配「星火」/, "队名不参与搜索：搜队名搜不到，不是漏搜");
+teamSearch.value = "赵六";
+teamSearch.oninput();
+assert.match(teamBody(), /赵六/, "按成员姓名能搜到团体获奖那条");
+teamSearch.value = "";
+teamSearch.oninput();
 const namesRow = rankNames(teamBoard.items).find((r) => r.name === "赵六");
 assert.ok(namesRow, "团体成员进人名榜，来源仍记着是团体");
 assert.equal(joinPeople(teamMemberNames([{ kind: "team", members: ["赵六", "钱七"] }])), "赵六、钱七");
@@ -491,10 +644,19 @@ assert.match(source, /mod\.parseAwardNotice\(\{ rid, title: titleOf\(it\), text,
 assert.match(source, /const AWARD_YEARS = \d+;/);
 assert.match(source, /const AWARD_PAGES_MAX = \d+;/);
 assert.match(source, /awState\.pages = Math\.min\(AWARD_PAGES_MAX, awState\.pages \+ AWARD_PAGES_STEP\)/);
+// 候选正文与附件名单都要「一轮读到底」：过去每轮只读一批（60 条正文 / 12 个附件）就把
+// 「还有 89 条候选没读」这类尾巴挂在状态行上，用户没法确认自己没漏人 —— 而这页唯一不能出的错就是漏人。
+assert.match(source, /const AWARD_CAND_BUDGET = \d+;/);
+assert.match(source, /const AWARD_AFFIX_BUDGET = \d+;/);
+assert.match(source, /const unreadAll = \(\) => cands\.filter\(/);
+assert.match(source, /const tried = new Set\(\);/);
+assert.match(source, /readTotal >= AWARD_CAND_BUDGET\) break;/);
+assert.match(source, /if \(readTotal >= AWARD_AFFIX_BUDGET\) break;/);
+assert.match(source, /if \(!batch\.length\) break;/, "没有未读候选就退出续批循环（不许空转）");
 assert.match(source, /awCoverage\(\)/);
 assert.match(source, /data-aw-deeper/);
 assert.match(source, /await awSync\(el, true\)/);
-assert.match(source, /const unread = cands\.filter\(\(it\) => !state\.details\[itemKey\(it\)\]\?\.content\)/);
+assert.match(source, /const unreadAll = \(\) => cands\.filter\(\(it\) => !state\.details\[itemKey\(it\)\]\?\.content\)/);
 assert.match(source, /AWARD_CACHE_KEY/);
 assert.match(source, /data-aw-banner-refresh/);                             // 失败横幅可点重试
 assert.match(source, /pageNum: page, pageSize: PAGE_SIZE/);                 // 与通知列表同一接口

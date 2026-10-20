@@ -24,6 +24,15 @@
   // 它认的是 mail 域的 sid Cookie —— 插件 native 会话登一次后把 Cookie 注入内置窗口即可免登。
   const MAIL_WEB = "https://mail.cppu.edu.cn/static/sirius-web/?version=1791461395966#mailbox";
   const MAIL_ACCOUNT = "2025290058@cppu.edu.cn";
+  // 邮箱登录不在邮件站上：mail.cppu.edu.cn 是网易企业邮的定制登录页，真正的校验走学校
+  // 中间件（网页里也是这条路：RSA 加密密码 → POST /cppu/api/login → 拿 entryhz 的
+  // location → 再跳回 mail.cppu.edu.cn/js6/main.jsp?sid=…）。mbox 接口只认 URL 里的 sid，
+  // 光有 Cookie 会回 FA_INVALID_SESSION。
+  const MAIL_MIDDLE = "https://mailuser.cppu.edu.cn";
+  const MAIL_LOGIN_API = MAIL_MIDDLE + "/cppu/api/login";
+  const MAIL_PUBKEY_API = MAIL_MIDDLE + "/sync/mail/pubkey";
+  const MAIL_DOMAIN = "cppu.edu.cn";
+  const MAIL_API = "https://mail.cppu.edu.cn/js6/s";
   const CARD_ORIGIN = "https://yktcard.cppu.edu.cn";
   const CARD_HOME = CARD_ORIGIN + "/campus-card/?appId=2&loginFrom=h5&type=app";
   const CARD_RECHARGE = CARD_ORIGIN + "/campus-card/cardRecharge?name=cardRecharge&appId=2&loginFrom=h5&type=app";
@@ -56,7 +65,11 @@
   const AWARD_PAGES_STEP = 10;    // 「再往前翻」每次加 10 页（500 条）
   const AWARD_PAGES_MAX = 60;     // 上限 60 页（3000 条）：再往前对门户不礼貌，收益也低
   const AWARD_YEARS = 3;          // 默认回溯到「今年往前数 3 个自然年」（2025 年 ⇒ 翻到 2023 年为止）
-  const AWARD_NOTICE_MAX = 60;    // 单轮最多读多少条候选正文（每条一次详情请求）；未读的留到下一轮
+  const AWARD_NOTICE_MAX = 60;    // 每批最多读多少条候选正文（每条一次详情请求）
+  // 一次「刷新」最多读多少条候选正文（跨批累计）。低于它的候选会分几批在同一轮里读完，
+  // 所以正常年份范围（几页通知、几十~两百条候选）一次点击就能「读到底」，不留「还有 N 条没读」的尾巴；
+  // 超过它的（那种翻到 60 页的极端情况）再点一次刷新接着读，剩下的会照实计数写进状态行。
+  const AWARD_CAND_BUDGET = 300;
   const AWARD_CACHE_MAX = 200;    // 奖项记录落盘上限（正文留缓存里，这里只存解析结果）
   // 获奖名单附件：名单常挂在 .docx / .xlsx / .pdf 上而不是写在正文里。三条口径：
   //  ① 只有「附件名像名单」或「正文说了名单在附件」的附件才下载（award-attach.js 判定）；
@@ -64,7 +77,10 @@
   //  ③ 扫过的附件只留一个标记（awardAffixScanned），不留文本 —— 名单抽出来后附件内容即弃，
   //     屏幕上的名单永远只是「谁得了什么奖」，附件本身不再回看（回看走「来源通知」）。
   const AWARD_AFFIX_KEY = "awardAffixScanned";
-  const AWARD_AFFIX_MAX = 12;     // 单轮最多下载解析多少个附件
+  const AWARD_AFFIX_MAX = 12;     // 每批最多下载解析多少个附件
+  // 一次「刷新」最多读多少个附件（跨批累计）。附件比正文重得多（每个几百 KB），所以上限压得低；
+  // 但同样是「一轮读到底」，不再把「还有 N 份下一轮读」这种尾巴留在状态行上。
+  const AWARD_AFFIX_BUDGET = 36;
   const AWARD_AFFIX_MARK_MAX = 400; // 「扫过」标记的落盘上限（按时间淘汰最旧的）
   const AWARD_AFFIX_CHARS = 60000;  // 单个附件抽取文本的上限，防止一个巨型表格把解析拖住
   // 取数并发：上面这两批请求（候选正文、附件）过去是一条一条串着等的，60 条正文就能把
@@ -90,6 +106,7 @@
       { view: "cppu-credit", label: "警大成绩", icon: "chart-line" },
       { view: "cppu-cx", label: "创新学分", icon: "medal" },
       { view: "cppu-calendar", label: "警大校历", icon: "calendar-days" },
+      { view: "cppu-room", label: "自习室", icon: "door-open" },
     ] },
     { url: "https://xg.cppu.edu.cn/XGPhone/Phone/index.html", label: "学工", icon: "id-card" },
     // 「我的请假」与「学工」同源，只是该 SPA 的 hash 路由（实测路由表里有 /StuDailyLeaveList）。
@@ -469,25 +486,45 @@
       .pp-side-inner{width:190px;transform-origin:left top;transition:transform .34s cubic-bezier(.22,.8,.22,1),opacity .26s ease}
       .pp-shell.side-collapsed .pp-side{width:0;margin-right:0;padding-left:0;padding-right:0;border-left-width:0;border-right-width:0;opacity:0}
       .pp-shell.side-collapsed .pp-side-inner{transform:scale(.88) translate(-10px,-10px);opacity:0}
-      /* 收起后留在原地的把手。它是 .pp-shell 的正经 flex 子项（不是浮层），所以永远压不住正文；
-         展开时 max-width 收到 0，与侧栏的 width 过渡同时进行 → 没有跳变。
-         sticky 保证列表滚很长时也够得着。 */
-      .pp-side-toggle{flex:none;display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:calc(12px * var(--ui-text-scale));font-weight:600;color:var(--deep);background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:8px 12px;cursor:pointer;box-shadow:0 1px 6px rgba(34,48,58,.06);position:sticky;top:8px;align-self:flex-start;z-index:4;white-space:nowrap;overflow:hidden;max-width:160px;max-height:52px;margin-right:12px;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:max-width .34s cubic-bezier(.22,.8,.22,1),max-height .34s cubic-bezier(.22,.8,.22,1),padding .34s cubic-bezier(.22,.8,.22,1),margin-right .34s cubic-bezier(.22,.8,.22,1),border-width .3s ease,opacity .24s ease,background .16s ease}
+      /* 收起后留在原地的把手，展开后就是侧栏头部那个「◂ 校园服务」——【同一个元素】。
+         v1.69.0：由竖变横、由横变竖必须是真动画。writing-mode 不参与过渡（属性一换整段跳变，
+         旧实现就是这么「竖条直接消失、横按钮直接出现」的），所以四个字各自一个 span 绝对定位：
+         收起时用 translate 依次落成竖列，展开时滑成横行；容器同时从 2.3em×8.5em 长成 190×34。
+         它仍是 .pp-shell 的正经 flex 子项（不是浮层）：收起时天然落在左上角把正文让开；
+         展开时 margin-right:-190px 抵消自身占位（正文不会多让一格），translate(-218px,12px)
+         落到头部那一格 —— -218 = 侧栏左 20 + 边框 1 + 内边距 11 − 它在流里的位置 250；
+         12 = 卡片边框 1 + 内边距 11。sticky 用 top:0 而不是 16：滚动容器的上沿就压在卡片顶上，
+         写 16 会让 sticky 把把手整体再下推 16px，展开态落不到头部那一格（实测 95 vs 79）。 */
+      /* ⚠️ 选择器必须写到 (0,3,0)：主程序 interactions.css 有一条
+         button:not([data-motion="off"], …)（0,2,1）统管所有按钮的 position / transition，
+         光写 .pp-side-toggle（0,1,0）会被它压住 —— 实测 width/height 过渡直接消失（变形变成跳变），
+         position:sticky 也被改成 relative、top 降级成相对位移。 */
+      .pp-shell .pp-side-toggle{flex:none;box-sizing:border-box;position:sticky;top:0;align-self:flex-start;z-index:4;display:block;padding:0;font-family:inherit;font-size:calc(12px * var(--ui-text-scale));font-weight:600;color:var(--deep);background:var(--panel);border:1px solid var(--line);border-radius:11px;cursor:pointer;box-shadow:0 1px 6px rgba(34,48,58,.06);overflow:hidden;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:width .34s cubic-bezier(.22,.8,.22,1),height .34s cubic-bezier(.22,.8,.22,1),transform .34s cubic-bezier(.22,.8,.22,1),margin-right .34s cubic-bezier(.22,.8,.22,1),border-radius .34s cubic-bezier(.22,.8,.22,1),opacity .24s ease,background .16s ease}
       .pp-side-toggle:hover,.pp-side-toggle:active{background:var(--paper)}
       .pp-side-toggle:focus-visible{outline:3px solid #2EC4B6;outline-offset:2px}
-      .pp-shell:not(.side-collapsed) .pp-side-toggle{max-width:0;max-height:0;padding-top:0;padding-bottom:0;padding-left:0;padding-right:0;margin-right:0;border-width:0;opacity:0;pointer-events:none}
-      /* v1.64.0：桌面端收起后的把手改成贴在左缘的竖排标签，不再横着占一整个按钮宽、把正文往右推。
-         只改排版方向，收 / 展的 max-width 过渡（上一条）照旧；窄屏仍是横向按钮。 */
-      /* 🔴 v1.67.2：竖排后内容沿【高度】方向排，而上面那条 max-height:52px 是横排时代留下的
-         （横排一行 33px 就够）。竖排「▸校园服务」实测 scrollHeight=101 —— 52px 的框 + overflow:hidden
-         把「园服务」整段裁掉，用户看到的只剩「▸校」（截图实测：32×52 的框里塞 101px 的内容）。
-         这里按内容给足 max-height；收 / 展仍走「展开态 max-height:0」那条过渡，动画不变。
-         断点同时从 721px 提到 821px：窄屏那套是 max-width:820px（整层叠放、把手 width:100%），
-         721~820 两段会同时命中 —— 竖排字落在满宽按钮里，比裁字更难看。 */
+      .pp-side-toggle>span{position:absolute;left:0;top:0;width:1em;height:1.25em;line-height:1.25em;text-align:center;transition:transform .34s cubic-bezier(.22,.8,.22,1)}
+      /* 横排（展开态）：▸ 在左、四个字依次排开，间距与 .pp-side-head-toggle 的内边距 / gap 一致 */
+      .pp-side-toggle-arrow{transform:translate(1em,.71em) rotate(0deg)}
+      .pp-side-toggle-ch:nth-child(2){transform:translate(2.58em,.71em)}
+      .pp-side-toggle-ch:nth-child(3){transform:translate(3.58em,.71em)}
+      .pp-side-toggle-ch:nth-child(4){transform:translate(4.58em,.71em)}
+      .pp-side-toggle-ch:nth-child(5){transform:translate(5.58em,.71em)}
       @media(min-width:821px){
-        .pp-shell.side-collapsed .pp-side-toggle{writing-mode:vertical-rl;max-height:168px;padding:11px 6px;gap:7px;letter-spacing:.16em;border-radius:10px}
-        /* 竖排里几何符号按 UTR50 会被旋转 90°（▸ 变 ▾，读不出「从这边展开」）；把箭头单独摆正。 */
-        .pp-shell.side-collapsed .pp-side-toggle>span{text-orientation:upright;line-height:1}
+        .pp-shell:not(.side-collapsed) .pp-side-toggle{width:190px;height:34px;margin-right:-190px;transform:translate(-218px,12px)}
+        /* 箭头就是 ▸ 转 180° 变成 ◂，方向翻转也走同一条过渡，不是换字 */
+        .pp-shell:not(.side-collapsed) .pp-side-toggle-arrow{transform:translate(1em,.71em) rotate(180deg)}
+        /* 竖排（收起态）：宽度收成一根竖条，四个字沿【高度】方向依次落下 —— 逐字位移可插值，
+           所以「竖 ⇄ 横」是连续变形，不是换一套排版再跳一下 */
+        .pp-shell.side-collapsed .pp-side-toggle{width:2.3em;height:8.5em;margin-right:12px;transform:none;border-radius:10px}
+        .pp-shell.side-collapsed .pp-side-toggle-arrow{transform:translate(.57em,.71em) rotate(0deg)}
+        .pp-shell.side-collapsed .pp-side-toggle-ch:nth-child(2){transform:translate(.57em,2.29em)}
+        .pp-shell.side-collapsed .pp-side-toggle-ch:nth-child(3){transform:translate(.57em,3.65em)}
+        .pp-shell.side-collapsed .pp-side-toggle-ch:nth-child(4){transform:translate(.57em,5.01em)}
+        .pp-shell.side-collapsed .pp-side-toggle-ch:nth-child(5){transform:translate(.57em,6.37em)}
+        /* 展开态侧栏头部只留占位（撑出与把手等高的一行）：看得见、点得到的是上面那个把手，
+           两套视觉完全一致，于是看起来就是同一个按钮从竖排摊成横排。
+           visibility:hidden 顺带把它从 Tab 顺序与无障碍树里摘掉，不会出现两个同名开关。 */
+        .pp-side-head-toggle{height:34px;visibility:hidden;pointer-events:none}
       }
       /* 头部：就是一个「收起」按钮（与收起后的把手 .pp-side-toggle 同一套视觉）。
          原来这里是 10.5px 灰金小字标题 + 右上角 18px 小三角，两个都太弱（v1.5.0 换成按钮）；
@@ -573,6 +610,10 @@
       .jw-card-act .pp-btn{min-height:34px;padding:5px 10px;font-size:calc(11.5px * var(--ui-text-scale))}
       .jw-leave-draft{margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
       .jw-leave-draft textarea{width:100%;min-height:82px;resize:vertical;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);padding:9px 10px;font:inherit;font-size:calc(12px * var(--ui-text-scale));line-height:1.7}
+      /* 自习室：过滤只切 [hidden]，组头与卡片都要真的消失 —— .jw-card 没设 display，
+         默认就吃 hidden 属性，这条是兜底（将来谁给 .jw-card 加了 display 也不会漏）。 */
+      .jw-room-row[hidden],.jw-group[hidden]{display:none}
+      .jw-room-row .jw-detail-grid{margin-top:8px;padding-top:8px}
       .jw-leave-draft small,.jw-detail-grid small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));line-height:1.7;margin-top:6px}
       /* ── 请假页：状态四档沿用「警大成绩」的分数四档色相 ──
          成绩页把分数分四档（.jg-good / .jg-warn / .jg-bad + --deep），请假状态同样只有
@@ -713,11 +754,15 @@
         .pp-side-inner{width:100%}
         .pp-shell.side-collapsed .pp-side{width:100%;max-height:0;padding-top:0;padding-bottom:0;margin-bottom:0;border-top-width:0;border-bottom-width:0;opacity:0}
         /* 手机上的两个开关（收起后的把手 / 展开态头部的收起按钮）都要 44px 触控区，手指才点得准 */
-        .pp-side-toggle{margin-right:0;margin-bottom:12px;max-width:100%;min-height:44px;padding:10px 14px;font-size:calc(13px * var(--ui-text-scale))}
+        /* 窄屏是整层叠放，没有「竖条 ⇄ 头部」那套变形，把手就是普通横按钮：
+           把桌面版绝对定位的那几个字退回行内（.pp-shell 前缀提权重，压过 nth-child 的坐标） */
+        /* 窄屏把手的权重同样要写到 (0,3,0)：否则被 interactions.css 的按钮规则压住 position/transition。 */
+      .pp-shell .pp-side-toggle[data-side-toggle]{position:relative;top:auto;margin-right:0;margin-bottom:12px;max-width:100%;width:auto;height:auto;min-height:44px;max-height:64px;transform:none;display:inline-flex;align-items:center;gap:7px;padding:10px 14px;font-size:calc(13px * var(--ui-text-scale))}
+        .pp-shell .pp-side-toggle>span{position:static;width:auto;height:auto;line-height:1.35;transform:none}
         .pp-side-head-toggle{min-height:44px;padding:10px 14px;font-size:calc(13px * var(--ui-text-scale))}
         /* 展开时把手要整体藏掉：min-height 会压过 max-height，所以必须把 min-height 也归零，
            否则窄屏上会在侧栏与正文之间留一条 44px 的隐形空隙 */
-        .pp-shell:not(.side-collapsed) .pp-side-toggle{margin-bottom:0;min-height:0}
+        .pp-shell:not(.side-collapsed) .pp-side-toggle{margin-bottom:0;min-height:0;max-height:0;padding-top:0;padding-bottom:0;padding-left:0;padding-right:0;border-width:0;opacity:0;visibility:hidden;pointer-events:none}
         .pp-side-list{flex-direction:row;flex-wrap:wrap}
         .pp-side-btn{width:auto;flex:1 1 132px;min-width:0;min-height:52px;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
         /* 窄屏侧栏是换行的 chip 流，不是竖列：父项 = chip + 箭头的实际宽度，且刻意不给 flex-grow
@@ -748,7 +793,7 @@
         .yk-ledger-row{grid-template-columns:86px 1fr auto}
         .yk-frame-shell{height:calc(100vh - 230px);min-height:520px}
       }
-      @media(prefers-reduced-motion:reduce){.pp-card,.pp-expand,.pp-expand::after,.pp-detail-shell,.pp-detail,.pp-side,.pp-side-inner,.pp-side-toggle,.pp-side-sub,.pp-banner-act,.pp-banner-act-hint::before{transition-duration:.01ms!important}}
+      @media(prefers-reduced-motion:reduce){.pp-card,.pp-expand,.pp-expand::after,.pp-detail-shell,.pp-detail,.pp-side,.pp-side-inner,.pp-side-toggle,.pp-side-toggle>span,.pp-side-sub,.pp-banner-act,.pp-banner-act-hint::before{transition-duration:.01ms!important}}
     `;
     document.head.append(st);
   }
@@ -848,7 +893,7 @@
     state.loginAt = 0;
     forgetPdataAuth();
     jwSid = null;
-    jwState.data = { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null };
+    jwState.data = { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null, room: null };
     try {
       await tide.vault?.del?.("secret");
       await tide.vault?.del?.("cookies");
@@ -1984,9 +2029,20 @@
       + `<div class="pp-side-note">标题与图标自动识别<br>点一下打开对应服务</div>`
       + `</div>`;
   }
-  // 收起/展开开关。做成 .pp-shell 的 flex 子项而不是浮层：永不压住正文，且收起时它天然落在左上角。
+  // 收起/展开开关。做成 .pp-shell 的 flex 子项而不是浮层：永不压住正文，收起时天然落在左上角；
+  // 展开时同一个元素被 CSS 平移到侧栏头部那一格 —— 于是「竖排 ⇄ 横排」就是这个按钮本身摊开的动画。
+  // 竖排刻意不用 writing-mode：那属性不参与过渡，一改就整段跳变（旧实现就是这个观感）。
+  // 四个字各占一个 span，靠 translate 换坐标，位移可插值，所以是连续变形。
+  // data-motion="off"：退出主程序的通用按钮反馈（motion.js 不再挂 .motion-ripple-host）。
+  //   那条 `button.motion-ripple-host:not(…)`（0,3,1）会补 position:relative / overflow:clip，
+  //   一挂上就把这里的 sticky 与 top 打回相对位移，把手凭空下移 16px 且不再钉住 —— 点一次就变样。
+  const SIDE_LABEL_CHARS = ["校", "园", "服", "务"];
   function sideToggleHtml() {
-    return `<button type="button" class="pp-side-toggle" data-side-toggle aria-expanded="${state.sideOpen ? "true" : "false"}" title="展开校园服务" aria-label="展开校园服务"><span aria-hidden="true">▸</span>校园服务</button>`;
+    const open = !!state.sideOpen;
+    const tip = `${open ? "收起" : "展开"}校园服务`;
+    const chars = SIDE_LABEL_CHARS.map((ch) => `<span class="pp-side-toggle-ch" aria-hidden="true">${ch}</span>`).join("");
+    return `<button type="button" class="pp-side-toggle" data-side-toggle data-motion="off" aria-expanded="${open ? "true" : "false"}" `
+      + `title="${tip}" aria-label="${tip}"><span class="pp-side-toggle-arrow" aria-hidden="true">▸</span>${chars}</button>`;
   }
   function sideShellClass() { return state.sideOpen ? "pp-shell" : "pp-shell side-collapsed"; }
   function applySideOpen(root, open) {
@@ -1994,7 +2050,15 @@
     const shell = root && root.querySelector ? root.querySelector(".pp-shell") : null;
     if (shell) shell.classList.toggle("side-collapsed", !state.sideOpen);
     const btns = root && root.querySelectorAll ? root.querySelectorAll("[data-side-toggle]") : [];
-    for (const b of btns) b.setAttribute("aria-expanded", state.sideOpen ? "true" : "false");
+    for (const b of btns) {
+      b.setAttribute("aria-expanded", state.sideOpen ? "true" : "false");
+      // 箭头方向是 CSS 旋转做出来的，这里只需就地改提示文案。绝不能重渲染 DOM：
+      // 换了节点，CSS 过渡就从第一帧重新开始，用户看到的是直接跳到位。
+      if (!b.classList.contains("pp-side-toggle")) continue;
+      const tip = state.sideOpen ? "收起校园服务" : "展开校园服务";
+      b.title = tip;
+      b.setAttribute("aria-label", tip);
+    }
   }
   function paintSide(root) {
     const box = root && root.querySelector ? root.querySelector("[data-side]") : null;
@@ -2320,59 +2384,125 @@
     },
   };
 
-  function mailSessionUrlFromResponse(res, base = MAIL) {
-    const parts = [res?.finalUrl, res?.location, res?.body].filter(Boolean).map(String);
-    for (const raw of parts) {
-      const text = raw.replace(/&amp;/g, "&");
-      const absolute = text.match(/https?:\/\/mail\.cppu\.edu\.cn\/[^"'<>\\\s]*[?&;]sid=[^"'<>\\\s]+/i)?.[0];
-      const relative = text.match(/(?:^|["'=])((?:\/coremail\/|\/)[^"'<>\\\s]*sid=[^"'<>\\\s]+)/i)?.[1];
-      const sid = text.match(/(?:[?&;]sid=|\bsid\s*[:=]\s*["'])([A-Za-z0-9._-]+)/i)?.[1];
-      const hit = absolute || relative || (sid ? `/coremail/XT5/index.jsp?sid=${encodeURIComponent(sid)}` : "");
-      if (!hit) continue;
-      try {
-        const u = new URL(hit, base);
-        if (u.protocol === "https:" && u.hostname === "mail.cppu.edu.cn" && u.searchParams.get("sid")) return u.href;
-      } catch { /* ignore */ }
+  /* 从任意「含 sid 的文本 / URL」里抠出 sid。落地页把 sid 塞在 redirect?l=… 的
+     编码参数里（sid%3D…），中间件换回来的 main.jsp 则是普通查询参数，两种都收。 */
+  function mailSidFrom(text) {
+    const t = String(text || "").replace(/&amp;/g, "&");
+    const m = t.match(/[?&;]sid=([^&#"'<>\s]+)/i) || t.match(/sid%3D([^%&"'<>\s]+)/i);
+    if (!m) return "";
+    try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+  }
+
+  /* 纯 JS 的 RSA/PKCS#1 v1.5 加密（BigInt 现算模幂，不引第三方库）：
+     公钥是中间件 /sync/mail/pubkey 给的 SPKI（hex），内层 RSAPublicKey 的
+     模长 128 字节、指数固定 65537。PS 段必须是**非零随机字节**（type 2 加密）——
+     写成 0xFF 就成了签名用的 type 1，服务端解出来一定报密码错。 */
+  function mailRsaEscape(pubHex, text) {
+    const hex = String(pubHex || "");
+    const at = hex.toLowerCase().indexOf("02818100");
+    if (at < 0) throw new Error("邮箱公钥结构不认识");
+    const nHex = hex.slice(at + 8, at + 8 + 256);
+    const n = BigInt("0x" + nHex);
+    const bytes = new TextEncoder().encode(String(text));
+    const k = nHex.length / 2;
+    if (bytes.length > k - 11) throw new Error("密码太长，邮箱登录不支持");
+    const psLen = k - 3 - bytes.length;
+    const em = new Uint8Array(k);
+    em[0] = 0;
+    em[1] = 2;
+    const rnd = new Uint8Array(psLen);
+    try { crypto.getRandomValues(rnd); } catch { for (let i = 0; i < psLen; i++) rnd[i] = (Math.random() * 255) | 0; }
+    for (let i = 0; i < psLen; i++) em[2 + i] = (rnd[i] % 255) + 1;
+    em[2 + psLen] = 0;
+    em.set(bytes, 3 + psLen);
+    let m = 0n;
+    for (const b of em) m = (m << 8n) | BigInt(b);
+    let c = 1n;
+    let base = m % n;
+    let exp = 65537n;
+    while (exp > 0n) {
+      if (exp & 1n) c = (c * base) % n;
+      base = (base * base) % n;
+      exp >>= 1n;
+    }
+    const out = new Uint8Array(k);
+    let t = c;
+    for (let j = k - 1; j >= 0; j--) { out[j] = Number(t & 0xffn); t >>= 8n; }
+    let bin = "";
+    for (const b of out) bin += String.fromCharCode(b);
+    return btoa(bin);
+  }
+
+  let mailPubKeyCache = "";
+  let mailLoginError = "";
+  let mailSession = { sid: "", at: 0 };
+
+  async function mailPublicKey(httpSid) {
+    if (mailPubKeyCache) return mailPubKeyCache;
+    const res = await tide.http.fetch(httpSid, "GET", MAIL_PUBKEY_API, {
+      headers: { "Referer": MAIL, "Accept": "application/json,*/*" },
+    });
+    // 实测回的是 `pubSetting={"pubKey":"…"}`（jsonp 式赋值，不是纯 JSON），所以取第一个对象。
+    const text = String(res?.body || "");
+    const json = text.match(/\{[\s\S]*\}/)?.[0] || text;
+    let key = "";
+    try { key = String(JSON.parse(json)?.pubKey || ""); } catch { key = ""; }
+    if (!/^30[0-9a-f]+$/i.test(key)) throw new Error("邮箱公钥取不到（中间件不可达）");
+    mailPubKeyCache = key;
+    return key;
+  }
+
+  /* 中间件登录：成功给 entryhz 的 location，失败给 message（如 input.password.xxx）。
+     走 form 编码而不是 JSON —— 网页端就是 $.ajax 的默认表单编码。 */
+  async function mailMiddlewareLogin(httpSid, password) {
+    const parts = String(MAIL_ACCOUNT).split("@");
+    const key = await mailPublicKey(httpSid);
+    const body = tide.util.web.formEncode({
+      accountName: parts[0],
+      domain: parts[1] || MAIL_DOMAIN,
+      password: mailRsaEscape(key, password),
+      language: "zh_CN",
+      ch: "",
+    });
+    const res = await tide.http.fetch(httpSid, "POST", MAIL_LOGIN_API, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": MAIL,
+        "Origin": "https://mail.cppu.edu.cn",
+        "Accept": "application/json,*/*",
+      },
+      body,
+    });
+    let data = null;
+    try { data = JSON.parse(String(res?.body || "")); } catch { data = null; }
+    if (!data) throw new Error(`邮箱登录失败（中间件返回 HTTP ${Number(res?.status) || 0}）`);
+    if (!data.state) {
+      const msg = String(data.message || "");
+      throw new Error(/password/i.test(msg)
+        ? "邮箱登录被拒：账号或密码不对（用的是「警大通知」里保存的那份密码）"
+        : `邮箱登录被拒：${msg || "站点没有给出原因"}`);
+    }
+    return String(data.location || "");
+  }
+
+  /* entryhz 的 /entry/door 是 meta-refresh + JS 跳转（不是 HTTP 302），HTTP 客户端
+     只会停在那一页，所以要从 body 里把 /redirect?l=… 抠出来再走一步才落到 main.jsp。 */
+  async function mailLandingSid(httpSid, entryUrl) {
+    let url = String(entryUrl || "").trim();
+    if (!url) return "";
+    for (let hop = 0; hop < 4 && url; hop++) {
+      const res = await tide.http.fetch(httpSid, "GET", url, {
+        headers: { "Referer": MAIL, "Accept": "text/html,*/*" },
+      });
+      const direct = mailSidFrom(res?.finalUrl || "");
+      if (direct) return direct;
+      const body = String(res?.body || "");
+      const next = body.match(/https:\/\/mail\.cppu\.edu\.cn\/redirect\?l=[^"'\s<>]+/i)?.[0]
+        || body.match(/href=["']([^"']*main\.jsp\?sid=[^"']+)/i)?.[1];
+      if (!next) return mailSidFrom(body);
+      url = next.replace(/&amp;/g, "&");
     }
     return "";
-  }
-
-  function mailLoginFailureText(res) {
-    const text = cleanText(res?.body || "");
-    const hit = text.match(/((?:密码|账号|用户|验证码|登录|邮箱)[^\n。；;]{0,42}(?:错误|失败|不存在|过期|不正确|被锁定))/);
-    return hit ? hit[1].trim() : "";
-  }
-
-  async function verifyMailSession(sid, target) {
-    const check = await tide.http.fetch(sid, "GET", target, { headers: { "Referer": MAIL, "Accept": "text/html,*/*" } });
-    if (check.status >= 400) throw new Error(`邮箱入口校验失败（HTTP ${check.status}）`);
-    const newer = mailSessionUrlFromResponse(check, check?.finalUrl || target);
-    if (newer) return newer;
-    const body = String(check?.body || "");
-    let form = null;
-    try { form = tide.util.web.detectLoginForm(body, check?.finalUrl || target); } catch { form = null; }
-    if (form?.passwordField || /type=["']?password|coremail.*login|登录邮箱|邮箱登录/i.test(body)) {
-      throw new Error("邮箱登录未建立：校验入口时仍停留在登录页");
-    }
-    return target;
-  }
-
-  function defaultMailForm(pageUrl) {
-    return {
-      pageUrl,
-      form: {
-        action: new URL("/coremail/index.jsp?cus=1", MAIL).href,
-        method: "POST",
-        usernameField: "uid",
-        passwordField: "password",
-        captchaField: "",
-        fields: [
-          { name: "action", value: "login" },
-          { name: "locale", value: "zh_CN" },
-          { name: "nodetect", value: "false" },
-        ],
-      },
-    };
   }
 
   async function readSavedPassword() {
@@ -2387,41 +2517,27 @@
   }
 
   /* ── 警大邮箱（Sirius Web）内置网页窗口 ──
-     登录链路与过去一致：用插件密钥库里的账号密码在 native 会话里走一遍 coremail 登录，
-     能拿到 sid 就说明这个会话的 Cookie Jar 里已经有 mail 域的有效会话。区别只在最后一步 ——
-     过去把带 sid 的地址交给浏览器（sid 因此出现在 URL 与浏览历史里），现在由 Rust 原生端
-     从 Cookie Jar 里取 Cookie 注入应用内 WebView，sid 不进 URL、也不进页面 JS。
-     会话建不起来（没存密码 / 要验证码 / 站点改版）就退回不带会话的内置窗口，由页面自己登录。 */
-  async function ensureMailSession() {
+     登录走网页端同一条路（RSA 加密密码 → 中间件 → 落地页换 sid），换回来的 sid 缓存
+     20 分钟。mbox 接口只认 URL 上的 sid —— 光有 Cookie 会回 FA_INVALID_SESSION。
+     会话建不起来（没存密码 / 站点改版 / 密码不对）就退回不带会话的内置窗口，由页面自己登录。 */
+  async function ensureMailSession(force = false) {
+    if (!force && mailSession.sid && Date.now() - mailSession.at < 20 * 60 * 1000) return mailSession.sid;
+    mailSession = { sid: "", at: 0 };
     const password = await readSavedPassword();
-    if (!password) return "";
-    const sid = await tide.http.session();
-    const first = await tide.http.fetch(sid, "GET", MAIL, { headers: { "Accept": "text/html,*/*" } });
-    const pageUrl = first?.finalUrl || MAIL;
-    const direct = mailSessionUrlFromResponse(first, pageUrl);
-    if (direct) { await verifyMailSession(sid, direct); return sid; }
-    let form = null;
-    try { form = tide.util.web.detectLoginForm(first?.body || "", pageUrl); } catch { form = null; }
-    const rt = form?.passwordField ? { form, pageUrl } : defaultMailForm(pageUrl);
-    if (rt.form.captchaField) return "";
-    const fields = {};
-    for (const f of rt.form.fields || []) if (f.name && f.value !== undefined) fields[f.name] = f.value;
-    fields[rt.form.usernameField || "uid"] = MAIL_ACCOUNT;
-    fields[rt.form.passwordField || "password"] = password;
-    const body = tide.util.web.formEncode(fields);
-    const action = rt.form.action || rt.pageUrl;
-    const method = (rt.form.method || "POST").toUpperCase();
-    const res = method === "GET"
-      ? await tide.http.fetch(sid, "GET", action + (action.includes("?") ? "&" : "?") + body, { headers: { "Referer": rt.pageUrl } })
-      : await tide.http.fetch(sid, "POST", action, {
-          headers: { "Content-Type": "application/x-www-form-urlencoded", "Referer": rt.pageUrl },
-          body,
-        });
-    if (res.status >= 400) return "";
-    if (mailLoginFailureText(res)) return "";
-    const target = mailSessionUrlFromResponse(res, res?.finalUrl || action);
-    if (!target) return "";
-    await verifyMailSession(sid, target);
+    if (!password) { mailLoginError = ""; return ""; }
+    const httpSid = await ensureSid();
+    if (!httpSid) { mailLoginError = "本机取数会话没建起来，请重启应用后再试一次。"; return ""; }
+    let location = "";
+    try {
+      location = await mailMiddlewareLogin(httpSid, password);
+    } catch (e) {
+      mailLoginError = String(e?.message || e);
+      return "";
+    }
+    const sid = await mailLandingSid(httpSid, location);
+    if (!sid) { mailLoginError = "邮箱登录通过了，但落地页没给出 sid（站点改版？）"; return ""; }
+    mailSession = { sid, at: Date.now() };
+    mailLoginError = "";
     return sid;
   }
 
@@ -2449,20 +2565,15 @@
     }
   }
 
-  /* ── 警大邮箱 · 取数桥（v0.255.0）─────────────────────────────────────────
-     自动登录已经由 ensureMailSession() 走完（vault 里的账号密码 → coremail 登录 →
-     拿到带 sid 的落地页），这里只负责「用同一个 native 会话去读邮件」。
+  /* ── 警大邮箱 · 取数桥 ─────────────────────────────────────────────────────
+     自动登录已经由 ensureMailSession() 走完（vault 里的账号密码 → 学校中间件 RSA 登录 →
+     落地页换 sid），这里只负责「带着 sid 去读邮件」。
 
-     为什么走老 XT 的 /coremail/s/json 而不是 Sirius 的 /corp-mail/mail/api/*：
-     后者是登录态之后才发得动的 GraphQL 风格接口，未登录一律 401，路径也没逆全；
-     而 mbox:listMessages / mbox:getAllFolders 是老接口，同一份 Cookie 就能用，
-     换站点改版的概率也低（XT 这套十几年没动过）。JSON 变体比 /coremail/s 的 XML
-     好解析，所以固定用 /json，但**两种都解析**——实测这个端点的 Content-Type 会
-     谎报 text/xml，返回什么得看 body 首字符，不能看头。
-
-     sid 双路：Coremail 有的部署认 Cookie，有的必须 URL 带 sid。这里先不带 sid 试，
-     回 FA_INVALID_SESSION 再带 sid 重试一次；两条都失败才算「会话失效」。 */
-  const MAIL_JSON_API = "https://mail.cppu.edu.cn/coremail/s/json";
+     接口选型（v0.259.1 实测定案）：
+     · 老的 XT JSON 变体 → 恒回 {"error_code":"FA_INVALID_SESSION"}，无论 Cookie 多齐全；
+     · `/js6/s?func=…`     → 只认 URL 上的 sid，不带的活回 `<code>FA_INVALID_SESSION</code>`；
+     所以固定打 `/js6/s` 且**总是**带 sid，回的是 XML。XML 的字段名靠 `name` 属性（见
+     mailXmlTree），Content-Type 会谎报，只能看 body 首字符判断 JSON / XML。 */
   const MAIL_PAGE = 20;
   let mailInFlight = 0;
 
@@ -2478,18 +2589,23 @@
     return dflt;
   }
 
-  /* 端点偶尔回 XML（同一路径，同一个 func）。转成与 JSON 同形的对象，下游只写一套解析。 */
+  /* 端点偶尔回 XML（同一路径，同一个 func）。Coremail 的 XML 用 `name` 属性给每个
+     元素命名（`<int name="parent">0</int>`、`<object name="stats">`），标签名本身没有
+     信息量，所以按 name 建键、重复键收成数组 —— 摊平后与 JSON 版同形，下游只写一套解析。
+     `<array name="var"><object>` 会落成 `{var:{object:[…]}}`，item/folder 就挂在 object 上。 */
   function mailXmlTree(text) {
     try {
       if (typeof DOMParser !== "function") return null;
       const doc = new DOMParser().parseFromString(text, "text/xml");
       if (!doc || doc.querySelector("parsererror") || !doc.documentElement) return null;
       const conv = (node) => {
+        const kids = Array.from(node.children || []);
+        if (!kids.length) return String(node.textContent || "").trim();
         const out = {};
-        for (const a of Array.from(node.attributes || [])) out[a.name] = a.value;
-        for (const ch of Array.from(node.children || [])) {
-          const key = String(ch.tagName || "").replace(/^.*:/, "");
-          const val = ch.children && ch.children.length ? conv(ch) : (ch.textContent || "");
+        for (const ch of kids) {
+          let key = String(ch.tagName || "").replace(/^.*:/, "");
+          for (const a of Array.from(ch.attributes || [])) if (a.name === "name" && a.value) key = a.value;
+          const val = conv(ch);
           if (key in out) out[key] = [].concat(out[key], val);
           else out[key] = val;
         }
@@ -2513,7 +2629,7 @@
     const folderRoot = foldersPayload && foldersPayload.var && typeof foldersPayload.var === "object" ? foldersPayload.var : foldersPayload;
     let folders = null;
     if (folderRoot && typeof folderRoot === "object") {
-      for (const k of ["folder", "folders"]) {
+      for (const k of ["folder", "folders", "object", "i"]) {
         const v = mailPick(folderRoot, [k], null);
         if (Array.isArray(v)) { folders = v; break; }
         if (v && typeof v === "object") { folders = [v]; break; }
@@ -2527,8 +2643,12 @@
         return /收件箱|inbox/.test(name) || id === "1";
       });
       if (inbox) {
-        const unread = Number(mailPick(inbox, ["unread", "unreadcount", "newcount", "new"], 0)) || 0;
-        const total = Number(mailPick(inbox, ["total", "count", "totalcount", "msgcount"], 0)) || 0;
+        // XML 版把未读/总数塞在 `<object name="stats">` 里，顶层没有这两个字段。
+        const stats = mailPick(inbox, ["stats"], null);
+        const unread = Number(mailPick(inbox, ["unread", "unreadcount", "newcount", "new"], 0))
+          || Number(mailPick(stats, ["unreadmessagecount", "unread", "unreadcount", "newcount"], 0)) || 0;
+        const total = Number(mailPick(inbox, ["total", "count", "totalcount", "msgcount"], 0))
+          || Number(mailPick(stats, ["messagecount", "count", "total", "msgcount"], 0)) || 0;
         if (unread || total) return { unread, total };
       }
     }
@@ -2553,7 +2673,8 @@
     }
     let arr = null;
     for (const p of pools) {
-      for (const k of ["i", "message", "messages", "list", "items", "mail"]) {
+      // XML 版把条目挂在 `<array name="var"><object>` 上，摊平后键名是 object。
+      for (const k of ["i", "message", "messages", "list", "items", "mail", "object"]) {
         const v = mailPick(p, [k], null);
         if (Array.isArray(v)) { arr = v; break; }
         if (v && typeof v === "object") { arr = [v]; break; }
@@ -2566,16 +2687,24 @@
       if (!it || typeof it !== "object") continue;
       const flags = mailPick(it, ["flags"], null);
       let flagArr = [];
+      let flagsRead = "";
       if (Array.isArray(flags)) flagArr = flags;
       else if (flags && typeof flags === "object") {
         const f = mailPick(flags, ["flag", "flags"], null);
         flagArr = Array.isArray(f) ? f : (f ? [f] : []);
+        // XML 的已读标记是 `<boolean name="read">true</boolean>`，摊平后在 flags 里。
+        flagsRead = String(mailPick(flags, ["read", "isread", "seen"], "")).toLowerCase();
       }
-      const readRaw = String(mailPick(it, ["read", "isread", "seen"], "")).toLowerCase();
+      const readRaw = String(mailPick(it, ["read", "isread", "seen"], flagsRead)).toLowerCase();
       const read = readRaw === "true" || readRaw === "1" || flagArr.some((f) => /read/i.test(String(f)) && !/unread/i.test(String(f)));
       const id = cleanText(mailPick(it, ["id", "mid", "messageid", "msgid"], ""));
       const subject = cleanText(mailPick(it, ["subject", "subj"], ""));
-      const from = cleanText(mailPick(it, ["from", "sender", "fromname", "fromaddr", "sendername"], ""));
+      // `"某某" <a@b>` 只留显示名。必须在 cleanText 之前匹配 —— cleanText 会把
+      // `<a@b>` 当成 HTML 标签剥掉，剩下 `"某某"` 时再匹配就只剩一对引号。
+      const fromRaw = String(mailPick(it, ["from", "sender", "fromname", "fromaddr", "sendername"], ""));
+      const nameHit = fromRaw.trim().match(/^"?([^"<]+?)"?\s*<([^>\s]+)>$/);
+      const from = cleanText(nameHit ? (nameHit[1].trim() || nameHit[2].trim()) : fromRaw)
+        .replace(/^["'\s]+|["'\s]+$/g, "");
       const date = mailPick(it, ["sentdate", "receiveddate", "date", "time", "sent"], "");
       const size = Number(mailPick(it, ["size", "bodysize", "msgsize"], 0)) || 0;
       if (!id && !subject && !from) continue;
@@ -2584,57 +2713,55 @@
     return out;
   }
 
-  /* 落地页 URL 里的 sid 只在这一处用：给 mbox 接口当兜底参数。取不到就靠 Cookie。 */
-  async function mailApiSid(httpSid) {
-    try {
-      const res = await tide.http.fetch(httpSid, "GET", MAIL, { headers: { "Accept": "text/html,*/*" } });
-      const target = mailSessionUrlFromResponse(res, res?.finalUrl || MAIL);
-      if (!target) return "";
-      try { return decodeURIComponent(new URL(target).searchParams.get("sid") || ""); } catch { return ""; }
-    } catch { return ""; }
-  }
-
+  /* mbox 接口：这套部署只认 /js6/s，而且 sid 必须写在 URL 上（Cookie 齐全也不行）。
+     老的 XT JSON 变体恒回 FA_INVALID_SESSION，已经弃用。 */
   async function mailCoremail(httpSid, func, params, mailSid) {
-    const once = async (withSid) => {
-      const q = new URLSearchParams({ func, ...(params || {}) });
-      if (withSid) q.set("sid", withSid);
-      const res = await tide.http.fetch(httpSid, "GET", `${MAIL_JSON_API}?${q.toString()}`, {
-        headers: { "Referer": MAIL, "Accept": "application/json,text/xml,*/*" },
-      });
-      const body = String(res?.body || "");
-      const t = body.trim();
-      let data = null;
-      if (t.startsWith("{") || t.startsWith("[")) {
-        try { data = JSON.parse(t); } catch { data = null; }
-      }
-      if (!data && t.startsWith("<")) data = mailXmlTree(t);
-      return { status: Number(res?.status) || 0, data, body };
-    };
-    const first = await once("");
-    if (!mailSid || !mailIsSessionDead(first.data)) return first;
-    return once(mailSid);
+    const q = new URLSearchParams({ func, ...(params || {}) });
+    if (mailSid) q.set("sid", mailSid);
+    const res = await tide.http.fetch(httpSid, "GET", `${MAIL_API}?${q.toString()}`, {
+      headers: { "Referer": MAIL, "Accept": "application/xml,application/json,*/*" },
+    });
+    const raw = String(res?.body || "");
+    const body = raw.trim();
+    let data = null;
+    if (body.startsWith("{") || body.startsWith("[")) {
+      try { data = JSON.parse(body); } catch { data = null; }
+    }
+    if (!data && body.startsWith("<")) data = mailXmlTree(raw);
+    return { status: Number(res?.status) || 0, data, body: raw };
   }
 
   async function mailLoad() {
     if (mailInFlight) return mailInFlight;
     mailInFlight = (async () => {
       try {
-        const httpSid = await ensureMailSession();
-        if (!httpSid) {
+        const httpSid = await ensureSid();
+        if (!httpSid) return { ok: false, needLogin: true, error: "本机取数会话没建起来，请重启应用后再试一次。" };
+        let folders = null;
+        let list = null;
+        // 两轮：第一轮用缓存 sid，被拒就强制重登再试一次 —— sid 有过期，别让用户手动点。
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const mailSid = await ensureMailSession(attempt > 0);
+          if (!mailSid) {
+            return {
+              ok: false, needLogin: true,
+              error: mailLoginError || "没拿到邮箱登录态：密钥库里没有可用密码、或站点要求图形/短信验证码。先在「警大通知」里勾选记住密码登录一次，再回本页重试。",
+            };
+          }
+          const got = await mailCoremail(httpSid, "mbox:getAllFolders", {}, mailSid);
+          if (mailIsSessionDead(got.data)) continue;
+          const gotList = await mailCoremail(httpSid, "mbox:listMessages", { mbox: "Inbox", start: "0", limit: String(MAIL_PAGE) }, mailSid);
+          if (mailIsSessionDead(gotList.data)) continue;
+          folders = got;
+          list = gotList;
+          break;
+        }
+        if (!folders || !list) {
           return {
             ok: false, needLogin: true,
-            error: "没拿到邮箱登录态：密钥库里没有可用密码、或站点要求图形/短信验证码。先在「警大通知」里勾选记住密码登录一次，再回本页重试。",
+            error: "邮箱接口不认这次登录（FA_INVALID_SESSION），重登过一次仍被拒。点「在邮箱窗口里登录」手动登一次，再回本页刷新。",
           };
         }
-        const mailSid = await mailApiSid(httpSid);
-        const folders = await mailCoremail(httpSid, "mbox:getAllFolders", {}, mailSid);
-        if (mailIsSessionDead(folders.data)) {
-          return {
-            ok: false, needLogin: true,
-            error: `邮箱接口不认这个会话（${String(mailPick(folders.data, ["error_code", "code"], "FA_INVALID_SESSION"))}）。Cookie 在，但 mbox 接口拒绝 —— 多半是落地页 sid 已过期，点「重新登录」会重走一次自动登录。`,
-          };
-        }
-        const list = await mailCoremail(httpSid, "mbox:listMessages", { mbox: "Inbox", start: "0", limit: String(MAIL_PAGE) }, mailSid);
         const mails = mailItems(list.data);
         const stat = mailFolderStat(folders.data, list.data, mails);
         return {
@@ -2738,6 +2865,12 @@
     grade: { funcCode: "V_STUDENT_GRADE", funcId: "UGwUYaFdMocm4gG2cdA", tableCode: "V_STUDENT_GRADE" },
     cxCredit: { funcCode: "V_CXGL_GRADE_STU", funcId: "VqfuoxJmlz2G9QJnoPZ", tableCode: "V_CXGL_GRADEQUERY" },
     cxDetail: { funcCode: "T_SZKP_CXGL_CREDITAPPLICATION_STU", funcId: "Ib0BbzaqbUbrKVOsERB", tableCode: "T_SZKP_CXGL_CREDITAPPLICATION" },
+    // 自习室查询（教室占用 / 借用）：nodeInfo 是校方菜单树里的实测值（dev/jw-assets_je_rbac_perm_getMenuTree-post.json
+    // 里「学生服务 › 公共服务 › 自习室查询」节点的 nodeInfo=ZXZYCX），不是猜的。
+    // ⚠️ funcId / tableCode 刻意留空：这两个值只在教务前端运行时才有（四个 bundle 搜 ZXZYCX 全 0 命中），
+    // 运行时由 jwFuncInfo 从 funcInfo 元信息补齐；补不到就老实报错，绝不抄一个像样的 funcId 上去
+    // —— 错值在服务端表现为 UNKOWN_ERROR，排查成本远高于直说「没取到」。
+    room: { funcCode: "ZXZYCX", funcId: "", tableCode: "" },
   };
   // 教务里没有「创新成绩」这个菜单，实名叫「成绩查询(学生)」，挂在 创新实践 下面
   const JW_MENU = {
@@ -2745,6 +2878,7 @@
     qj: "学生服务 › 我的课程表 › 我的课表 › 学生请假申请",
     grades: "学生服务 › 我的学业 › 成绩 › 成绩查询",
     cx: "学生服务 › 综合素质考评 › 创新实践 › 成绩查询(学生)",
+    room: "学生服务 › 公共服务 › 自习室查询",
   };
   // 校方字典（/je/dd/dd/getDicItemByCodes 的 KCSXDM_1 / KCHJDM_1 / KJDM / QJSQSP / KCMKDM_1）抄一份在用：
   // 省掉每次开视图多打一跳；未命中的码一律原样显示，绝不猜一个好看的词糊上去。
@@ -2771,7 +2905,7 @@
     if (!c) return "";
     return JW_DD[dict]?.[c] || c;
   };
-  const jwKeyLabel = (k) => ({ xkTask: "选课任务", xkResult: "选课结果", qjRecord: "请假记录", qjCourse: "可请假课次", creditPlan: "培养计划", creditModule: "课程模块进度", grade: "课程成绩", cxCredit: "创新学分", cxDetail: "创新学分明细" }[k] || k);
+  const jwKeyLabel = (k) => ({ xkTask: "选课任务", xkResult: "选课结果", qjRecord: "请假记录", qjCourse: "可请假课次", creditPlan: "培养计划", creditModule: "课程模块进度", grade: "课程成绩", cxCredit: "创新学分", cxDetail: "创新学分明细", room: "自习室" }[k] || k);
 
   let jwSid = null;                 // 已经落上教务 authorization 的那个会话 id
   const jwLive = () => !!jwSid && jwSid === state.sid;
@@ -2810,9 +2944,11 @@
   }
   const jwState = {
     term: null,
-    data: { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null, pdataStudy: null },
+    data: { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null, room: null, pdataStudy: null },
     loading: {}, error: {}, at: {},
     courseScope: "week",            // today | week | term，默认本周（本学期是 200+ 行的紧凑列表）
+    roomGroup: "room",              // room | date | flat：自习室列表按教室 / 按日期 / 平铺
+    roomFilter: "",                 // 自习室关键词过滤（只改 DOM 显隐，不触发重绘 —— 重绘会夺走输入焦点）
     leaveCourseId: "",
     leaveReason: "",
     selectedTaskId: "",
@@ -2858,6 +2994,22 @@
   // 整段 SELECT 从元信息里取出来原样回传，服务端才认（实测漏掉就回 UNKOWN_ERROR）。
   // 视图型功能（V_ 开头那几张）不需要，所以这里按 funcType 条件加，一律不自己拼 SQL。
   const jwFuncMeta = {};
+  /* 列定义（v1.73.0）：自习室查询是「校方在后台配列」的网格，前端 bundle 里没有任何字段名
+     （je-app / je-main / je-core / url-map 四个包搜 ZXZYCX 全 0 命中），所以中文列名只能从
+     funcInfo 的元信息读。正方各部署把列放在不同位置（funcInfo.columns / func.columns /
+     func.items 都见过），这里按「有字段码」判；一个都取不到就返回空数组 ——
+     渲染层退回用字段码当列名，绝不编一个看着顺眼的中文名。 */
+  function jwFuncColumns(j) {
+    for (const bag of [j?.funcInfo?.columns, j?.columns, j?.func?.columns, j?.func?.items]) {
+      if (!Array.isArray(bag) || !bag.length) continue;
+      const cols = bag.map((c) => ({
+        code: String(c?.code || c?.fieldCode || c?.dataIndex || c?.columnCode || ""),
+        name: String(c?.text || c?.name || c?.title || c?.fieldName || c?.columnName || ""),
+      })).filter((c) => c.code);
+      if (cols.length) return cols;
+    }
+    return [];
+  }
   async function jwFuncInfo(key) {
     if (jwFuncMeta[key]) return jwFuncMeta[key];
     const f = JW_FUNC[key];
@@ -2872,10 +3024,14 @@
       funcId: String(info.funcId || f.funcId),
       funcType: String(info.funcType || ""),
       dbSql: String(j?.func?.info?.FUNCINFO_SQL || ""),
+      // 表名同样以元信息为准：JW_FUNC 里的 tableCode 只是抄下来的常量兜底，
+      // 新接入的自习室查询没有常量可抄，漏了这一句 /je/load 一律回 UNKOWN_ERROR。
+      tableCode: String(info.tableCode || j?.func?.tableCode || f.tableCode || ""),
+      columns: jwFuncColumns(j),
     };
     // 元信息拿到了才缓存（省掉后续每次多一跳）；拿不到就退回硬编码 funcId，下次再取
-    if (info.funcId) jwFuncMeta[key] = meta;
-    return jwFuncMeta[key] || { funcId: f.funcId, funcType: "", dbSql: "" };
+    if (info.funcId || meta.tableCode) jwFuncMeta[key] = meta;
+    return jwFuncMeta[key] || { funcId: f.funcId, funcType: "", dbSql: "", tableCode: f.tableCode || "", columns: [] };
   }
 
   async function jeLoad(key, groups = []) {
@@ -2886,7 +3042,7 @@
     const post = () => {
       const params = {
         funcCode: f.funcCode, funcId: meta.funcId, columnLazy: "true", mark: "false", postil: "",
-        funcEdit: "false", coverJquery: "0", tableCode: f.tableCode, _isFunc_: "true",
+        funcEdit: "false", coverJquery: "0", tableCode: meta.tableCode || f.tableCode, _isFunc_: "true",
         j_query: JSON.stringify({ custom: groups, _custom_types: groups.map(() => "group") }),
         j_order: "[]", page: "1", start: "0", limit: "-1",
       };
@@ -2959,7 +3115,7 @@
 
   async function jwSaveCache() {
     const keep = {};
-    for (const k of ["xkTask", "xkResult", "qjRecord", "creditPlan", "creditModule", "grade", "cxCredit", "cxDetail"]) if (Array.isArray(jwState.data[k])) keep[k] = jwState.data[k];
+    for (const k of ["xkTask", "xkResult", "qjRecord", "creditPlan", "creditModule", "grade", "cxCredit", "cxDetail", "room"]) if (Array.isArray(jwState.data[k])) keep[k] = jwState.data[k];
     if (jwState.data.pdataStudy) keep.pdataStudy = jwState.data.pdataStudy;
     try { await tide.storage.set("jwCache", { username: state.username, term: jwState.term, at: jwState.at, keep, prefs: { creditHideDone: jwState.creditHideDone } }); } catch { /* 忽略 */ }
   }
@@ -3196,6 +3352,163 @@
       }).join("");
     }
     return jwSection("已选课程", `${rows.length} 门 · ${jwAt("xkResult")}`, html);
+  }
+
+  /* ═════════ 自习室查询（教室占用 / 借用） ═════════
+     取数：funcCode = ZXZYCX（见 JW_FUNC.room），funcId / tableCode 由 jwFuncInfo 现场补齐。
+     为什么这里要「按列名语义自适应」而不是像选课 / 成绩那样写死字段：这个网格的列是校方在后台
+     配的，前端四个 bundle 里一个字段名都抄不到（见 JW_FUNC.room 注释）。所以先按中文列名 / 字段码
+     把列认成语义角色（教室 / 日期 / 时段 / 容量 / 状态），认得出的排成卡片，认不出的一律
+     以「列名：值」列在卡片底部 —— 一行都不丢，也绝不猜一个看着顺眼的中文糊上去。
+     写操作（申请借用）与交请假、选课同一条口径：提交不接管，换票开教务交给学校系统。 */
+  const JW_ROOM_ROLES = [
+    ["room", /教室|房间|场地|地点|门牌|自习室|room|jxlsmc|ddmc|fjmc|ddd/i],
+    ["date", /日期|上课日|使用日|skrq|^rq$|date/i],
+    ["slot", /节次|节$|时段|开始时间|结束时间|时间|jc$|sjd|kssj|jssj|time/i],
+    ["cap", /容量|座位|人数|容纳|余位|剩余|cap|seat|rl/i],
+    ["status", /状态|是否|占用|空闲|可用|预约|申请|审核|批准|使用|zt$|state/i],
+  ];
+  const jwRoomText = (v) => (v == null ? "" : String(v).trim().replace(/^(null|undefined)$/i, ""));
+  /* 搜索（铁律十）：一个框里同时认三种输入 —— 原文、拼音首字母、跳字简写。
+     首字母表随插件带一份（pinyin-initials.js 是生成物，事实源是 src/pinyinInitial.js），
+     按需动态加载：装好之前先按原文匹配，装好立刻原地重跑一次，不会出现「打了拼音没反应」。
+     逐字段匹配、绝不把一行拼成长串：拼串会让首字母跨字段连起来
+     （「阶梯教室 / 第一节」→ jtjsjd1），搜 jd 就假命中，而页面上并没有这几个字挨着。 */
+  let roomPinyinMod = null, roomPinyinLoading = null;
+  const loadRoomPinyin = () => roomPinyinLoading
+    || (roomPinyinLoading = import("/plugins/cppu-notify/pinyin-initials.js")
+      .then((m) => (roomPinyinMod = m)).catch(() => null));
+  const roomFieldHits = (field, q) => {
+    const f = String(field || "").toLowerCase().replace(/\s+/g, "");
+    if (!f || !q) return false;
+    if (f.includes(q)) return true;
+    return roomPinyinMod ? roomPinyinMod.initialHit(field, q) : false;
+  };
+  // idx → 这一行的可搜字段。渲染时顺手记下，过滤时不必重算列定义（每敲一个字都算一遍太浪费）。
+  const roomRowFields = new Map();
+  /* 列清单 = funcInfo 声明的列 ∪ 真实返回行的键。后者必须并进来：校方常给「隐藏列」，
+     元信息里不声明但数据里有值，只信元信息会把它们悄悄丢掉。 */
+  function jwRoomCols(rows) {
+    const named = new Map();
+    for (const c of jwFuncMeta.room?.columns || []) if (c.code && !named.has(c.code)) named.set(c.code, c.name || c.code);
+    for (const r of rows.slice(0, 80)) for (const k of Object.keys(r || {})) if (!named.has(k)) named.set(k, k);
+    return [...named.entries()].map(([code, name]) => ({
+      code, name,
+      role: (JW_ROOM_ROLES.find(([, re]) => re.test(`${name} ${code}`)) || ["other"])[0],
+    }));
+  }
+  const jwRoomPick = (r, cols, role) => {
+    const c = cols.find((x) => x.role === role && jwRoomText(r?.[x.code]));
+    return c ? jwRoomText(r[c.code]) : "";
+  };
+  /* 状态着色沿用成绩页四档里的三档：有空 → ok、占用 → bad、待审 → warn，
+     看不懂的文案不给色（校方随时可能加词，不给色比给错色安全）。 */
+  function jwRoomTone(text) {
+    const s = String(text || "");
+    if (/空闲|可用|无人|未占用|可预约|可借|^是$/.test(s)) return "ok";
+    if (/占用|已满|不可用|不可预约|已预约|已借|^否$/.test(s)) return "bad";
+    if (/审核|审批|待|申请中|处理中/.test(s)) return "warn";
+    return "";
+  }
+  function jwRoomGroups(rows, cols) {
+    const mode = jwState.roomGroup;
+    if (mode === "flat") return [["", rows.map((row, idx) => ({ row, idx }))]];
+    const keyOf = (r) => (mode === "date"
+      ? (jwRoomPick(r, cols, "date") || "日期未给出")
+      : (jwRoomPick(r, cols, "room") || "教室未给出"));
+    const map = new Map();
+    for (const [idx, r] of rows.entries()) {
+      const k = keyOf(r);
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push({ row: r, idx });
+    }
+    // 中文/日期混排都按字符序，和教务列表的原顺序不同 —— 但同一间教室挨在一起才扫得动。
+    return [...map.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0]), "zh-CN"));
+  }
+  function jwRoomRowHtml(r, idx, cols, mode) {
+    const take = (role) => {
+      const c = cols.find((x) => x.role === role && jwRoomText(r[x.code]));
+      return c ? { code: c.code, val: jwRoomText(r[c.code]) } : null;
+    };
+    const room = take("room"), date = take("date"), slot = take("slot"), cap = take("cap"), status = take("status");
+    const used = new Set([room, date, slot, cap, status].filter(Boolean).map((x) => x.code));
+    const main = mode === "date"
+      ? (room?.val || "教室未给出")
+      : ([date?.val, slot?.val].filter(Boolean).join(" · ") || "时段未给出");
+    const tags = [
+      mode === "date" ? jwTag(slot?.val || "") : "",
+      cap?.val ? jwTag(`容量 ${cap.val}`) : "",
+      status?.val ? jwTag(status.val, jwRoomTone(status.val)) : "",
+    ].filter(Boolean).join("");
+    const rest = cols.filter((c) => !used.has(c.code) && jwRoomText(r[c.code]));
+    // 可搜字段 = 这一行所有非空单元格，逐格记下来（过滤时按 data-room-idx 取回）。
+    // data-kw 只是首字母表还没装好时的兜底整串，正常路径绝不拿它比 —— 见 roomFieldHits 注释。
+    const fields = cols.map((c) => jwRoomText(r[c.code])).filter(Boolean);
+    roomRowFields.set(idx, fields);
+    const kw = fields.join(" ").toLowerCase();
+    return `<div class="jw-card jw-room-row" data-kw="${esc(kw)}" data-room-idx="${idx}">
+      <div class="jw-card-t">${esc(main)}</div>
+      ${tags ? `<div class="pp-meta">${tags}</div>` : ""}
+      ${rest.length ? `<div class="jw-detail-grid">${rest.map((c) => `<div class="jw-detail-cell"><b>${esc(c.name)}</b><span>${esc(jwRoomText(r[c.code]))}</span></div>`).join("")}</div>` : ""}
+    </div>`;
+  }
+  function jwRoomHtml() {
+    const head = jwStateBlock("room", "正在拉取自习室数据…");
+    if (head) return jwSection("自习室", jwAt("room"), head);
+    const rows = jwState.data.room;
+    if (!Array.isArray(rows)) return jwSection("自习室", jwAt("room"), `<div class="pp-empty">还没有拉取过自习室数据，点上方「刷新」</div>`);
+    if (!rows.length) {
+      return jwSection("自习室", jwAt("room"),
+        `<div class="pp-empty">教务这次没返回自习室记录。若确有开放时段，点「去教务」进「${JW_MENU.room}」查看。</div>`);
+    }
+    roomRowFields.clear();
+    const cols = jwRoomCols(rows);
+    const bar = `<div class="pp-toolbar"><span class="pp-lab">分组</span><div class="pp-chips">`
+      + [["room", "按教室"], ["date", "按日期"], ["flat", "平铺"]].map(([id, label]) =>
+        `<button type="button" class="pp-chip${jwState.roomGroup === id ? " on" : ""}" data-room-group="${id}">${label}</button>`).join("")
+      + `</div><span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>`
+      + `<input class="pp-kw" data-room-filter type="text" value="${esc(jwState.roomFilter || "")}" aria-label="筛选教室 / 时段 / 状态（支持拼音首字母）" placeholder="筛选教室、时段、状态…"></span></div>`
+      + `<div class="pp-meta" data-room-count>共 ${rows.length} 条</div>`;
+    const groups = jwRoomGroups(rows, cols);
+    const list = groups.map(([name, items]) =>
+      (name ? `<div class="jw-group" data-room-group-head>${esc(name)} · ${items.length} 条</div>` : "")
+      + items.map(({ row, idx }) => jwRoomRowHtml(row, idx, cols, jwState.roomGroup)).join("")).join("");
+    return jwSection("自习室", jwAt("room"), bar + list);
+  }
+  /* 过滤在 DOM 上就地做（不重绘）：重绘会把 input 换掉，用户打两个字就丢焦点。
+     组头下一条都没剩就一起藏起来，避免一屏空标题。
+     输入口径见 roomFieldHits：原文 / 拼音首字母 / 跳字简写，且按单元格逐格比。 */
+  function jwApplyRoomFilter(el) {
+    if (!el || !el.isConnected) return;
+    const raw = String(jwState.roomFilter || "").trim();
+    const q = raw.toLowerCase().replace(/\s+/g, "");
+    // 首字母表是按需加载的：拉丁输入在它就绪前先不下结论，装好后原地重跑一次。
+    if (q && !roomPinyinMod && /[a-z]/.test(q)) loadRoomPinyin().then(() => jwApplyRoomFilter(el));
+    const rows = el.querySelectorAll(".jw-room-row");
+    if (!rows.length) return;
+    let shown = 0;
+    for (const row of rows) {
+      const fields = roomRowFields.get(Number(row.dataset.roomIdx));
+      const hit = !q || (Array.isArray(fields)
+        ? fields.some((f) => roomFieldHits(f, q))
+        : String(row.dataset.kw || "").includes(q));
+      row.hidden = !hit;
+      if (hit) shown++;
+    }
+    for (const head of el.querySelectorAll("[data-room-group-head]")) {
+      let n = 0, node = head.nextElementSibling;
+      while (node && !node.hasAttribute("data-room-group-head")) {
+        if (node.classList.contains("jw-room-row") && !node.hidden) n++;
+        node = node.nextElementSibling;
+      }
+      head.hidden = !n;
+    }
+    const count = el.querySelector("[data-room-count]");
+    if (count) {
+      count.textContent = !q ? `共 ${rows.length} 条`
+        : shown ? `匹配 ${shown} / 全部 ${rows.length} 条`
+          : `没有匹配「${raw}」的记录 —— 能搜教室、日期、节次、容量与状态，也可以打拼音首字母（如 jtjs 找「阶梯教室」）`;
+    }
   }
 
   function jwCourseScopeBar() {
@@ -3727,6 +4040,15 @@
       tip: "按学期显示创新实践申报项目、级别、奖项、认定学分和审核状态。",
       body: () => jwInnovationCreditHtml(),
     },
+    {
+      // 自习室查询（教室占用 / 借用）：校方挂在 学生服务 › 公共服务 下，nodeInfo=ZXZYCX。
+      // icon 用 door-open —— 一扇开着的门，语义直给，且与教务子菜单里其余视图图标不撞。
+      // 只读：申请借用仍去教务提交（与交请假、选课同一条口径）。
+      id: "cppu-room", title: "自习室", icon: "door-open", keys: ["room"], menu: JW_MENU.room,
+      kicker: "教 务 · 自 习 室 查 询",
+      tip: "教室占用与开放时段按教室分组；可切成按日期看或平铺，也能按教室 / 时段 / 状态筛选。申请借用仍在教务里提交。",
+      body: () => jwRoomHtml(),
+    },
   ];
 
   function jwShellHtml(cfg) {
@@ -3823,6 +4145,14 @@
         if (!Array.isArray(jwState.data.qjCourse)) await jwEnsureKeys(["qjCourse"]);
         return;
       }
+      // 自习室分组切换：重绘后要把已有的过滤词再套一遍，否则切一次分组过滤就「失效」了
+      const roomGroup = e.target.closest("[data-room-group]");
+      if (roomGroup) {
+        jwState.roomGroup = roomGroup.dataset.roomGroup || "room";
+        jwPaint();
+        jwApplyRoomFilter(el);
+        return;
+      }
       const leaveBtn = e.target.closest("[data-leave-course]");
       if (leaveBtn) {
         jwState.leaveCourseId = leaveBtn.dataset.leaveCourse || "";
@@ -3874,12 +4204,19 @@
     });
     el.addEventListener("input", (e) => {
       if (e.target.matches("[data-leave-reason]")) jwState.leaveReason = e.target.value;
+      // 自习室过滤：只改显隐、不调 jwPaint()，否则输入框会被换掉、每打一个字丢一次焦点
+      if (e.target.matches("[data-room-filter]")) {
+        jwState.roomFilter = e.target.value;
+        jwApplyRoomFilter(el);
+      }
     });
     (async () => {
       await loadPrefs();
       await jwRestoreCache();
       jwPaint();
+      jwApplyRoomFilter(el);
       await jwEnsureKeys(cfg.keys);
+      jwApplyRoomFilter(el);
       // 登录失败保留已有缓存；没有缓存时显示共用登录卡。
       if (!jwLive() && el.isConnected && cfg.keys.some(key => Array.isArray(jwState.data[key]))) {
         for (const key of cfg.keys) jwState.error[key] = `登录失败，正在显示缓存（${jwAt(key)}）；点这条横幅或上方「刷新」可重试，需要重新登录时点「重新登录」。`;
@@ -3935,11 +4272,18 @@
     const s = awState.board.stats;
     const at = awState.syncedAt ? new Date(awState.syncedAt).toLocaleString("zh-CN", { hour12: false }) : "—";
     const cov = awCoverage();
-    const pending = awState.pendingCands ? ` · 还有 ${awState.pendingCands} 条候选没读（再点一次刷新继续）` : "";
-    const affix = awState.affixCount
-      ? ` · 读到附件名单 ${awState.affixCount} 份${awState.affixWait ? `（还有 ${awState.affixWait} 份下一轮读）` : ""}`
+    // 一轮读到底之后，这里的非零只可能来自「撞上单轮预算」或「会话掉线」两种极端情况，
+    // 所以要把话说明白：这是本轮的上限，不是「名单就这些」。
+    const pending = awState.pendingCands
+      ? ` · 还有 ${awState.pendingCands} 条候选没读完（本轮到了单轮上限，再点一次接着读）`
       : "";
-    return `${state.username ? `学号 ${state.username} · ` : ""}已扫 ${state.notices.length} 条通知${cov ? `（覆盖 ${cov}）` : ""} · 命中获奖通知 ${s.notices} 条 · 奖项 ${s.awards} 人次${pending}${affix} · 同步于 ${at}`;
+    const affix = awState.affixCount
+      ? ` · 读到附件名单 ${awState.affixCount} 份${awState.affixWait ? `（还有 ${awState.affixWait} 份本轮没读，再点一次接着读）` : ""}`
+      : "";
+    // 门户会把同一批成绩发两条通知（正文名单一条、附件成绩报告单一条）：award-list 已合并计数，
+    // 这里要说出来，否则用户对不上上一版的通知条数。
+    const merged = s.merged ? `（同一奖项重复发布 ${s.merged} 条已合并）` : "";
+    return `${state.username ? `学号 ${state.username} · ` : ""}已扫 ${state.notices.length} 条通知${cov ? `（覆盖 ${cov}）` : ""} · 命中获奖通知 ${s.notices} 条${merged} · 奖项 ${s.awards} 人次${pending}${affix} · 同步于 ${at}`;
   }
   function awPaint(el) {
     if (!el || el.isConnected === false) return;
@@ -4183,45 +4527,61 @@
     const out = new Map();
     await loadAffixScanned();
     if (!attachMod) await ensureAttachMod();
-    const plan = [];
-    for (const it of cands) {
-      const rid = itemKey(it);
-      const det = state.details[rid];
-      const affixes = Array.isArray(det?.attachments) ? det.attachments : [];
-      if (!affixes.length) continue;
-      const body = String(det?.content || "");
-      for (const att of affixes) {
-        // 两条触发口径：附件名像名单，或正文说了名单在附件 —— 其余附件连请求都不发
-        if (!attachMod.looksLikeAwardAttachment(att.name, body)) continue;
-        if (affixScanned[affixKey(rid, att.name)]) continue;   // 扫过就不再扫
-        plan.push({ rid, att });
-      }
-    }
-    const batch = plan.slice(0, AWARD_AFFIX_MAX);
-    awState.affixWait = Math.max(0, plan.length - batch.length);
+    // 与正文同一口径：一次刷新把「该读的附件」读完，不留「还有 N 份下一轮读」的尾巴
+    // （那同样是让人怀疑漏人的含糊提示）。附件更重，所以单批 12、整轮预算 36；
+    // 读失败的记进 tried，否则 plan 会每圈重新把它捞回来，原地打转。
+    const tried = new Set();
     // 附件同样并发读（以前是一个一个下载解析）。进度行报的是**已读完**的条数：
     // 并发下按完成顺序往前爬，比按提交顺序更能说明还剩多少。
     const conc = await awConcurrency();
     const pace = conc > 1 ? ` · 并发 ${conc}` : "";
-    let done = 0;
-    await awRun(batch, conc, async ({ rid, att }) => {
-      if (!el.isConnected) return;                      // 视图已卸载：这一格不再发请求
-      try {
-        const text = await awAffixFetch(rid, att);
-        if (text) {
-          const cur = out.get(rid) || { text: "", names: [] };
-          cur.text = [cur.text, text].filter(Boolean).join("\n");
-          if (!cur.names.includes(att.name)) cur.names.push(att.name);
-          out.set(rid, cur);
-          awState.affixCount += 1;
+    let readTotal = 0;
+    for (;;) {
+      const plan = [];
+      for (const it of cands) {
+        const rid = itemKey(it);
+        const det = state.details[rid];
+        const affixes = Array.isArray(det?.attachments) ? det.attachments : [];
+        if (!affixes.length) continue;
+        const body = String(det?.content || "");
+        for (const att of affixes) {
+          // 两条触发口径：附件名像名单，或正文说了名单在附件 —— 其余附件连请求都不发
+          if (!attachMod.looksLikeAwardAttachment(att.name, body)) continue;
+          if (affixScanned[affixKey(rid, att.name)]) continue;   // 扫过就不再扫
+          if (tried.has(affixKey(rid, att.name))) continue;      // 本轮已试过（失败的不重试）
+          plan.push({ rid, att });
         }
-        // 读过就记上（哪怕里面没名单）：同一份附件不在每轮刷新里反复下载
-        await markAffixScanned(rid, att.name);
-      } catch { /* 读失败不记标记，下一轮刷新会再试 */ }
-      done += 1;
-      awState.progress = `正在读附件里的获奖名单 ${done}/${batch.length}（${att.name}）${pace}`;
+      }
+      const batch = plan.slice(0, AWARD_AFFIX_MAX);
+      awState.affixWait = Math.max(0, plan.length - batch.length);
+      if (!batch.length) break;
+      for (const { rid, att } of batch) tried.add(affixKey(rid, att.name));
+      let done = 0;
+      await awRun(batch, conc, async ({ rid, att }) => {
+        if (!el.isConnected) return;                      // 视图已卸载：这一格不再发请求
+        try {
+          const text = await awAffixFetch(rid, att);
+          if (text) {
+            const cur = out.get(rid) || { text: "", names: [] };
+            cur.text = [cur.text, text].filter(Boolean).join("\n");
+            if (!cur.names.includes(att.name)) cur.names.push(att.name);
+            out.set(rid, cur);
+            awState.affixCount += 1;
+          }
+          // 读过就记上（哪怕里面没名单）：同一份附件不在每轮刷新里反复下载
+          await markAffixScanned(rid, att.name);
+        } catch { /* 读失败不记标记，下一轮刷新会再试 */ }
+        done += 1;
+        awState.progress = `正在读附件里的获奖名单 ${done}/${batch.length}（${att.name}）${pace}`;
+        awPaint(el);
+      }, () => !el.isConnected);
+      if (!el.isConnected) break;
+      readTotal += batch.length;
+      if (readTotal >= AWARD_AFFIX_BUDGET) break;
+      if (plan.length <= batch.length) break;              // 这批就是全部，没有下一批
+      awState.progress = `附件名单已读 ${readTotal} 份，接着读剩下的 ${plan.length - batch.length} 份…${pace}`;
       awPaint(el);
-    }, () => !el.isConnected);
+    }
     return out;
   }
 
@@ -4272,25 +4632,42 @@
       }
       // 先按标题筛「像获奖」的（这一步免费），再逐条读正文由 award-list.js 判定收不收。
       const cands = state.notices.filter((it) => mod.titleLooksAward(titleOf(it)));
-      // 已读过正文的（上一轮读的、或用户在通知视图里点开过的）不重复请求；一轮读不完的留到下一轮，
-      // 于是「再点一次刷新」能继续往前推进，而不是每次都在同一批候选上打转。
-      const unread = cands.filter((it) => !state.details[itemKey(it)]?.content);
-      const batch = unread.slice(0, AWARD_NOTICE_MAX);
-      awState.pendingCands = Math.max(0, unread.length - batch.length);
-      let failed = 0, sessionLost = false;
+      // 已读过正文的（上一轮读的、或用户在通知视图里点开过的）不重复请求。
+      // ⚠️ 必须「一轮读到底」：过去读满一批（AWARD_NOTICE_MAX 条）就收工、剩下的留给「再点一次」，
+      // 于是状态行长期挂着「还有 89 条候选没读」—— 而漏人恰恰是这一页唯一不能出的错，
+      // 一条含糊的尾巴等于让人自己去猜。现在改成同一轮里续批，直到没有未读候选 / 用完预算 /
+      // 视图卸载 / 会话掉线。failed 的条目记进 tried：正文没读到的条目 content 永远为空，
+      // 不排除掉就会在下一圈里对同一条反复发请求。
+      const unreadAll = () => cands.filter((it) => !state.details[itemKey(it)]?.content);
+      const tried = new Set();
+      let failed = 0, sessionLost = false, readTotal = 0;
       // 正文并发读：一串 60 条候选 × 门户 300~600ms 的串行等待是这套同步里最长的一段，
       // 并发数读「设置 → 警大获奖名单 → 读取并发数」（默认 3，上限 8，键见 award-pool.js）。
       const conc = await awConcurrency();
       const pace = conc > 1 ? ` · 并发 ${conc}` : "";
-      let done = 0;
-      await awRun(batch, conc, async (it) => {
-        if (!el.isConnected) return;                    // 视图已卸载：这一格不再发请求
-        // 会话型失败要记下来：下一轮「刷新」若还信 sessionOk，就只会在同一堵墙上再撞一次。
-        try { await awDetailFetch(itemKey(it)); } catch (e) { failed += 1; if (awSessionError(e)) sessionLost = true; }
-        done += 1;
-        awState.progress = `正在读正文筛选获奖名单 ${done}/${batch.length}（候选 ${cands.length} 条）${pace}`;
+      for (;;) {
+        const left = unreadAll();
+        const batch = left.filter((it) => !tried.has(itemKey(it))).slice(0, AWARD_NOTICE_MAX);
+        awState.pendingCands = Math.max(0, left.length - batch.length);
+        if (!batch.length) break;
+        for (const it of batch) tried.add(itemKey(it));
+        let done = 0;
+        await awRun(batch, conc, async (it) => {
+          if (!el.isConnected) return;                    // 视图已卸载：这一格不再发请求
+          // 会话型失败要记下来：下一轮「刷新」若还信 sessionOk，就只会在同一堵墙上再撞一次。
+          try { await awDetailFetch(itemKey(it)); } catch (e) { failed += 1; if (awSessionError(e)) sessionLost = true; }
+          done += 1;
+          awState.progress = `正在读正文筛选获奖名单 ${readTotal + done} 条（本批 ${done}/${batch.length} · 待读 ${left.length} 条）${pace}`;
+          awPaint(el);
+        }, () => !el.isConnected);
+        if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
+        readTotal += batch.length;
+        // 会话掉了就先停：在一条已经死掉的会话上把剩下几百条全撞一遍，只会把「名单不全」拖得更久。
+        if (sessionLost || readTotal >= AWARD_CAND_BUDGET) break;
+        if (!unreadAll().length) break;
+        awState.progress = `候选正文已读 ${readTotal} 条，接着读剩下的 ${unreadAll().length} 条…${pace}`;
         awPaint(el);
-      }, () => !el.isConnected);
+      }
       // 池子跑完才发现视图已经关掉：这时状态要收干净（与串行版逐条判断的收尾一致）
       if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
       // 附件阶段：正文里没有名单的通知，名单多半在附件上。只读「该读的」（附件名像名单，

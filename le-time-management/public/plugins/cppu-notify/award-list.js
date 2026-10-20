@@ -3,6 +3,9 @@
 // 口径：只认通知里明确的获奖段落（级别行、名单标签行、纯姓名行）；说到「获奖」但没逐字
 // 列人的通知不出条目 —— 宁少不滥，界面上的名次永远能回到某条通知的某句话。
 
+// 搜索的拼音支持（首字母 / 跳字简写）。表是生成物，见 tools/gen-cppu-pinyin.js。
+import { initialHit } from "./pinyin-initials.js";
+
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 /* ── 奖项级别 / 层级 ── */
@@ -329,7 +332,9 @@ export function rankNames(items = []) {
         row.count += 1;
         if (g.kind === "team") row.fromTeams += 1;
         row.hits.push({
-          project: item.project, title: item.title, level: item.level, scope: item.scope,
+          // 级别取这条 group 自己的：一条通知里同时有一二三等奖很常见，用整条通知的汇总级别
+          // 会让同一个人拿到的两个不同级别都显示成同一个词，看上去就像两条重复记录。
+          project: item.project, title: item.title, level: g.level || item.level, scope: item.scope,
           date: Number(item.date || 0), rid: item.rid, fromTeam: g.kind === "team",
           attach: !!(item.affix && item.affix.length),
         });
@@ -373,31 +378,103 @@ export function awardBearer(g = {}) {
   return joinPeople(awardNamesOf(g));
 }
 
+/* 同一条通知里「同名同级别」出现多次：正文与附件粗扫各扫到一个，或同一段被重复抽取。
+   对奖项口径而言这是同一项，先合掉 —— 人名榜按 group 计数，重复 group 会让一个人凭空多算 1 项。
+   note（队名 / 备注）不参与判定，取第一个非空的即可。 */
+function foldGroups(groups = []) {
+  const out = new Map();
+  for (const g of Array.isArray(groups) ? groups : []) {
+    if (!g || !g.name) continue;
+    const key = `${g.kind}|${g.name}|${g.level || ""}`;
+    const cur = out.get(key);
+    if (!cur) {
+      out.set(key, { ...g, members: [...(g.members || [])] });
+      continue;
+    }
+    cur.members = [...new Set([...(cur.members || []), ...(g.members || [])])];
+    if (!cur.note && g.note) cur.note = g.note;
+  }
+  return [...out.values()];
+}
+function groupsSummary(groups = []) {
+  const people = [...new Set(groups.filter((g) => g.kind === "person").map((g) => g.name))];
+  const teamMap = new Map();
+  for (const g of groups.filter((g) => g.kind === "team")) {
+    const cur = teamMap.get(g.name) || { name: g.name, members: new Set() };
+    for (const m of g.members || []) cur.members.add(m);
+    teamMap.set(g.name, cur);
+  }
+  const teamMembers = [...teamMap.values()].map((t) => ({ name: t.name, members: [...t.members] }));
+  const teams = teamMembers.map((t) => t.name);
+  return {
+    people, teams, teamMembers,
+    kind: people.length && teams.length ? "mixed" : teams.length ? "team" : "person",
+  };
+}
+/* 同一奖项常被门户发两条通知（「获奖名单」发一遍，附件里的成绩报告单再发一遍）：rid 不同、
+   项目与级别相同、名单是同一批人。不合并的话，人名榜里同一个人会凭空多记 1 项，展开里就是
+   两条一模一样（只差来源 rid）—— 这正是「通知里有了、附件里又来一次」的样子。
+   判据三项全中才算同一奖项：项目同名 + 级别同名 + 署名对象（姓名或队名）有交集；
+   交集为空就当两条不同赛事，绝不错并。 */
+function awardBearers(item = {}) {
+  return new Set([...(item.people || []), ...(item.teams || [])]);
+}
+function sameAward(a, b) {
+  if (String(a.project || "") !== String(b.project || "")) return false;
+  if (String(a.level || "") !== String(b.level || "")) return false;
+  const mine = awardBearers(a);
+  for (const one of awardBearers(b)) if (mine.has(one)) return true;
+  return false;
+}
+// 主来源取「名单更全 → 带附件 → 更新」的那条：点回去要在那条通知里真能找到这些人。
+function betterSource(a, b) {
+  const ga = (a.groups || []).length, gb = (b.groups || []).length;
+  if (ga !== gb) return ga > gb;
+  const fa = (a.affix || []).length, fb = (b.affix || []).length;
+  if (fa !== fb) return fa > fb;
+  return Number(a.date || 0) > Number(b.date || 0);
+}
+function mergeAward(into, extra) {
+  const groups = foldGroups([...(into.groups || []), ...(extra.groups || [])]);
+  const sum = groupsSummary(groups);
+  const merged = {
+    ...into,
+    groups,
+    people: sum.people, teams: sum.teams, teamMembers: sum.teamMembers, kind: sum.kind,
+    mentors: [...new Set([...(into.mentors || []), ...(extra.mentors || [])])],
+    affix: [...new Set([...(into.affix || []), ...(extra.affix || [])])].slice(0, 4),
+    date: Math.max(Number(into.date || 0), Number(extra.date || 0)),
+    mergedRids: [...new Set([...(into.mergedRids || [into.rid]), ...(extra.mergedRids || [extra.rid])].filter(Boolean))],
+  };
+  if (betterSource(extra, into)) { merged.rid = extra.rid; merged.title = extra.title; }
+  return merged;
+}
+
 export function buildAwardBoard(records = []) {
   const items = [];
   for (const rec of Array.isArray(records) ? records : []) {
     if (!rec || !Array.isArray(rec.groups) || !rec.groups.length) continue;
-    const people = [...new Set(rec.groups.filter((g) => g.kind === "person").map((g) => g.name))];
-    const teamMap = new Map();
-    for (const g of rec.groups.filter((g) => g.kind === "team")) {
-      const cur = teamMap.get(g.name) || { name: g.name, members: new Set() };
-      for (const m of g.members || []) cur.members.add(m);
-      teamMap.set(g.name, cur);
-    }
-    const teamMembers = [...teamMap.values()].map((t) => ({ name: t.name, members: [...t.members] }));
-    const teams = teamMembers.map((t) => t.name);
-    if (!people.length && !teams.length) continue;
+    const groups = foldGroups(rec.groups);
+    const sum = groupsSummary(groups);
+    if (!sum.people.length && !sum.teams.length) continue;
     items.push({
       rid: rec.rid, title: rec.title, project: rec.project, date: Number(rec.date || 0),
-      level: rec.level, scope: rec.scope, groups: rec.groups, mentors: rec.mentors || [],
+      level: rec.level, scope: rec.scope, groups, mentors: rec.mentors || [],
       // 名单是从这条通知的哪个附件里读出来的（没有附件来源就是空数组）。
       // 只存附件名，不存附件内容 —— 附件文本在同步那一轮用完即弃（见 main.js 的 awAffixText）。
       affix: Array.isArray(rec.affix) ? rec.affix.filter(Boolean).slice(0, 4) : [],
-      people, teams, teamMembers,
-      kind: people.length && teams.length ? "mixed" : teams.length ? "team" : "person",
+      people: sum.people, teams: sum.teams, teamMembers: sum.teamMembers, kind: sum.kind,
     });
   }
-  const sorted = sortAwardItems(items, "desc");
+  const folded = [];
+  let mergedAwards = 0;
+  for (const it of items) {
+    const hit = folded.find((cur) => sameAward(cur, it));
+    if (!hit) { folded.push({ ...it, mergedRids: [it.rid] }); continue; }
+    mergedAwards += 1;
+    folded[folded.indexOf(hit)] = mergeAward(hit, it);
+  }
+  const sorted = sortAwardItems(folded, "desc");
   const names = rankNames(sorted);
   return {
     items: sorted,
@@ -406,6 +483,9 @@ export function buildAwardBoard(records = []) {
     names,
     stats: {
       notices: sorted.length,
+      // 门户对同一奖项发了第二遍（名单 + 成绩报告单附件）时被合并掉的条数：
+      // 列表与计数都只认一份，这里报个数，免得用户以为通知被漏掉了。
+      merged: mergedAwards,
       people: new Set(sorted.flatMap((i) => i.people)).size,
       teams: new Set(sorted.flatMap((i) => i.teams)).size,
       names: names.length,
@@ -460,6 +540,22 @@ function styles() {
 .aw-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:13px 0 9px}
 .aw-lab{font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-3,#7E8B94)}
 .aw-total{font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-3,#7E8B94);white-space:nowrap}
+/* 搜索：收起态只是一个放大镜图标，点开才铺成输入框（双向都走 max-width 插值，铁律七）。
+   不常驻输入框是为了不占掉工具行：这一行已经有两组单选，180 名以上的名单平时是「滚着看」的。 */
+.aw-search{display:inline-flex;align-items:center;flex:0 1 auto;max-width:36px;height:36px;border:1px solid transparent;border-radius:11px;overflow:hidden;background:transparent;transition:max-width .3s cubic-bezier(.2,.8,.2,1),border-color .2s ease,background .2s ease}
+.aw-search[data-open=true]{flex:1 1 190px;max-width:240px;border-color:var(--line);background:var(--panel)}
+.aw-search button{flex:none;display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:0;border:0;border-radius:9px;background:transparent;color:var(--ink-2,#4A5A66);cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:color .18s ease,background .18s ease}
+.aw-search button:hover{color:var(--deep);background:color-mix(in srgb,var(--deep) 9%,var(--panel))}
+.aw-search button:focus-visible{outline:2px solid color-mix(in srgb,var(--deep) 55%,transparent);outline-offset:-2px}
+.aw-search svg{width:15px;height:15px;display:block}
+.aw-search input{flex:1 1 auto;width:100%;min-width:0;border:0;background:transparent;font:inherit;font-size:calc(12px * var(--ui-text-scale));color:var(--ink);padding:0;opacity:0;transition:opacity .14s ease}
+.aw-search[data-open=true] input{opacity:1;transition:opacity .18s ease .1s}
+/* type=search 的原生清除叉与自建清除按钮重复，藏掉原生的 */
+.aw-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;display:none}
+.aw-search .aw-search-clear{opacity:0;pointer-events:none;transition:opacity .16s ease}
+.aw-search[data-open=true] .aw-search-clear{opacity:1;pointer-events:auto}
+.aw-search .aw-search-clear[hidden]{display:none}
+[data-theme-mode=dark] .aw-search[data-open=true]{background:color-mix(in srgb,var(--deep) 10%,var(--panel))}
 .aw-list{display:grid;gap:8px;margin:0;padding:0;list-style:none}
 .aw-item{border:1px solid var(--line);border-radius:13px;background:color-mix(in srgb,var(--deep) 4%,var(--panel));overflow:hidden}
 .aw-row{display:flex;align-items:center;gap:9px;width:100%;box-sizing:border-box;font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:11px 13px;min-height:46px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:background .16s ease}
@@ -511,9 +607,48 @@ function styles() {
 [data-theme-mode=dark] .aw-tag.grp{background:color-mix(in srgb,var(--mint,#3E9C7A) 22%,var(--panel));color:color-mix(in srgb,var(--mint,#3E9C7A) 60%,var(--ink))}
 [data-theme-mode=dark] .aw-tag.affix{background:color-mix(in srgb,var(--deep) 22%,var(--panel));color:color-mix(in srgb,var(--ink) 88%,var(--panel))}
 .aw-affix{color:inherit}
-@media(max-width:620px){.aw-panel{padding:12px}.aw-row{gap:7px;padding:10px}.aw-date{display:none}.aw-bar{flex-basis:80px}.aw-seg button{padding:8px 10px}}
+@media(max-width:620px){.aw-panel{padding:12px}.aw-row{gap:7px;padding:10px}.aw-date{display:none}.aw-bar{flex-basis:80px}.aw-seg button{padding:8px 10px}
+.aw-search[data-open=true]{flex:1 1 100%;max-width:100%}}
 @media(prefers-reduced-motion:reduce){.aw-arrow,.aw-shell,.aw-row{transition-duration:.01ms!important}}`;
   document.head.append(node);
+}
+
+/* ── 搜索 ──
+   一个框里同时认「姓名 / 奖项项目 / 级别 / 来源通知标题」：用户大多是拿着一个人的名字来查
+   他得过什么，偶尔反过来按比赛名查；两档都覆盖才不用来回切模式。
+   口径：队名照旧不进任何可搜字段（团体只按成员姓名署名），所以搜队名搜不到 —— 与「队名不出现在
+   本页任何位置」是同一条边界，不是搜索的漏。 */
+const normQuery = (s) => String(s || "").toLowerCase().replace(/\s+/g, "");
+/* 逐字段匹配，不把整行拼成一个长串再 includes：
+   拼串会让首字母串跨人名连起来（"张三 李四" → zsls，搜 sl 就假命中），
+   而逐字段时每个人的首字母各自成串，误配只可能落在一个人名内部。 */
+function fieldHits(field, q) {
+  if (!q || !field) return false;
+  if (normQuery(field).includes(q)) return true;
+  // 拉丁字母 / 数字走拼音：首字母串包含（wct ⊂ 王晨听）或跳字简写（wt ⊂ 王晨听）。
+  // 搜奖项项目同理：国家奖学金 → gjxjx，搜 jxj / gjxjx 都命中。
+  return initialHit(field, q);
+}
+function textHits(parts = [], q = "") {
+  if (!q) return true;
+  return parts.filter(Boolean).some((p) => fieldHits(p, q));
+}
+function itemHitsQuery(item = {}, q = "") {
+  return textHits([
+    item.project, item.title, item.level, item.scope,
+    ...(item.people || []),
+    // 团体成员算到人头上（与「署名到人」同一口径）；队名本身不参与匹配。
+    ...(item.teamMembers || []).flatMap((t) => t.members || []),
+    ...(item.mentors || []),
+  ], q);
+}
+function rowHitsQuery(row = {}, q = "") {
+  return textHits([
+    row.name,
+    ...(row.members || []),
+    // 每次获奖的字段分开算，别拼成一串（同上面的跨字段误配理由）。
+    ...(row.hits || []).flatMap((h) => [h.project, h.title, h.level]),
+  ], q);
 }
 
 // 一行获奖项目：有 rid 就整行做成按钮（点回原通知核对），没有 rid 时退化成纯展示行。
@@ -571,7 +706,7 @@ function itemsHtml(items) {
     }).join("")}</div></div>` : ""}
     ${unlisted ? `<div class="aw-group"><b>${unlisted} 个团体获奖未列出成员姓名（无姓名可署名，不计入本页）</b></div>` : ""}
     ${item.mentors.length ? `<div class="aw-group"><b>指导教师 / 领队（不计入排名）</b><div class="aw-pills">${item.mentors.map((m) => `<span class="aw-pill">${esc(m)}</span>`).join("")}</div></div>` : ""}
-    <div class="aw-src">来源通知：<button type="button" data-aw-source="${esc(item.rid)}">${esc(item.title)}</button>${item.affix?.length ? `<span class="aw-affix">（获奖名单来自附件：${esc(item.affix.join("、"))}）</span>` : ""}</div>
+    <div class="aw-src">来源通知：<button type="button" data-aw-source="${esc(item.rid)}">${esc(item.title)}</button>${item.affix?.length ? `<span class="aw-affix">（获奖名单来自附件：${esc(item.affix.join("、"))}）</span>` : ""}${(item.mergedRids?.length || 0) > 1 ? `<span class="aw-affix">（另有 ${item.mergedRids.length - 1} 条通知是同一奖项，已合并计数）</span>` : ""}</div>
   </div></div></div>
 </li>`;
   }).join("");
@@ -582,6 +717,9 @@ export async function createAwardPanel(storage, options = {}) {
   // 老宿主没有这一口时退回「只切选中态」的瞬变，不抛错。
   const glowFor = typeof options.selectionGlow === "function" ? options.selectionGlow : null;
   let mode = "items", kind = "person", order = "desc", status = "", last = null, saving = false, dirty = false;
+  // 搜索词只活在内存里（与 mode/kind/order 那种落盘偏好不同）：它是「这一次想找谁」，
+  // 下次打开视图还留着半截关键词反而会让人以为名单少了人。
+  let query = "";
   // 人名榜默认关闭（开关在设置页「警大获奖名单」），关着时连分段按钮都不出现。
   let namesBoard = false;
   try {
@@ -621,7 +759,7 @@ export async function createAwardPanel(storage, options = {}) {
   const shellHtml = () => `<section class="aw-panel">
   <div class="aw-head"><div><div class="aw-kicker">警 大 门 户 通 知 · 获 奖 名 单</div><h3>获奖人员一览</h3></div>${segHtml("mode")}</div>
   <p class="aw-meta" data-aw-meta></p>
-  <div class="aw-tools"><span class="aw-lab" data-aw-lab="order">时间</span>${segHtml("order")}<span class="aw-lab" data-aw-lab="kind">类别</span>${segHtml("kind")}<span style="flex:1"></span><span class="aw-total" data-aw-total></span></div>
+  <div class="aw-tools"><span class="aw-lab" data-aw-lab="order">时间</span>${segHtml("order")}<span class="aw-lab" data-aw-lab="kind">类别</span>${segHtml("kind")}<span style="flex:1"></span><span class="aw-total" data-aw-total></span><div class="aw-search" data-aw-search data-open="false"><button type="button" data-aw-search-toggle aria-expanded="false" aria-label="搜索获奖记录" title="搜索姓名（支持拼音首字母与简写）/ 奖项项目 / 通知标题"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.1"/><path d="M10.1 10.1 14 14"/></svg></button><input type="search" data-aw-q placeholder="姓名 / 简写 / 奖项" aria-label="搜索姓名、奖项项目或通知标题（支持拼音首字母与简写）" autocomplete="off" spellcheck="false"><button type="button" class="aw-search-clear" data-aw-search-clear aria-label="清除搜索" title="清除" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"/></svg></button></div></div>
   <div data-aw-body></div>
   <p class="aw-note">名单来自通知正文里明确的获奖段落（「获奖名单如下」「获奖人员：」这类标签行，或整行只有姓名的名单行）；奖项项目名、级别与层级由通知文字归类，指导教师与领队只展示、不计入排名。团体获奖一律按获奖人姓名署名，队名不出现在本页任何位置；通知只写了队名、没按人列成员的团体因为没有姓名可署名，不进人员清单也不进排名（会在条目里标出个数）。通知只说「取得佳绩」却没有逐字列人时不会有条目，也不代表无人获奖。</p>
   <p class="aw-status" role="status" aria-live="polite"></p>
@@ -649,7 +787,38 @@ export async function createAwardPanel(storage, options = {}) {
         btn.onclick = () => choose(name, btn.dataset[SEG_DATA[name]]);
       }
     }
+    bindSearch(root);
     attachGlows(root);
+  }
+
+  /* 搜索框：一个放大镜图标，点开才铺成输入框（收起时关键词留着，只把框收窄）。
+     真正清空只有清除按钮与 Esc —— 「先收起看一眼全榜、再点开接着搜」不该丢词。 */
+  function bindSearch(root) {
+    const box = root.querySelector("[data-aw-search]");
+    const input = root.querySelector("[data-aw-q]");
+    const toggle = root.querySelector("[data-aw-search-toggle]");
+    const clear = root.querySelector("[data-aw-search-clear]");
+    if (!box || !input || !toggle) return;
+    const syncClear = () => { if (clear) clear.hidden = !query; };
+    const setOpen = (open) => {
+      box.dataset.open = String(open);          // CSS 负责 max-width 的双向过渡（铁律七）
+      toggle.setAttribute("aria-expanded", String(open));
+      if (open) input.focus?.();
+    };
+    // 即时重绘：名单最长几百行，一次 innerHTML 比「输入法组合期间的事件洪峰」便宜；
+    // 加去抖反而会让中文输入的回车/选词与列表错半拍。
+    const apply = () => { query = String(input.value ?? ""); syncClear(); paint(); };
+    toggle.onclick = () => setOpen(box.dataset.open !== "true");
+    // 用属性式绑定而不是 addEventListener：壳只建一次，重建后 bindSearch 会再挂一遍；
+    // 顺带让没有事件系统的迷你 DOM 也能测。
+    input.oninput = apply;
+    input.onkeydown = (e) => {
+      if (e?.key !== "Escape") return;
+      if (query) { input.value = ""; apply(); } else setOpen(false);
+    };
+    if (clear) clear.onclick = () => { input.value = ""; apply(); input.focus?.(); };
+    input.value = query;                        // 换视图回来重建壳时把词填回去
+    syncClear();
   }
 
   function choose(group, value) {
@@ -690,37 +859,50 @@ export async function createAwardPanel(storage, options = {}) {
     markGroup(root, "kind", kind, mode === "rank");
     root.querySelector("[data-aw-meta]").innerHTML = `已识别 <b>${stats.notices}</b> 条获奖通知 · 奖项 <b>${stats.awards}</b> 人次 · 署名到人 <b>${stats.awarded ?? stats.people}</b> 位${stats.unlisted ? ` · 另有 <b>${stats.unlisted}</b> 个团体获奖未列成员姓名` : ""}${stats.latest ? ` · 最近一条 ${esc(fmtDate(stats.latest))}` : ""}${meta.syncedAt ? ` · 同步于 ${esc(new Date(meta.syncedAt).toLocaleString("zh-CN", { hour12: false }))}` : ""}`;
 
-    let list = [], rows = [], total = "", body;
+    // 搜索：三档共用同一个词。名次与顺序都不改 —— 过滤只决定「显示谁」，
+    // 第 2 名不会因为筛掉几个人就变成第 1 名。
+    const q = normQuery(query);
+    const qText = String(query || "").trim();
+    let list = [], rows = [], all = [], total = "", body;
+    const noHit = (what) => `<div class="aw-empty">没有匹配「${esc(qText)}」的${what}。<br>搜的是姓名（含团体成员）、奖项项目、级别与来源通知标题，也认拼音首字母与跳字简写（「王晨听」可搜 wct / wt / ct）；队名不参与搜索。${all.length ? `<br>清掉搜索框可以看到全部 ${all.length} 条。` : ""}</div>`;
     if (!stats.notices) {
       body = `<div class="aw-empty">${meta.progress ? esc(meta.progress) : meta.error ? "同步失败" : "还没有可展示的获奖记录"}<br>${meta.error ? esc(meta.error) : "读到的通知里还没有明确的获奖名单段落——点上方「刷新」重试，或去通知视图确认是否已加载更早的通知。"}</div>`;
     } else if (mode === "items") {
-      list = order === "asc" ? [...board.items].reverse() : board.items;
-      total = `${list.length} 个奖项项目`;
-      body = `<ul class="aw-list" data-aw-list>${itemsHtml(list)}</ul>`;
+      all = order === "asc" ? [...board.items].reverse() : board.items;
+      list = q ? all.filter((it) => itemHitsQuery(it, q)) : all;
+      total = q ? `匹配 ${list.length} / ${all.length} 个奖项项目` : `${all.length} 个奖项项目`;
+      body = list.length ? `<ul class="aw-list" data-aw-list>${itemsHtml(list)}</ul>`
+        : q ? noHit("奖项项目")
+          : `<div class="aw-empty">读到的通知里还没有可展示的奖项项目。</div>`;
     } else if (mode === "names") {
-      rows = (board.names || []).map((row, i) => ({ ...row, id: `nm${i}`, key: `nm:${row.name}` }));
-      total = `${rows.length} 位（含团体成员）${rows.length ? ` · 最高 ${rows[0].count} 项` : ""}`;
+      all = (board.names || []).map((row, i) => ({ ...row, id: `nm${i}`, key: `nm:${row.name}` }));
+      rows = q ? all.filter((row) => rowHitsQuery(row, q)) : all;
+      total = q ? `匹配 ${rows.length} / ${all.length} 位（含团体成员）`
+        : `${rows.length} 位（含团体成员）${rows.length ? ` · 最高 ${rows[0].count} 项` : ""}`;
       body = rows.length ? `<ul class="aw-list" data-aw-list>${rowsHtml(rows, "names")}</ul>`
-        : `<div class="aw-empty">还没有出现过人名：通知正文里没有明确的获奖人姓名，或团体没有按人列出成员。</div>`;
+        : q ? noHit("获奖人") : `<div class="aw-empty">还没有出现过人名：通知正文里没有明确的获奖人姓名，或团体没有按人列出成员。</div>`;
     } else {
       // 团体档的 key 也只用成员姓名拼：队名不许以任何形式落到 HTML 源码里（连 data-* 都不行），
       // 免得有人翻 DOM 又看见队名；同一组成员 → 同一个 key，展开态照样能复现。
-      rows = (kind === "team" ? board.teams : board.people).map((row, i) => ({
+      all = (kind === "team" ? board.teams : board.people).map((row, i) => ({
         ...row, rank: row.rank, id: `r${i}`,
         key: kind === "team" ? `t:${joinPeople(row.members)}` : `p:${row.name}`,
       }));
-      total = `${rows.length} ${kind === "team" ? "组（按成员署名）" : "位个人"}${rows.length ? ` · 最高 ${rows[0].count} 项` : ""}`;
+      rows = q ? all.filter((row) => rowHitsQuery(row, q)) : all;
+      total = q ? `匹配 ${rows.length} / ${all.length} ${kind === "team" ? "组（按成员署名）" : "位个人"}`
+        : `${rows.length} ${kind === "team" ? "组（按成员署名）" : "位个人"}${rows.length ? ` · 最高 ${rows[0].count} 项` : ""}`;
       body = rows.length ? `<ul class="aw-list" data-aw-list>${rowsHtml(rows, kind)}</ul>`
-        : `<div class="aw-empty">这类记录还没有：${kind === "team" ? "通知里的团体获奖都还没按人列出成员姓名（没有姓名可署名）" : "通知里没有出现个人获奖名单"}</div>`;
+        : q ? noHit(kind === "team" ? "团体成员" : "个人")
+          : `<div class="aw-empty">这类记录还没有：${kind === "team" ? "通知里的团体获奖都还没按人列出成员姓名（没有姓名可署名）" : "通知里没有出现个人获奖名单"}</div>`;
     }
     const totalEl = root.querySelector("[data-aw-total]");
     if (totalEl) totalEl.textContent = total;
     root.querySelector(".aw-status").textContent = meta.progress || meta.error || status || "";
     for (const glow of glows) glow?.sync?.();
 
-    // 列表 DOM 只在内容真变时重建（换模式 / 换类别 / 数据或进度变了），
+    // 列表 DOM 只在内容真变时重建（换模式 / 换类别 / 搜索词 / 数据或进度变了），
     // 连点分组按钮不会把已经展开的条目推倒重来。
-    const sig = [mode, kind, order, stats.notices, stats.people, stats.teams, stats.awards,
+    const sig = [mode, kind, order, q, stats.notices, stats.people, stats.teams, stats.awards,
       meta.progress || "", meta.error || "",
       mode === "items" ? list.map((i) => i.rid).join(",") : rows.map((r) => r.key).join(",")].join("|");
     const bodyEl = root.querySelector("[data-aw-body]");

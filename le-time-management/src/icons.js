@@ -51,6 +51,9 @@ const VIEW_ICONS8 = {
   "cppu-credit": ["line-chart", "combo-chart--v1", "statistics"],
   "cppu-cx": ["medal", "medal2", "diploma"],
   "cppu-calendar": ["calendar", "calendar--v1"],
+  // 自习室：教室语义（不是 calendar —— 那是警大校历的）。
+  // 首选 classroom 是随包 PNG 的实际来源（tools/icon-masters 里没有、也不许有它的母版）。
+  "cppu-room": ["classroom", "door", "open-door"],
   "cppu-growth": ["sprout", "seedling", "plant-under-sun"],
   "cppu-profile": ["contact-card", "id-card", "business-contact"],
   // 上网记录：Dr.COM 自助服务的流量账单，取「联网」语义（不是图表 —— line-chart 已是警大成绩）。
@@ -71,6 +74,8 @@ const VIEW_FA_ICONS = {
   "cppu-credit": "chart-line",
   "cppu-cx": "medal",
   "cppu-calendar": "calendar-week",
+  // 自习室 用 door-open：一扇开着的门，与教务子菜单里其余视图图标都不撞。
+  "cppu-room": "door-open",
   "cppu-growth": "seedling",
   // 个人信息 用 address-card（不是 id-card，那是本插件侧栏「学工」入口的图标）。
   "cppu-profile": "address-card",

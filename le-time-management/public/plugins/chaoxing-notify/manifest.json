@@ -1,10 +1,10 @@
 {
   "id": "chaoxing-notify",
   "name": "学习通",
-  "version": "2.20.0",
+  "version": "2.21.0",
   "author": "基于 dsh-user/chaoxing-notify-skill v2.0.0 · U-Time适配",
   "icon": "graduation-cap",
-  "description": "同步学习通收件箱、待办作业与课程：截止时间可一键转提醒，作业按提交状态分档；右键卡片（手机端长按）可给卡片上色。",
+  "description": "同步学习通收件箱、待办作业与课程：截止时间可一键转提醒，作业按提交状态分档；点课程卡片进入课件界面，按章节列出课件/视频/附件并可下载；右键卡片（手机端长按）可给卡片上色。",
   "permissions": [
     "ui",
     "tasks",

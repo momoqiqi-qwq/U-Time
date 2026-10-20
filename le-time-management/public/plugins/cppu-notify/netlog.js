@@ -26,9 +26,10 @@ export function createNetLogView(tide, bridge) {
   const FRESH_MS = 60 * 1000;
   const TREND_DAYS = 14; // 趋势图最多铺 14 个自然日（缺网的日子补 0，不跳过）
   const NIGHT_SHOW = 12; // 熬夜条最多列 12 夜（再往前翻明细看）
-  // 一夜最多算到「阈值 + 8 小时」（春季 22:20 → 次日 06:20，冬学期 22:00 → 06:00）。
+  // 一夜只算到「次日 06:00」：冬学期 22:00→06:00 共 8 小时，春季 22:20→06:00 共 7 小时 40 分。
+  // 早先按「阈值 + 8 小时」收口，春季会拖到 06:20，和「到凌晨 6 点」的说法对不上。
   // 不设上限的话，挂机两天没下线的那条记录会把「熬夜」算成 30 小时，数值失去意义。
-  const NIGHT_SPAN = 8 * 60;
+  const NIGHT_END = 30 * 60; // 该夜 00:00 起算 → 次日 06:00
 
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const clean = (v) => {
@@ -135,7 +136,11 @@ export function createNetLogView(tide, bridge) {
   const svgIcon = (name, cls = "nlog-ico") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${ICON[name] || ""}</svg>`;
 
   /* ── 熬夜口径 ─────────────────────────────────────────────────────────
-     用户口径：春季学期 22:20 之后、冬学期 22:00 之后仍连着校园网的时间算熬夜。
+     **这个指标没有官方定义。** 校园网日志接口只给 loginTime / logoutTime / 时长 / 流量，
+     不存在「熬夜」字段，所以下面是本插件自己按在线区间推的口径：
+       窗口 = 当晚阈值（春 22:20 / 冬 22:00）→ **次日 06:00**；
+       窗口外的在线（比如熬到第二天下午）不计入熬夜时长，只在「最晚下线」里如实显示
+       并标注「超出窗口」，避免把 13:17 下线读成「熬夜算到 13:17」。
      学期怎么定：校历（calendar 那份 storage）里存了当前学期名，名字里带「春」按春季、
      带「冬 / 秋」按冬学期；校历没同步过就按月份兜底（2–7 月春季，8 月–次年 1 月冬学期）。
      阈值按**每一夜自己的日期**取，这样 60 天区间跨过学期边界时不会用错阈值。 */
@@ -251,6 +256,17 @@ export function createNetLogView(tide, bridge) {
 .nlog-night-big strong{font-size:calc(21px * var(--ui-text-scale));font-weight:600;color:color-mix(in srgb,var(--c) 56%,var(--ink));font-variant-numeric:tabular-nums}
 .nlog-night-big small{font-size:calc(11px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 76%,var(--ink-2,#4A5A66))}
 .nlog-night-facts{margin-left:auto;display:flex;gap:14px;flex-wrap:wrap;font-size:calc(11.5px * var(--ui-text-scale));color:color-mix(in srgb,var(--ink,#22303A) 78%,var(--ink-2,#4A5A66))}
+/* 「最晚下线」超出熬夜窗口时的注脚：不是错误，只是提醒这个时刻没被算进熬夜时长。
+   用浅色 chip 而不是裸小字 —— 裸 10px 灰黄在深色底上太小太暗，实测读不清。 */
+.nlog-night-facts small.nlog-beyond{margin-left:5px;font-size:calc(10.5px * var(--ui-text-scale));line-height:1.5;padding:0 5px;border-radius:5px;
+  color:color-mix(in srgb,var(--sun,#F2A03D) 62%,var(--ink,#22303A));
+  background:color-mix(in srgb,var(--sun,#F2A03D) 16%,transparent);
+  border:1px solid color-mix(in srgb,var(--sun,#F2A03D) 34%,transparent)}
+/* 深色：--sun 在深底上会混灰，文字提亮、底色加重，保证「超出窗口」这枚标签在夜里也读得清 */
+[data-theme-mode="dark"] .nlog-night-facts small.nlog-beyond{
+  color:color-mix(in srgb,var(--sun,#F2A03D) 88%,#FFFFFF);
+  background:color-mix(in srgb,var(--sun,#F2A03D) 26%,transparent);
+  border-color:color-mix(in srgb,var(--sun,#F2A03D) 52%,transparent)}
 .nlog-night-facts b{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:600}
 .nlog-night-list{display:grid;gap:6px}
 .nlog-night .nlog-fill{background:linear-gradient(90deg,color-mix(in srgb,var(--coral,#E4572E) 62%,var(--deep,#0F4C5C)),var(--coral,#E4572E))}
@@ -270,8 +286,16 @@ export function createNetLogView(tide, bridge) {
 .nlog-chart-hd b{font-size:calc(13px * var(--ui-text-scale));font-weight:600;color:var(--ink)}
 .nlog-chart-hd .nlog-legend{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3,#7E8B94);font-variant-numeric:tabular-nums}
 .nlog-legend i{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:4px;vertical-align:-1px;background:currentColor}
-.nlog-plot{border:1px solid var(--line);border-radius:11px;background:color-mix(in srgb,var(--deep,#0F4C5C) 3%,var(--panel));padding:6px 4px}
+.nlog-plot{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px;border:1px solid var(--line);border-radius:11px;background:color-mix(in srgb,var(--deep,#0F4C5C) 3%,var(--panel));padding:6px 9px 6px 6px}
 .nlog-plot svg{display:block;width:100%;height:132px}
+/* 纵轴刻度：HTML 排，SVG 内不放字（preserveAspectRatio=none 会把字横向拉扁）。
+   上下各让 10.5px，正好对着 132px 图里的 12/150 留白，刻度才压得住网格线。 */
+.nlog-yaxis{display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;padding:10.5px 0;font-size:calc(9.5px * var(--ui-text-scale));line-height:1;color:var(--ink-3,#7E8B94);font-variant-numeric:tabular-nums;white-space:nowrap}
+/* 数据点：折线被横向拉伸，SVG 里的 circle 会变椭圆，所以点改成绝对定位的 HTML 圆点铺在上面。 */
+.nlog-vbox{position:relative;min-width:0}
+.nlog-dots{position:absolute;inset:0}
+.nlog-dots i{position:absolute;width:6px;height:6px;border-radius:50%;transform:translate(-50%,-50%);background:var(--panel);border:1.8px solid var(--sea,#118AB2);box-sizing:border-box}
+.nlog-dots i.nlog-dot-peak{width:7px;height:7px;background:var(--coral,#E4572E);border-color:var(--coral,#E4572E)}
 .nlog-grid{stroke:color-mix(in srgb,var(--ink,#22303A) 13%,transparent);stroke-width:1;vector-effect:non-scaling-stroke}
 .nlog-stroke{fill:none;stroke:var(--sea,#118AB2);stroke-width:2;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke}
 .nlog-area{stroke:none}
@@ -279,7 +303,14 @@ export function createNetLogView(tide, bridge) {
 .nlog-grad-b{stop-color:color-mix(in srgb,var(--sea,#118AB2) 4%,transparent)}
 .nlog-peak{stroke:color-mix(in srgb,var(--coral,#E4572E) 72%,transparent);stroke-width:1.4;stroke-dasharray:4 3;vector-effect:non-scaling-stroke}
 .nlog-bar-down{fill:var(--grape,#7B61A8)}
-.nlog-xaxis{display:flex;justify-content:space-between;font-size:calc(10px * var(--ui-text-scale));color:var(--ink-3,#7E8B94);font-variant-numeric:tabular-nums}
+/* 横轴与数值行都按「一天一列」的网格排，列与折线上的点对齐；
+   首列靠左、末列靠右，正好压在首末两个点上（点就在图的两端）。 */
+.nlog-xaxis{display:grid;font-size:calc(10px * var(--ui-text-scale));color:var(--ink-3,#7E8B94);font-variant-numeric:tabular-nums;text-align:center}
+.nlog-xvals{display:grid;font-size:calc(9.5px * var(--ui-text-scale));line-height:1.35;color:color-mix(in srgb,var(--sea,#118AB2) 46%,var(--ink,#22303A));font-variant-numeric:tabular-nums;text-align:center}
+.nlog-xaxis span:first-child,.nlog-xvals span:first-child{justify-self:start;text-align:left}
+.nlog-xaxis span:last-child,.nlog-xvals span:last-child{justify-self:end;text-align:right}
+.nlog-xvals span.is-empty{color:color-mix(in srgb,var(--ink,#22303A) 26%,var(--ink-3,#7E8B94))}
+.nlog-xvals span.is-peak{font-weight:600;color:var(--coral,#E4572E)}
 /* ④ 明细 */
 .nlog-detail-head{align-items:flex-start}
 .nlog-detail-head .nlog-sub{margin-left:0}
@@ -540,21 +571,63 @@ export function createNetLogView(tide, bridge) {
     return [...map.values()].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
   }
 
-  /* 趋势窗口：以区间结束日为右端，往前铺 N 个**自然日**（没有记录的日子补 0）。
-     跳过缺日的日子会让「周一没上网、周二挂 8 小时」在折线上变成一条假上升，
-     补零才能看出真实的空档。 */
+  /* 趋势窗口：以区间结束日为右端，往前铺 N 个**自然日**。
+     时长按自然日切分：drcom 的一条记录把整段会话的 minutes 全记在上线那天，一条挂了
+     三天的会话会让那天出现「72 小时」这种不可能的值，后面几天却一片空白 —— 走势图
+     既不可信，也看不出真实作息。这里按「这条会话落在各自然日里的时长占比」拆开，
+     flow 同比例拆，于是每天都是真实数据，且单日不会超过一天。 */
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const DAY_MIN = 24 * 60; // 单日上限：多设备并行时合计可能超过一天，图上封顶
   function trendList(rows) {
     const days = Number(state.range) || 30;
     const span = Math.max(2, Math.min(TREND_DAYS, days));
     const end = clean(state.span?.end) || todayStr();
-    const groups = new Map(dayGroups(rows).map((g) => [g.day, g]));
+    const first = shiftDay(end, -(span - 1));
     const list = [];
-    for (let i = span - 1; i >= 0; i--) {
-      const day = shiftDay(end, -i);
-      const g = groups.get(day);
-      let up = 0, down = 0, minutes = 0;
-      if (g) for (const r of g.rows) { up += r.up; down += r.down; minutes += r.minutes; }
-      list.push({ day, label: String(day).slice(5), hours: minutes / 60, up, down, total: up + down });
+    const index = new Map();
+    const cellOf = (day) => index.get(day) || null;
+    const add = (day, minutes, up, down) => {
+      const cell = cellOf(day);
+      if (!cell) return; // 窗口外的那一截不画，窗口往前滚时自然出现
+      cell.minutes += minutes;
+      cell.up += up;
+      cell.down += down;
+      cell.hits += 1;
+    };
+    for (let i = 0; i < span; i += 1) {
+      const day = shiftDay(first, i);
+      const cell = { day, label: String(day).slice(5), minutes: 0, up: 0, down: 0, hits: 0 };
+      list.push(cell);
+      index.set(day, cell);
+    }
+    for (const r of rows) {
+      const loginAt = r.login ? r.login.getTime() : 0;
+      if (!loginAt) { add(r.day, r.minutes, r.up, r.down); continue; } // 没上线时间，只能整笔记到行日期
+      const minutes = Math.max(0, r.minutes);
+      const logoutAt = r.logout && r.logout > r.login ? r.logout.getTime() : loginAt + minutes * 60000;
+      const stop = Math.max(logoutAt, loginAt + minutes * 60000);
+      const share = new Map();
+      let cursor = loginAt;
+      for (let guard = 0; cursor < stop && guard < 400; guard += 1) {
+        const day = dayKey(new Date(cursor));
+        const segEnd = Math.min(stop, stampOf(day) + DAY_MS);
+        if (!(segEnd > cursor)) break;
+        share.set(day, (share.get(day) || 0) + (segEnd - cursor));
+        cursor = segEnd;
+      }
+      let total = 0;
+      for (const v of share.values()) total += v;
+      if (!(total > 0)) { add(r.day, minutes, r.up, r.down); continue; }
+      for (const [day, ms] of share) {
+        const frac = ms / total;
+        add(day, minutes * frac, r.up * frac, r.down * frac);
+      }
+    }
+    for (const cell of list) {
+      cell.minutes = cell.hits ? Math.min(DAY_MIN, cell.minutes) : 0;
+      cell.hours = cell.minutes / 60;
+      cell.total = cell.up + cell.down;
+      cell.empty = cell.hits === 0;
     }
     return list;
   }
@@ -582,7 +655,7 @@ export function createNetLogView(tide, bridge) {
         const endMin = (out.getTime() - base) / 60000;
         if (endMin > lastEnd) lastEnd = endMin;
         const s = Math.max(startMin, sem.cutoff);
-        const e = Math.min(endMin, sem.cutoff + NIGHT_SPAN);
+        const e = Math.min(endMin, NIGHT_END);
         if (e > s) spans.push([s, e]);
       }
       spans.sort((a, b) => a[0] - b[0]);
@@ -607,6 +680,9 @@ export function createNetLogView(tide, bridge) {
       total,
       avg: late.length ? total / late.length : 0,
       latest: latest > 0 ? clockOf(latest) : "—",
+      /* 最晚下线是**原始**下线时刻（不按窗口截断）：熬到第二天下午时它会明显越过 06:00，
+         卡面必须标一句，否则会被读成「熬夜一直算到了下午」。 */
+      latestBeyond: latest > NIGHT_END,
       longest: late.reduce((m, n) => Math.max(m, n.minutes), 0),
     };
   }
@@ -634,26 +710,55 @@ export function createNetLogView(tide, bridge) {
     return [0.25, 0.5, 0.75, 1].map((k) => `<line class="nlog-grid" x1="${PAD.l}" y1="${(base - innerH * k).toFixed(1)}" x2="${SVG_W - PAD.r}" y2="${(base - innerH * k).toFixed(1)}"/>`).join("");
   }
 
+  /* 折线：只在**有记录**的日子之间连线。没有记录的日子不补 0 落到底线（那会被读成
+     「这天在线 0 小时」），而是断开，两端各留一个数据点，一看就知道是空档。
+     返回值拆成 { svg, dots }：点在 SVG 外，用 HTML 铺（见 .nlog-dots 的注释）。 */
   function lineChart(list) {
     const n = list.length;
-    if (!n) return "";
+    if (!n) return { svg: "", dots: "" };
     const innerW = SVG_W - PAD.l - PAD.r;
     const innerH = SVG_H - PAD.t - PAD.b;
     const base = PAD.t + innerH;
-    const max = niceMax(Math.max(...list.map((d) => d.hours), 0.5));
+    const max = niceMax(Math.max(...list.map((d) => d.hours), 1));
     const x = (i) => PAD.l + (n === 1 ? innerW / 2 : (i * innerW) / (n - 1));
     const y = (v) => PAD.t + innerH - (Math.max(0, Math.min(v, max)) / max) * innerH;
-    const pts = list.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(d.hours).toFixed(1)}`).join(" ");
-    const stroke = n === 1 ? `M${x(0).toFixed(1)} ${base} L${x(0).toFixed(1)} ${y(list[0].hours).toFixed(1)}` : pts;
-    const area = n === 1 ? "" : `${pts} L${x(n - 1).toFixed(1)} ${base} L${x(0).toFixed(1)} ${base} Z`;
-    let top = 0;
-    list.forEach((d, i) => { if (d.hours > list[top].hours) top = i; });
-    const peak = list[top].hours > 0
-      ? `<line class="nlog-peak" x1="${x(top).toFixed(1)}" y1="${PAD.t}" x2="${x(top).toFixed(1)}" y2="${base}"/>`
+    const segs = [];
+    let run = [];
+    for (let i = 0; i < n; i += 1) {
+      if (list[i].empty) { if (run.length) segs.push(run); run = []; } else run.push(i);
+    }
+    if (run.length) segs.push(run);
+    const stroke = [];
+    const area = [];
+    for (const seg of segs) {
+      if (seg.length === 1) {
+        /* 孤零零一天：画一根竖线，总比什么都不画好（否则这点数据在图上完全消失）。 */
+        const i = seg[0];
+        stroke.push(`M${x(i).toFixed(1)} ${base.toFixed(1)} L${x(i).toFixed(1)} ${y(list[i].hours).toFixed(1)}`);
+        continue;
+      }
+      const d = seg.map((i, k) => `${k ? "L" : "M"}${x(i).toFixed(1)} ${y(list[i].hours).toFixed(1)}`).join(" ");
+      stroke.push(d);
+      area.push(`${d} L${x(seg[seg.length - 1]).toFixed(1)} ${base.toFixed(1)} L${x(seg[0]).toFixed(1)} ${base.toFixed(1)} Z`);
+    }
+    let top = -1;
+    list.forEach((d, i) => { if (!d.empty && (top < 0 || d.hours > list[top].hours)) top = i; });
+    const peak = top >= 0 && list[top].hours > 0
+      ? `<line class="nlog-peak" x1="${x(top).toFixed(1)}" y1="${PAD.t}" x2="${x(top).toFixed(1)}" y2="${base.toFixed(1)}"/>`
       : "";
-    return `<svg viewBox="0 0 ${SVG_W} ${SVG_H}" preserveAspectRatio="none" role="img" aria-label="每日在线时长折线图">
+    const dots = list.map((d, i) => (d.empty ? "" : `<i${i === top ? ' class="nlog-dot-peak"' : ""} style="left:${((x(i) / SVG_W) * 100).toFixed(2)}%;top:${((y(d.hours) / SVG_H) * 100).toFixed(2)}%" title="${esc(`${d.day} · 在线 ${fmtHours(d.minutes)}`)}"></i>`)).join("");
+    return {
+      dots,
+      svg: `<svg viewBox="0 0 ${SVG_W} ${SVG_H}" preserveAspectRatio="none" role="img" aria-label="每日在线时长折线图">
 <defs><linearGradient id="nlog-grad-line" x1="0" y1="0" x2="0" y2="1"><stop class="nlog-grad-a" offset="0"/><stop class="nlog-grad-b" offset="1"/></linearGradient></defs>
-${gridHtml(max)}${peak}${area ? `<path class="nlog-area" fill="url(#nlog-grad-line)" d="${area}"/>` : ""}<path class="nlog-stroke" d="${stroke}"/></svg>`;
+${gridHtml(max)}${peak}${area.length ? `<path class="nlog-area" fill="url(#nlog-grad-line)" d="${area.join(" ")}"/>` : ""}<path class="nlog-stroke" d="${stroke.join(" ") || `M${PAD.l} ${base.toFixed(1)} L${(SVG_W - PAD.r).toFixed(1)} ${base.toFixed(1)}`}"/></svg>`,
+    };
+  }
+
+  /* 纵轴刻度：niceMax 后的最大值往下四等分，与 gridHtml 的四条网格线一一对应。 */
+  function yaxisHtml(top, fmt) {
+    const max = niceMax(Math.max(Number(top) || 0, 1));
+    return `<div class="nlog-yaxis" aria-hidden="true">${[1, 0.75, 0.5, 0.25, 0].map((k) => `<span>${esc(fmt(max * k))}</span>`).join("")}</div>`;
   }
 
   function barChart(list) {
@@ -670,13 +775,16 @@ ${gridHtml(max)}${peak}${area ? `<path class="nlog-area" fill="url(#nlog-grad-li
       const hDown = (d.down / max) * innerH;
       const hUp = (d.up / max) * innerH;
       const x0 = cx - bw / 2;
-      const yDown = base - hDown;
+      /* 总量小到不足 1px 时柱子在图上等于消失（看着像「这天没数据」）。
+         真有值就给 1.6px 的可见下限，真值仍在 title 里。 */
+      const drawnDown = d.down > 0 ? Math.max(hDown, 1.6) : 0;
+      const yDown = base - drawnDown;
       /* 上行通常只占总量的一小截，按真实比例常常不足 1px 就看不见了；
          有上行数据时给一个 2.2px 的可见下限（真值仍在 title 里）。 */
       const upH = d.up > 0 ? Math.max(hUp, 2.2) : 0;
       const yUp = yDown - upH;
       const tip = `${d.label} 上行 ${fmtSize(d.up)} · 下行 ${fmtSize(d.down)}`;
-      const down = hDown > 0.4 ? `<rect class="nlog-bar-down" x="${x0.toFixed(1)}" y="${yDown.toFixed(1)}" width="${bw.toFixed(1)}" height="${hDown.toFixed(1)}" rx="1.4"><title>${esc(tip)}</title></rect>` : "";
+      const down = hDown > 0 ? `<rect class="nlog-bar-down" x="${x0.toFixed(1)}" y="${yDown.toFixed(1)}" width="${bw.toFixed(1)}" height="${drawnDown.toFixed(1)}" rx="1.4"><title>${esc(tip)}</title></rect>` : "";
       const up = upH > 0 ? `<rect class="nlog-bar-up" x="${x0.toFixed(1)}" y="${yUp.toFixed(1)}" width="${bw.toFixed(1)}" height="${upH.toFixed(1)}" rx="1.4"><title>${esc(tip)}</title></rect>` : "";
       /* 当天没记录：画一条贴着基线的浅色小横线，避免「空柱」被误读成漏数据。 */
       const idle = d.total <= 0 ? `<rect class="nlog-grid" x="${x0.toFixed(1)}" y="${(base - 1).toFixed(1)}" width="${bw.toFixed(1)}" height="1"/>` : "";
@@ -685,11 +793,24 @@ ${gridHtml(max)}${peak}${area ? `<path class="nlog-area" fill="url(#nlog-grad-li
     return `<svg viewBox="0 0 ${SVG_W} ${SVG_H}" preserveAspectRatio="none" role="img" aria-label="每日流量上下行柱状图">${gridHtml(max)}${bars}</svg>`;
   }
 
+  /* 横轴 + 数值行：一天一列（均分），日期与当天时长都对齐到折线上的点。
+     14 天默认窗口下只隔一列标日期、隔一列写时长（全写会在窄屏挤成一团），
+     但每个有记录的日子至少能读到一个真实数值。 */
   function axisHtml(list) {
     if (!list.length) return "";
     const n = list.length;
-    const idx = [...new Set([0, Math.floor((n - 1) / 2), n - 1])];
-    return `<div class="nlog-xaxis">${idx.map((i) => `<span>${esc(list[i].day === todayStr() ? "今天" : list[i].label)}</span>`).join("")}</div>`;
+    const step = n <= 8 ? 1 : 2;
+    const now = todayStr();
+    const cols = `grid-template-columns:repeat(${n},minmax(0,1fr))`;
+    const shown = (i) => i % step === 0 || i === n - 1;
+    const dates = list.map((d, i) => `<span>${shown(i) ? esc(d.day === now ? "今天" : d.label) : ""}</span>`).join("");
+    const top = list.reduce((m, d) => (d.empty ? m : Math.max(m, d.hours)), 0);
+    const vals = list.map((d, i) => {
+      if (!shown(i)) return "<span></span>";
+      if (d.empty) return '<span class="is-empty">—</span>';
+      return `<span${top > 0 && d.hours >= top ? ' class="is-peak"' : ""}>${esc(fmtHours(d.minutes))}</span>`;
+    }).join("");
+    return `<div class="nlog-xaxis" style="${cols}">${dates}</div><div class="nlog-xvals" style="${cols}" aria-hidden="true">${vals}</div>`;
   }
 
   /* ── 渲染 ─────────────────────────────────────────────────────────────── */
@@ -778,10 +899,10 @@ ${Array.isArray(c.sub) ? `<span class="nlog-cardsub">${c.sub.map((s) => esc(s)).
       ? `<p class="nlog-hintline nlog-night-note">只列最近 ${NIGHT_SHOW} 夜 · 本学期共 ${s.nights.length} 夜有记录</p>`
       : "";
     return `<div class="nlog-card nlog-sec nlog-night">
-<header>${svgIcon("moon")}<h3>熬夜</h3><span class="nlog-sub" title="同一夜的多条记录先合并去重；一夜最多算到阈值后 8 小时（挂机整夜不会算成几十小时）">${esc(`${sem.label} · ${sem.text} 后`)}</span><button class="nlog-btn nlog-mini nlog-nightfold" type="button" data-nlog-nightfold aria-expanded="${open ? "true" : "false"}" aria-controls="${bodyId}">${open ? "收起" : "展开"}</button></header>
+<header>${svgIcon("moon")}<h3>熬夜</h3><span class="nlog-sub" title="同一夜的多条记录先合并去重；一夜只算到次日 06:00，挂机整夜不会算成几十小时">${esc(`${sem.label} · ${sem.text} 后`)}</span><button class="nlog-btn nlog-mini nlog-nightfold" type="button" data-nlog-nightfold aria-expanded="${open ? "true" : "false"}" aria-controls="${bodyId}">${open ? "收起" : "展开"}</button></header>
 <div class="nlog-night-top">
 <div class="nlog-night-big"><strong>${esc(fmtDur(s.total))}</strong><small>累计 · ${s.late} 夜</small></div>
-<div class="nlog-night-facts"><span>平均 <b>${esc(fmtDur(s.avg))}</b></span><span>最晚下线 <b>${esc(s.latest)}</b></span><span>熬夜率 <b>${rate}%</b></span></div>
+<div class="nlog-night-facts"><span>平均 <b>${esc(fmtDur(s.avg))}</b></span><span>最晚下线 <b>${esc(s.latest)}</b>${s.latestBeyond ? '<small class="nlog-beyond" title="这是原始下线时刻，超出熬夜窗口（次日 06:00）的部分不计入熬夜时长">超出窗口</small>' : ""}</span><span>熬夜率 <b>${rate}%</b></span></div>
 </div>
 <div class="nlog-dwrap${open ? " open" : ""}" id="${bodyId}" aria-hidden="${open ? "false" : "true"}"${open ? "" : " inert"}><div class="nlog-dclip">
 <div class="nlog-night-list">${bars}</div>${more}
@@ -789,26 +910,32 @@ ${Array.isArray(c.sub) ? `<span class="nlog-cardsub">${c.sub.map((s) => esc(s)).
 </div>`;
   }
 
-  /* ③ 趋势：上「每日在线时长」折线，下「每日流量」上下行堆叠柱。 */
+  /* ③ 趋势：上「每日在线时长」折线，下「每日流量」上下行堆叠柱。
+     两图都带纵轴刻度 + 每天的数据点；日期下方再给一行「当天几小时」（14 天窗口隔列写），数值直接读得出来。 */
   function trendHtml(rows) {
     /* 窗口里一条记录都没有时，趋势会铺满 0 值：折线贴底、柱图全空，
        看着像「这些天都是 0 小时」而不是「没有数据」，比不画更误导。 */
     if (!rows.length) return "";
     const list = trendList(rows);
     if (!list.length) return "";
-    const maxH = Math.max(...list.map((d) => d.hours));
-    const maxT = Math.max(...list.map((d) => d.total));
+    const maxH = list.reduce((m, d) => Math.max(m, d.hours), 0);
+    const maxT = list.reduce((m, d) => Math.max(m, d.total), 0);
     const sumH = list.reduce((s, d) => s + d.hours, 0);
     const avgH = sumH / list.length;
+    const line = lineChart(list);
+    const days = list.length;
     return `<div class="nlog-card"><div class="nlog-charts">
 <div class="nlog-chart">
-<div class="nlog-chart-hd">${svgIcon("activity")}<b>上网时间</b><span>每日在线时长 · 近 ${list.length} 天</span><span class="nlog-legend"><span>最高 ${esc(fmtHours(maxH * 60))}</span><span>日均 ${esc(fmtHours(avgH * 60))}</span></span></div>
-<div class="nlog-plot">${lineChart(list)}</div>${axisHtml(list)}
+<div class="nlog-chart-hd">${svgIcon("activity")}<b>上网时间</b><span>每日在线时长 · 近 ${days} 天</span><span class="nlog-legend"><span>最高 ${esc(fmtHours(maxH * 60))}</span><span>日均 ${esc(fmtHours(avgH * 60))}</span></span></div>
+<div class="nlog-plot">${yaxisHtml(maxH, (h) => fmtHours(h * 60))}<div class="nlog-vbox">${line.svg}<div class="nlog-dots">${line.dots}</div></div></div>
+${axisHtml(list)}
 </div>
 <div class="nlog-chart">
-<div class="nlog-chart-hd">${svgIcon("bars")}<b>流量使用</b><span>每日上下行 · 近 ${list.length} 天</span><span class="nlog-legend"><span><i class="nlog-sw-up"></i>上行</span><span><i style="color:var(--grape,#7B61A8)"></i>下行</span><span>最高 ${esc(fmtSize(maxT))}</span></span></div>
-<div class="nlog-plot">${barChart(list)}</div>${axisHtml(list)}
+<div class="nlog-chart-hd">${svgIcon("bars")}<b>流量使用</b><span>每日上下行 · 近 ${days} 天</span><span class="nlog-legend"><span><i class="nlog-sw-up"></i>上行</span><span><i style="color:var(--grape,#7B61A8)"></i>下行</span><span>最高 ${esc(fmtSize(maxT))}</span></span></div>
+<div class="nlog-plot">${yaxisHtml(maxT, fmtSize)}<div class="nlog-vbox">${barChart(list)}</div></div>
+${axisHtml(list)}
 </div>
+<p class="nlog-hintline">跨天在线的会话已按自然日拆到每一天（单日最多按 24 小时计）；「—」表示那天没有记录。</p>
 </div></div>`;
   }
 

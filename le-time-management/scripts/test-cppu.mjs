@@ -1,18 +1,54 @@
 import { readProductSource } from "./lib/read-product-source.mjs";
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { bannerPalettes, channelDelta, colorMix, contrastRatio, mixHex, resolveToken, ruleDecls } from './lib/banner-contrast.mjs';
 const source = readProductSource(new URL('../public/plugins/cppu-notify/main.js',import.meta.url),'utf8');
 let response, calls=[], vaultData={}, storageData={}, opened=[], notices=[], noticeOpts=[], revealed=[], views=[], saved=[];
+/* 邮箱 XML 走 DOMParser。vm 上下文里没有 DOM，这里只实现插件真用到的那点表面：
+   tagName / attributes / children / textContent —— 够跑 mailXmlTree 的名字映射。 */
+const XML_ENT = { quot: '"', lt: '<', gt: '>', amp: '&', apos: "'" };
+const xmlDecode = (s) => s.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (m, e) => {
+  if (e[0] === '#') return String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
+  return XML_ENT[e] ?? m;
+});
+class XEl {
+  constructor(tag) { this.tagName = tag; this.attributes = []; this.children = []; this.text = ''; }
+  get textContent() { return this.text + this.children.map((c) => c.textContent).join(''); }
+  querySelector() { return null; }
+}
+class MiniDOMParser {
+  parseFromString(text) {
+    const root = new XEl('#doc');
+    const stack = [root];
+    const re = /<\?[\s\S]*?\?>|<!--[\s\S]*?-->|<\/([^\s>]+)\s*>|<([^\s/>]+)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>|([^<]+)/g;
+    let m;
+    while ((m = re.exec(text))) {
+      if (m[1]) { if (stack.length > 1) stack.pop(); continue; }
+      if (m[2]) {
+        const el = new XEl(m[2]);
+        const ar = /([^\s=]+)\s*=\s*("([^"]*)"|'([^']*)')/g;
+        let a;
+        while ((a = ar.exec(m[3] || ''))) el.attributes.push({ name: a[1], value: xmlDecode(a[3] ?? a[4] ?? '') });
+        stack[stack.length - 1].children.push(el);
+        if (!m[4]) stack.push(el);
+        continue;
+      }
+      if (m[5] && m[5].trim()) stack[stack.length - 1].text += xmlDecode(m[5]);
+    }
+    return { documentElement: root.children[0], querySelector: () => null };
+  }
+}
 const context = vm.createContext({URL,Set,Map,Date,console,setTimeout,clearTimeout,setInterval,clearInterval,
+  crypto: globalThis.crypto, btoa: globalThis.btoa, TextEncoder, URLSearchParams, DOMParser: MiniDOMParser,
   document:{createElement:()=>({set innerHTML(x){this.value=x;}}),querySelectorAll:()=>[]},
   // 解码不了的验证码图 = OCR 认不出来，用来把「换图重试」循环逼到次数上限
   Image:class{constructor(){this.naturalWidth=0;this.naturalHeight=0;}set src(v){this._src=v;}decode(){return Promise.reject(new Error('cannot decode'));}},
   tide:{ui:{registerView:(def)=>{views.push(def);}},http:{session:async()=>'s1',restoreCookies:async(dump)=>{calls.push(['restore',dump]);return 'restored-sid';},fetch:async(...args)=>{calls.push(args);return typeof response==='function'?response(...args):response;}},storage:{set:async(k,v)=>{storageData[k]=v;},get:async(k,d)=>(k in storageData?storageData[k]:(d===undefined?null:d))},vault:{get:async(key)=>vaultData[key]||null,set:async(key,value)=>{vaultData[key]=value;},del:async(key)=>{delete vaultData[key];}},util:{openUrl:(url)=>opened.push(url),openMailPage:(url,sid)=>opened.push(['mailPage',url,sid||'']),web:{formEncode:(fields)=>Object.entries(fields).map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&'),detectLoginForm:(html,base)=>html.includes('name="uid"')?{action:new URL('/coremail/index.jsp?cus=1',base).href,method:'POST',usernameField:'uid',passwordField:'password',captchaField:'',fields:[{name:'action',value:'login'}]}:null}},notify:(message,opts)=>{notices.push(message);noticeOpts.push(opts||{});},assets:{saveBase64:async(name,b64)=>{saved.push([name,b64]);return 'D:/Downloads/'+name;},revealSaved:async(p)=>{revealed.push(p);return {ok:true};}}}
 });
-vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailWeb,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,pdataRankCard,pdataRadarCard,pdataRadarSvg,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,jwStateBlock,mountJwView,JW_VIEWS,cardIsExpense,bannerRefreshHtml,cardSetStatus};\n  tide.ui.registerView({'),context);
-const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailWeb,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,pdataRankCard,pdataRadarCard,pdataRadarSvg,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense,jwStateBlock,mountJwView,JW_VIEWS,bannerRefreshHtml,cardSetStatus}=context.testApi;
+vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailWeb,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,pdataRankCard,pdataRadarCard,pdataRadarSvg,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,jwStateBlock,mountJwView,JW_VIEWS,cardIsExpense,bannerRefreshHtml,cardSetStatus,mailBridge,mailRsaEscape,mailXmlTree};\n  tide.ui.registerView({'),context);
+const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailWeb,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,pdataRankCard,pdataRadarCard,pdataRadarSvg,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense,jwStateBlock,mountJwView,JW_VIEWS,bannerRefreshHtml,cardSetStatus,mailBridge,mailRsaEscape,mailXmlTree}=context.testApi;
 const item={RESOURCE_ID:'test',PIM_TITLE:'Test <notice>',CREATE_TIME:1};
 assert.match(cardHtml(item),/展开正文/);
 assert.match(cardHtml(item),/class="pp-detail-shell" aria-hidden="true"/);
@@ -325,13 +361,15 @@ assert.doesNotMatch(source, /index\.html\?code=|state=QYState/,
 assert.ok(source.includes('bindSide') && source.includes('loadLinkMeta(el)'), '侧栏必须同时绑定在登录页与通知列表页');
 
 /* ── 教务入口做成带子菜单的父项（v1.23.0）────────────────────────
-   四个教务视图原来与 WebVPN / 邮箱 / 学工平铺在一起，现在收进「教务」父项下。 */
+   教务视图原来与 WebVPN / 邮箱 / 学工平铺在一起，现在收进「教务」父项下。
+   v1.73.0 起多了「自习室」（教室占用 / 借用）：它原先按用户要求不做，
+   现在用户改口要做 —— 所以下面那条「不得出现」的反向断言收窄成只禁评分信息。 */
 assert.match(
   source,
-  /url:\s*"https:\/\/jw\.cppu\.edu\.cn\/index\.html"[^}]*label:\s*"教务"[^}]*children:\s*\[[\s\S]*?view:\s*"cppu-xk"[\s\S]*?view:\s*"cppu-qj"[\s\S]*?view:\s*"cppu-credit"[\s\S]*?view:\s*"cppu-cx"[\s\S]*?\]/,
-  '「教务」必须是带 children 的父项，且四个教务视图收在 children 里');
+  /url:\s*"https:\/\/jw\.cppu\.edu\.cn\/index\.html"[^}]*label:\s*"教务"[^}]*children:\s*\[[\s\S]*?view:\s*"cppu-xk"[\s\S]*?view:\s*"cppu-qj"[\s\S]*?view:\s*"cppu-credit"[\s\S]*?view:\s*"cppu-cx"[\s\S]*?view:\s*"cppu-room"[\s\S]*?\]/,
+  '「教务」必须是带 children 的父项，且教务视图（含自习室）都收在 children 里');
 assert.match(source, /jwOpen:\s*true/,
-  '教务子菜单必须默认展开 —— 这 4 个入口本来就露在外面，默认收起等于把已有功能藏进一次点击之后');
+  '教务子菜单必须默认展开 —— 这几个入口本来就露在外面，默认收起等于把已有功能藏进一次点击之后');
 
 const sideFnSrc = source.slice(source.indexOf('function sideBtnHtml'), source.indexOf('function sideToggleHtml'));
 assert.match(sideFnSrc, /<button[^>]*data-side-sub/,
@@ -350,52 +388,144 @@ assert.match(source, /\.pp-side-sub\{[^}]*grid-template-rows/,
 assert.match(source, /\.pp-side-sub \.pp-side-btn\{[^}]*padding-left/, '子项必须缩进，与平级入口区分开');
 assert.match(source, /\.pp-side-sub \.pp-side-txt small\{display:none/,
   '子项不显示「在 U-Time 内查看」副行（4 行已经够高，副行是噪音）');
-/* 用户明确要求：这两个教务功能不接管 */
-assert.doesNotMatch(source, /自习室|评分信息/,
-  '「自习室查询」「评分信息查询」按用户要求不做，不得出现在侧栏');
+/* 用户明确要求：评分信息查询不接管（自习室查询 v1.73.0 已改口要做，见上） */
+assert.doesNotMatch(source, /评分信息/,
+  '「评分信息查询」按用户要求不做，不得出现在侧栏');
+
+/* ── 自习室搜索（铁律十：原文 / 拼音首字母 / 跳字简写）──────────────────
+   正例三条 + 反例一条。反例是真坑：把一行的所有单元格 join 成一个长串再 includes，
+   首字母会跨字段连起来（「阶梯教室 / 第一节」→ jtjsjd1），搜 jd 就假命中，
+   而页面上并没有这几个字挨着 —— 所以必须逐字段比。 */
+const roomSrc = source.slice(source.indexOf('const loadRoomPinyin'), source.indexOf('function mountJwView'));
+assert.match(roomSrc, /import\("\/plugins\/cppu-notify\/pinyin-initials\.js"\)/,
+  '自习室搜索必须复用插件内的拼音首字母表（pinyin-initials.js 由 tools/gen-cppu-pinyin.js 生成）');
+assert.match(roomSrc, /fields\.some\(\(f\) => roomFieldHits\(f, q\)\)/,
+  '自习室过滤必须逐字段比：拼成整串会把首字母跨字段连起来，产生页面上根本不存在的命中');
+assert.match(roomSrc, /没有匹配「\$\{raw\}」[^`]*拼音首字母/,
+  '搜不到时必须说清能搜哪些字段、也可以打拼音首字母，不能只把计数改成 0');
+assert.doesNotMatch(roomSrc, /\.join\(" "\)\.toLowerCase\(\)[\s\S]{0,40}includes\(q\)/,
+  '自习室过滤不得退回「整串 includes」——这正是铁律十禁止的假命中写法');
 
 assert.ok(source.includes('MAIL_ACCOUNT = "2025290058@cppu.edu.cn"'), '教育邮箱自动登录必须使用用户指定的完整邮箱账号');
 assert.match(source, /if \(url === MAIL_WEB\) \{ await openMailWeb\(btn\); return; \}/,
   '点击教育邮箱必须进入专用自动登录链路，而不是裸开 mail.cppu.edu.cn');
 assert.ok(source.includes('readSavedPassword') && source.includes('tide.vault.get("secret")'),
   '教育邮箱必须复用警大通知插件密钥库里保存的同一份密码');
-assert.ok(source.includes('mailSessionUrlFromResponse') && source.includes('verifyMailSession'),
-  '教育邮箱提交后必须识别 sid 会话入口并二次校验，不能只 POST 一次就宣布成功');
-assert.doesNotMatch(source, /const direct = mailSessionUrlFromResponse[\s\S]{0,120}?openUrl\(direct\)/,
-  '邮箱首页如果已经返回 sid，也要先校验该入口不是登录页再打开');
+/* v0.259.1 真链路回归：旧实现两处全错 —— ① 往 /coremail/index.jsp?cus=1 POST 明文密码
+   （这套部署上 404）；② mbox 打 /coremail/s/json（恒回 FA_INVALID_SESSION）。实测真链路是
+   中间件 RSA 登录 → entryhz 落地页换 sid → /js6/s 带 sid 取数，下面按真实报文逐段断言。 */
+assert.ok(source.includes('MAIL_LOGIN_API = MAIL_MIDDLE + "/cppu/api/login"')
+  && source.includes('MAIL_PUBKEY_API = MAIL_MIDDLE + "/sync/mail/pubkey"'),
+  '邮箱登录必须走学校中间件（/cppu/api/login + /sync/mail/pubkey），而不是往邮件站表单提交');
+assert.ok(source.includes('MAIL_API = "https://mail.cppu.edu.cn/js6/s"'),
+  'mbox 接口必须用 /js6/s：这套部署只认它');
+assert.doesNotMatch(source, /\/coremail\/index\.jsp\?cus=1/, '旧的明文登录地址已 404，不能再出现');
+assert.doesNotMatch(source, /coremail\/s\/json/, '/coremail/s/json 恒回 FA_INVALID_SESSION，不许再用');
+assert.match(source, /em\[1\] = 2;/, '密码必须按 PKCS#1 v1.5 的 type 2（加密）填充：type 1 会被判成密码错');
 const mailFn = source.slice(source.indexOf('async function openMailWeb'));
 assert.doesNotMatch(mailFn, /data:text\/html|openUrl\([^)]*password/s,
   '邮箱自动登录不能把密码拼进 openUrl/data URL 这类可见地址');
 
+/* ── 邮箱自动登录：真 RSA 密钥 + 真实三段报文 ── */
+/* 真实站点是 1024 位 RSA（SPKI 里 02818100 后是 128 字节模数），这里必须同长度：
+   2048 位会把模数截错，密文解回来是乱码。 */
+const rsaKeys = crypto.generateKeyPairSync('rsa', { modulusLength: 1024 });
+const nHex = Buffer.from(rsaKeys.publicKey.export({ format: 'jwk' }).n, 'base64url').toString('hex').padStart(256, '0');
+const MAIL_PUB_HEX = '30819f300d06092a864886f70d010101050003818d0030818902818100' + nHex + '0203010001';
+const XML_FOLDERS = '<?xml version="1.0" encoding="UTF-8"?><result><code>S_OK</code><array name="var">'
+  + '<object><int name="parent">0</int><object name="flags"><boolean name="system">true</boolean></object>'
+  + '<object name="stats"><int name="messageCount">142</int><int name="unreadMessageCount">73</int></object>'
+  + '<int name="id">1</int><string name="name">收件箱</string></object>'
+  + '<object><int name="parent">0</int><object name="stats"><int name="messageCount">1</int>'
+  + '<int name="unreadMessageCount">0</int></object><int name="id">2</int>'
+  + '<string name="name">草稿箱</string></object></array></result>';
+const XML_LIST = '<?xml version="1.0" encoding="UTF-8"?><result><code>S_OK</code><array name="var">'
+  + '<object><int name="fid">1</int><string name="subject">欢迎您使用邮箱</string>'
+  + '<string name="from">&quot;邮箱管理员&quot; &lt;admin@cppu.edu.cn&gt;</string>'
+  + '<string name="id">AKsAeQCvJQhXfr9*z7ApDarZ</string><date name="sentDate">2025-08-15 03:05:44</date>'
+  + '<int name="size">6369</int><object name="flags"><boolean name="read">true</boolean></object></object>'
+  + '<object><int name="fid">1</int><string name="subject">一条未读</string>'
+  + '<string name="from">企业微信团队 &lt;team@qq.com&gt;</string><string name="id">unread-1</string>'
+  + '<date name="sentDate">2025-08-24 14:48:37</date><int name="size">14610</int>'
+  + '<object name="flags"><boolean name="read">false</boolean></object></object></array></result>';
+const MAIL_DOOR = '<html><head><META HTTP-EQUIV=REFRESH CONTENT="0; URL=x"></head><body><script>'
+  + 'window.location.replace("https://mail.cppu.edu.cn/redirect?l=https%3A%2F%2Fmail.cppu.edu.cn%2Fjs6%2Fmain.jsp'
+  + '%3Fsid%3Dmail-sid%26show_window%3D0&sid=mail-sid");</script></body></html>';
+
 vaultData.secret = JSON.stringify({ password: 'mail-pass' });
 state.autoLogin = true; state.savedPassword = ''; calls = []; opened = []; notices = [];
+let loginOk = true;
 response = (sid, method, url, opts = {}) => {
-  if (method === 'GET' && url === 'https://mail.cppu.edu.cn/') {
-    return { status: 200, finalUrl: url, body: '<form action="/coremail/index.jsp?cus=1" method="post"><input name="uid"><input name="password" type="password"></form>' };
+  if (method === 'GET' && url === 'https://mailuser.cppu.edu.cn/sync/mail/pubkey') {
+    return { status: 200, finalUrl: url, body: 'pubSetting={"pubKey":"' + MAIL_PUB_HEX + '"}' };
   }
-  if (method === 'POST') {
-    return { status: 200, finalUrl: 'https://mail.cppu.edu.cn/coremail/XT5/index.jsp?sid=mail-sid', body: '' };
+  if (method === 'POST' && url === 'https://mailuser.cppu.edu.cn/cppu/api/login') {
+    return loginOk
+      ? { status: 200, finalUrl: url, body: JSON.stringify({ state: true, location: 'https://entryhz.qiye.163.com/entry/door?hl=zh_CN' }) }
+      : { status: 200, finalUrl: url, body: JSON.stringify({ state: false, message: 'input.password.serverError', location: '' }) };
   }
-  if (method === 'GET' && url.includes('sid=mail-sid')) {
-    return { status: 200, finalUrl: url, body: '<html><title>Coremail</title><div id="mailbox">Inbox</div></html>' };
+  if (method === 'GET' && url.includes('entryhz.qiye.163.com/entry/door')) {
+    return { status: 200, finalUrl: url, body: MAIL_DOOR };
   }
-  return { status: 404, body: '' };
+  if (method === 'GET' && url.includes('/redirect?l=')) {
+    return { status: 302, finalUrl: 'https://mail.cppu.edu.cn/js6/main.jsp?sid=mail-sid', location: 'x', body: '' };
+  }
+  if (method === 'GET' && url.includes('/js6/s') && url.includes('getAllFolders')) {
+    return { status: 200, finalUrl: url, body: XML_FOLDERS };
+  }
+  if (method === 'GET' && url.includes('/js6/s') && url.includes('listMessages')) {
+    return { status: 200, finalUrl: url, body: XML_LIST };
+  }
+  return { status: 404, finalUrl: url, body: '' };
 };
+const loaded = await mailBridge.load();
+assert.equal(loaded.ok, true, '邮箱自动登录必须能在中间件链路上跑通：' + loaded.error);
+assert.equal(loaded.unread, 73, '未读必须取自 getAllFolders 里 Inbox 的 stats.unreadMessageCount');
+assert.equal(loaded.total, 142, '总数必须取自 getAllFolders 里 Inbox 的 stats.messageCount');
+assert.equal(loaded.mails.length, 2, '收件箱列表必须解析出邮件');
+assert.equal(loaded.mails[0].from, '邮箱管理员', '`"名字" <地址>` 只留显示名');
+assert.equal(loaded.mails[0].date, '2025-08-15 03:05:44', 'XML 的 <date name="sentDate"> 要解析成日期');
+assert.equal(loaded.mails[0].read, true, 'flags.read 的布尔必须映射到 read');
+assert.equal(loaded.mails[1].read, false, '未读邮件的 read 必须是 false');
+const mailPost = calls.find((c) => c[1] === 'POST' && c[2].includes('/cppu/api/login'));
+assert.ok(mailPost, '登录必须 POST 到中间件 /cppu/api/login');
+const posted = new URLSearchParams(String(mailPost[3].body));
+assert.equal(posted.get('accountName'), '2025290058', '中间件要的是不带域名的账号');
+assert.equal(posted.get('domain'), 'cppu.edu.cn');
+assert.equal(posted.get('language'), 'zh_CN');
+assert.equal(
+  crypto.privateDecrypt({ key: rsaKeys.privateKey, padding: crypto.constants.RSA_PKCS1_PADDING }, Buffer.from(posted.get('password'), 'base64')).toString(),
+  'mail-pass',
+  '提交的密码必须是能用 PKCS#1 v1.5（type 2）解回来的密文，且用的密钥库那份密码');
+assert.ok(calls.some((c) => c[1] === 'GET' && c[2].includes('/js6/s') && c[2].includes('sid=mail-sid')),
+  'mbox 请求必须带上落地页换回来的 sid（只带 Cookie 会回 FA_INVALID_SESSION）');
+assert.ok(calls.every((c) => !String(c[2]).includes('/coremail/s/json')), '不能再打 /coremail/s/json');
+
+opened = [];
 await openMailWeb(null);
-assert.match(source, /await tide\.util\.openMailPage\(MAIL_WEB, sid\)/,
-  '自动登录成功时必须把会话交给内置网页窗口（tide.util.openMailPage），而不是甩到系统浏览器');
 const mailCall = opened.find((item) => Array.isArray(item) && item[0] === 'mailPage');
 assert.ok(mailCall, '警大邮箱必须在应用内网页窗口里打开（tide.util.openMailPage）');
 assert.equal(mailCall[1], 'https://mail.cppu.edu.cn/static/sirius-web/?version=1791461395966#mailbox',
   '内置窗口必须打开 Coremail 新版前端 Sirius Web 的邮箱首页');
-assert.equal(mailCall[2], 's1', '自动登录拿到的 native 会话（Cookie Jar 里已有 mail 域会话）必须交给内置窗口，窗口里不用再登一遍');
+assert.equal(mailCall[2], 'mail-sid', '落地页换回来的 sid 才是 mbox 会话，必须交给内置窗口');
 assert.ok(!mailCall[1].includes('sid='), 'sid 不许出现在窗口 URL 里（否则会进浏览历史）');
-const mailPost = calls.find((c) => c[1] === 'POST' && c[2].includes('/coremail/index.jsp'));
-assert.ok(mailPost, '教育邮箱自动登录必须向邮箱登录表单提交 POST');
-assert.ok(mailPost[3].body.includes('uid=2025290058%40cppu.edu.cn'), '邮箱登录提交体必须带完整邮箱账号');
-assert.ok(mailPost[3].body.includes('password=mail-pass'), '邮箱登录提交体必须复用密钥库保存的警大通知密码');
 assert.ok(opened.every((item) => !String(item).includes('mail-pass')), '交给窗口的地址里不能泄露密码');
-assert.ok(calls.some((c) => c[1] === 'GET' && c[2].includes('sid=mail-sid')), '打开邮箱前必须用同一 HTTP 会话校验 sid 入口可用');
+
+/* 中间件拒登（密码错）要把原因带给界面，而不是笼统一句「没拿到登录态」 */
+loginOk = false;
+let foldersDead = true;
+const passThrough = response;
+response = (sid, method, url, opts = {}) => {
+  if (method === 'GET' && url.includes('/js6/s') && foldersDead) {
+    return { status: 200, finalUrl: url, body: '<result><code>FA_INVALID_SESSION</code></result>' };
+  }
+  return passThrough(sid, method, url, opts);
+};
+const failed = await mailBridge.load();
+assert.equal(failed.ok, false);
+assert.equal(failed.needLogin, true, '会话被拒要落到「需要登录」而不是通用错误');
+assert.match(String(failed.error), /密码|cppu/, '密码错时必须把中间件给的原因带出来');
+response = passThrough;
 
 /* ── 校园服务栏可收起 / 展开：默认收起、有动画、自左上角往右下角展开、正文随之让位 ── */
 assert.match(source, /sideOpen:\s*false/, '校园服务栏必须默认收起');
@@ -445,10 +575,22 @@ assert.ok(!/\.pp-shell\{[^}]*gap:16px/.test(source), '外壳不能再用 gap 排
 /* ── 手机端（Android 走同一份前端，窄屏 ≤820px 分支 + 触屏）── */
 assert.match(source, /\.pp-shell:not\(\.side-collapsed\) \.pp-side-toggle\{[^}]*max-height:0/,
   '展开时被藏起来的把手必须连高度一起归零，否则窄屏上侧栏与正文之间会留一条看不见的空隙');
-assert.match(source, /\.pp-side-toggle\{[^}]*transition:[^}]*max-height/,
-  '把手的高度也要参与过渡，收起时才不会突然消失');
-assert.match(source, /@media\(max-width:820px\)[\s\S]*?\.pp-side-toggle\{[^}]*min-height:44px/,
-  '手机端把手的点击区必须 ≥44px，手指才点得准');
+/* v1.71.0：主程序 interactions.css 有一条
+   `button:not([data-motion="off"], [data-motion="off"] *)`（权重 0,2,1）统管所有按钮的
+   position 与 transition —— 只写 `.pp-side-toggle`（0,1,0）会被它整条盖掉：
+   实测 width/height 过渡消失（容器尺寸直接跳到终值，只剩字在动），
+   position:sticky 也被改回 relative、top:16px 降级成相对位移（把手凭空下移 16px）。
+   所以基础规则必须写到 (0,3,0)，这条守卫锁住权重不能再降回去。 */
+assert.match(source, /\.pp-shell \.pp-side-toggle\{[^}]*transition:[^}]*width[^}]*height[^}]*transform/,
+  '把手的宽 / 高 / 位移必须同时参与过渡，否则「竖变横」只会是跳变（选择器权重须 ≥(0,3,0) 压过 interactions.css 的按钮规则）');
+assert.match(source, /\.pp-shell \.pp-side-toggle\{[^}]*position:sticky/,
+  '把手要 sticky 钉住：权重不够时会被主程序改回 relative，top 变成相对位移');
+assert.match(source, /\.pp-side-toggle>span\{[^}]*transition:transform/,
+  '四个字块要各自对 transform 做过渡，字形才会连续滑到位');
+assert.ok(!/writing-mode:vertical-rl/.test(source),
+  '竖排不许再用 writing-mode：该属性不参与过渡，一改就整段跳变（旧实现就是这个观感）');
+assert.match(source, /@media\(max-width:820px\)[\s\S]*?\.pp-shell \.pp-side-toggle\[data-side-toggle\]\{[^}]*min-height:44px/,
+  '手机端把手的点击区必须 ≥44px，手指才点得准（权重同样提在 .pp-shell 下）');
 assert.match(source, /@media\(max-width:820px\)[\s\S]*?\.pp-side-head-toggle\{[^}]*min-height:44px/,
   '手机端展开态头部的「收起」按钮点击区必须 ≥44px（它是手机上的主要收起入口）');
 assert.match(source, /@media\(max-width:820px\)[\s\S]*?\.pp-shell:not\(\.side-collapsed\) \.pp-side-toggle\{[^}]*min-height:0/,
@@ -458,22 +600,37 @@ assert.match(source, /@media\(max-width:820px\)[\s\S]*?\.pp-side-btn\{[^}]*min-h
 assert.ok(source.includes('-webkit-tap-highlight-color:transparent'), '触屏点击不应出现系统高亮块');
 assert.match(source, /@media\(prefers-reduced-motion:reduce\)\{[^}]*\.pp-side,[^}]*\.pp-side-toggle[^}]*transition-duration/,
   '开了「移除动画」（Android 省电模式）时，侧栏与把手的过渡也必须跟着降级');
-/* v1.67.2：桌面端收起后的把手是竖排标签，内容沿【高度】方向排。
-   竖排「▸校园服务」实测 scrollHeight=101，而横排时代留下的 max-height:52px 把它裁成「▸校」
-   （用户截图：32×52 的框里塞 101px 内容）。两条断言：够高 + 断点不许撞窄屏那套。 */
+/* v1.69.0：桌面端收起后的把手与展开态头部是【同一个元素】——收起时是一根竖条（2.3em × 8.5em），
+   展开时由 CSS 长成头部那一格（190 × 34），四个字从竖列滑成横行。
+   旧实现靠 writing-mode 换排版，属性不能过渡，观感是「竖条直接消失、横按钮直接出现」。
+   这四条守卫锁住新做法：断点不撞窄屏、几何对得上头部、逐字位移存在、头部只留占位不出第二个可见开关。 */
 {
-  const vert = source.match(/@media\(min-width:(\d+)px\)\{\s*\.pp-shell\.side-collapsed \.pp-side-toggle\{([^}]*)\}/);
-  assert.ok(vert, '桌面端收起后的把手必须是竖排标签（min-width 媒体查询里给 .pp-side-toggle 上竖排）');
-  assert.ok(+vert[1] >= 821,
-    `竖排把手的断点必须 ≥821px：窄屏那套是 max-width:820px（整层叠放、把手 width:100%），`
-    + `两段同时命中会让竖排字落进满宽按钮（当前 ${vert[1]}px）`);
-  const mh = vert[2].match(/max-height:(\d+)px/);
-  assert.ok(mh && +mh[1] >= 120,
-    `竖排把手的 max-height 必须 ≥120px（竖排 5 个字实测要 101px）：沿用横排的 52px 会把`
-    + `「园服务」整段裁掉，只剩「▸校」（当前 ${mh ? mh[1] : '未设'}px）`);
+  const desk = source.match(/@media\(min-width:(\d+)px\)\{([\s\S]*?)\n      \}/);
+  assert.ok(desk, '竖排 / 横排两套几何必须写在 min-width 媒体查询里');
+  assert.ok(+desk[1] >= 821,
+    `把手变形的断点必须 ≥821px：窄屏那套是 max-width:820px（整层叠放、把手满宽），`
+    + `两段同时命中会让竖排字落进满宽按钮（当前 ${desk[1]}px）`);
+  const body = desk[2];
+  assert.match(body, /\.pp-shell:not\(\.side-collapsed\) \.pp-side-toggle\{[^}]*width:190px[^}]*height:34px[^}]*margin-right:-190px[^}]*translate\(-218px,12px\)/,
+    '展开态把手必须长成头部那一格（190×34）、用 margin-right:-190px 抵消占位、再平移到头部坐标');
+  assert.match(body, /\.pp-shell\.side-collapsed \.pp-side-toggle\{[^}]*width:2\.3em;height:8\.5em/,
+    '收起态把手必须是竖条（2.3em 宽 × 8.5em 高）：宽度收窄、高度撑开');
+  for (const n of [2, 3, 4, 5]) {
+    assert.match(body, new RegExp(`\\.pp-shell\\.side-collapsed \\.pp-side-toggle-ch:nth-child\\(${n}\\)\\{transform:translate\\(\\.[0-9]+em,`),
+      `竖排时第 ${n} 个字必须有自己的 translate：逐字位移才能插值出「竖 → 横」的连续变形`);
+  }
+  assert.match(body, /\.pp-side-head-toggle\{[^}]*visibility:hidden/,
+    '展开态头部只作占位：可见可点的必须是同一个把手，否则一屏出现两个同名开关');
 }
-assert.match(source, /\.pp-shell\.side-collapsed \.pp-side-toggle>span\{[^}]*text-orientation:upright/,
-  '竖排里 ▸ 会被按 UTR50 旋转成 ▾，箭头必须单独摆正（text-orientation:upright）');
+assert.match(source, /class="pp-side-toggle-arrow"/,
+  '把手箭头要单独一个 span：方向翻转靠 CSS 旋转，不是换一个字符');
+assert.match(source, /class="pp-side-toggle" data-side-toggle data-motion="off"/,
+  '把手必须 data-motion="off"：否则首次点击后 motion.js 挂上 .motion-ripple-host，'
+  + '那条 (0,3,1) 规则会补 position:relative / overflow:clip，把 sticky 和 top 打回相对位移');
+assert.match(source, /SIDE_LABEL_CHARS/,
+  '「校园服务」必须拆成四个独立字块，否则竖排只能退回 writing-mode 那种跳变');
+assert.match(source, /@media\(max-width:820px\)[\s\S]*?\.pp-shell \.pp-side-toggle>span\{[^}]*position:static/,
+  '窄屏没有竖条那套几何，字块必须退回行内（前缀 .pp-shell 提权重，压过 nth-child 坐标）');
 assert.ok(source.includes('AUTO_REFRESH_MS') && source.includes('data-ar'), '插件必须提供低打扰的定时自动刷新开关');
 const hostSrc = readProductSource(new URL('../src/pluginHost.js', import.meta.url), 'utf8');
 assert.ok(hostSrc.includes('vault: "加密密钥库'), '插件宿主必须定义 vault 权限标签');
@@ -704,8 +861,8 @@ assert.ok(source.includes('const JW_LOAD = JWAPP + "/je/load"'), '教务取数�
 
 /* 警大学分原入口成为警大成绩，避免教务菜单出现两张重复成绩页；校历 v0.216.0 从独立插件并入；
    学生个人成长中心（pdata）v0.217.0 并入；个人信息 v0.221.0 并入。 */
-assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-growth', 'cppu-mail', 'cppu-net', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-xk'],
-  '必须注册通知、获奖名单、警大校历、学生成长、个人信息、上网记录、邮箱及五个教务/一卡通视图，登录设置属于应用设置');
+assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-cx', 'cppu-growth', 'cppu-mail', 'cppu-net', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-room', 'cppu-xk'],
+  '必须注册通知、获奖名单、警大校历、自习室、学生成长、个人信息、上网记录、邮箱及六个教务/一卡通视图，登录设置属于应用设置');
 assert.ok(views.filter((v) => v.id !== 'cppu-notify').every((v) => typeof v.render === 'function'), '插件子视图必须有 render');
 assert.ok(views.some((v) => v.id === 'cppu-cx' && v.title === '警大创新学分'), '创新学分视图要有独立标题');
 assert.ok(views.some((v) => v.id === 'cppu-credit' && v.title === '警大成绩'), '原警大学分视图应以警大成绩注册');
@@ -714,7 +871,7 @@ assert.match(source, /view: "cppu-credit", label: "警大成绩"/, '教务菜单
 assert.match(source, /id: "cppu-credit", title: "警大成绩"[^\n]*keys: \["grade", "pdataStudy"\][^\n]*menu: JW_MENU\.grades,[\s\S]*?body: \(\) => jwGradesHtml\(\)/,
   '警大成绩入口必须读取成绩接口，并同时拉个人成长中心的绩点排名 / 六维图');
 assert.doesNotMatch(source, /view: "cppu-grades"|id: "cppu-grades"/, '不能保留重复的成绩入口');
-for (const v of ['cppu-xk', 'cppu-qj', 'cppu-credit', 'cppu-cx', 'cppu-card', 'cppu-award', 'cppu-calendar', 'cppu-growth', 'cppu-profile']) assert.ok(source.includes(`view: "${v}"`), `校园服务栏必须有 ${v} 入口`);
+for (const v of ['cppu-xk', 'cppu-qj', 'cppu-credit', 'cppu-cx', 'cppu-room', 'cppu-card', 'cppu-award', 'cppu-calendar', 'cppu-growth', 'cppu-profile']) assert.ok(source.includes(`view: "${v}"`), `校园服务栏必须有 ${v} 入口`);
 assert.match(source, /url\.startsWith\("view:"\)\) \{ tide\.util\.navigate\("plug:" \+ url\.slice\(5\)\)/,
   'view: 入口必须在插件内切视图，而不是开系统浏览器（教务 SPA 没有 URL 深链）');
 assert.match(source, /data-goto="\$\{esc\("view:" \+ item\.view\)\}"/,

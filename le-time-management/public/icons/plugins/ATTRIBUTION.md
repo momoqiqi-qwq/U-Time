@@ -1,12 +1,12 @@
 # public/icons/plugins 素材台账（内置插件图标 + 插件内视图图标）
 
-共 29 个图标：
+共 30 个图标：
 
 - 0 个来自**本项目自有扁平母版**（`风格` 列为 `master`，`tools/icon-masters/`）：AI 按同一张风格参考图生成、抠成透明底后入库，是本产品自有素材，**无需第三方署名**；品牌类插件（微信推送、GitHub 文档）是按用途重新设计的图形，不含任何品牌标志。
-- 29 个仍来自 **Icons8 / iGoutu**（`风格` 列为 `color` / `3d-fluency`）：暂无母版的插件，按 Icons8 License 署名。
+- 30 个仍来自 **Icons8 / iGoutu**（`风格` 列为 `color` / `3d-fluency`）：暂无母版的插件，按 Icons8 License 署名。
 - 0 个为印章式文字图标（`风格` 列为 `text`，由本脚本代码绘制，无需署名）。
 
-其中 11 个是**插件内视图图标**（说明里带「插件内视图」）：同一个插件的不同分类在侧栏各用各的图标（v0.216.0），key = 视图 id，与插件图标同目录、同风格 —— `src/icons.js` 的 `VIEW_ICONS8` / `VIEW_FA_ICONS` 是它们的消费口径。
+其中 12 个是**插件内视图图标**（说明里带「插件内视图」）：同一个插件的不同分类在侧栏各用各的图标（v0.216.0），key = 视图 id，与插件图标同目录、同风格 —— `src/icons.js` 的 `VIEW_ICONS8` / `VIEW_FA_ICONS` 是它们的消费口径。
 
 图标集入口：<https://igoutu.cn/icons/set/标志--style-color> ｜ CDN 直链格式：`https://img.icons8.com/<style>/96/<slug>.png`
 
@@ -43,6 +43,7 @@
 | `cppu-profile` | color | `contact-card` | 警大门户通知 · 个人信息（插件内视图） | `e2269e1ff917229d…` |
 | `cppu-net` | color | `network` | 警大门户通知 · 上网记录（插件内视图） | `891ee1545dc76124…` |
 | `cppu-mail` | color | `email` | 警大门户通知 · 警大邮箱（插件内视图） | `ea64c67160788ff1…` |
+| `cppu-room` | color | `classroom` | 警大门户通知 · 自习室查询（插件内视图） | `80d7769099ac563e…` |
 
 ## 许可
 

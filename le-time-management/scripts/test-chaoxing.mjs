@@ -405,29 +405,30 @@ state.course = { year: 2026, searchOpen: false };
 assert.doesNotMatch(coursesHtml(), /cx2-tl-sec/, '切回学年分组后时间轴不该残留');
 state.course = { year: null, searchOpen: false };
 
-/* ── 7c. 点击课程卡片 → 只看这一门课的开课～结课时间（默认收起，点击才占版面） ── */
+/* ── 7c. 点课程卡片主体 = 进这门课的课件界面；「开课时间」按钮才展开开课～结课详情 ── */
 state.course = { year: 2026, searchOpen: false };
 const cardHtml = coursesHtml();
-assert.match(cardHtml, /class="cx2-course st-blue" data-course-toggle/, '卡片要带点击展开标记');
+assert.match(cardHtml, /class="cx2-course st-blue" data-course-files/, '卡片主体要带进课件界面的标记');
+assert.match(cardHtml, /<button class="cx2-course-btn" data-course-toggle/, '展开详情挪到「开课时间」按钮上');
 assert.match(cardHtml, /cx2-course-more"><p><i>开课<\/i>2026-09-01 ～ 2028-09-01</, '展开区给出平台卡片原文的开课～结课区间');
 assert.match(cardHtml, /<p><i>学期<\/i>2026-2027 学年上学期 · 大二上</, '展开区写明推算出的学期与年级');
 assert.match(cardHtml, /恒为开课 \+2 年/, '要交代结课日不可用来判完成');
-assert.match(cardHtml, /点击卡片可展开/, '底部说明要提示这个入口');
-assert.match(source, /courseCard\.classList\.toggle\('open'\)/, '点击处理只切 DOM class，不整页重绘');
+assert.match(cardHtml, /点击卡片进入这门课的课件界面/, '底部说明要提示这个入口');
+assert.match(source, /if\(card\)card\.classList\.toggle\('open'\)/, '点击处理只切 DOM class，不整页重绘');
 assert.match(styleBlock, /\.cx2-course\.open \.cx2-course-more\{display:block\}/, '样式必须让 .open 真正把详情放出来');
 /* 展开区里的课程门户入口：地址用卡片自带链接，走通知同一套带登录态打开 */
 assert.match(cardHtml, /data-key="103_203"/, '卡片要带 courseid_clazzid 键，点击时回查是哪门课');
 assert.match(cardHtml, /data-course-open title="[^"]*">打开课程门户（带登录态）</, '展开区要给课程门户按钮');
 assert.match(source, /await openWithLogin\(c\.url\)/, '课程门户必须复用带登录态那条链路，不能另开一份');
-assert.match(source, /const openCourse=e\.target\.closest\('\[data-course-open\]'\)[\s\S]{0,400}const courseCard=e\.target\.closest\('\[data-course-toggle\]'\)/,
-  '门户按钮要排在卡片展开判定之前，否则点按钮会把卡片收起来');
+assert.match(source, /const openCourse=e\.target\.closest\('\[data-course-open\]'\)[\s\S]{0,1200}const filesCard=e\.target\.closest\('\[data-course-files\]'\)/,
+  '门户按钮要排在整卡「进课件」判定之前，否则点按钮会顺带进课件界面');
 const keepUrl = state.courses[2].url;
 state.courses[2].url = '';
 assert.match(coursesHtml(), /没能从这张课程卡片里解析出课程门户链接/, '解析不到链接时不许给一个点了没反应的死按钮');
 assert.doesNotMatch(coursesHtml(), /data-course-open/, '没有地址就不该渲染门户按钮');
 state.courses[2].url = keepUrl;
 state.course.year = 0;
-assert.match(coursesHtml(), /cx2-course st-gray" data-course-toggle[\s\S]*?没有「开课时间」一行/, '无开课时间的卡片展开后要说明为什么没有');
+assert.match(coursesHtml(), /cx2-course st-gray" data-course-files[\s\S]*?没有「开课时间」一行/, '无开课时间的卡片展开后要说明为什么没有');
 state.courses.push({ name: '往年开课的课', teacher: '某师', clazz: CLZ, courseid: '9', clazzid: '9', start: '2024-09-02', end: '2026-09-02' });
 state.course.year = 2024;
 const preEnroll = coursesHtml();

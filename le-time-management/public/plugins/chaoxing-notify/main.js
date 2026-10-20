@@ -10,6 +10,15 @@
   const LOGIN_URL = "https://passport2.chaoxing.com/fanyalogin";
   const INBOX_URL = "https://notice.chaoxing.com/pc/notice/getNoticeList";
   const COURSES_URL = "https://mooc2-ans.chaoxing.com/visit/courses/list";
+  // 课件链路用到的三个固定域名。mooc2-ans 给目录，mooc1 给附件与直链（2026-10 实测）。
+  const MOOC2 = "https://mooc2-ans.chaoxing.com";
+  const MOOC1 = "https://mooc1.chaoxing.com";
+  const CHAPTERS_URL = (e) => `${MOOC2}/mooc2-ans/mycourse/studentcourse`
+    + `?courseid=${e.cid}&clazzid=${e.clz}&cpi=${e.cpi}&enc=${e.enc}`;
+  const CARDS_URL = (e, kid) => `${MOOC1}/knowledge/cards`
+    + `?clazzid=${e.clz}&courseid=${e.cid}&knowledgeid=${kid}&num=0&ut=s&cpi=${e.cpi}&v=20160407-1`;
+  const STUDY_REFERER = (e, kid) => `${MOOC1}/mycourse/studentstudy`
+    + `?chapterId=${kid}&courseId=${e.cid}&clazzid=${e.clz}&cpi=${e.cpi}&enc=${e.enc}&mooc2=1`;
   const NOTICE_URL = (code) => `https://sharewh3.xuexi365.com/share/notice/${encodeURIComponent(code)}/notice_data?pt=&wxsn=`;
   const SHARE_PAGE = (code) => `https://sharewh3.xuexi365.com/share/${encodeURIComponent(code)}?t=4`;
   const DES_KEY = "u2oh6Vu^";
@@ -52,6 +61,17 @@
     tab: "inbox",
     filter: { kw: "", category: "全部", onlyUnread: false, catYear: "全部", catType: "全部", todoSec: "" },
     course: { year: null, searchOpen: false, view: "year" },
+    // 课程课件界面（点课程卡片进入）。course 非空即表示正停在这个界面里，
+    // 「课程」这个 tab 的内容会被替换成课件页，返回时置回 null。
+    files: {
+      course: null,
+      loading: false,
+      chapters: [],   // [{ title, points: [{ kid, no, name, files: [], loading, err }] }]
+      open: new Set(),   // 展开的章节序号（字符串）
+      saved: new Set(),  // 已落盘的 objectid，用来把按钮换成「已下载」
+      progress: "",
+      err: "",
+    },
     notice: null,
     loading: false,
     busy: "",
@@ -534,6 +554,47 @@ const CX_PY_DATA = {
       .cx2-course-more p{margin:3px 0;font-size:calc(11.5px * var(--ui-text-scale));line-height:1.6;color:var(--ink);font-variant-numeric:tabular-nums}
       .cx2-course-more i{display:inline-block;margin-right:7px;font-style:normal;font-size:calc(10.5px * var(--ui-text-scale));font-weight:600;color:var(--ink-2);letter-spacing:.4px}
       .cx2-course-more .cx2-course-tip{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-2)}
+      /* 卡片主体现在是「进课件」，展开开课时间挪到这个小按钮上 —— 必须做成看得见的按钮，
+         否则用户以为那张卡片只能点开详情。 */
+      .cx2-course-btn{position:relative;margin-top:8px;min-height:34px;padding:5px 10px;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2);background:var(--paper);border:1px solid var(--line);border-radius:8px;cursor:pointer}
+      .cx2-course-btn:hover{color:var(--ink);border-color:color-mix(in srgb,var(--deep) 42%,var(--line))}
+
+      /* ── 课件界面（点课程卡片进入）────────────────────────────────────── */
+      .cx2-files-head{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:14px 0 10px}
+      .cx2-files-title{flex:1;min-width:170px}
+      .cx2-files-title h3{margin:0;font-size:calc(16px * var(--ui-text-scale))}
+      .cx2-files-title p{margin:3px 0 0;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2)}
+      .cx2-back{min-height:38px;padding:6px 11px;font-size:calc(12px * var(--ui-text-scale));background:var(--paper);border:1px solid var(--line);border-radius:9px;color:var(--ink);cursor:pointer}
+      .cx2-back:hover{border-color:color-mix(in srgb,var(--deep) 42%,var(--line))}
+      .cx2-files-sec{border:1px solid var(--line);border-radius:11px;background:var(--panel);margin-bottom:9px;overflow:hidden}
+      .cx2-files-sech{margin:0}
+      .cx2-files-sech button{display:flex;align-items:center;gap:9px;width:100%;min-height:44px;padding:9px 12px;background:none;border:0;text-align:left;cursor:pointer;font-size:calc(12.5px * var(--ui-text-scale));color:var(--ink)}
+      .cx2-files-sech button:hover{background:var(--paper)}
+      .cx2-caret{flex:none;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .18s}
+      .cx2-files-sec.open .cx2-caret{transform:rotate(90deg)}
+      .cx2-files-ch{font-weight:600}
+      .cx2-files-body{border-top:1px solid var(--line)}
+      .cx2-files-sec:not(.open) .cx2-files-body{border-top:0}
+      .cx2-point{padding:10px 12px;border-top:1px dashed color-mix(in srgb,var(--ink) 14%,var(--line))}
+      .cx2-point:first-child{border-top:0}
+      .cx2-point-h{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+      .cx2-point-h b{font-size:calc(12px * var(--ui-text-scale))}
+      .cx2-point-no{font-size:calc(11px * var(--ui-text-scale));font-weight:700;color:var(--ink-2);font-variant-numeric:tabular-nums}
+      .cx2-file{display:flex;align-items:center;gap:9px;padding:6px 0;flex-wrap:wrap}
+      .cx2-file-kind{flex:none;font-size:calc(10px * var(--ui-text-scale));font-weight:700;letter-spacing:.3px;padding:2px 6px;border-radius:6px;background:var(--paper);border:1px solid var(--line);color:var(--ink-2)}
+      .cx2-file-kind.k-ppt{color:#b45309;border-color:color-mix(in srgb,#b45309 34%,var(--line))}
+      .cx2-file-kind.k-pdf{color:#b91c1c;border-color:color-mix(in srgb,#b91c1c 34%,var(--line))}
+      .cx2-file-kind.k-video{color:#1d4ed8;border-color:color-mix(in srgb,#1d4ed8 34%,var(--line))}
+      .cx2-file-name{flex:1;min-width:150px;font-size:calc(12px * var(--ui-text-scale));overflow-wrap:anywhere}
+      .cx2-file-size{flex:none;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2);font-variant-numeric:tabular-nums}
+      .cx2-file button{flex:none;min-height:34px;padding:4px 10px;font-size:calc(11px * var(--ui-text-scale));border-radius:8px;background:var(--paper);border:1px solid var(--line);color:var(--ink);cursor:pointer}
+      .cx2-file button:hover{border-color:color-mix(in srgb,var(--deep) 46%,var(--line))}
+      .cx2-file.done .cx2-file-name{color:var(--ink-2)}
+      .cx2-file-empty{padding:4px 0;font-size:calc(11px * var(--ui-text-scale));color:var(--ink-2)}
+      .cx2-file-empty.err{color:color-mix(in srgb,var(--coral) 62%,var(--ink))}
+      /* 底部那段是「怎么用 / 为什么大文件走浏览器」的说明，信息密度高，
+         纯 --ink-2 在手机亮度下偏淡，提一档。 */
+      .cx2-hint.cx2-files-note{color:color-mix(in srgb,var(--ink) 74%,var(--ink-2))}
       /* 开课时间总览：一条按开课日期升序的时间轴，同一天开课的课程并到同一节。
          竖线用 section 的左边框串起来，圆点压在竖线上（负 left 让出竖线位置）。
          圆点不加描边：宿主内容区底色是 --bg 而非 --paper，任何"挖洞"描边都会在部分主题下露成光圈。 */
@@ -1365,7 +1426,9 @@ const CX_PY_DATA = {
     const more = t
       ? `<div class="cx2-course-more"><p><i>开课</i>${esc(c.start)} ～ ${esc(c.end || "卡片未给结课日")}</p><p><i>学期</i>${esc(t.label)}${g ? ` · ${esc(g)}` : ""}</p><p class="cx2-course-tip">结课日取自学习通卡片原文（实测恒为开课 +2 年），完成状态只按开课学期推断。</p>${courseOpenBtn(c)}</div>`
       : `<div class="cx2-course-more"><p><i>开课</i>学习通这张课程卡片里没有「开课时间」一行，无法推断学期与完成状态。</p>${courseOpenBtn(c)}</div>`;
-    return `<div class="cx2-course st-${st}" data-course-toggle data-key="${esc(`${c.courseid}_${c.clazzid}`)}" title="点击展开该课的完整开课时间">${mark}<b>${esc(c.name)}</b><span>${esc([c.teacher, c.clazz].filter(Boolean).join(' · ') || '—')}</span><span class="cx2-termline">${esc(termLine)}</span><span>courseId ${esc(c.courseid)} · clazzId ${esc(c.clazzid)}</span>${more}</div>`;
+    // 卡片主体点击 = 进这门课的课件界面（data-course-files）；「开课时间」按钮才是展开详情。
+    // 两者都在一张卡上，事件委托里必须按「先内层按钮、后整卡」的顺序判断。
+    return `<div class="cx2-course st-${st}" data-course-files data-key="${esc(`${c.courseid}_${c.clazzid}`)}" title="点击进入这门课的课件界面">${mark}<b>${esc(c.name)}</b><span>${esc([c.teacher, c.clazz].filter(Boolean).join(' · ') || '—')}</span><span class="cx2-termline">${esc(termLine)}</span><span class="cx2-course-ids">courseId ${esc(c.courseid)} · clazzId ${esc(c.clazzid)}</span><button class="cx2-course-btn" data-course-toggle title="展开这一门的完整开课～结课时间">开课时间</button>${more}</div>`;
   }
   /* 开课时间总览：跨学年、跨状态，把课程按「开课日期」升序串成一条时间轴，同一天开课的并成一节。
      吃当前搜索词；没有开课时间行的课程固定落在最后一段。 */
@@ -1391,6 +1454,303 @@ const CX_PY_DATA = {
     }).join("");
     return `<div class="cx2-tl-sum">共 ${list.length} 门课，分布在 ${dates.filter((d) => d).length} 个开课时间${groups.has("") ? `（另有 ${groups.get("").length} 门没有开课时间）` : ""}</div>${secs || '<div class="cx2-empty">没有匹配课程。</div>'}`;
   }
+  /* ── 课程课件（点课程卡片进入的专门界面）────────────────────────────────────
+     全部走 tide.http：Rust 侧 reqwest 带着登录 Cookie 直连，没有 WebView 的 CORS
+     与 Referer 限制，也不把 Cookie 交给页面脚本。链路（2026-10 实测）：
+
+       1) 课程卡片里的地址是 stucoursemiddle 中转页 → 跟一次跳转，拿到带 enc 的
+          课程页。enc 是服务端签发的，自己拼不出来，后续两步都要它；
+       2) studentcourse → 章 / 知识点，每行一个 toOld(courseid, knowledgeid, clazzid)；
+       3) 每个知识点 knowledge/cards → <iframe class="ans-attach-online" data="{...}">，
+          那个 data 属性就是完整 JSON（name / type / size / objectid），不用再猜文件名；
+       4) ananas/status/{objectid} → download（cldisk 签名直链）或 pdf（转好的 PDF）。
+
+     下载分两条路：≤40 MB 走 tide.http binary → tide.assets.saveBase64 直接落进系统
+     下载目录；更大的（课件动辄 150 MB）甩给系统浏览器 —— base64 要再翻 4/3 倍，
+     塞进 WebView 的 IPC 只会把整个插件页拖死。 */
+  const INLINE_MAX_BYTES = 40 * 1024 * 1024;
+  const entryCache = new Map();
+
+  function fmtBytes(n) {
+    const b = Number(n) || 0;
+    if (!b) return "";
+    if (b < 1024) return `${b} B`;
+    if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+    if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+    return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
+
+  // 学习通不让文件名带这些字符，Rust 侧也会直接拒（save_to_download_dir 校验同一套）。
+  const safeFileName = (name) => String(name || "课件").replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+/, "_").slice(0, 120);
+
+  async function courseEntry(c) {
+    const key = `${c.courseid}_${c.clazzid}`;
+    if (entryCache.has(key)) return entryCache.get(key);
+    if (!c.url) throw new Error("这张课程卡片没解析出课程地址（多半是平台改了卡片结构）");
+    const res = await tide.http.fetch(state.sid, "GET", c.url, {
+      headers: authHeaders({ "Accept": "text/html, */*; q=0.01" }),
+    });
+    const finalUrl = res.finalUrl || "";
+    if (/passport2\.chaoxing\.com/.test(finalUrl)) throw new Error("登录会话已失效，请重新登录学习通后再进课件");
+    let sp = new URLSearchParams();
+    try { sp = new URL(finalUrl).searchParams; } catch { /* finalUrl 不是绝对地址时退回卡片里的值 */ }
+    const entry = {
+      cid: sp.get("courseid") || c.courseid,
+      clz: sp.get("clazzid") || c.clazzid,
+      cpi: sp.get("cpi") || c.cpi || "",
+      enc: sp.get("enc") || "",
+    };
+    if (!entry.enc) throw new Error("没能从课程页拿到 enc 参数（平台可能改版了），暂时读不到章节目录");
+    entryCache.set(key, entry);
+    return entry;
+  }
+
+  // 章节页两种形态：有内容时是 chapter_unit × N（每章下若干 chapter_item），
+  // 没内容时整页就一句「暂无章节内容」—— 后者原样返回空数组，由界面给出人话提示。
+  function parseChapters(html) {
+    const out = [];
+    for (const unit of String(html || "").split('<div class="chapter_unit">').slice(1)) {
+      // 一级章节名在 `.catalog_name newCatalog_name` 里的 <a><span title="…">。
+      // 真页面缩进很重（实测同一行到 title 隔了 700+ 字符），窗口给太窄会全部落空。
+      const title = decodeEntities((unit.match(/<div class="catalog_title chapter_Thats_bnt"[\s\S]{0,3000}?<span title="([^"]*)"/) || [])[1] || "").trim();
+      const points = [];
+      for (const chunk of unit.split('<div class="chapter_item"').slice(1)) {
+        const m = chunk.match(/toOld\(\s*'?(\d+)'?\s*,\s*'?(\d+)'?\s*,/);
+        if (!m) continue;   // 章标题那一行没有 toOld，跳过
+        const sbar = chunk.match(/<span class="catalog_sbar">([^<]*)<\/span>/);
+        const nameFromBody = chunk.match(/<span class="catalog_sbar">[^<]*<\/span>\s*([^<]+)</);
+        const name = decodeEntities(
+          (nameFromBody && nameFromBody[1]) || (chunk.match(/title="([^"]*)"/) || [])[1] || "",
+        ).trim();
+        points.push({ kid: m[2], no: sbar ? sbar[1].trim() : "", name: name || "未命名章节", files: [], loading: false, err: "" });
+      }
+      if (points.length) out.push({ title: title || "", points });
+    }
+    return out;
+  }
+
+  // knowledge/cards 里每个附件都是一个 iframe，data 属性是完整的 JSON 元数据。
+  function parseAttachments(html) {
+    const out = [], seen = new Set();
+    for (const tag of String(html || "").match(/<iframe[^>]*class="[^"]*ans-attach-online[^"]*"[^>]*>/g) || []) {
+      let meta = {};
+      const raw = (tag.match(/\bdata="([^"]*)"/) || [])[1];
+      if (raw) { try { meta = JSON.parse(decodeEntities(raw)) || {}; } catch { meta = {}; } }
+      const oid = meta.objectid || (tag.match(/\bobjectid="([^"]*)"/) || [])[1] || "";
+      if (!oid || seen.has(oid)) continue;
+      seen.add(oid);
+      const type = String(meta.type || "");
+      const kind = /ans-insertvideo-online/.test(tag) || /^\.(mp4|mp3|m4a|avi|flv|wmv|mov)$/i.test(type) ? "video"
+        : /^\.(pptx?|key)$/i.test(type) ? "ppt"
+          : /^\.pdf$/i.test(type) ? "pdf"
+            : /^\.(docx?|wps|rtf|txt|xlsx?|csv|zip|rar|7z)$/i.test(type) ? "doc" : "file";
+      out.push({ oid, name: String(meta.name || `附件 ${oid.slice(0, 8)}`), type, size: Number(meta.size) || 0, kind });
+    }
+    return out;
+  }
+
+  async function loadChapters(entry) {
+    const res = await tide.http.fetch(state.sid, "GET", CHAPTERS_URL(entry), {
+      headers: authHeaders({ "Accept": "text/html, */*; q=0.01", "Referer": `${MOOC2}/mooc2-ans/mycourse/stu` }),
+    });
+    if (/passport2\.chaoxing\.com/.test(res.finalUrl || "")) throw new Error("登录会话已失效，请重新登录学习通");
+    return parseChapters(res.body);
+  }
+
+  async function loadPointFiles(entry, point) {
+    const res = await tide.http.fetch(state.sid, "GET", CARDS_URL(entry, point.kid), {
+      headers: authHeaders({ "Accept": "text/html, */*; q=0.01", "Referer": STUDY_REFERER(entry, point.kid) }),
+    });
+    return parseAttachments(res.body);
+  }
+
+  async function openCourseFiles(c) {
+    // 卡片可能在「收件箱 / 待办」页之外的上下文被点到（比如刚登录完自动落回 inbox），
+    // 所以进课件界面前先把 tab 拨到课程页，否则 paintMain 会按旧 tab 渲染，界面看着"没反应"。
+    state.tab = "courses";
+    state.files = { course: c, loading: true, chapters: [], open: new Set(), saved: new Set(), progress: "正在读取章节目录…", err: "" };
+    paintMain();
+    await refreshCourseFiles();
+  }
+
+  async function refreshCourseFiles() {
+    const f = state.files, c = f.course;
+    if (!c) return;
+    f.loading = true; f.err = ""; f.chapters = []; f.progress = "正在读取章节目录…";
+    paintMain();
+    try {
+      const entry = await courseEntry(c);
+      const chapters = await loadChapters(entry);
+      f.chapters = chapters;
+      f.open = new Set(chapters.map((_, i) => String(i)));
+      if (!chapters.length) {
+        f.err = "平台侧这门课还没有章节（章节目录为空，课程资料里也没有文件），所以暂时没有可下载的课件。";
+        f.progress = "";
+        f.loading = false;
+        paintMain();
+        return;
+      }
+      const total = chapters.reduce((n, ch) => n + ch.points.length, 0);
+      let done = 0;
+      paintMain();
+      for (const ch of chapters) {
+        const queue = ch.points.slice();
+        const worker = async () => {
+          while (queue.length) {
+            const p = queue.shift();
+            p.loading = true;
+            try { p.files = await loadPointFiles(entry, p); }
+            catch (err) { p.err = (err && err.message) || "读取失败"; }
+            finally { p.loading = false; done++; }
+          }
+        };
+        await Promise.all(Array.from({ length: Math.min(3, queue.length) }, worker));
+        f.progress = `已读取 ${done}/${total} 节`;
+        paintMain();
+      }
+      f.progress = `读取完成：${chapters.length} 章 · ${total} 节 · ${countFiles()} 个文件`;
+    } catch (err) {
+      f.err = (err && err.message) || "课件目录读取失败";
+      f.progress = "";
+    } finally {
+      f.loading = false;
+      paintMain();
+    }
+  }
+
+  const countFiles = () => state.files.chapters.reduce(
+    (n, ch) => n + ch.points.reduce((m, p) => m + p.files.length, 0), 0);
+
+  const findFile = (oid) => {
+    for (const ch of state.files.chapters) {
+      for (const p of ch.points) {
+        const hit = p.files.find((x) => x.oid === oid);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+
+  // ananas/status 给的 download 是 cldisk 签名直链（带 at_/ak_，短时有效），
+  // 拿不到时才退回 pdf（平台转好的预览版）；两个都没有就说明这个任务点不是文件。
+  async function fileTargets(file) {
+    if (file.__urls) return file.__urls;
+    const res = await tide.http.fetch(state.sid, "GET", `${MOOC1}/ananas/status/${file.oid}?k=&flag=normal&_dc=${Date.now()}`, {
+      headers: authHeaders({ "Accept": "application/json, */*; q=0.01", "Referer": `${MOOC1}/` }),
+    });
+    let j = {};
+    try { j = JSON.parse(res.body || "{}"); } catch { j = {}; }
+    const urls = { download: j.download || "", pdf: j.pdf || "" };
+    if (!urls.download && !urls.pdf) throw new Error("平台没有给这个附件下载地址（可能是纯网页型任务点）");
+    file.__urls = urls;
+    return urls;
+  }
+
+  async function downloadFile(file) {
+    const f = state.files;
+    const urls = await fileTargets(file);
+    const target = urls.download || urls.pdf;
+    if ((file.size || 0) > INLINE_MAX_BYTES) {
+      await tide.util.openUrl(target);
+      f.progress = `「${file.name}」（${fmtBytes(file.size)}）已交给系统浏览器下载`;
+      paintMain();
+      return "browser";
+    }
+    f.progress = `正在下载 ${file.name}（${fmtBytes(file.size) || "大小未知"}）…`;
+    paintMain();
+    const res = await tide.http.fetch(state.sid, "GET", target, {
+      headers: { "Accept": "*/*", "Referer": `${MOOC1}/` },
+      binary: true,
+    });
+    if (res.status !== 200) throw new Error(`下载失败：HTTP ${res.status}`);
+    const path = await tide.assets.saveBase64(safeFileName(file.name), res.body);
+    f.saved.add(file.oid);
+    f.progress = `已保存到下载目录：${path}`;
+    paintMain();
+    return path;
+  }
+
+  async function downloadAllFiles() {
+    const f = state.files;
+    if (f.loading) return;
+    const list = f.chapters.flatMap((ch) => ch.points.flatMap((p) => p.files)).filter((x) => !f.saved.has(x.oid));
+    if (!list.length) { f.progress = "没有待下载的文件"; paintMain(); return; }
+    let ok = 0, browser = 0;
+    const failed = [];
+    for (let i = 0; i < list.length; i++) {
+      const x = list[i];
+      try {
+        const r = await downloadFile(x);
+        if (r === "browser") browser++; else ok++;
+      } catch (err) {
+        failed.push(`${x.name}：${(err && err.message) || "失败"}`);
+      }
+      f.progress = `批量下载 ${i + 1}/${list.length}：成功 ${ok}，交给浏览器 ${browser}${failed.length ? `，失败 ${failed.length}` : ""}`;
+      paintMain();
+    }
+    f.progress = `完成 ${list.length} 个：应用内保存 ${ok} 个、交给浏览器 ${browser} 个${failed.length ? `；失败：${failed.join("；")}` : ""}`;
+    paintMain();
+  }
+
+  function fileRowHtml(file) {
+    const done = state.files.saved.has(file.oid);
+    const big = (file.size || 0) > INLINE_MAX_BYTES;
+    const label = file.kind === "video" ? "视频" : file.kind === "ppt" ? "课件"
+      : file.kind === "pdf" ? "PDF" : file.kind === "doc" ? "文档" : "附件";
+    return `<div class="cx2-file${done ? " done" : ""}">`
+      + `<span class="cx2-file-kind k-${file.kind}" aria-hidden="true">${label}</span>`
+      + `<span class="cx2-file-name" title="${esc(file.name)}">${esc(file.name)}</span>`
+      + `<span class="cx2-file-size">${esc(fmtBytes(file.size))}</span>`
+      + `<button data-coursedoc-dl="${esc(file.oid)}" title="${big ? "文件较大，交给系统浏览器下载" : "保存到系统下载目录"}">${done ? "已下载" : big ? "浏览器下载" : "下载"}</button>`
+      + `</div>`;
+  }
+
+  function courseFilesHtml() {
+    const f = state.files, c = f.course;
+    if (!c) return "";
+    const files = countFiles();
+    const bytes = f.chapters.reduce((n, ch) => n + ch.points.reduce(
+      (m, p) => m + p.files.reduce((k, x) => k + (x.size || 0), 0), 0), 0);
+    const head = `<div class="cx2-files-head">`
+      + `<button class="cx2-back" data-coursedoc-back title="回到课程列表">← 课程</button>`
+      + `<div class="cx2-files-title"><h3>${esc(c.name)}</h3>`
+      + `<p>${esc([c.teacher, c.clazz].filter(Boolean).join(" · ") || "—")} · ${f.chapters.length} 章 · ${files} 个文件${bytes ? ` · ${fmtBytes(bytes)}` : ""}</p></div>`
+      + `<div class="cx2-actions">`
+      + `<button data-coursedoc-refresh ${f.loading ? "disabled" : ""} title="重新读取章节目录与附件">${f.loading ? "读取中…" : "重新读取"}</button>`
+      + `<button class="primary" data-coursedoc-all ${f.loading || !files ? "disabled" : ""} title="把没下载过的文件逐个保存；大文件交给浏览器">全部下载</button>`
+      + `</div></div>`;
+
+    const bar = f.progress ? `<div class="cx2-status" role="status">${esc(f.progress)}</div>`
+      : f.err ? `<div class="cx2-status err" role="alert">${esc(f.err)}</div>` : "";
+
+    const secs = f.chapters.map((ch, i) => {
+      const key = String(i);
+      const open = f.open.has(key);
+      const n = ch.points.reduce((m, p) => m + p.files.length, 0);
+      const inner = open ? ch.points.map((p) => {
+        const rows = p.files.length ? p.files.map(fileRowHtml).join("")
+          : p.loading ? `<div class="cx2-file-empty">正在读取…</div>`
+            : p.err ? `<div class="cx2-file-empty err">${esc(p.err)}</div>`
+              : `<div class="cx2-file-empty">这一节没有附件（纯阅读 / 测验章节）。</div>`;
+        return `<div class="cx2-point"><div class="cx2-point-h">`
+          + (p.no ? `<span class="cx2-point-no">${esc(p.no)}</span>` : "")
+          + `<b>${esc(p.name)}</b>`
+          + `<span class="cx2-grade-sub">${p.files.length} 个文件</span>`
+          + `</div>${rows}</div>`;
+      }).join("") : "";
+      return `<section class="cx2-files-sec${open ? " open" : ""}">`
+        + `<h4 class="cx2-files-sech"><button data-coursedoc-sec="${key}" aria-expanded="${open}">`
+        + `<span class="cx2-caret" aria-hidden="true"></span>`
+        + `<span class="cx2-files-ch">${esc(ch.title || `第 ${i + 1} 章`)}</span>`
+        + `<span class="cx2-grade-sub">${ch.points.length} 节 · ${n} 个文件</span>`
+        + `</button></h4>`
+        + `<div class="cx2-files-body">${inner}</div></section>`;
+    }).join("");
+
+    const body = secs || (f.loading ? `<div class="cx2-empty">正在读取这门课的章节…</div>` : "");
+    return `${head}${bar}${body}<div class="cx2-hint cx2-files-note">课件来自「章节」里的任务点附件。大文件（超过 40 MB）不在应用内转码，直接交给系统浏览器下载，速度与断点续传都由浏览器管。学习通给的是带签名的临时直链，链接过期就点「重新读取」再下一次。</div>`;
+  }
+
   function coursesHtml() {
     const all = state.courses;
     const now = new Date();
@@ -1425,7 +1785,7 @@ const CX_PY_DATA = {
       : '<div class="cx2-empty">这个学年没有匹配课程。</div>';
     const hint = timeline
       ? `开课时间总览把 ${list.length} 门课（含所有学年）按开课日期先后排成一条时间轴，同一天开课的并在一节；日期右侧是本地推断的年级学期，胶囊标出「本学期 / N 天后开课」。圆点颜色即完成状态：红=未完成、蓝=正在进行、绿=已完成、灰=无开课时间。${enrollYear ? `年级按 ${enrollYear} 级入学计算；` : ""}学习通接口本身不返回这些，可能与平台显示不一致。`
-      : `每次打开默认显示最近学年；点击卡片可展开这一门课自己的完整开课～结课时间与所属学期。卡片底色与角标是本地按课程卡片里的「开课时间」推断的完成状态：红=未完成（开课学期在未来）、蓝=正在进行（当前学期）、绿=已完成（开课学期已结束）${enrollYear ? `；年级按 ${enrollYear} 级入学计算` : ""}。学习通接口本身不返回该状态，可能与平台显示不一致。`;
+      : `每次打开默认显示最近学年；点击卡片进入这门课的课件界面（按章节列出可下载的课件、视频与附件），点卡片上的「开课时间」才展开完整的开课～结课时间与所属学期。卡片底色与角标是本地按课程卡片里的「开课时间」推断的完成状态：红=未完成（开课学期在未来）、蓝=正在进行（当前学期）、绿=已完成（开课学期已结束）${enrollYear ? `；年级按 ${enrollYear} 级入学计算` : ""}。学习通接口本身不返回该状态，可能与平台显示不一致。`;
     return `<div class="cx2-toolbar">${search}<span style="flex:1"></span>${viewSwitch}</div>${timeline ? courseTimelineHtml(list, enrollYear, now) : `${tabs}${body}`}<div class="cx2-hint">${esc(hint)}</div>`;
   }
   function lookupHtml() {
@@ -1439,7 +1799,7 @@ const CX_PY_DATA = {
     const modeBtns = `<span class="cx2-mode" role="group" aria-label="打开插件时的刷新策略">${["auto", "throttle"].map((m) => `<button class="${state.refreshMode === m ? "on" : ""}" data-mode="${m}" title="${esc(REFRESH_MODES[m].why)}" aria-pressed="${state.refreshMode === m}">${REFRESH_MODES[m].label}</button>`).join("")}</span>`;
     const tools = `<details class="cx2-tools" data-tools><summary aria-label="更多学习通操作">更多</summary><div class="cx2-tools-panel"><div><div class="cx2-tools-label">打开页面时</div>${modeBtns}</div><label class="cx2-check" title="Windows 任务栏显示未提交作业数（含逾期、近期无截止作业）；已提交、考试与已移除通知不计。每 5 分钟同步，0 条自动隐藏。"><input class="switch" role="switch" type="checkbox" data-taskbar-badge ${state.taskbarBadge ? "checked" : ""}>任务栏作业角标（${unfinishedHomework().length}）</label><button data-full-sync ${state.loading?'disabled':''} title="重新拉取全部通知，可能需要更长时间">完整同步</button>${state.ignoredIds.size?`<button data-ignore-reset title="把被移除的通知重新放回列表，不需要重新同步">恢复已移除（${state.ignoredIds.size}）</button>`:''}${(state.cardColors.size||state.colorRules.length)?`<button data-color-clear-all title="清除全部单卡颜色标记与整组颜色规则">清除全部颜色标记（${state.cardColors.size} 条单卡 + ${state.colorRules.length} 条规则）</button>`:''}<button data-switch>切换登录</button></div></details>`;
     const status = state.error || (state.busy === "open" ? "正在打开学习通网页…" : "");
-    host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-updated">${state.lastSync ? `上次刷新 ${esc(state.lastSync)}` : "尚未刷新"}</p></div><div class="cx2-actions"><button class="primary" data-refresh ${state.loading?'disabled':''} title="刷新最新通知、课程与作业状态">${state.loading?'刷新中…':'刷新'}</button>${tools}</div></div>${navHtml()}${status ? `<div class="cx2-status ${state.error?'err':''}" role="status">${esc(status)}</div>` : ""}<div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?coursesHtml():lookupHtml()}</div>${colorMenuHtml()}</div>`;
+    host.innerHTML = `<div class="cx2"><div class="cx2-head"><div><h2>学习通</h2><p class="cx2-updated">${state.lastSync ? `上次刷新 ${esc(state.lastSync)}` : "尚未刷新"}</p></div><div class="cx2-actions"><button class="primary" data-refresh ${state.loading?'disabled':''} title="刷新最新通知、课程与作业状态">${state.loading?'刷新中…':'刷新'}</button>${tools}</div></div>${navHtml()}${status ? `<div class="cx2-status ${state.error?'err':''}" role="status">${esc(status)}</div>` : ""}<div data-body>${state.tab==='inbox'?inboxHtml():state.tab==='cats'?catsHtml():state.tab==='todo'?todoHtml():state.tab==='courses'?(state.files.course?courseFilesHtml():coursesHtml()):lookupHtml()}</div>${colorMenuHtml()}</div>`;
   }
 
   /* 刷新等待蒙版（v0.233.0）：拉通知 + 课程列表是网络往返，首次进入整页只有一句
@@ -1512,13 +1872,19 @@ const CX_PY_DATA = {
       const loginTab=e.target.closest('[data-login-tab]');if(loginTab){const cookie=loginTab.dataset.loginTab==='cookie';host.querySelectorAll('[data-login-tab]').forEach(b=>b.classList.toggle('on',b===loginTab));host.querySelector('[data-login-password]').hidden=cookie;host.querySelector('[data-login-cookie]').hidden=!cookie;return;}
       if(e.target.closest('[data-login]')){const u=host.querySelector('[data-u]').value.trim(),p=host.querySelector('[data-p]').value,status=host.querySelector('[data-login-status]');if(!u||!p){status.textContent='请填写账号和密码';return;}state.remember=host.querySelector('[data-remember]').checked;state.creds={uname:u,password:p};status.textContent='正在登录…';try{await cxLogin(u,p);paintMain();await refreshAll();}catch(err){status.textContent=err.message||err;}return;}
       if(e.target.closest('[data-cookie-login]')){const c=host.querySelector('[data-cookie]').value.trim(),status=host.querySelector('[data-login-status]');state.remember=host.querySelector('[data-remember]').checked;state.creds=null;status.textContent='正在验证 Cookie…';try{await startCookieSession(c);paintMain();await refreshAll();}catch(err){status.textContent=err.message||err;}return;}
-      const tab=e.target.closest('[data-tab]');if(tab){state.tab=tab.dataset.tab;paintMain();return;}
+      const tab=e.target.closest('[data-tab]');if(tab){state.tab=tab.dataset.tab;state.files.course=null;state.files.chapters=[];state.files.progress='';state.files.err='';paintMain();return;}
       const catChip=e.target.closest('[data-cat-type]');if(catChip){state.filter.catType=catChip.dataset.catType;savePrefs();paintMain();return;}
       const todoChip=e.target.closest('[data-todo-sec]');if(todoChip){const k=todoChip.dataset.todoSec;state.filter.todoSec=state.filter.todoSec===k?"":k;savePrefs();paintMain();return;}
       const yearBtn=e.target.closest('[data-year]');if(yearBtn){state.course.year=Number(yearBtn.dataset.year)||0;paintMain();return;}
       const viewBtn=e.target.closest('[data-course-view]');if(viewBtn){state.course.view=viewBtn.dataset.courseView==='timeline'?'timeline':'year';paintMain();return;}
       const openCourse=e.target.closest('[data-course-open]');if(openCourse){const c=state.courses.find((x)=>`${x.courseid}_${x.clazzid}`===openCourse.closest('[data-key]')?.dataset.key);if(c)await openWithLogin(c.url);return;}
-      const courseCard=e.target.closest('[data-course-toggle]');if(courseCard){courseCard.title=courseCard.classList.toggle('open')?'点击收起该课的开课时间':'点击展开该课的完整开课时间';return;}
+      const courseCard=e.target.closest('[data-course-toggle]');if(courseCard){const card=courseCard.closest('.cx2-course');if(card)card.classList.toggle('open');return;}
+      const filesCard=e.target.closest('[data-course-files]');if(filesCard){const c=state.courses.find((x)=>`${x.courseid}_${x.clazzid}`===filesCard.dataset.key);if(c)await openCourseFiles(c);return;}
+      const docBack=e.target.closest('[data-coursedoc-back]');if(docBack){state.files.course=null;state.files.chapters=[];paintMain();return;}
+      const docRefresh=e.target.closest('[data-coursedoc-refresh]');if(docRefresh){await refreshCourseFiles();return;}
+      const docSec=e.target.closest('[data-coursedoc-sec]');if(docSec){const k=docSec.dataset.coursedocSec;if(state.files.open.has(k))state.files.open.delete(k);else state.files.open.add(k);paintMain();return;}
+      const docAll=e.target.closest('[data-coursedoc-all]');if(docAll){await downloadAllFiles();return;}
+      const docDl=e.target.closest('[data-coursedoc-dl]');if(docDl){const file=findFile(docDl.dataset.coursedocDl);if(file){docDl.disabled=true;try{await downloadFile(file);}catch(err){state.files.progress=`下载失败：${(err&&err.message)||err}`;paintMain();}finally{docDl.disabled=false;}}return;}
       if(e.target.closest('[data-search-toggle]')){state.course.searchOpen=true;paintMain();return;}
       const modeBtn=e.target.closest('[data-mode]');if(modeBtn){state.refreshMode=modeBtn.dataset.mode==='throttle'?'throttle':'auto';await tide.storage.set('refreshMode',state.refreshMode);paintMain();return;}
       if(e.target.closest('[data-refresh]')){await refreshAll();return;}

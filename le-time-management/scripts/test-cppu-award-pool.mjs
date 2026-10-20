@@ -156,10 +156,20 @@ has(/async function awRun\(items, limit, worker, stop\) \{/);
 has(/return poolMod\.runPool\(items, limit, worker, \{ stop \}\)/, "awRun 转调 runPool");
 // 两段循环都换掉了：源码里不该再有那条串行 for
 hasNot(/for \(let i = 0; i < batch\.length; i\+\+\)/, "候选正文 / 附件两段串行 for 都要换成池子");
-has(/const conc = await awConcurrency\(\);\n      const pace = conc > 1 \? ` · 并发 \$\{conc\}` : "";\n      let done = 0;\n      await awRun\(batch, conc, async \(it\) => \{/,
+has(/const conc = await awConcurrency\(\);\n      const pace = conc > 1 \? ` · 并发 \$\{conc\}` : "";/,
+  "并发数与节奏提示在同一处取");
+// 正文「一轮读到底」：续批到没有未读候选为止，状态行不许再留「还有 N 条候选没读（再点一次）」的尾巴
+has(/const unreadAll = \(\) => cands\.filter\(/, "未读候选随时可算（续批与收尾都靠它）");
+has(/for \(;;\) \{\n        const left = unreadAll\(\);/, "正文用死循环续批，不再读一批就收工");
+has(/const batch = left\.filter\(\(it\) => !tried\.has\(itemKey\(it\)\)\)\.slice\(0, AWARD_NOTICE_MAX\);/, "续批只取没试过的条目");
+has(/let done = 0;\n        await awRun\(batch, conc, async \(it\) => \{/,
   "候选正文：并发读 + 进度按「已读完」计数");
+has(/awState\.progress = `正在读正文筛选获奖名单 \$\{readTotal \+ done\} 条（本批 \$\{done\}\/\$\{batch\.length\} · 待读 \$\{left\.length\} 条）\$\{pace\}`/,
+  "正文进度写明总已读 / 本批 / 还剩多少");
+has(/if \(sessionLost \|\| readTotal >= AWARD_CAND_BUDGET\) break;/, "会话掉线或到预算才停手");
+has(/if \(!unreadAll\(\)\.length\) break;/, "读到没有未读候选才收工");
+has(/const tried = new Set\(\);/, "失败条目要记进 tried，否则下一圈会对同一条反复发请求");
 has(/await awRun\(batch, conc, async \(\{ rid, att \}\) => \{/, "附件：也要并发读");
-has(/awState\.progress = `正在读正文筛选获奖名单 \$\{done\}\/\$\{batch\.length\}（候选 \$\{cands\.length\} 条）\$\{pace\}`/);
 has(/awState\.progress = `正在读附件里的获奖名单 \$\{done\}\/\$\{batch\.length\}（\$\{att\.name\}）\$\{pace\}`/);
 assert.equal((source.match(/\}, \(\) => !el\.isConnected\);/g) || []).length, 2, "两段循环都要在视图卸载后停止派新任务");
 // 「扫过」台账的读取要合流：并发进 markAffixScanned 时不能各建一个空对象把旧标记盖掉
