@@ -42,6 +42,7 @@ import { openUpdateHistory } from "./updateHistory.js";
 import { brandRule, replayBrandRule } from "./brandWordmark.js";
 import { withWaitMask } from "./waitMask.js";
 import { shrinkIconDataUrl } from "./iconShrink.js";
+import { createViewScrollMemory } from "./viewScroll.js";
 
 // 注意：模块导入阶段 state 还未初始化，activeView 必须延迟到 renderShell 时读取
 let activeView = null;
@@ -295,6 +296,11 @@ export function renderShell(root) {
   let quickDock = null;
   let pinActionBtn = null;
   let navTransitionSeq = 0;
+  /* v0.274.0：每个视图各记各的滚动位置（需求「apk 滑动位置保存，不要返回就回到顶上」）。
+     外层是共享的 `.view`，插件页还有内层 `.plugview` 自己滚 —— 两份都要记，机制见
+     src/viewScroll.js。切走前 remember、渲染完 restore，第一次进入照旧从顶部开始。 */
+  const viewScroll = createViewScrollMemory();
+  const scrollRoots = () => ({ outer: view, inner: view.querySelector(".plugview") });
   // v0.52.0：沉浸式外壳状态。默认 false ⇒ APK 上下栏默认都收起（需求原文「默认上下栏
   // 都隐藏起来」）。每次启动都从收起态开始，不做持久化 —— 「默认」就是每次进来的样子。
   let chromeShown = false;
@@ -2034,12 +2040,13 @@ export function renderShell(root) {
         const prevDef = viewDef(prevId);
         if (prevDef?.pluginView?.pluginId) releasePluginWaits(prevDef.pluginView.pluginId);
       }
+      /* v0.274.0：replaceChildren 之前先把这一页滚到哪儿记下来。同一视图的「刷新重绘」
+         （插件 refresh、注册表变化后回正）也走这条：内容会被换掉，位置不能丢。 */
+      if (prevId) viewScroll.remember(prevId, scrollRoots());
       view._unsub?.();
       view._unsub = null;
       view.classList.remove("tb-root");
       view.replaceChildren();
-      // .view is shared by every page; retain scroll only when refreshing the same view.
-      if (prevId !== targetId) view.scrollTop = 0;
       const def = viewDef(targetId);
       if (!def) return switchTo("market", dirHint);
       titleEl.textContent = def.title;
@@ -2074,6 +2081,11 @@ export function renderShell(root) {
       else if (targetId === "timeblock") renderTimeblock(view);
       else if (targetId === "inbox") renderInbox(view);
       else if (targetId === "market") renderMarket(view);
+
+      /* v0.274.0：内容已经在 DOM 里，把这一页上次的滚动位置放回去（没存档 ⇒ 归零，
+         与「换页就回顶部」的旧行为一致）。插件页数据是异步到的，viewScroll 会重试几帧
+         把位置顶住；用户一动手就立刻放弃。 */
+      viewScroll.restore(targetId, scrollRoots());
 
       view.classList.remove("page-l", "page-r");
       if (prevId !== targetId) {

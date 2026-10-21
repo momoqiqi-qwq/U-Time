@@ -247,10 +247,60 @@ export function createGrowthView(tide, bridge) {
 
   /* 重进缓存（v0.236.0）：成长页在侧栏里是来回切的常客，而它一次要打 8 个接口。
      进去一次不该等于「每次都把全部数据重等一遍」：
-       · TTL 内重进：连 bridge 都不问（主进程那份缓存也就不会被碰），直接画上次的；
-       · 有数据但过期：先把旧数据画出来（带「更新于 …」），再后台静默刷新；
+       · 时效内重进：连 bridge 都不问（主进程那份缓存也就不会被碰），直接画上次的；
+       · 有数据但过期（v0.268.0 起这个窗口是 30 天）：先把旧数据画出来（带「更新于 …」），再静默刷新；
        · 什么都没有：才是蒙版该出现的场景。 */
-  const FRESH_MS = 60 * 1000;
+  /* ── 本地缓存（v0.268.0）────────────────────────────────────────────────
+     时效从「1 分钟」改成「30 天」，并把快照落盘（tide.cache → 独立 JSON 文件，不进 data.json）。
+     依据是这一页的数据本来就不勤变 —— 学分 / 绩点按学期走、KPI 是月度表；而它每次打开要
+     并发打 8 个 pdata 接口，断网或校园网不通就整页空白。
+     现在的行为：
+       · 30 天内（含重启应用）打开 ⇒ 直接画磁盘上的快照，**一个请求都不发**；
+       · 超过 30 天 ⇒ 才自动重抓一次，抓完把新快照写回去；
+       · 手动「刷新」/ 重新登录成功 ⇒ 永远 force，绕过这两条时效。 */
+  const FRESH_MS = 30 * 24 * 60 * 60 * 1000;
+  const SNAPSHOT_KEY = "growthSnapshot";
+  /** 能从磁盘恢复的字段（与 state 同名，恢复时不用再对表）。
+      其余如 error / stale / loading / tab / detail 是「当下状态」的产物，缓存它们只会撒谎。 */
+  const SNAPSHOT_FIELDS = ["profile", "photo", "learn", "learnTags", "kpi", "consume", "online", "attend", "bonus", "modules"];
+  /* tide.cache 是 v0.247.0 才有的宿主能力；老宿主 / 测试替身没有它时安静退化成「没有缓存」，
+     绝不能因此把页面弄崩 —— 缓存是加速，不是必需品。 */
+  const cacheGet = (key, fallback = null) =>
+    (tide.cache && typeof tide.cache.get === "function")
+      ? Promise.resolve(tide.cache.get(key, fallback)).catch(() => fallback)
+      : Promise.resolve(fallback);
+  const cacheSet = (key, value) =>
+    (tide.cache && typeof tide.cache.set === "function")
+      ? Promise.resolve(tide.cache.set(key, value)).catch(() => {})
+      : Promise.resolve();
+
+  function snapshotOf() {
+    const out = { savedAt: state.loadedAt, partial: state.partial ? 1 : 0 };
+    for (const f of SNAPSHOT_FIELDS) out[f] = state[f];
+    return out;
+  }
+
+  /** 恢复快照，返回是否真的用上了。形状不对一律当「没有缓存」——
+      宁可重抓一次，也不能让一份半截缓存把整页画成空白。 */
+  function restoreSnapshot(saved) {
+    if (!saved || typeof saved !== "object") return false;
+    const at = Number(saved.savedAt) || 0;
+    // 没有身份卡 ⇔ 从来没抓到过有效首屏：这种快照只有半页，不如重抓。
+    if (!at || !saved.profile || typeof saved.profile !== "object") return false;
+    state.profile = saved.profile;
+    state.photo = typeof saved.photo === "string" ? saved.photo : "";
+    state.learn = saved.learn && typeof saved.learn === "object" ? saved.learn : null;
+    state.consume = saved.consume && typeof saved.consume === "object" ? saved.consume : null;
+    state.online = saved.online && typeof saved.online === "object" ? saved.online : null;
+    for (const f of ["learnTags", "kpi", "attend", "bonus", "modules"]) {
+      state[f] = Array.isArray(saved[f]) ? saved[f] : [];
+    }
+    // loadedAt 用**抓取那一刻**而不是「打开这一刻」：工具栏的「更新于」必须说真话。
+    state.loadedAt = at;
+    state.error = "";
+    state.partial = false;
+    return true;
+  }
   function loadAll(force = false) {
     if (state.inFlight) return Promise.resolve();
     if (!force && state.loadedAt && Date.now() - state.loadedAt < FRESH_MS) {
@@ -342,6 +392,9 @@ export function createGrowthView(tide, bridge) {
     const total = head.length + tail.length;
     state.stale = okCount < total ? `${total - okCount} 项数据没取到，其余为最新` : "";
     state.kpiPage = 0;
+    /* 落盘（v0.268.0）：只有「首屏齐 + 至少过半」才值得缓存 —— 半页数据一存就是 30 天，
+       反而把「暂无」写死。半途而废的那次不落盘，磁盘上留着上一份完整的。 */
+    if (okHead === head.length && okCount * 2 >= total) cacheSet(SNAPSHOT_KEY, snapshotOf());
     paint();
   }
 
@@ -584,12 +637,17 @@ ${list.length ? `<ul class="pg-list">${list.slice(0, 10).map((r) => `<li class="
   };
 
   function toolbarHtml() {
-    const at = state.loadedAt ? new Date(state.loadedAt).toLocaleTimeString("zh-CN", { hour12: false }) : "";
+    /* 「更新于」必须说真话：数据是 30 天内抓的都算新鲜，但只写 HH:MM:SS 会让人以为是今天
+       刚取的。跨天就把日期带上（M-D HH:MM），并在 title 里说清「一个月内不自动联网」。 */
+    const at = state.loadedAt ? new Date(state.loadedAt) : null;
+    const sameDay = !!at && at.toDateString() === new Date().toDateString();
+    const clock = at ? at.toLocaleTimeString("zh-CN", { hour12: false }) : "";
+    const when = !at ? "尚未取到数据" : `更新于 ${sameDay ? clock : `${at.getMonth() + 1}-${at.getDate()} ${clock}`}`;
     return `<div class="pg-bar">
 <button type="button" class="pg-btn pg-primary" data-pg-refresh ${state.loading ? "disabled" : ""}>${state.loading ? "正在刷新…" : "刷新"}</button>
 <button type="button" class="pg-btn" data-pg-home>去个人成长中心</button>
 <button type="button" class="pg-btn" data-pg-relogin>重新登录</button>
-<span class="pg-when">${at ? `更新于 ${esc(at)}` : "尚未取到数据"}</span></div>`;
+<span class="pg-when" title="一个月内直接显示本地缓存，不自动联网；点「刷新」可立即重取">${esc(when)}</span></div>`;
   }
 
   function paint() {
@@ -694,10 +752,22 @@ ${heroHtml()}${learnHtml()}${kpiHtml()}${flowHtml()}${recordHtml()}${moduleHtml(
     state.root = host;
     styles();
     host.innerHTML = `<div class="pg-wrap"><div class="pg-card"><div class="pg-loading">正在读取个人成长数据…</div></div></div>`;
-    Promise.resolve(tide.storage?.get?.(KEY, null)).then((saved) => {
+    /* 两项并行读：偏好（消费 / 上网 tab）与落盘快照。
+       快照命中且未过期 ⇒ **当场画完就返回，一个请求都不发**（这就是「无感」）；
+       没命中 / 过期 / 本次会话里已经有数据 ⇒ 才回到原来的取数流程。
+       会话内重进时不读盘也不清状态：手里那份比磁盘新，画它就行。 */
+    const pref = Promise.resolve(tide.storage?.get?.(KEY, null)).catch(() => null);
+    const snap = state.loadedAt ? Promise.resolve(null) : cacheGet(SNAPSHOT_KEY, null);
+    Promise.all([pref, snap]).then(([saved, cached]) => {
       if (state.disposed) return;
       if (saved && (saved.tab === "consume" || saved.tab === "online")) state.tab = saved.tab;
-    }).catch(() => {}).finally(() => { if (!state.disposed) loadAll(); });
+      const at = Number(cached && cached.savedAt) || 0;
+      if (at && Date.now() - at < FRESH_MS && restoreSnapshot(cached)) {
+        paint();
+        return;
+      }
+      loadAll();
+    }).catch(() => { if (!state.disposed) loadAll(); });
     return () => {
       state.disposed = true;
       state.root = null;
@@ -712,5 +782,7 @@ ${heroHtml()}${learnHtml()}${kpiHtml()}${flowHtml()}${recordHtml()}${moduleHtml(
     };
   }
 
-  return { render, refresh: () => loadAll() };
+  /* 对外 refresh 也是 force（v0.268.0）：外部只会因为「我要最新」才喊它，
+     在一个月时效内退化成空操作等于骗人。 */
+  return { render, refresh: () => loadAll(true) };
 }

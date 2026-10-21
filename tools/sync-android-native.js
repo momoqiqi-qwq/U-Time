@@ -55,6 +55,9 @@ const SOURCES = [
   "ApkInstallerPlugin.kt",
   "AppUninstallerPlugin.kt",
   "SystemBarPlugin.kt",
+  // v0.272.5 系统栏「底色 + 图标」统一控制点：导航栏底色被系统 scrim 盖上时，
+  // 深色模式会出现一条白带、浅色模式一条深带。MainActivity 与插件都要调它。
+  "SystemBars.kt",
   // v0.73.0 系统通知与闹钟：插件 + 中枢 + 三个广播接收器
   "ReminderHub.kt",
   "NotificationPlugin.kt",

@@ -8,32 +8,24 @@ const theme = read("../src/theme.js");
 const libRs = read("../src-tauri/src/lib.rs");
 const systemBarRs = read("../src-tauri/src/system_bar.rs");
 const pluginKt = read("../android/gradle/app/src/main/java/com/yile/letime/SystemBarPlugin.kt");
+const systemBarsKt = read("../android/gradle/app/src/main/java/com/yile/letime/SystemBars.kt");
 const mainActivityKt = read("../android/gradle/app/src/main/java/com/yile/letime/MainActivity.kt");
 const syncTool = read("../../tools/sync-android-native.js");
 
-/* ───────────── v0.51.0 回归：状态栏图标看不见 ─────────────
-   现象（用户反馈）：手机端「设置 → API Key」页，状态栏的文字/电量看不见。
+/* ───────────── v0.272.5 回归：导航栏底色被系统 scrim 盖住 ─────────────
+   现象（用户反馈）：APK 深色模式时底部是**白色**，浅色模式时底部是**深色** ——
+   跟着系统走，不跟网页主题走。图标反而与那条反相色带融成一片。
 
-   根因（真浏览器实测）：Android 端 MainActivity 调 enableEdgeToEdge()，状态栏与导航栏
-   是**透明浮层**盖在 WebView 上，系统栏图标直接压在网页顶部那一条的**实际底色**之上。
-   而图标颜色是 Android 按**应用主题的 light/dark** 决定的（Theme.letime 继承
-   Theme.MaterialComponents.DayNight.NoActionBar，只跟随**系统深色模式**），
-   **完全不知道网页的 data-theme-mode**。两者不一致时图标必然消失在背景里：
+   根因：v0.51.0 只把**图标明暗**接到网页主题，**底色**没管。
+   `Window.isNavigationBarContrastEnforced`（API 29+，默认 true）会在透明导航栏下
+   垫一层按**系统深浅**取的 scrim —— 于是「透明浮层露出的网页底色」被盖成系统主题色。
+   `enableEdgeToEdge()` 一开始关了它，但 onResume / 配置变化 / 部分 ROM 的窗口重建
+   会把它打回默认值。
 
-   | 系统 | 网页 | 状态栏带底色 | 图标 | 对比度 | |
-   |---|---|---|---|---|---|
-   | 深色 | 浅色 | 浅 rgb(253,253,252) | 白 | 1.02 | 看不见 |
-   | 浅色 | 深色 | 深 rgb(42,38,32) | 近黑 | 1.16 | 看不见 |
-   | 深色 | 深色 | 深 | 白 | 15.04 | ✓ |
-   | 浅色 | 浅色 | 浅 | 近黑 | 17.10 | ✓ |
+   修法：SystemBars 把「底色钉成透明 + 关掉两处 scrim + 图标反相」原子地一次写完，
+   并在 MainActivity 的 onResume / onConfigurationChanged 重放。
 
-   判据 3.0 = 图形元素对比度下限。设置弹窗是 inset:0 全屏贴顶，「设置 → API Key」
-   那一页最容易撞上（用户报的就是这页）。
-
-   修法：网页每次解析出真实亮度就同步给原生，由 isAppearanceLightStatusBars 覆盖
-   系统默认值 ⇒ 无论系统深色/浅色，图标永远与网页实际背景反相。
-
-   本测试钉住**四段链路**，任一环断开就报红。 */
+   本测试钉住**五段链路**，任一环断开就报红。 */
 
 /* ① 前端：paintTheme 必须真的发起同步（这是最容易漏的一环 ——
       原生写好了但没人调，症状与没修一模一样）。 */
@@ -89,31 +81,61 @@ assert.doesNotMatch(nonAndroid, /unwrap_err\(\)|\.expect\(|panic!\(|unimplemente
   "非 Android 分支不能有 panic 出口：换主题是高频路径，任何 panic 都会把应用带崩");
 
 /* ④ Kotlin：真的去改系统栏图标外观，且状态栏与导航栏同相。
-      底部导航栏同样是透明浮层，只修上面会让下面看不见。 */
+      底部导航栏同样是透明浮层，只修上面会让下面看不见。
+      v0.272.5 起实际写窗口的代码在 SystemBars.kt（插件与 MainActivity 都调它）。 */
 assert.match(pluginKt, /class SystemBarPlugin\(private val host: Activity\) : Plugin\(host\)/,
   "SystemBarPlugin 必须按 Tauri 插件约定接收 Activity");
 assert.match(pluginKt, /@Command\s*\n\s*fun setDarkIcons\(invoke: Invoke\)/,
   "必须有 @Command setDarkIcons");
 assert.match(pluginKt, /@InvokeArg\s*\n\s*class SystemBarArgs\s*\{[\s\S]*?var darkIcons: Boolean = false/,
   "SystemBarArgs 必须有 darkIcons 字段（且给默认值，缺参时不崩）");
-assert.match(pluginKt, /isAppearanceLightStatusBars = darkIcons/,
+assert.match(pluginKt, /SystemBars\.setDarkIcons\(host, args\.darkIcons\)/,
+  "插件必须把写入委托给 SystemBars（底色与图标要原子地一起设）");
+
+/* ④b SystemBars：底色 + 图标一起钉死（v0.272.5 的核心）。 */
+assert.match(systemBarsKt, /object SystemBars\b/,
+  "必须有 SystemBars 单例：底色与图标必须在同一处、同一次窗口写入里生效");
+assert.match(systemBarsKt, /isAppearanceLightStatusBars = darkIcons/,
   "必须用 isAppearanceLightStatusBars 覆盖状态栏图标明暗");
-assert.match(pluginKt, /isAppearanceLightNavigationBars = darkIcons/,
+assert.match(systemBarsKt, /isAppearanceLightNavigationBars = darkIcons/,
   "导航栏也必须同相设置：底部同样是透明浮层，只修状态栏会让底部看不见");
-assert.match(pluginKt, /WindowInsetsControllerCompat|getInsetsController/,
+assert.match(systemBarsKt, /WindowInsetsControllerCompat|getInsetsController/,
   "必须走 WindowCompat.getInsetsController（API 26–29 的兼容路径），不能直接碰 window.insetsController");
-assert.match(pluginKt, /setDecorFitsSystemWindows\(host\.window, false\)/,
+assert.match(systemBarsKt, /setDecorFitsSystemWindows\(window, false\)/,
   "必须显式声明 edge-to-edge 契约并锁住 appearance 控制权，否则系统会在回前台时重算覆盖");
-assert.match(pluginKt, /runOnUiThread/,
+assert.match(systemBarsKt, /runOnUiThread/,
   "InsetsController 只能在主线程访问，必须切主线程");
-assert.match(pluginKt, /catch \(_?[a-zA-Z]*: Throwable\)/,
+assert.match(systemBarsKt, /catch \(_?[a-zA-Z]*: Throwable\)/,
   "原生回调抛异常不能连带拖崩 Activity");
+
+/* ④c 用户报的「深色模式底部变白 / 浅色模式底部变深」的直接根因：
+      isNavigationBarContrastEnforced 默认 true ⇒ 系统在透明导航栏下垫一层按**系统深浅**
+      取的 scrim，把网页底色的那条盖成系统主题色。必须显式关掉，并把底色钉成透明。 */
+assert.match(systemBarsKt, /isNavigationBarContrastEnforced = false/,
+  "必须关掉导航栏对比度强制：那层 scrim 就是底部反相色带的直接来源（v0.272.5）");
+assert.match(systemBarsKt, /isStatusBarContrastEnforced = false/,
+  "状态栏同样要关：两处 scrim 都是按系统深浅画的，与网页主题无关");
+assert.match(systemBarsKt, /window\.navigationBarColor = Color\.TRANSPARENT/,
+  "导航栏底色必须钉成透明，露出网页 body 的 --bg（否则又回到系统主题色）");
+assert.match(systemBarsKt, /window\.statusBarColor = Color\.TRANSPARENT/,
+  "状态栏底色也必须透明：顶部是渐变头部，纯色会破坏 edge-to-edge");
+assert.match(systemBarsKt, /VERSION_CODES\.Q[\s\S]*isNavigationBarContrastEnforced/,
+  "对比度强制是 API 29+ 的属性，必须做版本门控（否则低版本直接崩）");
+
+/* ④d 光在换主题那一刻设一次不够：系统会在 onResume / 配置变化时重算窗口属性，
+      把透明底色与 scrim 开关一起打回默认 —— 这正是「重启后/切后台回来又变白」的成因。 */
+assert.match(mainActivityKt, /override fun onResume\(\)\s*\{[\s\S]*?SystemBars\.reapply\(this\)/,
+  "onResume 必须重放系统栏设置：系统会在这里按系统深浅重算窗口属性");
+assert.match(mainActivityKt, /override fun onConfigurationChanged\([^)]*\)\s*\{[\s\S]*?SystemBars\.reapply\(this\)/,
+  "系统深浅切换会重建窗口，onConfigurationChanged 也必须重放");
 
 /* ⑤ 同步工具必须收录新 Kotlin 文件。
       gen/android 是 gitignored 生成目录，`tauri android init` 会整个重建 ⇒
       没进 SOURCES 的文件会在下次 init 后静默消失，手机端功能凭空没了。 */
 assert.match(syncTool, /"SystemBarPlugin\.kt",/,
   "sync-android-native.js 的 SOURCES 必须收录 SystemBarPlugin.kt，否则重新 init 后会静默丢失");
+assert.match(syncTool, /"SystemBars\.kt",/,
+  "sync-android-native.js 的 SOURCES 必须收录 SystemBars.kt（v0.272.5 新增），否则重新 init 后底色修复凭空消失");
 
 /* ⑥ 前提校验：这套修法成立的前提是「状态栏确实是覆盖在网页上的透明浮层」。
       若哪天 MainActivity 不再 enableEdgeToEdge()，本修复就变成多余的死代码 —— 
@@ -123,4 +145,4 @@ assert.match(mainActivityKt, /enableEdgeToEdge\(\)/,
 assert.match(mainActivityKt, /s\.setProperty\('--sat'/,
   "前提：--sat 仍由原生注入，说明状态栏确实压着网页");
 
-console.log("PASS: Android system-bar icon contrast follows the web theme (all four system/web brightness combinations stay legible)");
+console.log("PASS: Android system-bar background stays transparent and its icons stay in phase with the web theme (nav-bar scrim disabled, re-applied on resume)");

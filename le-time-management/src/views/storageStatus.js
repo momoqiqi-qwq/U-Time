@@ -1,10 +1,18 @@
 import * as S from "../store.js";
 import { el } from "../ui.js";
 
-/* 保存回执的停留时长。以前这块是常驻挂件：订阅时立刻收到一次「已保存」回执，
-   于是从启动第一帧起右下角就永远挂着一块「已保存」，用户会以为是没保存成功。
-   现在只有「有改动待保存 / 正在保存 / 保存失败」才常驻，成功后亮一下自己退场。 */
-const SAVED_LINGER_MS = 1600;
+/* 这块浮标现在只报「真出事」。
+   历史教训有两层：最早是常驻挂件（启动第一帧就收到 saved 回执，永远挂着一块「已保存」）；
+   后来改成成功后亮 1.6 秒，仍然天天复活 —— 因为 persistSoon() 的调用方不只是用户操作：
+   插件后台轮询（cppu-notify / school-notice）、提醒计时、自动整理、更新检查都会写快照，
+   每写一次就 pending → saving → saved 走一遍，右下角于是每隔几秒闪一次「已保存」。
+
+   契约（只跟状态有关，不看谁触发的）：
+     ① saved：永不露面。保存成功不需要回执。
+     ② pending / saving：先按住 STUCK_MS；到点还没落到别的状态，才算「卡住了」露出来。
+     ③ error：立刻露面并常驻，重试 / 导出按钮跟着它。
+   后台写入正常完成 → 永远不会看到这块浮标。 */
+const STUCK_MS = 1500;
 
 export function mountStorageStatus(root) {
   const label = el("span");
@@ -13,39 +21,37 @@ export function mountStorageStatus(root) {
     const { fullBackup, downloadText } = await import("../dataCenter.js");
     downloadText(`U-Time-未保存数据-${S.todayStr()}.json`, JSON.stringify(fullBackup(), null, 2));
   } }, "导出备份");
-  // 首帧必须先写 false：subscribeSaveStatus 会立即回执一次当前状态，
-  // 若默认可见，「已保存」会在同一帧闪出来再收回去。
+  // 首帧必须先写 false：subscribeSaveStatus 会立即回执一次当前状态。
   const node = el("div", {
     class: "storage-status", role: "status", "aria-live": "polite", "data-visible": "false",
   }, label, retry, exportButton);
   root.append(node);
 
-  let hideTimer = null;
-  let lastPhase = null;
-  const show = () => {
-    clearTimeout(hideTimer);
-    hideTimer = null;
-    node.dataset.visible = "true";
-  };
-  const hide = () => {
-    clearTimeout(hideTimer);
-    hideTimer = null;
-    node.dataset.visible = "false";
+  let stuckTimer = null;
+  const clearStuck = () => { clearTimeout(stuckTimer); stuckTimer = null; };
+  const show = () => { node.dataset.visible = "true"; };
+  const hide = () => { clearStuck(); node.dataset.visible = "false"; };
+  // 同一次 pending/saving 序列只记一次时：连续回执不重置计时，避免长写入被无限推迟。
+  const armStuck = () => {
+    if (stuckTimer) return;
+    stuckTimer = setTimeout(() => {
+      stuckTimer = null;
+      const phase = node.dataset.phase;
+      // 到点时已经落回 saved / 失败，就交给那两条分支处理。
+      if (phase === "pending" || phase === "saving") show();
+    }, STUCK_MS);
   };
 
   const unsubscribe = S.subscribeSaveStatus((status) => {
-    const previous = lastPhase;
-    lastPhase = status.phase;
     node.dataset.phase = status.phase;
     label.textContent = status.phase === "error" ? `保存失败：${status.error}`
       : status.phase === "pending" ? "有更改待保存" : status.phase === "saving" ? "正在保存…" : "已保存";
-    retry.hidden = status.phase !== "error";
-    exportButton.hidden = status.phase !== "error";
-    if (status.phase !== "saved") { show(); return; }
-    // 启动首帧的回执不算「刚刚保存过」，别闪那一下。
-    if (previous === null) { hide(); return; }
-    show();
-    hideTimer = setTimeout(hide, SAVED_LINGER_MS);
+    const failed = status.phase === "error";
+    retry.hidden = !failed;
+    exportButton.hidden = !failed;
+    if (failed) { clearStuck(); show(); return; }
+    if (status.phase === "saved") { hide(); return; }
+    armStuck();
   });
-  return unsubscribe;
+  return () => { clearStuck(); unsubscribe(); };
 }

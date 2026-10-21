@@ -58,8 +58,8 @@ for (const m of jwBlock.matchAll(/^\s*id: "([\w-]+)", title: "[^"]+", icon: "([\
 
 assert.equal(declared.get(PLUGIN), "building-columns", "插件主视图的图标仍是插件自己的（视图 id === 插件 id）");
 const views = [...declared.keys()].filter((id) => id !== PLUGIN).sort();
-assert.deepEqual(views, ["cppu-award", "cppu-calendar", "cppu-card", "cppu-credit", "cppu-cx", "cppu-growth", "cppu-mail", "cppu-net", "cppu-profile", "cppu-qj", "cppu-room", "cppu-xk"],
-  "cppu-notify 现在注册 12 个分类视图；新增/删除分类要同步更新本测试与 src/icons.js 的两张表");
+assert.deepEqual(views, ["cppu-award", "cppu-calendar", "cppu-card", "cppu-credit", "cppu-credit-ledger", "cppu-cx", "cppu-exam", "cppu-growth", "cppu-mail", "cppu-net", "cppu-profile", "cppu-qj", "cppu-room", "cppu-xk"],
+  "cppu-notify 现在注册 14 个分类视图；新增/删除分类要同步更新本测试与 src/icons.js 的两张表");
 
 /* ── ② 声明与消费口径不许漂移 ── */
 const icons = read("src/icons.js");

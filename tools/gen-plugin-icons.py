@@ -112,6 +112,15 @@ VIEW_ICONS = {
     # 首选 classroom：本机 img.icons8.com 握手被重置，走镜像 img.icons8.ru 取到并缓存
     # （door* 三个 slug 在该镜像上是 404）。book 类排后面只是语义兜底，正常不会用到。
     "cppu-room":     (["classroom", "door-open", "door", "open-door", "books"], "警大门户通知 · 自习室查询"),
+    # 我的考试（v0.272.0）：取「钟表」语义 —— 这一页真正看的是「哪天、几点、在哪考」，
+    # 而清单类 slug（todo-list / test-passed）已经够挤了：todo-list 是学生选课、test-passed
+    # 也是一张打勾的清单，同侧栏里放三个「勾选清单」谁分得清谁。
+    # clock 与本视图的轮廓图标（FA solid 的 clock）同义，两套图标讲同一件事。
+    "cppu-exam":     (["clock"],                                        "警大门户通知 · 我的考试"),
+    # 我的学分（v0.272.3）：卷轴 = 学分账本，与轮廓图标（FA solid 的 scroll）同义。
+    # 不用 university —— 那是插件自己的图标（cppu-notify），同字节会被
+    # test-plugin-view-icons 的「PNG 两两不同」拦下；statistics 已被 cppu-credit 占用。
+    "cppu-credit-ledger": (["scroll", "certificate"],                   "警大门户通知 · 我的学分"),
 }
 
 # 印章式文字图标：plugin-id -> (文字(至多 2 字，竖排堆叠), 说明)。

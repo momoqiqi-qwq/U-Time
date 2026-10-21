@@ -131,10 +131,14 @@ function warmHarness({ withWindow = true, stored = {}, vaultOk = true, renew = t
   assert.equal(await busyView.warmSession(), false);
   assert.equal(busyView.calls.restore, 0);
 
+  // v0.272.7：内存里已经有会话（state.sid）**不是**拒绝预热的理由 —— 那个 sid 整个运行期
+  // 都不清，拿它当闸门等于「用过一次插件之后永久不预热」。现在改成复用它续期，不另建会话。
   const busySid = warmHarness();
   busySid.state.sid = 'sid-live';
-  assert.equal(await busySid.warmSession(), false);
+  assert.equal(await busySid.warmSession(), true, '已有会话时复用续期，不再拒绝预热');
   assert.equal(busySid.calls.restore, 0, '已经有会话在用就不能另起一个');
+  assert.equal(busySid.calls.renew, 1, '复用已有会话走静默续期');
+  assert.equal(busySid.state.sid, 'sid-live', '预热不许把正在用的会话换掉');
 }
 {
   // 12 小时频控：刚预热过就不重复
@@ -163,11 +167,28 @@ function warmHarness({ withWindow = true, stored = {}, vaultOk = true, renew = t
   assert.ok(Date.now() - h.store.autoWarmAt < 5000, '频控时间要在做完之后再写');
 }
 {
-  // 失败路径：网络/票据不成，也只算「做过一次」，别让下次启动又立刻重试
+  // 失败路径（v0.272.7 起）：只写**短退避** autoWarmFailAt，不写 autoWarmAt ——
+  // 原来失败什么都不记、只能干等 12 小时，白天断一次网就整天不再续期。
   const h = warmHarness({ stored: { autoWarmAt: 0 }, renew: false });
   assert.equal(await h.warmSession(), false);
-  assert.ok(h.store.autoWarmAt > 0, '失败也要记频控时间，否则每次启动都白问一次');
+  assert.ok(h.store.autoWarmFailAt > 0, '失败要记 30 分钟退避');
+  assert.equal(h.store.autoWarmAt, 0, '失败不能写成功时间，否则成功路径的 12 小时频控会把它当成功');
   assert.equal(h.store.autoLoginAt, undefined, '没成不能写「上次自动登录」');
+  // 退避期内不再打扰；退避过期后可以重来
+  const callsAfter = h.calls.renew;
+  assert.equal(await h.warmSession(), false, '退避期内不许重试');
+  assert.equal(h.calls.renew, callsAfter, '退避命中时一个请求都不该发');
+  h.store.autoWarmFailAt = Date.now() - 31 * 60 * 1000;
+  assert.equal(await h.warmSession(), false, '票据还是坏的，但这次真的问了');
+  assert.equal(h.calls.renew, callsAfter + 1, '退避过期后必须重新尝试');
+}
+{
+  // 成功要清掉失败退避，否则上一次断网的退避时间会继续挡着
+  const h = warmHarness({ stored: { autoWarmAt: 0, autoWarmFailAt: Date.now() - 60 * 1000 } });
+  assert.equal(await h.warmSession(), false, '退避期内即使能成也不碰网络');
+  h.store.autoWarmFailAt = 0;
+  assert.equal(await h.warmSession(), true);
+  assert.equal(h.store.autoWarmFailAt, 0, '成功必须把退避清零');
 }
 
 /* ── ③ autoLogin：吃读好的票据，且不被落盘拖住 ── */
@@ -236,6 +257,20 @@ function autoLoginHarness({ renewed = true, pageOk = false, restored } = {}) {
   h.warmPromise.catch(() => {});
   assert.equal(await h.autoLogin({}), true, '预热失败只当没有票据，前台照常续期');
 }
+
+/* 预热必须**真的被调用**：v0.246.0 ~ v0.272.6 之间 scheduleWarm 有定义没调用点，
+   一次都没跑过，「放几天就掉登录」的原始问题从未被修掉。这两条源码契约钉住调用点，
+   闸门与频控的行为断言（上面 ②）才不是给死代码写的。 */
+assert.match(
+  source,
+  /\r?\n\s{2}scheduleWarm\(\);\r?\n/,
+  '插件启动时必须调用 scheduleWarm()，否则预热是纯死代码',
+);
+assert.ok(
+  /document\.addEventListener\("visibilitychange", relay\)/.test(source)
+  && /window\.addEventListener\("focus", relay\)/.test(source),
+  'APK 后台会冻结定时器：回到前台必须在 visibilitychange / focus 上补一次续期',
+);
 
 /* render() 的并发票据必须排在预热之后 —— 两个 restoreCookies 会各自建一个新会话，
    中途把 state.sid 换掉，续期就跑到别人的会话上去了。这段藏在 DOM 装配里没法单测，

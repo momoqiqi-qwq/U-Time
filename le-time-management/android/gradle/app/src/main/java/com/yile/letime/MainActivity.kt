@@ -1,5 +1,6 @@
 package com.yile.letime
 
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.WebView
@@ -100,6 +101,27 @@ class MainActivity : TauriActivity() {
     }
     // 主动请求一次，避免只依赖被动回调。
     ViewCompat.requestApplyInsets(window.decorView)
+  }
+
+  /**
+   * 回到前台后重放系统栏设置（v0.272.5）。
+   *
+   * 系统会在 `onResume` / 配置变化时按**系统深色模式**把窗口属性重算一遍：
+   * `navigationBarColor` 回到主题背景色、`isNavigationBarContrastEnforced` 回到 true。
+   * 结果就是底部导航栏露出一条与网页主题反相的色带 —— 深色模式时变白、浅色模式时变深，
+   * 图标同时融进去。前端只会在换主题那一刻同步一次，回来时没人补，所以这里必须重放。
+   *
+   * [SystemBars.reapply] 幂等，代价只有几次窗口属性赋值。
+   */
+  override fun onResume() {
+    super.onResume()
+    SystemBars.reapply(this)
+  }
+
+  /** 系统深浅模式切换会走这里（DayNight 主题重建窗口），同样要重放。 */
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    SystemBars.reapply(this)
   }
 
   /**

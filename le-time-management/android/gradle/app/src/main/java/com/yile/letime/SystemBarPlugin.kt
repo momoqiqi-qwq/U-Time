@@ -3,7 +3,6 @@ package com.yile.letime
 import android.app.Activity
 import android.os.Build
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -37,14 +36,21 @@ import app.tauri.plugin.Plugin
  *
  * ## 修法
  *
- * 网页每次解析出真实亮度（`resolved.mode`）就调一次 [setLightStatusBar]，
- * 由本插件用 `WindowInsetsControllerCompat.isAppearanceLightStatusBars` 覆盖系统默认值。
- * 这样**无论系统是深色还是浅色，图标永远与网页实际背景反相** —— 根治。
+ * 网页每次解析出真实亮度（`resolved.mode`）就调一次 [setDarkIcons]，
+ * 实际的窗口写入在 [SystemBars] 里完成 —— **底色（透明）与图标明暗一起设**。
+ * 这样无论系统是深色还是浅色，底部/顶部那条永远是网页自己的背景色，
+ * 图标与它反相 —— 根治。
  *
  * ## 为什么状态栏与导航栏一起设
  *
  * 底部导航栏同样是透明浮层盖在网页上，底栏区域的底色也跟着主题走，两个必须保持同相，
  * 否则修好上面、下面又看不见了。两者一起设，用同一个布尔值。
+ *
+ * ## ⚠️ 只设图标不够（v0.272.5）
+ *
+ * 用户反馈：**深色模式时底部是白色，浅色模式时底部是深色** —— 图标反而不重要，
+ * 是导航栏**底色**被系统按系统深色模式垫了一层 scrim（`isNavigationBarContrastEnforced`）。
+ * 只看图标明暗的旧实现在这种场景下永远修不好，必须连底色一起钉成透明。详见 [SystemBars]。
  *
  * ## 为什么用 WindowInsetsControllerCompat 而不是 window.insetsController
  *
@@ -85,7 +91,8 @@ class SystemBarPlugin(private val host: Activity) : Plugin(host) {
     } catch (error: Exception) {
       return invoke.reject("系统栏参数不合法：${error.message}")
     }
-    applyDarkIcons(args.darkIcons)
+    // 底色 + 图标的实际写入都在 SystemBars 里（v0.272.5 把底色一起接管了）。
+    SystemBars.setDarkIcons(host, args.darkIcons)
     invoke.resolve(JSObject().apply { put("darkIcons", args.darkIcons) })
   }
 
@@ -108,24 +115,11 @@ class SystemBarPlugin(private val host: Activity) : Plugin(host) {
   }
 
   /**
-   * 实际写值。必须回主线程 —— 前端可能在任何时机调，而 InsetsController 只能在主线程碰。
+   * 实际写值已迁到 [SystemBars]（v0.272.5）。
+   *
+   * 原因：只设图标明暗不够 —— 导航栏在 `isNavigationBarContrastEnforced=true` 时
+   * 会被系统垫一层**按系统深浅取的 scrim**，露出与网页主题反相的色带，
+   * 图标照样融进去。底色也必须由我们钉成透明，两件事必须原子地一起做，
+   * 且要能在 `onResume` 后从 [MainActivity] 重放 —— 所以抽成对象而不是留在插件里。
    */
-  private fun applyDarkIcons(darkIcons: Boolean) {
-    host.runOnUiThread {
-      // 跨进程回调里抛异常不能连带拖崩 Activity —— 静默吞掉，图标最坏退回系统默认。
-      try {
-        // ⚠️ 必须先声明「系统栏由我们控制」：enableEdgeToEdge() 之后系统仍会在
-        // 某些场景（如切回前台）按主题重算图标颜色，覆盖掉我们设的值。
-        // 显式 setDecorFitsSystemWindows 保持 false（edge-to-edge 语义不变），
-        // 并把 appearance 控制权锁在我们手里。
-        WindowCompat.setDecorFitsSystemWindows(host.window, false)
-        val controller: WindowInsetsControllerCompat =
-          WindowCompat.getInsetsController(host.window, host.window.decorView)
-        // 深浅图标一起设：状态栏与导航栏在 edge-to-edge 下都是透明浮层，必须同相。
-        controller.isAppearanceLightStatusBars = darkIcons
-        controller.isAppearanceLightNavigationBars = darkIcons
-      } catch (_: Throwable) {
-      }
-    }
-  }
 }

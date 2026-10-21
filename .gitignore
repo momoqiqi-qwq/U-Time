@@ -110,3 +110,9 @@ cloudflare-pages/plugin-guide/.wrangler/
 
 # 根目录误产生的空 lock 文件（真正的 lock 在 le-time-management/）
 /package-lock.json
+
+# 本地个人凭据（学号/密码），只留在本机，绝不入库
+/agent.md
+
+# 本地 IDE/AI 会话缓存
+/le-time-management/.workbuddy/

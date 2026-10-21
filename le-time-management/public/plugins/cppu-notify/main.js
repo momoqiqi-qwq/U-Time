@@ -103,6 +103,8 @@
     { url: "https://jw.cppu.edu.cn/index.html", label: "教务", icon: "school", children: [
       { view: "cppu-xk", label: "学生选课", icon: "list-check" },
       { view: "cppu-qj", label: "学生请假", icon: "calendar-xmark" },
+      { view: "cppu-exam", label: "我的考试", icon: "clock" },
+      { view: "cppu-credit-ledger", label: "我的学分", icon: "graduation-cap" },
       { view: "cppu-credit", label: "警大成绩", icon: "chart-line" },
       { view: "cppu-cx", label: "创新学分", icon: "medal" },
       { view: "cppu-calendar", label: "警大校历", icon: "calendar-days" },
@@ -385,6 +387,11 @@
       .pp-btn{font-size:calc(12px * var(--ui-text-scale));border:1px solid #E4DFD6;border-radius:8px;padding:7px 13px;background:#fff;cursor:pointer;color:#22303A;white-space:nowrap}
       .pp-btn.pri{background:#0F4C5C;color:#fff;border-color:#0F4C5C;font-weight:600}
       .pp-btn.pri:hover{background:#0B3D4A;color:#fff}
+      /* 刷新请求在路上：按钮自己顶住，防止连点；光标换成「忙」让触屏也有第二种反馈 */
+      .pp-btn.is-busy{opacity:.72;cursor:progress}
+      .pp-btn.is-busy:hover{background:#0F4C5C}
+      /* 当前学期胶囊点了不改任何东西（本来就是它）：去掉手型，别暗示还能点 */
+      .pp-chip[aria-current="true"]{cursor:default}
       .pp-toggle{display:flex;align-items:center;gap:6px;font-size:calc(12px * var(--ui-text-scale));color:#7E8B94;cursor:pointer;user-select:none}
       .pp-toggle i{width:34px;height:19px;border-radius:10px;background:#D8D2C6;display:inline-block;position:relative;transition:.15s}
       .pp-toggle i::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:.15s}
@@ -596,6 +603,10 @@
       [data-theme-mode="dark"] .jw-tag.warn{background:color-mix(in srgb,var(--sun) 18%,var(--panel));border-color:color-mix(in srgb,var(--sun) 42%,transparent);color:color-mix(in srgb,var(--sun) 55%,var(--ink))}
       [data-theme-mode="dark"] .jw-tag.live{background:color-mix(in srgb,var(--danger) 18%,var(--panel));border-color:color-mix(in srgb,var(--danger) 42%,transparent);color:color-mix(in srgb,var(--danger) 55%,var(--ink))}
       .jw-tag.credit,[data-theme-mode="dark"] .jw-tag.credit{color:var(--campus-green);background:color-mix(in srgb,var(--campus-green) 12%,var(--panel));border-color:color-mix(in srgb,var(--campus-green) 36%,var(--line))}
+      /* 剩余学时（v0.271.0）：不新开色相 —— .jw-tag 的默认文字色就是 var(--deep)，16 套主题的
+         浅/深两态都已实测达标，这里只加粗描边让它在同一排灰胶囊里认得出来。硬编码色一条都不加，
+         test-theme-contrast.mjs 里「.jw-tag.ok/.warn/.live 恰好 3 条硬编码」那条计数不会被碰。 */
+      .jw-tag.hours{font-weight:700;border-color:color-mix(in srgb,var(--deep) 34%,var(--line))}
       .jw-credit-value,.jg-metrics b.jw-credit-value{color:var(--campus-green)}
       .jw-task-card{display:block;width:100%;font:inherit;text-align:left;color:inherit;cursor:pointer;transition:border-color .16s ease,background .16s ease,opacity .16s ease;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
       .jw-task-card:hover{border-color:var(--deep);background:var(--paper)}
@@ -610,9 +621,39 @@
       .jw-card-act .pp-btn{min-height:34px;padding:5px 10px;font-size:calc(11.5px * var(--ui-text-scale))}
       .jw-leave-draft{margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
       .jw-leave-draft textarea{width:100%;min-height:82px;resize:vertical;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);padding:9px 10px;font:inherit;font-size:calc(12px * var(--ui-text-scale));line-height:1.7}
-      /* 自习室：过滤只切 [hidden]，组头与卡片都要真的消失 —— .jw-card 没设 display，
-         默认就吃 hidden 属性，这条是兜底（将来谁给 .jw-card 加了 display 也不会漏）。 */
-      .jw-room-row[hidden],.jw-group[hidden]{display:none}
+      /* 自习室（v0.270.0）：一栋楼一张卡，卡里一间教室一行、五个节次各一个格子。
+         过滤只切 [hidden]：卡片、行、组头都要真的消失 —— .jw-card 没设 display，默认就吃
+         hidden 属性，这几条是兜底（将来谁给 .jw-card 加了 display 也不会漏）。 */
+      .jw-room-bld[hidden],.jw-room-line[hidden],.jw-room-row[hidden],.jw-group[hidden]{display:none}
+      .jw-room-bld{margin-bottom:12px}
+      .jw-room-bld-hd{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding-bottom:7px;margin-bottom:6px;border-bottom:1px solid var(--line-soft)}
+      .jw-room-bld-name{font-size:calc(14px * var(--ui-text-scale));font-weight:700;color:var(--deep);letter-spacing:.02em}
+      .jw-room-bld-sum{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3);font-variant-numeric:tabular-nums}
+      .jw-room-bld-sum b{color:var(--deep);font-weight:700}
+      .jw-room-line{display:flex;align-items:center;gap:8px;padding:5px 2px}
+      .jw-room-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:calc(12.5px * var(--ui-text-scale));color:var(--ink)}
+      .jw-room-slots{display:flex;gap:3px;flex:none}
+      /* 格子色与 .jw-tag 同一套语义（空闲 / 占用），深色整组重给 —— 浅色硬编码压深色面板只有 ~1.4:1 */
+      .jw-room-slot{min-width:27px;padding:1px 4px;border-radius:6px;text-align:center;font-size:calc(9.5px * var(--ui-text-scale));font-variant-numeric:tabular-nums;border:1px solid var(--line-soft);background:var(--paper);color:var(--ink-3)}
+      /* 节次切换行单独占一行：六个胶囊 + 搜索框挤一行在 390px 上会挤成「全部 1-2 3-4 5-6 / 7-8 / 9-10」
+         三行 —— 窄屏不靠 flex-wrap 碰运气。 */
+      .jw-room-bar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+      .jw-room-bar::-webkit-scrollbar{display:none}
+      /* 六个胶囊 + 「节次」标签在 390px 上默认字号放不下（实测 426px），收紧到 342px 才不横向滚 */
+      .jw-room-bar .pp-chips{flex-wrap:nowrap;gap:6px}
+      .jw-room-bar .pp-chip{padding:4px 9px;font-size:calc(11.5px * var(--ui-text-scale))}
+      /* 日期行尾的日历按钮：原生 date 输入框铺满整块并透明，点哪儿都弹系统日历。
+         原生弹层没法做双向动画，所以这里不做自建下拉（铁律七约束的是自建下拉栏）。 */
+      .pp-datesel{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;width:30px;height:26px;margin-left:6px;border-radius:8px;border:1px solid var(--line-soft);background:var(--paper);color:var(--ink-2)}
+      .pp-datesel svg{width:15px;height:15px;pointer-events:none}
+      .pp-datesel .jw-date-in{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:0;padding:0;background:transparent;cursor:pointer}
+      /* 「全天空闲」标跟在间数后面：不改 header 原本的 space-between 布局，只让标不缩 */
+      .jw-room-bld-hd .jw-tag{flex:none;font-size:calc(10px * var(--ui-text-scale))}
+      .jw-room-slot.ok{background:rgba(46,196,182,.14);border-color:rgba(46,196,182,.45);color:#0B6B60}
+      .jw-room-slot.bad{background:rgba(220,53,69,.12);border-color:rgba(220,53,69,.42);color:#B42318}
+      .jw-room-slot.off{opacity:.4}
+      [data-theme-mode="dark"] .jw-room-slot.ok{background:color-mix(in srgb,var(--mint) 18%,var(--panel));border-color:color-mix(in srgb,var(--mint) 42%,transparent);color:color-mix(in srgb,var(--mint) 55%,var(--ink))}
+      [data-theme-mode="dark"] .jw-room-slot.bad{background:color-mix(in srgb,var(--danger) 18%,var(--panel));border-color:color-mix(in srgb,var(--danger) 42%,transparent);color:color-mix(in srgb,var(--danger) 55%,var(--ink))}
       .jw-room-row .jw-detail-grid{margin-top:8px;padding-top:8px}
       .jw-leave-draft small,.jw-detail-grid small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));line-height:1.7;margin-top:6px}
       /* ── 请假页：状态四档沿用「警大成绩」的分数四档色相 ──
@@ -638,6 +679,77 @@
       .jw-leave .jw-row small{color:var(--ink-2)}
       .jw-leave .jw-leave-draft small{color:var(--ink-2)}
       .jw-leave .jw-card-t{color:var(--deep)}
+      /* ── 我的考试（v0.272.0）：一场考试一张卡，左日期块 / 右课程与时段 / 下面考场。
+         日期块是这一页唯一的「大数字」，其余都是 10.5~12px 的辅助行 —— 手机上一列扫下来
+         先落到眼里的是「哪天考」，而不是课程名。 */
+      .jw-exam-sum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:8px 0 4px}
+      .jw-exam-stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 12px;min-width:0}
+      .jw-exam-stat b{display:block;font-size:calc(19px * var(--ui-text-scale));font-weight:700;color:var(--deep);line-height:1.15;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+      .jw-exam-stat span{display:block;margin-top:3px;font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-3);line-height:1.5}
+      /* 只有「距下一场」会变红：另外两格是静态事实，一页里给两处红等于都没给 */
+      .jw-exam-stat.hot b{color:var(--danger)}
+      .jw-exam-card{display:flex;align-items:flex-start;gap:11px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:11px 13px;margin-bottom:7px;transition:border-color .16s ease,opacity .16s ease}
+      .jw-exam-card[hidden]{display:none}
+      .jw-exam-card.next{border-color:color-mix(in srgb,var(--danger) 46%,var(--line));box-shadow:inset 3px 0 0 var(--danger)}
+      .jw-exam-card.done{opacity:.58}
+      .jw-exam-date{flex:none;width:54px;text-align:center;border-radius:10px;background:var(--paper);border:1px solid var(--line-soft);padding:6px 0}
+      .jw-exam-date b{display:block;font-size:calc(17px * var(--ui-text-scale));font-weight:700;color:var(--deep);line-height:1.1;font-variant-numeric:tabular-nums}
+      .jw-exam-date span{display:block;font-size:calc(10px * var(--ui-text-scale));color:var(--ink-2);margin-top:2px;line-height:1.3}
+      .jw-exam-main{flex:1;min-width:0}
+      .jw-exam-main .jw-card-t{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;color:var(--deep)}
+      /* 时段 / 考场 / 状态挤成一行（flex-wrap 兜住长考场名）：四行竖排的卡在 390 视口
+         上要 132px，一屏只落一张；收成两行后 ~90px。 */
+      .jw-exam-line{display:flex;flex-wrap:wrap;align-items:baseline;gap:1px 12px;margin-top:5px}
+      .jw-exam-when{font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2);line-height:1.6;font-variant-numeric:tabular-nums}
+      .jw-exam-when b{color:var(--ink);font-weight:700}
+      .jw-exam-where{font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2);line-height:1.65;overflow-wrap:anywhere}
+      .jw-exam-line .pp-meta{margin-top:0}
+      .jw-exam-where b{color:var(--campus-green);font-weight:700}
+      .jw-exam-wi{white-space:nowrap}
+      /* 卡片可点开（铁律七）：折叠沿用仓库既有的 grid-template-rows 0fr→1fr（与 .pp-detail-shell
+         同一套），收起时内容留在 DOM 里继续插值 —— 换成 display:none 高度会跳、也没法做收起动画。 */
+      .jw-exam-card{cursor:pointer}
+      .jw-exam-card:focus-visible{outline:2px solid var(--deep);outline-offset:2px}
+      .jw-exam-fold{display:grid;grid-template-rows:0fr;opacity:0;margin-top:0;transition:grid-template-rows .3s cubic-bezier(.2,.78,.2,1),opacity .2s ease,margin-top .3s cubic-bezier(.2,.78,.2,1)}
+      .jw-exam-card.open .jw-exam-fold{grid-template-rows:1fr;opacity:1;margin-top:8px}
+      .jw-exam-fold-clip{min-height:0;overflow:hidden}
+      .jw-exam-detail{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:5px 12px;padding-top:9px;border-top:1px dashed var(--line-soft);font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2);line-height:1.7}
+      .jw-exam-detail>div{min-width:0;overflow-wrap:anywhere}
+      .jw-exam-detail>div.jw-exam-span{grid-column:1/-1}
+      .jw-exam-detail b{display:block;font-size:calc(10px * var(--ui-text-scale));color:var(--ink-3);font-weight:500;margin-bottom:1px}
+      .jw-exam-chev{flex:none;margin-left:auto;font-size:calc(13px * var(--ui-text-scale));color:var(--ink-3);line-height:1;transition:transform .28s cubic-bezier(.2,.78,.2,1)}
+      .jw-exam-card.open .jw-exam-chev{transform:rotate(180deg)}
+      /* 课程编号是标签里最"码"的一个：给它等宽数字宽度、把文字提到 ink-2，
+         和「今天/已结束」那枚状态标签拉出层级（灰底灰字在 done 卡的 .58 透明度下更糊）。 */
+      .jw-exam-code{color:var(--ink-2);font-variant-numeric:tabular-nums;letter-spacing:.01em}
+      /* 学期单选（铁律六）：光块由宿主的 tide.ui.selectionGlow 画，这里只给容器定位与一套
+         主题令牌配色 —— 圆角对齐 .pp-chip（16px），选中态把自己的底色让给光块。 */
+      .jw-exam-terms{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+      .jw-exam-terms::-webkit-scrollbar{display:none}
+      .jw-exam-terms .pp-chips{flex-wrap:nowrap;gap:6px;position:relative;isolation:isolate}
+      .jw-exam-terms .selection-glow{position:absolute;left:0;top:0;width:0;height:0;opacity:0;pointer-events:none;z-index:0;transition:opacity .2s linear;border:1px solid color-mix(in srgb,var(--deep) 28%,var(--line));border-radius:16px;background:color-mix(in srgb,var(--deep) 9%,var(--panel))}
+      .jw-exam-terms .selection-glow.on{opacity:1}
+      .jw-exam-terms .pp-chip{position:relative;z-index:1;white-space:nowrap}
+      .jw-exam-terms .pp-chip.on{background:transparent;border-color:transparent;color:var(--deep);font-weight:700}
+      @media(max-width:600px){
+        /* APK / 390 视口：三格并排一行。原来「首格跨满 + 两列」要吃掉 ~147px 高，
+           加上壳头部后首屏只落得下一张考试卡。 */
+        .jw-exam-sum{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+        .jw-exam-stat{padding:8px 9px}
+        .jw-exam-stat b{font-size:calc(15px * var(--ui-text-scale))}
+        .jw-exam-stat span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px;font-size:calc(9.5px * var(--ui-text-scale))}
+        /* 卡内纵向收紧：四项内容（课程 / 时段 / 考场 / 状态）单行排下来 140px 太松，收到 ~104px */
+        .jw-exam-card{padding:9px 10px;gap:9px;margin-bottom:6px}
+        .jw-exam-date{width:46px;padding:5px 0}
+        .jw-exam-date b{font-size:calc(16px * var(--ui-text-scale))}
+        .jw-exam-date span{font-size:calc(9px * var(--ui-text-scale));margin-top:1px}
+        .jw-exam-line{margin-top:4px;gap:1px 10px}
+        .jw-exam-when{font-size:calc(11.5px * var(--ui-text-scale))}
+        .jw-exam-where{font-size:calc(11px * var(--ui-text-scale))}
+        [data-exam-group] .jw-sec{padding:10px 2px 6px}
+        .jw-exam-notice{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        /* 窄屏展开区改两列：auto-fit 的 132px 底线在 390px 上只够一列，五个字段竖着排比主行还高 */
+        .jw-exam-detail{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px}}
       .jw-detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--line)}
       .jw-detail-cell{background:var(--paper);border:1px solid var(--line-soft);border-radius:10px;padding:8px 10px;min-width:0}
       .jw-detail-cell b{display:block;color:var(--ink-3);font-size:calc(10px * var(--ui-text-scale));font-weight:500;margin-bottom:3px}
@@ -662,6 +774,7 @@
       .jw-credit-bar i{display:block;height:100%;background:#2EC4B6;border-radius:inherit}
       .jw-credit-course.done{opacity:.62}
       .jw-credit-course.fail{border-color:rgba(220,53,69,.48)}
+.jw-credit-course.doing{border-color:var(--line-soft)}
       .jw-cx-project{border-left:3px solid #2EC4B6}
       .jw-cx-project.pending{border-left-color:#E3C384}
       .jw-cx-term{margin-top:12px}.jw-cx-term>summary{display:flex;align-items:baseline;gap:8px;cursor:pointer;color:var(--deep);font-weight:700;padding:10px 2px;border-bottom:1px solid var(--line);list-style:none}.jw-cx-term>summary::-webkit-details-marker,.jw-cx-project>summary::-webkit-details-marker{display:none}.jw-cx-term>summary::before,.jw-cx-project>summary::before{content:"▸";font-size:calc(12px * var(--ui-text-scale));color:var(--ink-3);transition:transform .15s}.jw-cx-term[open]>summary::before,.jw-cx-project[open]>summary::before{transform:rotate(90deg)}.jw-cx-term>summary small{font-size:calc(10.5px * var(--ui-text-scale));font-weight:400;color:var(--ink-3)}.jw-cx-project{margin-top:8px}.jw-cx-project>summary{display:flex;align-items:flex-start;gap:8px;cursor:pointer;list-style:none}.jw-cx-project>summary .jw-card-t{min-width:0;flex:1;overflow-wrap:anywhere}.jw-cx-project>summary .jw-tag{flex:none}.jw-cx-project .pp-meta{margin-top:7px}.jw-cx-project .jw-detail-grid{margin-bottom:2px}
@@ -746,7 +859,16 @@
       .yk-ledger-row b{color:var(--deep)}
       .yk-ledger-row.out b{color:var(--danger)}
       .yk-empty{color:var(--ink-3);font-size:calc(11.5px * var(--ui-text-scale));line-height:1.7}
-      @media(max-width:600px){.jw-card-t{font-size:calc(14.5px * var(--ui-text-scale))}.jw-head h3{font-size:calc(17px * var(--ui-text-scale))}.jw-sum b{font-size:calc(26px * var(--ui-text-scale))}.jw-row small{min-width:0;flex-basis:100%}.jw-credit-overview{grid-template-columns:1fr}}
+      @media(max-width:600px){.jw-card-t{font-size:calc(14.5px * var(--ui-text-scale))}.jw-head h3{font-size:calc(17px * var(--ui-text-scale))}.jw-sum b{font-size:calc(26px * var(--ui-text-scale))}.jw-row small{min-width:0;flex-basis:100%}
+    /* APK / 390 视口：三分类型排要吃掉近 270px，首屏只剩一张汇总卡 → 并成一行三格。 */
+    .jw-sum{padding:10px 12px;margin:4px 0 8px}
+    .jw-credit-overview{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+    .jw-credit-stat{padding:8px 9px}
+    .jw-credit-stat small{font-size:calc(9.5px * var(--ui-text-scale));margin-bottom:3px}
+    .jw-credit-stat b{font-size:calc(15px * var(--ui-text-scale))}
+    .jw-credit-stat span{font-size:calc(9.5px * var(--ui-text-scale));margin-top:2px}
+    .jw-credit-stat em{display:none}
+    .jw-credit-bar{height:5px;margin-top:6px}}
       @media(max-width:820px){
         .pp-shell{flex-direction:column;padding:0 14px}
         /* 窄屏时侧栏是整层叠在正文上面的，收起要收"高度"而不是宽度 */
@@ -793,7 +915,7 @@
         .yk-ledger-row{grid-template-columns:86px 1fr auto}
         .yk-frame-shell{height:calc(100vh - 230px);min-height:520px}
       }
-      @media(prefers-reduced-motion:reduce){.pp-card,.pp-expand,.pp-expand::after,.pp-detail-shell,.pp-detail,.pp-side,.pp-side-inner,.pp-side-toggle,.pp-side-toggle>span,.pp-side-sub,.pp-banner-act,.pp-banner-act-hint::before{transition-duration:.01ms!important}}
+      @media(prefers-reduced-motion:reduce){.pp-card,.pp-expand,.pp-expand::after,.pp-detail-shell,.pp-detail,.jw-exam-fold,.jw-exam-chev,.pp-side,.pp-side-inner,.pp-side-toggle,.pp-side-toggle>span,.pp-side-sub,.pp-banner-act,.pp-banner-act-hint::before{transition-duration:.01ms!important}}
     `;
     document.head.append(st);
   }
@@ -899,6 +1021,7 @@
       await tide.vault?.del?.("cookies");
       // 预热/登录时间戳一起清掉：留着会让下一个人（或清号后的自己）在登录页看到上一个人的登录时间。
       await Promise.resolve(tide.storage.set("autoWarmAt", 0));
+      await Promise.resolve(tide.storage.set("autoWarmFailAt", 0));
       await Promise.resolve(tide.storage.set("autoLoginAt", 0));
     } catch { /* ignore */ }
   }
@@ -1292,23 +1415,38 @@
      就是已登录」。只在没有视图占着会话时做，绝不与前台登录抢 state.sid。 */
   const WARM_DELAY_MS = 8000;
   const WARM_EVERY_MS = 12 * 60 * 60 * 1000;
+  /* 失败的退避比成功的频控短得多：手机上续期失败十有八九是「刚从后台醒来、网还没连上」，
+     按 12 小时压着就等于一整天都不再续，第 6 天回来照样弹验证码。 */
+  const WARM_RETRY_MS = 30 * 60 * 1000;
   let warmBusy = false, warmPromise = null;
 
+  /* 续期一次。返回 true = 这次真的把票据推后了，false = 试过但没成，
+     "skip" = 压根不该做（没授权 / 没票据），不计入失败退避。
+
+     v0.272.7 的两处修正：
+     ① `state.sid` 不再当闸门 —— 它一旦建出来就整个运行期不清（只有 clearSavedLogin 清），
+        原先「有会话就拒绝」等于**用过一次插件之后，本轮运行再也不会预热**，而这正是
+        手机端的常态（应用不关，只是切到后台）。
+     ② 已有会话时直接在它上面续期，不再 restore 一个新会话盖掉它 —— 没有视图占用时这么做是安全的，
+        有视图时 scheduleWarm 的入口闸门（viewOpen）本来就不放行。 */
   async function warmSession() {
     // 测试沙箱用 vm 造了 document 却没有 window：不排程、不发请求。
     if (typeof window === "undefined") return false;
-    if (warmBusy || loginBusy || state.sid || state.viewOpen) return false;
+    if (warmBusy || loginBusy || state.viewOpen) return false;
     if (typeof tide.vault?.get !== "function") return false;
-    const last = Number(await tide.storage.get("autoWarmAt", 0)) || 0;
-    if (Date.now() - last < WARM_EVERY_MS) return false;
+    const now = Date.now();
+    const okAt = Number(await tide.storage.get("autoWarmAt", 0)) || 0;
+    if (now - okAt < WARM_EVERY_MS) return false;
+    const failAt = Number(await tide.storage.get("autoWarmFailAt", 0)) || 0;
+    if (now - failAt < WARM_RETRY_MS) return false;
     warmBusy = true;
     warmPromise = (async () => {
       try {
         await loadPrefs();
         // 用户关掉自动登录、或没记住账号时不做后台登录 —— 后台登录只能在用户不知情时用账号密码，
         // 这两项就是「他授权过」的全部凭据。
-        if (state.autoLogin === false || !state.username) return false;
-        if (!(await restoreCookies())) return false;
+        if (state.autoLogin === false || !state.username) return "skip";
+        if (!state.sid && !(await restoreCookies())) return false;
         if (!(await silentRenew())) return false;
         await saveCookies();
         await markLoginAt();
@@ -1316,9 +1454,43 @@
       } catch { return false; }
       finally { warmBusy = false; }
     })();
-    // 频控时间无论成败都记：网络抖动不该让下一次启动又立刻重试一遍。
-    try { return await warmPromise; }
-    finally { await Promise.resolve(tide.storage.set("autoWarmAt", Date.now())).catch(() => {}); }
+    let result = false;
+    try { result = await warmPromise; } catch { result = false; }
+    // 频控无论成败都记：网络抖动不该让下一次启动又立刻重试一遍。
+    try {
+      if (result === true) {
+        await Promise.resolve(tide.storage.set("autoWarmAt", Date.now())).catch(() => {});
+        await Promise.resolve(tide.storage.set("autoWarmFailAt", 0)).catch(() => {});
+      } else if (result === false) {
+        await Promise.resolve(tide.storage.set("autoWarmFailAt", Date.now())).catch(() => {});
+      }
+    } catch { /* ignore */ }
+    return result === true;
+  }
+
+  /* ── 前台可见即续期（v0.272.7，APK 的关键一条）──
+     Android 后台会冻结 WebView 的定时器（Doze + 计时器对齐）：锁屏放一夜，12 小时的
+     setInterval 一次都跑不了，于是「打开插件就是已登录」只在桌面成立。用户真正「回来」
+     的那一刻是切回应用 —— 那就把续期挂在可见性/焦点上，闸门（授权/频控/退避）全在
+     warmSession 里，这里只负责叫，叫了不等于会做。
+
+     重复加载插件（开关插件会把 main.js 再执行一遍）不叠监听：第一次绑真监听，
+     之后只把回调换成本实例的，旧闭包不会再被叫到。 */
+  function bindWarmOnForeground() {
+    if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
+    const kick = () => {
+      if (typeof document.visibilityState === "string" && document.visibilityState === "hidden") return;
+      warmSession().catch(() => {});
+    };
+    try {
+      if (document.__cppuWarmKick) { document.__cppuWarmKick = kick; return; }
+      document.__cppuWarmKick = kick;
+      const relay = () => { try { document.__cppuWarmKick?.(); } catch { /* ignore */ } };
+      document.addEventListener("visibilitychange", relay);
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        window.addEventListener("focus", relay);
+      }
+    } catch { /* 老宿主没有 addEventListener 就只能靠定时器 */ }
   }
 
   function scheduleWarm() {
@@ -1330,6 +1502,7 @@
       // 闸门（前台会话/开关/频控）在 warmSession 里各自生效，叫了不等于会做。
       if (typeof window.setInterval === "function") window.setInterval(run, WARM_EVERY_MS);
     } catch { /* ignore */ }
+    bindWarmOnForeground();
   }
 
   /* 密码兜底与人工按钮共享重试边界、退避和全新会话流程。 */
@@ -2574,8 +2747,7 @@
      · `/js6/s?func=…`     → 只认 URL 上的 sid，不带的活回 `<code>FA_INVALID_SESSION</code>`；
      所以固定打 `/js6/s` 且**总是**带 sid，回的是 XML。XML 的字段名靠 `name` 属性（见
      mailXmlTree），Content-Type 会谎报，只能看 body 首字符判断 JSON / XML。 */
-  const MAIL_PAGE = 20;
-  let mailInFlight = 0;
+  const MAIL_PAGE = 20;   // 每页条数（分页取信见 mailLoad；并发去重在 mailPages 里）
 
   /* 键名大小写不可信（JSON 是 suc/error_code，XML 是 code/var），一律忽略大小写取值。 */
   function mailPick(obj, keys, dflt = "") {
@@ -2713,6 +2885,339 @@
     return out;
   }
 
+  /* ── 顺序：最新在最前面（v0.268.0）─────────────────────────────────────────
+     `mbox:listMessages` 的 start/limit 只说明「取哪一段」，不保证段内顺序（实测有部署按 id
+     升序回，最早的那封排在第一条），而这一页要回答的第一个问题就是「最近来了什么信」。
+     所以解析完一律自己按时间倒排：时间解析不出来的垫底，彼此保持服务端原序
+     （每条带原始下标做稳定排序 —— 同一秒里的几封不会每次刷新互相换位）。 */
+  function mailTime(value) {
+    const s = String(value ?? "").trim();
+    if (!s) return null;
+    if (/^\d+$/.test(s)) {
+      const n = Number(s);
+      const ms = n > 1e11 ? n : n * 1000;
+      return Number.isFinite(ms) ? ms : null;
+    }
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime();
+    const ms = new Date(s).getTime();
+    return Number.isNaN(ms) ? null : ms;
+  }
+
+  function mailSortNewest(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    return list
+      .map((row, i) => ({ row, i, t: mailTime(row && row.date) }))
+      .sort((a, b) => {
+        if (a.t === null && b.t === null) return a.i - b.i;
+        if (a.t === null) return 1;
+        if (b.t === null) return -1;
+        return a.t === b.t ? a.i - b.i : b.t - a.t;
+      })
+      .map((x) => x.row);
+  }
+
+  /* ── 验证码（v0.268.0）────────────────────────────────────────────────────
+     用户要的是「后台收到验证码就进剪贴板」。分三步，缺一步都是噪音：
+     ① 先认这封信有没有「验证码」的意思（中英文都认）；
+     ② 再认它旁边那串码 —— 关键词后 48 / 前 40 个字符里找 4~8 位数字，或带数字的
+        5~8 位字母数字混合串（大写化）。年份（19xx / 20xx）与纯字母词都不算；
+     ③ 只复制「刚收到」的：15 分钟内。旧信里的码进剪贴板只会污染用户下一次粘贴。
+     同一封只复制一次（已处理 id 落 storage，留 200 条）；开关关掉就完全不动。
+     时间解析不出来的信不自动复制 —— 判断不了新旧，就不替用户往剪贴板写东西。 */
+  const MAIL_CODE_SEEN = "mailCodeSeen";
+  const MAIL_CODE_SEEN_MAX = 200;
+  const MAIL_CODE_FRESH_MS = 15 * 60 * 1000;
+  const MAIL_BODY_TRIES = 3;
+  const MAIL_AUTOCOPY_KEY = "mailAutoCopy";
+  const MAIL_PAGE_MAX = 200;
+  const MAIL_WATCH_PAGE = 10;
+  const MAIL_WATCH_DELAY_MS = 20 * 1000;
+  const MAIL_WATCH_EVERY_MS = 60 * 1000;
+
+  const MAIL_CODE_HINT = /(验证码|校验码|确认码|动态码|登录码|安全码|短信码|一次性(?:密码|口令)|verification\s*code|security\s*code|verify\s*code|passcode|one[-\s]?time\s*(?:code|password)|\botp\b)/i;
+  const MAIL_CODE_AFTER = 48;
+  const MAIL_CODE_BEFORE = 40;
+
+  function mailCodeCandidate(zone) {
+    const hits = String(zone || "").match(/(?:^|[^0-9A-Za-z])([0-9A-Za-z]{4,8})(?![0-9A-Za-z])/g) || [];
+    for (const raw of hits) {
+      const v = raw.replace(/^[^0-9A-Za-z]+/, "").replace(/[^0-9A-Za-z]+$/, "");
+      if (!v) continue;
+      if (/^(?:19|20)\d{2}$/.test(v)) continue;               // 年份不是码
+      if (/^\d{4,8}$/.test(v)) return v;                      // 纯数字：4~8 位就是它
+      const up = v.toUpperCase();
+      // 字母数字混合才是码；纯字母（please / notice）一律当噪点
+      if (/^[A-Z0-9]{5,8}$/.test(up) && /\d/.test(up) && /[A-Z]/.test(up)) return up;
+    }
+    return "";
+  }
+
+  function mailCodeOf(text) {
+    const raw = String(text ?? "");
+    if (!raw) return "";
+    const hit = raw.match(MAIL_CODE_HINT);
+    if (!hit) return "";
+    const at = Number(hit.index) || 0;
+    const end = at + hit[0].length;
+    const zones = [raw.slice(end, end + MAIL_CODE_AFTER), raw.slice(Math.max(0, at - MAIL_CODE_BEFORE), at)];
+    for (const zone of zones) {
+      const code = mailCodeCandidate(zone);
+      if (code) return code;
+    }
+    return "";
+  }
+
+  async function mailAutoCopyOn() {
+    try { return (await tide.storage.get(MAIL_AUTOCOPY_KEY, true)) !== false; } catch { return true; }
+  }
+
+  async function mailSeenIds() {
+    try {
+      const v = await tide.storage.get(MAIL_CODE_SEEN, null);
+      return new Set((Array.isArray(v) ? v : []).map((x) => String(x)));
+    } catch { return new Set(); }
+  }
+
+  async function mailSaveSeen(seen) {
+    const ids = Array.from(seen).slice(-MAIL_CODE_SEEN_MAX);
+    try { await tide.storage.set(MAIL_CODE_SEEN, ids); } catch { /* 存不下就下一轮再判一次 */ }
+  }
+
+  /* 剪贴板：优先 navigator.clipboard（Tauri 的 WebView 是安全上下文）；拿不到就退回
+     execCommand 通道。主窗口里用户点了没反应，比「偶尔失败」更糟。 */
+  async function copyPlainText(value) {
+    const v = String(value ?? "");
+    if (!v) return false;
+    try {
+      if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(v); return true; }
+    } catch { /* 落到 execCommand */ }
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = v;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "absolute";
+      ta.style.left = "-9999px";
+      ta.style.top = "0";
+      ta.style.opacity = "0";
+      /* 挂在插件自己的容器里、不挂 document.body：body 直挂的浮层会逃出宿主 .view 的安全区
+         （scripts/test-plugin-safe-area.mjs ④ 专门拦这个），而这颗离屏 textarea 本来也不需要。 */
+      const host = document.querySelector(".view") || document.documentElement;
+      host.append(ta);
+      ta.select();
+      ta.setSelectionRange(0, ta.value.length);
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return !!ok;
+    } catch { return false; }
+  }
+
+  let mailLastCode = null;   // { code, id, from, subject, at } —— 视图侧「已复制 · 再复制」用
+
+  async function mailCopyCode(hit) {
+    if (!hit || !hit.code) return false;
+    const ok = await copyPlainText(hit.code);
+    mailLastCode = { code: hit.code, id: hit.id || "", from: hit.from || "", subject: hit.subject || "", at: Date.now() };
+    try {
+      tide.notify(ok
+        ? `已复制验证码 ${hit.code}${hit.from ? `（${hit.from}）` : ""}`
+        : `收到验证码 ${hit.code}，但没写进剪贴板`);
+    } catch { /* 通知失败不影响已经复制好的结果 */ }
+    return ok;
+  }
+
+  /* 一页信头 → 最多复制一条验证码。bodyText 为空时只认主题 / 发件人（视图首屏走这条快路，
+     不为了一封不确定的信再多打一次请求）；后台轮询会给一个读正文的函数，主题里认不出时
+     最多试 MAIL_BODY_TRIES 封。 */
+  async function mailScanCodes(rows, bodyText) {
+    if (!(await mailAutoCopyOn())) return null;
+    const seen = await mailSeenIds();
+    const now = Date.now();
+    let touched = false;
+    const fresh = mailSortNewest(rows).filter((row) => {
+      const id = String((row && row.id) || "");
+      if (!id || seen.has(id)) return false;
+      const at = mailTime(row && row.date);
+      // 未来 1 分钟内的容差：服务端时钟可能快几十秒。
+      return at !== null && now - at <= MAIL_CODE_FRESH_MS && at - now <= 60 * 1000;
+    });
+    let tried = 0;
+    for (const row of fresh) {
+      const id = String(row.id);
+      let code = mailCodeOf(`${row.subject || ""} ${row.from || ""}`);
+      if (!code && typeof bodyText === "function" && tried < MAIL_BODY_TRIES) {
+        tried++;
+        try { code = mailCodeOf(await bodyText(id)); } catch { code = ""; }
+      }
+      if (code) {
+        seen.add(id);
+        await mailSaveSeen(seen);
+        return { code, id, from: row.from || "", subject: row.subject || "" };
+      }
+      // 真读过正文才记「处理过」；只看了主题就记，后台那一轮就再也不会去读正文了。
+      if (typeof bodyText === "function") { seen.add(id); touched = true; }
+    }
+    if (touched) await mailSaveSeen(seen);
+    return null;
+  }
+
+  /* 正文兜底：这套部署没公开这个 func 的契约，两种写法各试一次；都不认就把 mailBodyApi
+     记成 "no"，本次会话不再试 —— 每分钟一次无效请求比「少读一点」更讨厌。 */
+  let mailBodyApi = "";
+
+  function mailFlattenText(node, budget = 20000) {
+    const parts = [];
+    let used = 0;
+    const walk = (n, depth) => {
+      if (!n || used >= budget || depth > 10) return;
+      if (typeof n === "string") { parts.push(n); used += n.length; return; }
+      if (typeof n === "number") { parts.push(String(n)); return; }
+      if (Array.isArray(n)) { for (const x of n) walk(x, depth + 1); return; }
+      if (typeof n === "object") { for (const v of Object.values(n)) walk(v, depth + 1); }
+    };
+    walk(node, 0);
+    return parts.join("\n");
+  }
+
+  async function mailBodyReader(httpSid, mailSid) {
+    if (mailBodyApi === "no") return null;
+    return async (id) => {
+      for (const func of ["mbox:getMessage", "mbox:getMessageBody"]) {
+        let got = null;
+        try { got = await mailCoremail(httpSid, func, { mbox: "Inbox", id, part: "1" }, mailSid); } catch { continue; }
+        if (mailIsSessionDead(got.data)) return "";
+        const text = mailFlattenText(got.data ?? got.body);
+        if (text.trim()) { mailBodyApi = "ok"; return text; }
+      }
+      mailBodyApi = "no";
+      return "";
+    };
+  }
+
+  /* 单封正文（v0.269.0）：视图里点一封就地展开，不再非得跳邮箱窗口。
+     与 mailBodyReader 的差别是这里要「给人读的那一段」——优先取 content（HTML）用
+     cleanText 摊成带换行的纯文本；拿不到再退回整棵响应。结果按 id 缓存 30 条：
+     列表里来回展开同一封信不该反复打接口。 */
+  const mailBodies = new Map();
+  const MAIL_BODY_CACHE_MAX = 30;
+  const MAIL_BODY_MAX = 60000;   // 6 万字之后只剩签名和免责声明，截断即可
+
+  function mailBodyOf(data) {
+    if (!data || typeof data !== "object") return "";
+    const box = data.var && typeof data.var === "object" ? data.var : data;
+    const html = mailPick(box, ["content", "body", "htmlbody", "bodyhtml", "text"], "");
+    const text = typeof html === "string" ? cleanText(html) : "";
+    if (text.trim()) return text;
+    return mailFlattenText(box, MAIL_BODY_MAX).trim();
+  }
+
+  async function mailMessage(id) {
+    const key = String(id || "").trim();
+    if (!key) return { ok: false, error: "这封信没有 id，读不到正文。" };
+    const cached = mailBodies.get(key);
+    if (cached) return cached;
+
+    const job = (async () => {
+      const httpSid = await ensureSid();
+      if (!httpSid) return { ok: false, needLogin: true, error: "本机取数会话没建起来，重启应用后再试一次。" };
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const mailSid = await ensureMailSession(attempt > 0);
+        if (!mailSid) {
+          return { ok: false, needLogin: true, error: mailLoginError || "没拿到邮箱登录态 —— 先在「警大通知」里勾上记住密码登录一次。" };
+        }
+        /* 两路都试：这套部署对 getMessage / getMessageBody 的接受度不一致（同 mailBodyReader）。 */
+        for (const func of ["mbox:getMessage", "mbox:getMessageBody"]) {
+          let got = null;
+          try { got = await mailCoremail(httpSid, func, { mbox: "Inbox", id: key, part: "1" }, mailSid); } catch { continue; }
+          if (mailIsSessionDead(got.data)) break;   // 会话失效：跳出 func 循环，外层换票重登
+          const text = mailBodyOf(got.data) || cleanText(got.body);
+          if (!text.trim()) continue;
+          const box = got.data && got.data.var && typeof got.data.var === "object" ? got.data.var : (got.data || {});
+          return {
+            ok: true,
+            id: key,
+            text: text.slice(0, MAIL_BODY_MAX),
+            truncated: text.length > MAIL_BODY_MAX,
+            subject: cleanText(mailPick(box, ["subject", "subj"], "")),
+            from: cleanText(mailPick(box, ["from", "sender"], "")),
+            date: mailPick(box, ["sentdate", "date"], ""),
+          };
+        }
+      }
+      return { ok: false, error: "邮箱接口没回这封信的正文（会话可能是通的，但这个 func 不被接受）。点右上角「在邮箱打开」可以在邮箱窗口里看。" };
+    })().then((r) => {
+      if (r && r.ok) {
+        mailBodies.set(key, r);
+        if (mailBodies.size > MAIL_BODY_CACHE_MAX) mailBodies.delete(mailBodies.keys().next().value);
+      }
+      return r;
+    });
+
+    mailBodies.set(key, job);   // 连点同一封只打一次（存的是 Promise，await 之后拿到结果）
+    return job;
+  }
+
+  /* ── 后台轮询「收到验证码就复制」（v0.268.0）───────────────────────────────
+     邮件不是我们推的，只能问。口径取「够快但不吵」：60 秒一轮，只读最新 10 封的信头，
+     连续失败自己拉长间隔（最多 8 倍）。闸门与 warmSession 同一套边界：开关开着、
+     用户授权过自动登录（vault 里有密码）、上一轮没在飞。没登录态就静默等下一轮 ——
+     后台不能弹登录框。 */
+  let mailWatchBusy = false, mailWatchMiss = 0, mailWatchRetryAt = 0, mailPrefsReady = false, mailWatchTimer = 0;
+
+  async function mailWatchReady() {
+    if (!mailPrefsReady) {
+      /* 已经有身份就别再水合一次偏好：loadPrefs 会把 state.username / state.autoLogin 整份
+         按 storage 重写，而此刻视图可能正拿着现身份在跑（冷启动前台已读过一次）。
+         后台轮询只该问「能不能登录」，不该改动正在用的状态。 */
+      if (state.username) {
+        mailPrefsReady = true;
+      } else {
+        try { await loadPrefs(); mailPrefsReady = true; } catch { return false; }
+      }
+    }
+    if (typeof tide.vault?.get !== "function") return false;
+    return state.autoLogin !== false && Boolean(state.username);
+  }
+
+  async function mailWatchTick() {
+    if (typeof window === "undefined") return;
+    if (mailWatchBusy) return;
+    if (Date.now() < mailWatchRetryAt) return;
+    mailWatchBusy = true;
+    try {
+      if (!(await mailAutoCopyOn())) return;
+      if (!(await mailWatchReady())) return;
+      const httpSid = await ensureSid();
+      if (!httpSid) return;
+      const mailSid = await ensureMailSession();
+      if (!mailSid) return;                       // 没密码 / 站点要图形码：交给前台那次
+      const got = await mailCoremail(httpSid, "mbox:listMessages", { mbox: "Inbox", start: "0", limit: String(MAIL_WATCH_PAGE) }, mailSid);
+      if (mailIsSessionDead(got.data)) { await ensureMailSession(true); return; }
+      const rows = mailSortNewest(mailItems(got.data));
+      mailWatchMiss = 0;
+      mailWatchRetryAt = 0;
+      if (!rows.length) return;
+      const hit = await mailScanCodes(rows, await mailBodyReader(httpSid, mailSid));
+      if (hit) await mailCopyCode(hit);
+    } catch {
+      mailWatchMiss = Math.min(8, mailWatchMiss + 1);
+      mailWatchRetryAt = Date.now() + MAIL_WATCH_EVERY_MS * mailWatchMiss;
+    } finally {
+      mailWatchBusy = false;
+    }
+  }
+
+  function scheduleMailWatch() {
+    if (mailWatchTimer) return;
+    if (typeof window === "undefined" || typeof window.setTimeout !== "function") return;
+    mailWatchTimer = 1;
+    const run = () => { mailWatchTick().catch(() => {}); };
+    try {
+      window.setTimeout(run, MAIL_WATCH_DELAY_MS);
+      if (typeof window.setInterval === "function") window.setInterval(run, MAIL_WATCH_EVERY_MS);
+    } catch { /* ignore */ }
+  }
+
   /* mbox 接口：这套部署只认 /js6/s，而且 sid 必须写在 URL 上（Cookie 齐全也不行）。
      老的 XT JSON 变体恒回 FA_INVALID_SESSION，已经弃用。 */
   async function mailCoremail(httpSid, func, params, mailSid) {
@@ -2731,16 +3236,25 @@
     return { status: Number(res?.status) || 0, data, body: raw };
   }
 
-  async function mailLoad() {
-    if (mailInFlight) return mailInFlight;
-    mailInFlight = (async () => {
+  /* 分页取信（v0.268.0）：以前只取 start=0,limit=20 就完事，视图再「显示更多」也只是把
+     已经拿到的 20 条拆着显示 —— 第 21 封起永远看不见。现在 start/limit 透传给 mbox 接口，
+     一页一页向服务端要；同一页并发只发一次（连点「加载更早」不会打两遍）。 */
+  const mailPages = new Map();   // `${start}:${limit}` → Promise
+
+  async function mailLoad(opts) {
+    const start = Math.max(0, Number(opts && opts.start) || 0);
+    const limit = Math.min(MAIL_PAGE_MAX, Math.max(1, Number(opts && opts.limit) || MAIL_PAGE));
+    const key = `${start}:${limit}`;
+    const running = mailPages.get(key);
+    if (running) return running;
+    const job = (async () => {
       try {
         const httpSid = await ensureSid();
         if (!httpSid) return { ok: false, needLogin: true, error: "本机取数会话没建起来，请重启应用后再试一次。" };
         let folders = null;
         let list = null;
         // 两轮：第一轮用缓存 sid，被拒就强制重登再试一次 —— sid 有过期，别让用户手动点。
-        for (let attempt = 0; attempt < 2; attempt++) {
+        for (let attempt = 0; attempt < 2 && !list; attempt++) {
           const mailSid = await ensureMailSession(attempt > 0);
           if (!mailSid) {
             return {
@@ -2748,42 +3262,59 @@
               error: mailLoginError || "没拿到邮箱登录态：密钥库里没有可用密码、或站点要求图形/短信验证码。先在「警大通知」里勾选记住密码登录一次，再回本页重试。",
             };
           }
-          const got = await mailCoremail(httpSid, "mbox:getAllFolders", {}, mailSid);
-          if (mailIsSessionDead(got.data)) continue;
-          const gotList = await mailCoremail(httpSid, "mbox:listMessages", { mbox: "Inbox", start: "0", limit: String(MAIL_PAGE) }, mailSid);
-          if (mailIsSessionDead(gotList.data)) continue;
-          folders = got;
+          // 第 2 页起不必再问文件夹统计（未读/总数第一页已经拿到），省一次请求。
+          if (start === 0) {
+            const got = await mailCoremail(httpSid, "mbox:getAllFolders", {}, mailSid);
+            if (mailIsSessionDead(got.data)) continue;
+            folders = got;
+          }
+          const gotList = await mailCoremail(httpSid, "mbox:listMessages", { mbox: "Inbox", start: String(start), limit: String(limit) }, mailSid);
+          if (mailIsSessionDead(gotList.data)) { folders = null; continue; }
           list = gotList;
-          break;
         }
-        if (!folders || !list) {
+        if (!list) {
           return {
             ok: false, needLogin: true,
             error: "邮箱接口不认这次登录（FA_INVALID_SESSION），重登过一次仍被拒。点「在邮箱窗口里登录」手动登一次，再回本页刷新。",
           };
         }
-        const mails = mailItems(list.data);
-        const stat = mailFolderStat(folders.data, list.data, mails);
-        return {
+        const mails = mailSortNewest(mailItems(list.data));
+        const out = {
           ok: true,
           account: MAIL_ACCOUNT,
-          unread: stat.unread,
-          total: stat.total,
+          start,
+          limit,
           mails,
+          // 满页就当还有下一页；不满页说明到头了。
+          hasMore: mails.length >= limit,
           syncedAt: Date.now(),
         };
+        if (folders && folders.data) {
+          const stat = mailFolderStat(folders.data, list.data, mails);
+          out.unread = stat.unread;
+          out.total = stat.total;
+        }
+        // 顺手扫一遍验证码（只认主题，不读正文）：用户点开邮箱时若刚收到码，不必等下一轮轮询。
+        mailScanCodes(mails, null)
+          .then((hit) => { if (hit) return mailCopyCode(hit); return null; })
+          .catch(() => {});
+        return out;
       } catch (e) {
         return { ok: false, error: String(e?.message || e) };
-      } finally {
-        mailInFlight = 0;
       }
-    })();
-    return mailInFlight;
+    })().finally(() => { mailPages.delete(key); });
+    mailPages.set(key, job);
+    return job;
   }
 
   const mailBridge = {
-    load: () => mailLoad(),
+    load: (opts) => mailLoad(opts),
+    body: (id) => mailMessage(id),
     open: () => openMailWeb(null),
+    autoCopy: () => mailAutoCopyOn(),
+    setAutoCopy: (on) => Promise.resolve(tide.storage.set(MAIL_AUTOCOPY_KEY, Boolean(on))).catch(() => {}),
+    lastCode: () => mailLastCode,
+    copy: (text) => copyPlainText(text),
   };
 
   let mailModule = null, mailView = null;
@@ -2871,6 +3402,13 @@
     // 运行时由 jwFuncInfo 从 funcInfo 元信息补齐；补不到就老实报错，绝不抄一个像样的 funcId 上去
     // —— 错值在服务端表现为 UNKOWN_ERROR，排查成本远高于直说「没取到」。
     room: { funcCode: "ZXZYCX", funcId: "", tableCode: "" },
+    /* 我的考试（v0.272.0）：两块接口都必须硬编码 funcId。
+       考试计划 V_JWBZK_KWGL_KS_STU 是 sql 型（要带 dbSql + queryParamsStr），
+       考试任务 V_JWBZK_KWGL_KSRW_STU 是 func 型（普通表查询，不带 queryType）。
+       两个 funcId 与 tableCode 都是浏览器里抓到的真实请求体里抄的，不是猜的；
+       照 room 那条的老规矩：抓不到就留空让元信息补，绝不抄一个像样的值上去。 */
+    examPlan: { funcCode: "V_JWBZK_KWGL_KS_STU", funcId: "8doEdJCt9B3MRujeyKo", tableCode: "V_JWBZK_KWGL_KS_STU" },
+    examTask: { funcCode: "V_JWBZK_KWGL_KSRW_STU", funcId: "XyTHnkGDVnGOCTQECC6", tableCode: "V_JWBZK_KWGL_KSRW_STU" },
   };
   // 教务里没有「创新成绩」这个菜单，实名叫「成绩查询(学生)」，挂在 创新实践 下面
   const JW_MENU = {
@@ -2879,6 +3417,13 @@
     grades: "学生服务 › 我的学业 › 成绩 › 成绩查询",
     cx: "学生服务 › 综合素质考评 › 创新实践 › 成绩查询(学生)",
     room: "学生服务 › 公共服务 › 自习室查询",
+    // 菜单树 dump 里「我的考试」节点（orderIndex 2）下只有一个子项「我的考试计划」，
+    // nodeInfo / 功能码同为 V_JWBZK_KWGL_KS_STU；「考务管理 › 考试计划管理」下那条
+    // 「我的考试计划（学生）」是同一个功能码，指向同一页。
+    exam: "学生服务 › 我的考试 › 我的考试计划",
+    // 「我的学分」挂在 成绩 下面（菜单树实测：学生服务 › 我的学业 › 成绩 › 我的学分，
+    // nodeInfo 与功能码同为 V_JWBZK_XKGL_XKQK）。
+    credit: "学生服务 › 我的学业 › 成绩 › 我的学分",
   };
   // 校方字典（/je/dd/dd/getDicItemByCodes 的 KCSXDM_1 / KCHJDM_1 / KJDM / QJSQSP / KCMKDM_1）抄一份在用：
   // 省掉每次开视图多打一跳；未命中的码一律原样显示，绝不猜一个好看的词糊上去。
@@ -2905,7 +3450,7 @@
     if (!c) return "";
     return JW_DD[dict]?.[c] || c;
   };
-  const jwKeyLabel = (k) => ({ xkTask: "选课任务", xkResult: "选课结果", qjRecord: "请假记录", qjCourse: "可请假课次", creditPlan: "培养计划", creditModule: "课程模块进度", grade: "课程成绩", cxCredit: "创新学分", cxDetail: "创新学分明细", room: "自习室" }[k] || k);
+  const jwKeyLabel = (k) => ({ xkTask: "选课任务", xkResult: "选课结果", qjRecord: "请假记录", qjCourse: "可请假课次", creditPlan: "培养计划", creditModule: "课程模块进度", credit: "我的学分", grade: "课程成绩", cxCredit: "创新学分", cxDetail: "创新学分明细", room: "自习室", exam: "考试安排", examPlan: "考试计划", examTask: "考试安排" }[k] || k);
 
   let jwSid = null;                 // 已经落上教务 authorization 的那个会话 id
   const jwLive = () => !!jwSid && jwSid === state.sid;
@@ -2939,16 +3484,24 @@
     // 只合流并发、不缓存结果：点「刷新」时该再试一次，别拿着上次的 false 一直不回本
     const clear = () => { if (jwBootPromise === p) jwBootPromise = null; };
     const settle = (ok) => { if (!ok) jwRoundLoginFailed = round; clear(); };
-    p.then(() => settle(true), () => settle(false));
+    // p 自己就是「成没成」的布尔：验不出验证码时它 resolve(false) 而不是 reject。
+    // 只看 resolve/reject 会把这种失败漏记，后面每个 key 又重跑一轮完整登录（白刷验证码）。
+    p.then((ok) => settle(ok !== false), () => settle(false));
     return p;
   }
   const jwState = {
     term: null,
-    data: { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null, room: null, pdataStudy: null },
+    data: { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null, room: null, pdataStudy: null, exam: null },
     loading: {}, error: {}, at: {},
     courseScope: "week",            // today | week | term，默认本周（本学期是 200+ 行的紧凑列表）
-    roomGroup: "room",              // room | date | flat：自习室列表按教室 / 按日期 / 平铺
+    roomSlot: "all",                // all | 节次码（01…05）：选一个节次就把别的格子调暗，好判断「现在哪间空」
+    // 看哪一天的自习室："" = 今天（不覆盖 RQ，让服务端用 SYSDATE），否则 "YYYY-MM-DD"。
+    // 教务那条 SQL 是 (select ? rq from dual)，RQ 由 FUNCINFO_QUERYPARAM 声明，改 defaultValue
+    // 就能查任意一天（实测 2026-10-25 空闲 614/630，今天 332/630，服务端按天换数）。
+    roomDate: "",
     roomFilter: "",                 // 自习室关键词过滤（只改 DOM 显隐，不触发重绘 —— 重绘会夺走输入焦点）
+    examFilter: "",                 // 考试关键词过滤（同上，只切 [hidden]）
+    examOpen: new Set(),            // 手动摊开的考试卡（按考试 ID 记，切学期再切回来还开着）
     leaveCourseId: "",
     leaveReason: "",
     selectedTaskId: "",
@@ -2989,6 +3542,23 @@
       return Array.isArray(j?.rows) ? j.rows : null;
     } catch { return null; }
   };
+  /* 取不到 rows 有两种完全不同的成因，过去被混成一句「解析失败」：
+     ① 教务把我们当没登录 —— 302 回 sso、或干脆吐一整页 HTML；
+     ② 服务端听懂了但拒绝 —— 结构化 JSON 里带 UNKOWN_ERROR / code / message（字段定义缺失、
+        没权限、表名不对）。② 换票重登一百次结果一样，认成①就会凭空多跑一轮登录，
+        横幅于是显示「自动登录失败」——用户看到的是登录坏了，其实是查询配方不对。 */
+  const jeJsonOf = (res) => { try { return JSON.parse(String(res?.body || "")); } catch { return null; } };
+  const jeNeedsLogin = (res) => {
+    const st = Number(res?.status) || 0;
+    if (st === 401 || st === 403 || (st >= 300 && st < 400)) return true;
+    if (/tpass\/login|cas_callback/i.test(String(res?.finalUrl || res?.location || ""))) return true;
+    return /^\s*<(!doctype|html|\?xml)/i.test(String(res?.body || ""));
+  };
+  const jeBizError = (res) => {
+    const j = jeJsonOf(res) || {};
+    const why = String(j.message || j.msg || j.error || j.obj || j.code || "").trim();
+    return why ? `${why}（HTTP ${res?.status ?? "?"}）` : `HTTP ${res?.status ?? "?"}`;
+  };
 
   // funcType=sql 的功能（如「学员选课」）光给 funcCode 是查不出来的：教务前端会把该功能的
   // 整段 SELECT 从元信息里取出来原样回传，服务端才认（实测漏掉就回 UNKOWN_ERROR）。
@@ -3010,31 +3580,85 @@
     }
     return [];
   }
+  /* v1.77.0：这个端点的「正确姿势」在部署之间并不一致。
+     正方 7.2.7 的四个前端包里**没有任何调用点**（je-app / je-main / je-core / url-map 搜
+     getStaticFuncByCode 只命中字符串本身），说明它只被服务端用过，方法名与参数名没有权威
+     答案；同一份部署对 GET / POST、对 funcCode / FUNCINFO_FUNCCODE 的接受度也不保证一样。
+     除自习室以外每个功能都有硬编码 funcId 兜底，所以只有它会在这一跳上卡死 ——
+     多试几种姿势，哪一路回了 funcId / tableCode 就用哪一路，全都不认才如实报错。
+     注意：第一路必须保持原样（POST + FUNCINFO_FUNCCODE），那是真机验证过的形状。 */
+  const jwFuncProbes = (f) => [
+    { method: "POST", url: JW_FUNC_INFO, form: { refresh: "false", tableCode: "JE_CORE_FUNCINFO", FUNCINFO_FUNCCODE: f.funcCode, perm: "true" } },
+    { method: "POST", url: JW_FUNC_INFO, form: { refresh: "false", funcCode: f.funcCode } },
+    { method: "GET", url: `${JW_FUNC_INFO}?refresh=false&funcCode=${encodeURIComponent(f.funcCode)}` },
+    { method: "GET", url: `${JW_FUNC_INFO}?refresh=false&tableCode=JE_CORE_FUNCINFO&FUNCINFO_FUNCCODE=${encodeURIComponent(f.funcCode)}` },
+  ];
   async function jwFuncInfo(key) {
     if (jwFuncMeta[key]) return jwFuncMeta[key];
     const f = JW_FUNC[key];
-    const res = await tide.http.fetch(state.sid, "POST", JW_FUNC_INFO, {
-      headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", Referer: JW_INDEX },
-      body: tide.util.web.formEncode({ refresh: "false", tableCode: "JE_CORE_FUNCINFO", FUNCINFO_FUNCCODE: f.funcCode, perm: "true" }),
-    }).catch((e) => { throw new Error(explainHttpError(e)); });
-    let j = null;
-    try { j = JSON.parse(String(res.body || "")); } catch { j = null; }
-    const info = j?.funcInfo || {};
-    const meta = {
-      funcId: String(info.funcId || f.funcId),
-      funcType: String(info.funcType || ""),
-      dbSql: String(j?.func?.info?.FUNCINFO_SQL || ""),
-      // 表名同样以元信息为准：JW_FUNC 里的 tableCode 只是抄下来的常量兜底，
-      // 新接入的自习室查询没有常量可抄，漏了这一句 /je/load 一律回 UNKOWN_ERROR。
-      tableCode: String(info.tableCode || j?.func?.tableCode || f.tableCode || ""),
-      columns: jwFuncColumns(j),
-    };
-    // 元信息拿到了才缓存（省掉后续每次多一跳）；拿不到就退回硬编码 funcId，下次再取
-    if (info.funcId || meta.tableCode) jwFuncMeta[key] = meta;
-    return jwFuncMeta[key] || { funcId: f.funcId, funcType: "", dbSql: "", tableCode: f.tableCode || "", columns: [] };
+    let netErr = null;
+    for (const probe of jwFuncProbes(f)) {
+      let res = null;
+      try {
+        res = await tide.http.fetch(state.sid, probe.method, probe.url, {
+          headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", Referer: JW_INDEX },
+          body: probe.form ? tide.util.web.formEncode(probe.form) : "",
+        });
+      } catch (e) { netErr = e; continue; }   // 这一路非 2xx / 超时不代表别的路不通
+      let j = null;
+      try { j = JSON.parse(String(res.body || "")); } catch { j = null; }
+      const info = j?.funcInfo || {};
+      const meta = {
+        funcId: String(info.funcId || f.funcId),
+        funcType: String(info.funcType || ""),
+        dbSql: String(j?.func?.info?.FUNCINFO_SQL || ""),
+        // 表名同样以元信息为准：JW_FUNC 里的 tableCode 只是抄下来的常量兜底，
+        // 新接入的自习室查询没有常量可抄，漏了这一句 /je/load 一律回 UNKOWN_ERROR。
+        tableCode: String(info.tableCode || j?.func?.tableCode || f.tableCode || ""),
+        // 加载端点也由元信息决定：教务允许给单个功能配自己的控制器路径，自习室查询就是
+        // FUNCINFO_FUNCACTION = "/je/zxcx"。一律打通用 /je/load 时，那个控制器会因为参数
+        // 对不上而只回一句「数据加载失败！」，前端再把它当成登录失效（v1.77.1 修的就是这条）。
+        funcAction: String(j?.func?.info?.FUNCINFO_FUNCACTION || "").trim(),
+        // SQL 里的 ? 占位符要靠 FUNCINFO_QUERYPARAM 的声明回传（自习室那条是
+        // [{name:"RQ",defaultValue:"SYSDATE"}]）。漏了就报
+        // 「Expected positional parameter count: 1, actual parameters: []」。
+        queryParams: String(j?.func?.info?.FUNCINFO_QUERYPARAM || ""),
+        columns: jwFuncColumns(j),
+      };
+      // 回了真元信息才缓存（省掉后续每次多跳）；一个字段都没有说明这一路不对，换下一路
+      if (info.funcId || info.tableCode || j?.func?.tableCode || meta.funcAction) {
+        jwFuncMeta[key] = meta;
+        return meta;
+      }
+    }
+    if (netErr) throw new Error(explainHttpError(netErr));
+    const bare = { funcId: f.funcId, funcType: "", dbSql: "", tableCode: f.tableCode || "", funcAction: "", queryParams: "", columns: [] };
+    // 有硬编码 funcId 的功能照旧能查；自习室这类「后台配列」的新功能没有常量可抄，
+    // 这时必须把话说明白 —— 旧写法让它一路走到 /je/load 回 UNKOWN_ERROR，再被当成
+    // 「登录失效」去重登一次，横幅就变成了「自动登录失败」（v1.77.0 修的就是这句假话）。
+    if (!bare.funcId && !bare.tableCode) {
+      throw new Error(`教务没给出「${jwKeyLabel(key)}」的字段定义：先点「刷新」重试；一直这样就说明这版教务的接口形状变了，插件需要更新`);
+    }
+    return bare;
   }
 
-  async function jeLoad(key, groups = []) {
+  /* 自习室那条 SQL 是 (select ? rq from dual)，占位符的实参由 FUNCINFO_QUERYPARAM 声明
+     （[{"name":"RQ","fieldType":"VARCHAR","paramType":"0","defaultValue":"SYSDATE"}]）。
+     服务端认的是 defaultValue 这一格：把它换成具体某天就查那天 —— 实测 2026-10-25 回
+     空闲 614/630、今天 332/630。换成 {"name","value"} 会被判 JSONObject["fieldType"]
+     not found；声明里其他字段一个都不能少，所以这里只改 defaultValue。 */
+  function jwQueryParamsForDate(raw, date) {
+    if (!date || !raw) return raw;
+    let list;
+    try { list = JSON.parse(raw); } catch { return raw; }
+    if (!Array.isArray(list) || !list.length) return raw;
+    const i = list.findIndex((x) => x && (x.name === "RQ" || String(x.defaultValue || "").toUpperCase() === "SYSDATE"));
+    if (i < 0) return raw;
+    list[i] = { ...list[i], defaultValue: date };
+    return JSON.stringify(list);
+  }
+
+  async function jeLoad(key, groups = [], opts = {}) {
     const f = JW_FUNC[key];
     if (!f) throw new Error(`未登记的教务功能：${key}`);
     if (!await ensureJwLogin()) throw new Error("警大统一身份认证未建立：请在下方完成登录后重试");
@@ -3044,10 +3668,19 @@
         funcCode: f.funcCode, funcId: meta.funcId, columnLazy: "true", mark: "false", postil: "",
         funcEdit: "false", coverJquery: "0", tableCode: meta.tableCode || f.tableCode, _isFunc_: "true",
         j_query: JSON.stringify({ custom: groups, _custom_types: groups.map(() => "group") }),
-        j_order: "[]", page: "1", start: "0", limit: "-1",
+        j_order: "[]", dbQueryObj: "{}", page: "1", start: "0", limit: "-1",
       };
-      if (meta.funcType === "sql" && meta.dbSql) { params.queryType = "sql"; params.dbSql = meta.dbSql; params.queryParamsStr = "[]"; }
-      return tide.http.fetch(state.sid, "POST", JW_LOAD, {
+      if (meta.funcType === "sql" && meta.dbSql) {
+        params.queryType = "sql";
+        params.dbSql = meta.dbSql;
+        // 占位符的实参来自元信息。传空数组会让服务端直接拒绝整条 SQL（自习室那条是
+        // 「Expected positional parameter count: 1, actual parameters: []」）。
+        params.queryParamsStr = jwQueryParamsForDate(meta.queryParams, opts.date) || "[]";
+      }
+      // 端点派发：功能配了 FUNCINFO_FUNCACTION 就走「它的路径 + /load」，没配才回落到通用
+      // /je/load。教务自己的前端也是这么拼的（自习室 = /je/zxcx/load）。
+      const endpoint = meta.funcAction ? JWAPP + meta.funcAction + "/load" : JW_LOAD;
+      return tide.http.fetch(state.sid, "POST", endpoint, {
         headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", Referer: JW_INDEX },
         body: tide.util.web.formEncode(params),
       });
@@ -3068,13 +3701,20 @@
     let res = await postThrough();
     let rows = jeRowsOf(res);
     if (!rows) {
+      // 业务拒绝（UNKOWN_ERROR / 没权限）不是登录态问题：换票重登只会白跑一轮验证码，
+      // 还会把「字段没取到」显示成「自动登录失败」。只有服务端真的把我们当未登录时才重登一次。
+      if (!jeNeedsLogin(res)) throw new Error(`教务拒绝了这次查询：${jeBizError(res)}`);
       // 会话过期的表现不是 401，而是 POST 被 302 回登录页、拿回来一整页 HTML
       delete jwFuncMeta[key];
       if (!await ensureJwSession(true) && !await ensureJwLogin(true)) throw new Error("教务登录态已失效，请重新登录");
       meta = await jwFuncInfo(key);
       res = await postThrough();
       rows = jeRowsOf(res);
-      if (!rows) throw new Error(`教务数据解析失败（HTTP ${res.status}）`);
+      if (!rows) {
+        throw new Error(jeNeedsLogin(res)
+          ? `教务登录态没建立起来（HTTP ${res.status}）：点「刷新」重试一次，仍然这样就点「重新登录」`
+          : `教务拒绝了这次查询：${jeBizError(res)}`);
+      }
     }
     return rows;
   }
@@ -3117,7 +3757,9 @@
     const keep = {};
     for (const k of ["xkTask", "xkResult", "qjRecord", "creditPlan", "creditModule", "grade", "cxCredit", "cxDetail", "room"]) if (Array.isArray(jwState.data[k])) keep[k] = jwState.data[k];
     if (jwState.data.pdataStudy) keep.pdataStudy = jwState.data.pdataStudy;
-    try { await tide.storage.set("jwCache", { username: state.username, term: jwState.term, at: jwState.at, keep, prefs: { creditHideDone: jwState.creditHideDone } }); } catch { /* 忽略 */ }
+    // 考试是对象（{plans,current,terms}）不是数组，上面那个循环收不进去，单独存
+    if (jwState.data.exam && jwState.data.exam.ok !== false) keep.exam = jwState.data.exam;
+    try { await tide.storage.set("jwCache", { username: state.username, term: jwState.term, at: jwState.at, keep, prefs: { creditHideDone: jwState.creditHideDone, roomDate: jwState.roomDate } }); } catch { /* 忽略 */ }
   }
   async function jwRestoreCache() {
     try {
@@ -3125,9 +3767,20 @@
       if (!c || typeof c !== "object" || (c.username != null && c.username !== state.username)) return;
       if (c.term && !jwState.term) jwState.term = c.term;
       jwState.creditHideDone = c.prefs?.creditHideDone === true;
+      // 自习室缓存的是「那一天」的行，日期偏好必须一起恢复，否则重开应用会拿别天的数据
+      // 顶着今天的日期显示（RQ 就在行里，渲染层据它写日期）。
+      if (typeof c.prefs?.roomDate === "string") jwState.roomDate = c.prefs.roomDate;
       for (const [k, rows] of Object.entries(c.keep || {})) if (Array.isArray(rows) && jwState.data[k] === null) jwState.data[k] = rows;
       if (jwState.data.pdataStudy === null && c.keep?.pdataStudy && typeof c.keep.pdataStudy === "object") jwState.data.pdataStudy = c.keep.pdataStudy;
+      if (jwState.data.exam === null && c.keep?.exam && typeof c.keep.exam === "object" && Array.isArray(c.keep.exam.terms)) jwState.data.exam = c.keep.exam;
       for (const [k, at] of Object.entries(c.at || {})) if (!jwState.at[k]) jwState.at[k] = Number(at) || 0;
+      // 自习室缓存的是「哪一天」的数：昨天缓存的那份顶着今天用就是错的（RQ 会露出真相）。
+      // 今天视图（roomDate ""）发现缓存行不是今天的，直接丢掉等重拉；指定日期的缓存按日期比。
+      if (Array.isArray(jwState.data.room) && jwState.data.room.length) {
+        const cachedDay = String(jwState.data.room[0]?.RQ || "");
+        const want = jwState.roomDate || jwDayISO(0);
+        if (cachedDay && cachedDay !== want) { jwState.data.room = null; }
+      }
     } catch { /* 缓存坏了当没有 */ }
   }
 
@@ -3191,6 +3844,9 @@
     for (const key of keys) {
       if (jwState.loading[key]) continue;
       if (!force && Array.isArray(jwState.data[key])) continue;
+      // 考试是对象不是数组，上面那个 continue 兜不住它：缓存里已经有安排就直接用缓存，
+      // 进页面不再重拉一遍（「刷新」按钮走 force，一次拉全）
+      if (!force && key === "exam" && jwState.data.exam?.plans?.length) continue;
       jwState.loading[key] = true;
       jwState.error[key] = "";
       jwPaint();
@@ -3198,12 +3854,14 @@
         // pdata 学情走自己的 token（不经 jeLoad）；它没有数据也算拉成功，
         // 失败只在卡片内部提示，不挂「拉取失败」横幅 —— 它不影响成绩本体。
         if (key === "pdataStudy") jwState.data.pdataStudy = await jeLoadPdataStudy();
+        else if (key === "exam") jwState.data.exam = await jeLoadExam();
         else {
           // 课次一次拉「整学期」（实测 222 节），今天/本周在渲染时切，避免每切一次打一次接口
           const groups = key === "qjCourse" && jwState.term?.code
             ? [{ type: "and", value: [{ code: "XNXQ_CODE", type: "=", value: jwState.term.code, cn: "and" }] }]
             : [];
-          jwState.data[key] = await jeLoad(key, groups);
+          // 自习室带日期维度（RQ 占位符换成选中那天）；其它功能没有这个参数，原样不传
+          jwState.data[key] = await jeLoad(key, groups, key === "room" ? { date: jwState.roomDate } : undefined);
         }
         jwState.at[key] = Date.now();
       } catch (e) {
@@ -3213,6 +3871,95 @@
     }
     await jwSaveCache();
     jwPaint();
+  }
+
+  /* ── 我的考试（v0.272.0）──────────────────────────────────────────────
+     两块接口，缺一不可：
+       V_JWBZK_KWGL_KS_STU  考试计划 —— 哪个学期、叫什么名字、什么时候开考到什么时候收
+       V_JWBZK_KWGL_KSRW_STU 考试任务 —— 这个计划下**我本人**的每一场：课程 / 地点 / 时段
+     任务接口按「计划 ID + 学期 + 学号」筛，所以一个计划就得打一次；而计划接口一次回所有
+     学期（实测 2 条，往前还有更早的），全拉一遍就是十几跳 —— 只拉当前学期，其余学期
+     等用户在学期胶囊上点了再补，补过的留在内存 + 缓存里。
+     XH 必须用 like '%学号%'：校方把整场考生的学号串在同一个字段里，等号一个都匹配不上。 */
+  const jwExamNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+  /* KSSJQJ 实测形如 "2026-01-15 08:00-09:50"（日期 + 起止时刻，中间一个连字符）。
+     格式变了就原样留着显示，不硬猜 —— 这一页最容易编出来的假话就是「08:00 开考」。 */
+  function jwExamParse(qj) {
+    const raw = String(qj || "").trim();
+    const m = raw.match(/(\d{4})-(\d{1,2})-(\d{1,2})\s*(\d{1,2}:\d{2})\s*[-–~至]\s*(\d{1,2}:\d{2})/);
+    if (!m) return { date: "", md: "", day: "", start: "", end: "", at: 0, endAt: 0, raw };
+    const date = `${m[1]}-${String(m[2]).padStart(2, "0")}-${String(m[3]).padStart(2, "0")}`;
+    const hhmm = (s) => { const [h, mi] = String(s).split(":"); return `${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}`; };
+    const start = hhmm(m[4]), end = hhmm(m[5]);
+    const at = Date.parse(`${date}T${start}:00`), endAt = Date.parse(`${date}T${end}:00`);
+    return { date, md: date.slice(5), day: "日一二三四五六"[new Date(`${date}T00:00:00`).getDay()],
+      start, end, at: Number.isFinite(at) ? at : 0, endAt: Number.isFinite(endAt) ? endAt : 0, raw };
+  }
+  function jwExamRow(r) {
+    const p = jwExamParse(r?.KSSJQJ);
+    return {
+      id: String(r?.ID || [r?.KCMC, r?.KSSJQJ, r?.KSDD].filter(Boolean).join("|")),
+      course: String(r?.KCMC || "").trim(),
+      code: String(r?.KCBH || "").trim(),
+      place: String(r?.KSDD || "").trim(),
+      chief: String(r?.ZKXM || "").trim(),
+      watch: String(r?.JKXM || "").trim(),
+      ...p,
+    };
+  }
+  const jwExamPlanOf = (p) => ({
+    id: String(p?.ID || ""),
+    name: String(p?.KSMC || "").trim(),
+    term: String(p?.XNXQ || "").trim(),
+    range: String(p?.KSSJ || "").trim(),
+    start: jwExamNum(p?.KSKSSJ),
+    end: jwExamNum(p?.KSJSSJ),
+  });
+  async function jeLoadExamTerm(termCode) {
+    const plans = ((jwState.data.exam?.plans) || []).filter((p) => p.term === termCode && p.id);
+    if (!plans.length) return [];
+    const uid = String(state.username || "").trim();
+    const boom = [];
+    const results = await Promise.all(plans.map((plan) => {
+      const groups = [{ type: "and", value: [
+        { code: "KS", type: "=", value: plan.id, cn: "and" },
+        { code: "XNXQ", type: "=", value: plan.term, cn: "and" },
+        ...(uid ? [{ code: "XH", type: "like", value: `%${uid}%`, cn: "and" }] : []),
+      ] }];
+      // 一个学期挂了两个计划（期末 + 补考）时，其中一个报错不该让整学期空着：
+      // 收下错误，全都失败才抛（那时候才是真的登录态/接口坏了）
+      return jeLoad("examTask", groups).catch((e) => { boom.push(e); return []; });
+    }));
+    if (boom.length && boom.length === plans.length) throw boom[0];
+    const seen = new Set();
+    return results.flat().map(jwExamRow)
+      .filter((r) => (r.course || r.raw) && !seen.has(r.id) && seen.add(r.id))
+      .sort((a, b) => (a.at || 9e15) - (b.at || 9e15) || a.course.localeCompare(b.course));
+  }
+  async function jeLoadExam() {
+    const raw = await jeLoad("examPlan");
+    const plans = (Array.isArray(raw) ? raw : []).map(jwExamPlanOf).filter((p) => p.id && p.term);
+    // 学期排序统一走 jwTermOrder（20252026-1 → 20252），再按计划结束时间兜底
+    plans.sort((a, b) => jwTermOrder(b.term) - jwTermOrder(a.term) || b.end - a.end);
+    const out = { ok: true, at: Date.now(), plans, current: "", terms: {} };
+    if (!plans.length) return out;
+    // 当前学期有考试计划就落在当前学期；没有（放假/新学期还没排考）就落在最近一个学期，
+    // 渲染时明说「已结束」—— 比给一屏空白让人以为接口坏了要诚实。
+    const cur = String(jwState.term?.code || "").trim();
+    out.current = plans.some((p) => p.term === cur) ? cur : plans[0].term;
+    jwState.data.exam = out;                       // jeLoadExamTerm 要读 plans，先把壳挂上
+    try { out.terms[out.current] = await jeLoadExamTerm(out.current); }
+    catch (e) { delete jwState.data.exam; throw e; }
+    return out;
+  }
+  /* 学期胶囊按需补数：补过的不再打接口（结果留内存 + 落缓存），失败只弹一句提示，
+     因为失败的是「另一个学期」，不该把整页已经画好的安排换成一条红横幅。 */
+  async function jwEnsureExamTerm(termCode) {
+    const d = jwState.data.exam;
+    if (!d || !termCode || Array.isArray(d.terms?.[termCode])) return;
+    if (!d.plans?.length) return;
+    d.terms[termCode] = await jeLoadExamTerm(termCode);
+    await jwSaveCache();
   }
 
   /* ── 视图渲染 ── */
@@ -3262,6 +4009,17 @@
     return { code, label, active, expired };
   }
 
+  /* OPERATERCODE 的语义：是学号＝学生自己选的；是 32 位 uuid＝教务代选 / 批量导入。
+     能拿到登录学号时以「相等」为准；拿不到时按「像不像学号」兜底 —— 不能因为
+     state.username 还没填上，就把整页课程全标成「教务代选」。 */
+  function jwOperatorSelf(code) {
+    const raw = String(code || "").trim();
+    if (!raw) return false;
+    const uid = String(state.username || "").trim();
+    if (uid) return raw === uid;
+    return /^\d{6,}$/.test(raw);
+  }
+
   function jwTaskCourses(task) {
     const rows = Array.isArray(jwState.data.xkResult) ? jwState.data.xkResult : [];
     return rows.filter((r) => !task?.KKXNXQ || String(r.KKXNXQ || "") === String(task.KKXNXQ));
@@ -3288,8 +4046,9 @@
         ${jwMetaLine([
           r.XKBMC ? jwTag(r.XKBMC) : "",
           r.XF ? jwTag(`${r.XF} 学分`, "ok") : "",
+          jwHoursTag(r),
           r.SKDD ? jwTag(r.SKDD) : "",
-          jwTag(String(r.OPERATERCODE || "") === String(state.username || "") ? "本人自选" : "教务代选"),
+          jwTag(jwOperatorSelf(r.OPERATERCODE) ? "本人自选" : "教务代选"),
         ])}
       </div>`).join("") : `<div class="pp-empty">这个学期还没有已选课程</div>`;
     return `<button type="button" class="pp-btn" data-jw-task-back>返回任务列表</button>
@@ -3321,6 +4080,44 @@
     return jwSection("可参加的选课任务", `${rows.length} 项 · ${jwAt("xkTask")}`, cards);
   }
 
+  /* 剩余学时（v0.271.0）：已选课程卡片上加一枚「剩余 N 学时」标签。
+     选课结果视图自己没有学时字段（V_JWBZK_XKGL_XKJG 的 18 个字段里只有 XF 学分），课时在
+     请假视图那张课次表（V_JWBZK_PK_XSKBZHCX：KCH/KCBH 课程号、KXXS 课序学时、SKRQ 上课日）。
+     所以按课程号把两张表对齐：总学时 = Σ 这门课每次课的 KXXS，已上 = SKRQ ≤ 今天的那些，
+     剩余 = 总 − 已上。慕课这类没排课次的课程对不上 → 一枚标签都不显示，
+     绝不拿学分折算一个「看起来像」的数出来（学分与学时不是一回事，慕课尤其不是）。 */
+  const jwLessonKey = (r) => String(r?.KCH || r?.KCBH || "").trim();
+  function jwLessonsOf(course) {
+    const rows = Array.isArray(jwState.data.qjCourse) ? jwState.data.qjCourse : null;
+    if (!rows || !rows.length || !course) return [];
+    const key = jwLessonKey(course);
+    const name = String(course.KCMC || "").trim();
+    return rows.filter((r) => {
+      const lessonKey = jwLessonKey(r);
+      // 课程号是「同一门课」最硬的判据；课次行没给号时才退回课程名，
+      // 否则一门缺号的课会把整学期的课时都算到自己头上。
+      if (key && lessonKey) return lessonKey === key;
+      return !!name && String(r.KCMC || "").trim() === name;
+    });
+  }
+  function jwHoursRest(course) {
+    const today = jwToday();
+    let total = 0, done = 0;
+    for (const r of jwLessonsOf(course)) {
+      const h = Number(String(r?.KXXS ?? "").trim());
+      if (!Number.isFinite(h) || h <= 0) continue;
+      total += h;
+      // SKRQ 一律是 YYYY-MM-DD，字符串比较即日期比较（午后的课也算今天已经上掉）
+      if (String(r?.SKRQ || "") && String(r.SKRQ) <= today) done += h;
+    }
+    return total > 0 ? { total, done, rest: Math.max(0, total - done) } : null;
+  }
+  function jwHoursTag(course) {
+    const hours = jwHoursRest(course);
+    if (!hours) return "";
+    return hours.rest > 0 ? jwTag(`剩余 ${hours.rest} 学时`, "hours") : jwTag("学时已上完", "hours");
+  }
+
   function jwResultHtml() {
     const rows = jwState.data.xkResult;
     const head = jwStateBlock("xkResult");
@@ -3338,7 +4135,7 @@
       const xf = list.reduce((n, r) => n + (Number(r.XF) || 0), 0);
       html += `<div class="jw-group">${esc(term)} · ${list.length} 门 · <span class="jw-credit-value">${xf} 学分</span></div>`;
       html += list.map((r) => {
-        const self = String(r.OPERATERCODE || "") === String(state.username || "");
+        const self = jwOperatorSelf(r.OPERATERCODE);
         return `<div class="jw-card">
           <div class="jw-card-t">${esc(r.KCMC || "（未命名课程）")}</div>
           ${jwMetaLine([
@@ -3347,6 +4144,9 @@
             r.XF ? jwTag(`${r.XF} 学分`, "ok") : "",
             r.SKDD ? jwTag(r.SKDD) : "",
             jwTag(self ? "本人自选" : "教务代选", self ? "" : "warn"),
+            // 学时排最后：它是这门课自己的进度，压在「本人自选/教务代选」这种身份标签之后更顺，
+            // 也不会把教室号往右挤出去（v0.271.1）
+            jwHoursTag(r),
           ])}
         </div>`;
       }).join("");
@@ -3382,10 +4182,14 @@
     const f = String(field || "").toLowerCase().replace(/\s+/g, "");
     if (!f || !q) return false;
     if (f.includes(q)) return true;
+    // 纯数字查询只认「包含」：教室号里没有拼音可打，而跳字子序列会把 101 连到 10S-102 上
+    // （1→0→1 在 "10s102" 里按序出现），搜 A 栋 101 却捞出一串 10S-1xx，纯属噪音。
+    if (/^\d+$/.test(q)) return false;
     return roomPinyinMod ? roomPinyinMod.initialHit(field, q) : false;
   };
   // idx → 这一行的可搜字段。渲染时顺手记下，过滤时不必重算列定义（每敲一个字都算一遍太浪费）。
   const roomRowFields = new Map();
+  let roomCountIdle = "";           // 计数行的「未过滤」原文：清空搜索时原地复原，不必重绘（重绘会夺走输入焦点）
   /* 列清单 = funcInfo 声明的列 ∪ 真实返回行的键。后者必须并进来：校方常给「隐藏列」，
      元信息里不声明但数据里有值，只信元信息会把它们悄悄丢掉。 */
   function jwRoomCols(rows) {
@@ -3410,20 +4214,102 @@
     if (/审核|审批|待|申请中|处理中/.test(s)) return "warn";
     return "";
   }
-  function jwRoomGroups(rows, cols) {
-    const mode = jwState.roomGroup;
-    if (mode === "flat") return [["", rows.map((row, idx) => ({ row, idx }))]];
-    const keyOf = (r) => (mode === "date"
-      ? (jwRoomPick(r, cols, "date") || "日期未给出")
-      : (jwRoomPick(r, cols, "room") || "教室未给出"));
-    const map = new Map();
-    for (const [idx, r] of rows.entries()) {
-      const k = keyOf(r);
-      if (!map.has(k)) map.set(k, []);
-      map.get(k).push({ row: r, idx });
+  /* ── 楼（v0.270.0：一行一间的旧渲染 ⇒ 一栋楼一张卡片）─────────────────────
+     接口只回六个键（YWMC 教室号 / YW_ID / JC 节次 / RQ 日期 / SFZY 1 占用 2 空闲 / ID），
+     **没有独立的「楼」字段**，楼只能从教室号认。实测 126 间教室这几种写法：
+       101 102 … 538        → 主楼（无字母前缀，1–5 层）
+       A101 … A503  C… D… E307 → A / C / D / E 栋
+       7S-101 9S-101 10S-101 → 7S / 9S / 10S 楼
+       一讲堂 三讲堂 五讲堂 六讲堂 → 讲堂
+       第一阶梯教室 第二阶梯教室（模拟法庭）→ 阶梯教室
+       穗7-3 → 穗区；穗公安边防派出所实训室 → 实训室（按「实训室」先认，再谈「穗」）
+     认不出的原样归「其它」，绝不猜一个看着像的楼名 —— 与仓库其它地方同一条口径。 */
+  function jwRoomBuilding(raw) {
+    const s = jwRoomText(raw);
+    let m;
+    if ((m = /^([A-Za-z])\s*\d{3,4}$/.exec(s))) return `${m[1].toUpperCase()} 栋`;
+    if ((m = /^(\d+)\s*S\s*[-－]/i.exec(s))) return `${m[1]}S 楼`;
+    if (/讲堂/.test(s)) return "讲堂";
+    if (/阶梯教室/.test(s)) return "阶梯教室";
+    if (/实训室|实验室/.test(s)) return "实训室";
+    if (/^穗/.test(s)) return "穗区";
+    if ((m = /^(\d+)\s*[-－]/.exec(s))) return `${m[1]} 号楼`;
+    if (/^\d{3,4}$/.test(s)) return "主楼";
+    return "其它";
+  }
+  /* 卡片顺序：主楼 → 字母栋（A→E）→ S 楼 → 讲堂 → 阶梯教室 → 实训室 → 穗区 → 其它。
+     按「大家最常去的那栋」排，不按字符序（字符序会把 10S 排到 7S 前面、把「主楼」排到最后）。 */
+  function jwRoomBldRank(name) {
+    if (name === "主楼") return 0;
+    if (/^[A-E] 栋$/.test(name)) return 1;
+    if (/ 楼$/.test(name)) return 2;
+    if (name === "讲堂") return 3;
+    if (name === "阶梯教室") return 4;
+    if (name === "实训室") return 5;
+    if (name === "穗区") return 6;
+    return 7;
+  }
+  const jwRoomSlotLabel = (code) => jwDict("JC", code) || jwRoomText(code);
+  const jwRoomSlotText = (code) => ({ "1": "占用", "2": "空闲" }[String(code || "").trim()] || "未给出");
+  const jwRoomSlotTone = (code) => ({ "1": "bad", "2": "ok" }[String(code || "").trim()] || "");
+  /* 真形状判定：YWMC + JC + SFZY 三个键都在，才按「一间教室 × 一个节次」来建卡片。
+     校方哪天换了返回形状（比如给中文列名），这里自动退回下面那套认列名的通用渲染。 */
+  const jwRoomShape = (rows) => {
+    const r = rows[0] || {};
+    return ["YWMC", "JC", "SFZY"].every((k) => Object.prototype.hasOwnProperty.call(r, k));
+  };
+  /* 日期胶囊用的 ISO 日（本地时区，不用 toISOString —— 那个是 UTC，晚上会差一天）。
+     offset 0 = 今天，1 = 明天…… "" 表示「今天」交给服务端 SYSDATE 决定。 */
+  function jwDayISO(offset = 0) {
+    const d = new Date();
+    d.setDate(d.getDate() + Number(offset || 0));
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  // 胶囊上的字：今天/明天/后天以外给「10-25 周日」，比裸 ISO 好认
+  function jwRoomDateLabel(iso) {
+    const d = new Date(`${iso}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return iso;
+    return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} 周${"日一二三四五六"[d.getDay()]}`;
+  }
+  function jwRoomModel(rows) {
+    const slots = [...new Set(rows.map((r) => jwRoomText(r.JC)).filter(Boolean))].sort();
+    // 按教室名分组（YW_ID 只是兜底）。实测教室名与 YW_ID 是一对一（126 间 ↔ 126 个 ID），
+    // 但同一间教室在别的数据形态下可能每节次一个 YW_ID —— 那样按 ID 分组就会把 101 拆成
+    // 5 行「101」，用户看到的就是「同一间教室占了一堆位置」。名字才是人认的那把钥匙。
+    const rooms = new Map();   // 教室名 → { name, bld, idx, slots: Map<节次, SFZY> }
+    const order = [];
+    for (const r of rows) {
+      const name = jwRoomText(r.YWMC);
+      const id = name || jwRoomText(r.YW_ID);
+      if (!id) continue;
+      if (!rooms.has(id)) {
+        rooms.set(id, { name: name || "教室未给出", bld: jwRoomBuilding(name), idx: order.length, slots: new Map() });
+        order.push(id);
+      }
+      const room = rooms.get(id);
+      const jc = jwRoomText(r.JC);
+      const code = jwRoomText(r.SFZY);
+      // 同一天同一间同一节次只该有一行；真出现重复就以「占用」为准（宁可少报空闲）
+      if (!room.slots.has(jc) || code === "1") room.slots.set(jc, code);
     }
-    // 中文/日期混排都按字符序，和教务列表的原顺序不同 —— 但同一间教室挨在一起才扫得动。
-    return [...map.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0]), "zh-CN"));
+    const byBld = new Map();
+    for (const id of order) {
+      const room = rooms.get(id);
+      if (!byBld.has(room.bld)) byBld.set(room.bld, []);
+      byBld.get(room.bld).push(room);
+    }
+    const blds = [...byBld.entries()].sort((a, b) => jwRoomBldRank(a[0]) - jwRoomBldRank(b[0])
+      || String(a[0]).localeCompare(String(b[0]), "zh-CN"));
+    let free = 0, seats = 0;
+    for (const id of order) {
+      for (const s of slots) {
+        const code = rooms.get(id).slots.get(s);
+        if (code === undefined) continue;
+        seats++;
+        if (code === "2") free++;
+      }
+    }
+    return { slots, date: jwRoomText(rows[0]?.RQ), blds, total: order.length, free, seats };
   }
   function jwRoomRowHtml(r, idx, cols, mode) {
     const take = (role) => {
@@ -3452,6 +4338,33 @@
       ${rest.length ? `<div class="jw-detail-grid">${rest.map((c) => `<div class="jw-detail-cell"><b>${esc(c.name)}</b><span>${esc(jwRoomText(r[c.code]))}</span></div>`).join("")}</div>` : ""}
     </div>`;
   }
+  /* 一栋楼一张卡：标题带这一栋的间数 / 空闲数，卡里每间教室一行，五个节次各一个小格。
+     选了节次就把别的格子调暗（不是删掉）—— 一边看「现在哪间空」一边仍能扫到全天分布。 */
+  function jwRoomCardHtml(bld, rooms, slots, sel) {
+    const freeIn = (slot) => rooms.filter((x) => x.slots.get(slot) === "2").length;
+    const freeN = rooms.reduce((n, x) => n + slots.filter((s) => x.slots.get(s) === "2").length, 0);
+    const seatN = rooms.reduce((n, x) => n + slots.filter((s) => x.slots.get(s) !== undefined).length, 0);
+    const sum = sel !== "all" && slots.includes(sel)
+      ? `空闲 <b>${freeIn(sel)}</b> / ${rooms.length} 间`
+      : `共 ${rooms.length} 间 · 空闲位 ${freeN} / ${seatN}`;
+    // 整天一位都没占：直接给一个绿标，省得换算「332/630」这种数字
+    const allDay = seatN > 0 && freeN === seatN ? `<span class="jw-tag ok">全天空闲</span>` : "";
+    const lines = rooms.map((room) => {
+      const pills = slots.map((s) => {
+        const code = room.slots.get(s) || "";
+        const tone = jwRoomSlotTone(code);
+        const off = sel !== "all" && sel !== s;
+        return `<span class="jw-room-slot${tone ? ` ${tone}` : ""}${off ? " off" : ""}" title="${esc(`${jwRoomSlotLabel(s)} 节 · ${jwRoomSlotText(code)}`)}">${esc(jwRoomSlotLabel(s))}</span>`;
+      }).join("");
+      // 可搜字段：楼名 + 教室号 + 每个节次的「节次 状态」，逐字段比（见 roomFieldHits 注释）
+      roomRowFields.set(room.idx, [bld, room.name, ...slots.map((s) => `${jwRoomSlotLabel(s)} ${jwRoomSlotText(room.slots.get(s) || "")}`)]);
+      return `<div class="jw-room-line" data-room-idx="${room.idx}"><span class="jw-room-name" title="${esc(room.name)}">${esc(room.name)}</span><span class="jw-room-slots">${pills}</span></div>`;
+    }).join("");
+    return `<div class="jw-card jw-room-bld" data-room-bld="${esc(bld)}">
+      <div class="jw-room-bld-hd"><span class="jw-room-bld-name">${esc(bld)}</span><span class="jw-room-bld-sum" data-room-sum>${sum}</span>${allDay}</div>
+      ${lines}
+    </div>`;
+  }
   function jwRoomHtml() {
     const head = jwStateBlock("room", "正在拉取自习室数据…");
     if (head) return jwSection("自习室", jwAt("room"), head);
@@ -3463,17 +4376,38 @@
     }
     roomRowFields.clear();
     const cols = jwRoomCols(rows);
-    const bar = `<div class="pp-toolbar"><span class="pp-lab">分组</span><div class="pp-chips">`
-      + [["room", "按教室"], ["date", "按日期"], ["flat", "平铺"]].map(([id, label]) =>
-        `<button type="button" class="pp-chip${jwState.roomGroup === id ? " on" : ""}" data-room-group="${id}">${label}</button>`).join("")
-      + `</div><span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>`
-      + `<input class="pp-kw" data-room-filter type="text" value="${esc(jwState.roomFilter || "")}" aria-label="筛选教室 / 时段 / 状态（支持拼音首字母）" placeholder="筛选教室、时段、状态…"></span></div>`
-      + `<div class="pp-meta" data-room-count>共 ${rows.length} 条</div>`;
-    const groups = jwRoomGroups(rows, cols);
-    const list = groups.map(([name, items]) =>
-      (name ? `<div class="jw-group" data-room-group-head>${esc(name)} · ${items.length} 条</div>` : "")
-      + items.map(({ row, idx }) => jwRoomRowHtml(row, idx, cols, jwState.roomGroup)).join("")).join("");
-    return jwSection("自习室", jwAt("room"), bar + list);
+    if (!jwRoomShape(rows)) {
+      /* 返回形状变了（没有 YWMC/JC/SFZY）：退回认列名的通用渲染，一行都不丢。 */
+      const bar = `<div class="pp-toolbar"><span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>`
+        + `<input class="pp-kw" data-room-filter type="text" value="${esc(jwState.roomFilter || "")}" aria-label="筛选教室 / 时段 / 状态（支持拼音首字母）" placeholder="筛选教室、时段、状态…"></span></div>`
+        + `<div class="pp-meta" data-room-count>${roomCountIdle = `共 ${rows.length} 条`}</div>`;
+      return jwSection("自习室", jwAt("room"), bar
+        + rows.map((r, idx) => jwRoomRowHtml(r, idx, cols, "flat")).join(""));
+    }
+    const { slots, date: dataDate, blds, total, free, seats } = jwRoomModel(rows);
+    const sel = slots.includes(jwState.roomSlot) ? jwState.roomSlot : "all";
+    const theDay = dataDate || jwState.roomDate || jwDayISO(0);
+    // 计数行先给「哪天 · 空闲多少」——用户点日期就是为了这一句
+    roomCountIdle = `${theDay} · ${blds.length} 栋 ${total} 间 · 空闲位 ${free} / ${seats}`;
+    /* 日期胶囊：今天 = 不传 RQ（服务端 SYSDATE）。选过的自定义日期额外补一颗，
+       并把原生日期选择器叠在最后一颗胶囊上（原生弹层做不了双向动画，铁律七只约束
+       自建下拉栏，这里用系统的日历）。 */
+    const dayItems = [["", "今天"], [jwDayISO(1), "明天"], [jwDayISO(2), "后天"]];
+    if (jwState.roomDate && !dayItems.some(([id]) => id === jwState.roomDate)) {
+      dayItems.push([jwState.roomDate, jwRoomDateLabel(jwState.roomDate)]);
+    }
+    const dateBar = `<div class="pp-toolbar jw-room-bar"><span class="pp-lab">日期</span><div class="pp-chips" data-room-dates>`
+      + dayItems.map(([id, label]) =>
+        `<button type="button" class="pp-chip${(jwState.roomDate || "") === id ? " on" : ""}" data-room-date="${esc(id)}">${esc(label)}</button>`).join("")
+      + `</div><span class="pp-datesel" data-room-date-btn><input class="jw-date-in" type="date" data-room-date-in value="${esc(theDay)}" aria-label="选日期，看那天有没有空闲" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg></span></div>`;
+    const bar = dateBar
+      + `<div class="pp-toolbar jw-room-bar"><span class="pp-lab">节次</span><div class="pp-chips" data-room-slots>`
+      + [["all", "全部"], ...slots.map((s) => [s, jwRoomSlotLabel(s)])].map(([id, label]) =>
+        `<button type="button" class="pp-chip${sel === id ? " on" : ""}" data-room-slot="${esc(id)}">${esc(label)}</button>`).join("")
+      + `</div></div><div class="pp-toolbar"><span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>`
+      + `<input class="pp-kw" data-room-filter type="text" value="${esc(jwState.roomFilter || "")}" aria-label="筛选楼、教室、节次、状态（支持拼音首字母与简写）" placeholder="搜楼 / 教室，可打拼音首字母…"></span></div>`
+      + `<div class="pp-meta" data-room-count>${esc(roomCountIdle)}</div>`;
+    return jwSection("自习室", jwAt("room"), bar + blds.map(([bld, rooms]) => jwRoomCardHtml(bld, rooms, slots, sel)).join(""));
   }
   /* 过滤在 DOM 上就地做（不重绘）：重绘会把 input 换掉，用户打两个字就丢焦点。
      组头下一条都没剩就一起藏起来，避免一屏空标题。
@@ -3484,7 +4418,7 @@
     const q = raw.toLowerCase().replace(/\s+/g, "");
     // 首字母表是按需加载的：拉丁输入在它就绪前先不下结论，装好后原地重跑一次。
     if (q && !roomPinyinMod && /[a-z]/.test(q)) loadRoomPinyin().then(() => jwApplyRoomFilter(el));
-    const rows = el.querySelectorAll(".jw-room-row");
+    const rows = el.querySelectorAll(".jw-room-line, .jw-room-row");
     if (!rows.length) return;
     let shown = 0;
     for (const row of rows) {
@@ -3494,6 +4428,14 @@
         : String(row.dataset.kw || "").includes(q));
       row.hidden = !hit;
       if (hit) shown++;
+    }
+    // 楼卡片：一间都没剩就整张收起来，剩几间就更新卡片右上角的计数（清空搜索时整页重绘复原）。
+    for (const card of el.querySelectorAll("[data-room-bld]")) {
+      const all = card.querySelectorAll(".jw-room-line").length;
+      const left = card.querySelectorAll(".jw-room-line:not([hidden])").length;
+      card.hidden = !left;
+      const sum = card.querySelector("[data-room-sum]");
+      if (sum && q) sum.textContent = `${left} / ${all} 间匹配`;
     }
     for (const head of el.querySelectorAll("[data-room-group-head]")) {
       let n = 0, node = head.nextElementSibling;
@@ -3505,10 +4447,248 @@
     }
     const count = el.querySelector("[data-room-count]");
     if (count) {
-      count.textContent = !q ? `共 ${rows.length} 条`
-        : shown ? `匹配 ${shown} / 全部 ${rows.length} 条`
-          : `没有匹配「${raw}」的记录 —— 能搜教室、日期、节次、容量与状态，也可以打拼音首字母（如 jtjs 找「阶梯教室」）`;
+      count.textContent = !q ? roomCountIdle || count.textContent
+        : shown ? `匹配 ${shown} / 全部 ${rows.length} 间教室`
+          : `没有匹配「${raw}」的记录 —— 能搜楼（如 zl 找主楼、jtjs 找阶梯教室）、教室号、节次与占用状态；空格无所谓，也能打拼音首字母和跳字简写`;
     }
+  }
+
+  /* ── 我的考试视图（v0.272.0）──────────────────────────────────────────
+     三格统计 + 学期胶囊 + 搜索 + 「待考 / 已结束」两组卡。三件小事值得说明：
+     1) 只有「距下一场」允许变红。场次和日期跨度是静态事实，一页里给两处红等于都没给。
+     2) 待考按时间正序（下一场在最上），已结束按时间倒序（最近考完的最上）——
+        两边都是「离现在最近的先看到」。
+     3) 本学期没有考试计划时（放假 / 新学期还没排考）不给你一屏空白：回退到最近一个
+        学期并明说它已经考完了，否则用户会以为接口坏了。 */
+  const examRowFields = new Map();  // idx → 这一场所有可搜字段（渲染时记，过滤时不重算）
+  const examDetailFields = new Map(); // idx → 只在展开区露面的那几个字段（命中就把卡摊开）
+  let examCountIdle = "";
+  const examDayStart = (ts) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  /* 胶囊文案取短：教务的 20252026-1 展开成「2025-2026 学年第 1 学期」要 18 个字，
+     一排胶囊装不下三个学期。title 里放全名，屏幕上只留「25-26 第1学期」。 */
+  function jwExamTermLabel(code) {
+    const m = String(code || "").match(/^(\d{4})\d{4}-(\d+)$/);
+    if (!m) return String(code || "");
+    return `${m[1].slice(2)}-${String(Number(m[1]) + 1).slice(2)} 第${m[2]}学期`;
+  }
+  function jwExamGap(e) {
+    const now = Date.now();
+    if (!e.at) return { key: "unknown", text: "", tag: "" };
+    if (now > e.endAt) return { key: "done", text: "", tag: "" };
+    if (now >= e.at) return { key: "live", text: "进行中", tag: "live" };
+    const days = Math.round((examDayStart(e.at) - examDayStart(now)) / 86400000);
+    const text = days <= 0 ? "今天" : days === 1 ? "明天" : days === 2 ? "后天" : `${days} 天后`;
+    // 三档色相各自不同才扫得出来：今天用 live（红、加粗，与「进行中」同义），明天 warn（黄），
+    // 再往后 ok（青）。不新开 .jw-tag 的硬编码色 —— test-theme-contrast.mjs 数着那三条。
+    return { key: "up", text, tag: days <= 0 ? "live" : days === 1 ? "warn" : "ok", days };
+  }
+  function jwExamCardHtml(e, idx, isNext) {
+    const gap = jwExamGap(e);
+    const done = gap.key === "done";
+    const month = e.md ? `${Number(e.md.slice(0, 2))}月` : "";
+    const open = e.id ? jwState.examOpen.has(e.id) : false;
+    const tags = gap.tag ? jwTag(gap.text, gap.tag) : (done ? jwTag("已结束", "muted") : jwTag("日期待定", "muted"));
+    // 时段只留时刻：日期已经由左边的日期块说了（「01-14 周三」写两遍是纯噪音）。
+    const when = e.at
+      ? `<b>${esc(e.start)}-${esc(e.end)}</b>`
+      : esc(e.raw || "时间待定");
+    /* 折叠起来只留「哪天 / 几点 / 在哪 / 什么状态」——这四样是扫一眼就要的。
+       主考监考、课程编号、完整日期、教务原文时间都收进展开区：它们查的时候才看，平时占着
+       三行会把一学期的考试拉成一屏两场。 */
+    const where = e.place ? `<div class="jw-exam-where"><span class="jw-exam-wi">考场 <b>${esc(e.place)}</b></span></div>` : "";
+    /* 「教务原文」只在**和解析结果不一样**时才给：正常一行「2026-01-13 14:00-15:50」和上面
+       的日期/时段逐字相同，摆出来纯属重复；教务写成跨天、带「至」「上午」这类怪格式时才留着对照。 */
+    const rawNorm = String(e.raw || "").replace(/\s+/g, "");
+    const derived = e.at ? `${e.date}${e.start}-${e.end}` : "";
+    const rawDiffers = !!e.at && !!rawNorm && rawNorm !== derived;
+    const detail = [
+      e.date ? ["日期", `${esc(e.date)}${e.day ? ` 周${esc(e.day)}` : ""}`] : "",
+      e.code ? ["课程编号", `<span class="jw-tag jw-exam-code">${esc(e.code)}</span>`] : "",
+      e.chief ? ["主考", esc(e.chief)] : "",
+      e.watch ? ["监考", esc(e.watch)] : "",
+      rawDiffers ? ["教务原文", esc(e.raw), "jw-exam-span"] : "",
+    ].filter(Boolean).map(([k, v, cls]) => `<div${cls ? ` class="${cls}"` : ""}><b>${k}</b>${v}</div>`).join("");
+    // 可搜字段逐格记：课程名 / 课程号 / 地点 / 主考 / 监考 / 日期 / 时段。
+    // 不 join 成整串（铁律十的负例：join 后「张三 李四」会跨字段假命中）。
+    examRowFields.set(idx, [e.course, e.code, e.place, e.chief, e.watch, e.md, e.date, e.start, e.end, e.raw].filter(Boolean));
+    // 只出现在展开区的字段：命中它们时把卡自动摊开，否则搜「张老师」会得到一张看不见「张老师」的卡
+    examDetailFields.set(idx, [e.code, e.chief, e.watch, e.raw, e.date].filter(Boolean));
+    return `<div class="jw-exam-card${isNext ? " next" : ""}${done ? " done" : ""}${open ? " open" : ""}" data-exam-idx="${idx}" data-exam-id="${esc(e.id || "")}"
+      role="button" tabindex="0" aria-expanded="${open ? "true" : "false"}" aria-label="${esc(`${e.course || "考试"}，${e.md ? `${e.md} 周${e.day} ` : ""}${when.replace(/<[^>]+>/g, "")}${e.place ? `，考场 ${e.place}` : ""}，点开看详情`)}">
+      <div class="jw-exam-date"><b>${esc(e.md ? e.md.slice(3).replace(/^0/, "") : "—")}</b><span>${esc(e.md ? `${month} · 周${e.day}` : "待定")}</span></div>
+      <div class="jw-exam-main">
+        <div class="jw-card-t">${esc(e.course || "未命名考试")}<span class="jw-exam-chev" aria-hidden="true"><svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span></div>
+        <div class="jw-exam-line"><div class="jw-exam-when">${when}</div>${where}${`<div class="pp-meta">${tags}</div>`}</div>
+        <div class="jw-exam-fold"><div class="jw-exam-fold-clip"><div class="jw-exam-detail">${detail}</div></div></div>
+      </div>
+    </div>`;
+  }
+  function jwExamHtml() {
+    const head = jwStateBlock("exam", "正在读取考试安排…");
+    if (head) return jwSection("我的考试", jwAt("exam"), head);
+    const d = jwState.data.exam;
+    if (!d || !Array.isArray(d.plans)) return jwSection("我的考试", jwAt("exam"), `<div class="pp-empty">还没有拉取过考试安排，点上方「刷新」</div>`);
+    if (!d.plans.length) {
+      return jwSection("我的考试", jwAt("exam"),
+        `<div class="pp-empty">教务没返回任何考试计划。若班里已发考试通知，点「去教务」进「${JW_MENU.exam}」看看。</div>`);
+    }
+    const cur = d.current;
+    const rows = Array.isArray(d.terms?.[cur]) ? d.terms[cur] : null;
+    const terms = [...new Set(d.plans.map((p) => p.term))];
+    const plan = d.plans.find((p) => p.term === cur) || d.plans[0];
+    /* 学期胶囊：只有一个学期就不摆出来（一个选项的选项卡是噪音）。 */
+    const chips = terms.length > 1
+      ? `<div class="pp-toolbar jw-exam-terms"><span class="pp-lab">学期</span><div class="pp-chips" data-exam-terms>`
+        + terms.map((t) => {
+          const on = t === cur ? " on" : "";
+          const p = d.plans.find((x) => x.term === t);
+          return `<button type="button" class="pp-chip${on}" data-exam-term="${esc(t)}"${on ? ' aria-current="true"' : ""} title="${esc(`${jwTermName(t)}${p?.range ? ` · ${p.range}` : ""}`)}">${esc(jwExamTermLabel(t))}</button>`;
+        }).join("")
+        + `</div></div>`
+      : "";
+    // 搜索框 + 计数行做成函数：计数文案要等 rows 与分组算完才知道，而空态分支也得带这条工具栏
+    const examBar = () => `<div class="pp-toolbar"><span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>`
+      + `<input class="pp-kw" data-exam-filter type="text" value="${esc(jwState.examFilter || "")}" aria-label="搜课程、考场、老师（支持拼音首字母与简写）" placeholder="搜课程 / 考场 / 老师…"></span></div>`
+      + `<div class="pp-meta" data-exam-count>${esc(examCountIdle)}</div>`;
+    if (!rows) {
+      // 这一学期还没拉（点了胶囊正在补，或者补失败了）：给一句能懂的话，别留空白
+      examCountIdle = "";
+      return jwSection("我的考试", `${jwTermName(cur)}${plan?.range ? ` · ${plan.range}` : ""}`, chips + examBar()
+        + `<div class="pp-empty">正在读取 ${esc(jwTermName(cur))} 的考试安排…若一直停在这，点「刷新」重试。</div>`);
+    }
+    examRowFields.clear();
+    const startOfTerm = String(jwState.term?.code || "");
+    const stale = startOfTerm && cur !== startOfTerm;
+    if (!rows.length) {
+      examCountIdle = plan?.name || "";
+      return jwSection("我的考试", `${jwTermName(cur)}${plan?.range ? ` · ${plan.range}` : ""}`, chips + examBar()
+        + `<div class="pp-empty">这个学期教务没给你的考试记录${stale ? "（它已经结束了）" : ""}。考试计划名称：${esc(plan?.name || cur)}；若班里已发通知，点「去教务」查看。</div>`);
+    }
+    const now = Date.now();
+    const up = [], done = [];
+    rows.forEach((e, i) => { (e.at && now > e.endAt ? done : up).push([e, i]); });
+    up.sort((a, b) => (a[0].at || 9e15) - (b[0].at || 9e15) || a[0].course.localeCompare(b[0].course));
+    done.sort((a, b) => b[0].endAt - a[0].endAt);
+    const nextId = up.length && up[0][0].at ? up[0][0].id : "";
+    const dates = rows.filter((e) => e.md).map((e) => e.md).sort();
+    const gap = up.length ? jwExamGap(up[0][0]) : null;
+    const nextCell = gap
+      ? { hot: gap.key === "live" || gap.days <= 1, value: gap.key === "live" ? "进行中" : gap.text, sub: up[0][0].course || "" }
+      : { hot: false, value: "已结束", sub: "这个学期考完了" };
+    /* 回退到别的学期时才解释「为什么不是本学期」；这句必须按**当前显示的学期**还有没有
+       待考场次来写 —— 无条件写「已经考完了」会和下面的「3 场待考」正面打架。 */
+    const notice = stale
+      ? `<div class="jw-tip jw-exam-notice">${esc(jwTermName(startOfTerm))}教务还没排考，下面是${esc(jwTermName(cur))}的安排${up.length ? `（还有 ${up.length} 场没考）` : "（已经考完了）"}。</div>`
+      : "";
+    /* dates 里是 "MM-DD"（5 字符，别再 slice(5) —— 那会切出空串，卡片上只剩「考试跨度」四个字，
+       看起来像大数字没渲染）。首末同一天就只写一个日期。 */
+    const mdSpan = (() => {
+      if (!dates.length) return "—";
+      const a = dates[0].replace("-", ".");
+      const b = dates[dates.length - 1].replace("-", ".");
+      return a === b ? a : `${a}–${b}`;
+    })();
+    const sum = `<div class="jw-exam-sum">
+      <div class="jw-exam-stat"><b>${rows.length}</b><span>场考试${up.length ? ` · ${up.length} 场待考` : " · 全部结束"}</span></div>
+      <div class="jw-exam-stat${nextCell.hot ? " hot" : ""}"><b>${esc(nextCell.value)}</b><span>${esc(nextCell.sub || "下一场")}</span></div>
+      <div class="jw-exam-stat" title="${esc(plan?.range || "")}"><b>${esc(mdSpan)}</b><span>考试跨度</span></div>
+    </div>`;
+    // 这行只放「这场考试叫什么」：场数已经在大数字和分组标题里各说一次，第三次就是噪音。
+    examCountIdle = plan?.name || "";
+    const groupUp = up.length
+      ? `<div data-exam-group="up">${jwSection("待考", `${up.length} 场`, up.map(([e, i]) => jwExamCardHtml(e, i, e.id === nextId)).join(""))}</div>`
+      : "";
+    const groupDone = done.length
+      ? `<div data-exam-group="done">${jwSection("已结束", `${done.length} 场`, done.map(([e, i]) => jwExamCardHtml(e, i, false)).join(""))}</div>`
+      : "";
+    return chips + notice + sum + examBar() + groupUp + groupDone;
+  }
+  /* 过滤同样在 DOM 上就地做（重绘会换掉 input，打一个字丢一次焦点）。
+     命中口径直接复用 roomFieldHits：原文 / 拼音首字母 / 跳字简写，纯数字只认包含。 */
+  function jwApplyExamFilter(el) {
+    if (!el || !el.isConnected) return;
+    const raw = String(jwState.examFilter || "").trim();
+    // 按空白切成词，每个词都得落在**某个**字段上（AND 跨字段，但每个词只在单字段内比）：
+    // 「2030 08:00」能搜到 1 月 15 号那场，而「张三 李四」不会因为拼成整串而假命中。
+    const tokens = raw.toLowerCase().split(/\s+/).filter(Boolean);
+    // 首字母表按需加载：拉丁输入先不急着下结论，装好后原地重跑一次。
+    // 用 `!roomPinyinLoading` 而不是 `!roomPinyinMod` 兜住加载失败的情况 ——
+    // 失败时 roomPinyinMod 永远是 null，只看它就会「加载→重跑→再加载」微任务死循环。
+    if (tokens.some((t) => /[a-z]/.test(t)) && !roomPinyinMod && !roomPinyinLoading) loadRoomPinyin().then(() => jwApplyExamFilter(el));
+    const cards = el.querySelectorAll(".jw-exam-card");
+    if (!cards.length) return;
+    let shown = 0;
+    for (const card of cards) {
+      const idx = Number(card.dataset.examIdx);
+      const fields = examRowFields.get(idx);
+      const hit = !tokens.length || (Array.isArray(fields) && tokens.every((t) => fields.some((f) => roomFieldHits(f, t))));
+      card.hidden = !hit;
+      if (!hit) continue;
+      shown++;
+      /* 命中的词只出现在展开区（主考 / 监考 / 课程号 / 完整日期 / 教务原文）时自动摊开 ——
+         否则等于给了一张「搜到了却看不见命中词」的卡。摊开只增不减，不动用户手开的那些。 */
+      const fold = examDetailFields.get(idx);
+      if (tokens.length && Array.isArray(fold) && Array.isArray(fields)) {
+        const shownFields = fields.filter((f) => !fold.includes(f));
+        if (tokens.some((t) => fold.some((f) => roomFieldHits(f, t)) && !shownFields.some((f) => roomFieldHits(f, t)))) {
+          jwToggleExamCard(card, true);
+        }
+      }
+    }
+    // 一整个组都没剩就把它连标题一起收起来，避免一屏只剩「待考」「已结束」两个空标题
+    for (const group of el.querySelectorAll("[data-exam-group]")) {
+      group.hidden = !group.querySelector(".jw-exam-card:not([hidden])");
+    }
+    const count = el.querySelector("[data-exam-count]");
+    if (count) {
+      count.textContent = !tokens.length ? examCountIdle
+        : shown ? `匹配 ${shown} / 全部 ${cards.length} 场`
+          : `没有匹配「${raw}」的考试 —— 能搜课程名、课程号、考场、主考监考和日期；空格无所谓（多个词取交集），也能打拼音首字母（如 gs → 高等数学）和跳字简写`;
+    }
+  }
+  /* 学期胶囊的滑动选中光（铁律六）：光块由宿主的 attachSelectionGlow 画，插件只负责
+     在每次重绘后重挂一次 —— 重绘会把 [data-jw-body] 整个 innerHTML 换掉，光块跟着没了，
+     旧实例必须 dispose，否则宿主那边会累积分区 Disposer。 */
+  /* 点开/收起一张考试卡。状态同时记在 DOM（class/aria，供 CSS 与读屏）和 jwState.examOpen
+     （按考试 ID，重绘后还在）——只记 DOM 的话过滤重绘一次就全收起来了。 */
+  function jwToggleExamCard(card, force) {
+    if (!card || !card.classList.contains("jw-exam-card")) return;
+    const open = force === undefined ? !card.classList.contains("open") : !!force;
+    card.classList.toggle("open", open);
+    card.setAttribute("aria-expanded", open ? "true" : "false");
+    const id = card.dataset.examId || "";
+    if (!id) return;
+    if (open) jwState.examOpen.add(id); else jwState.examOpen.delete(id);
+  }
+  const examGlows = new WeakMap();
+  function jwSyncExamGlow(root) {
+    if (!root || !root.isConnected) return;
+    const box = root.querySelector("[data-exam-terms]");
+    const prev = examGlows.get(root);
+    if (prev && prev.box === box && box?.isConnected) { prev.glow?.sync?.(); return; }
+    if (prev) { try { prev.glow?.dispose?.(); } catch { /* 宿主要是不给 dispose 就当它自己收 */ } examGlows.delete(root); }
+    if (!box) return;
+    const glow = tide.ui?.selectionGlow?.(box, { selector: ".pp-chip.on" });
+    if (glow) examGlows.set(root, { box, glow });
+  }
+
+  /* 自习室的「日期」「节次」两组胶囊同样要滑动选中光（铁律六）：光块由宿主的
+     tide.ui.selectionGlow 画在各自的 .pp-chips 上，插件每次重绘后重挂一次 ——
+     body 被整个换掉，旧实例必须 dispose，否则宿主那边会累积分区 Disposer
+     （与学期胶囊 jwSyncExamGlow 完全同一处教训）。 */
+  const roomGlows = new WeakMap();   // root -> [{ box, glow }]
+  function jwSyncRoomGlow(root) {
+    if (!root || !root.isConnected) return;
+    const boxes = [...root.querySelectorAll("[data-room-dates], [data-room-slots]")];
+    const prev = roomGlows.get(root) || [];
+    const same = prev.length === boxes.length && prev.every((p, i) => p.box === boxes[i] && p.box.isConnected);
+    if (same) { for (const p of prev) p.glow?.sync?.(); return; }
+    for (const p of prev) { try { p.glow?.dispose?.(); } catch { /* 宿主要是不给 dispose 就当它自己收 */ } }
+    roomGlows.delete(root);
+    const made = boxes
+      .map((box) => ({ box, glow: tide.ui?.selectionGlow?.(box, { selector: ".pp-chip.on" }) }))
+      .filter((p) => p.glow);
+    if (made.length) roomGlows.set(root, made);
   }
 
   function jwCourseScopeBar() {
@@ -3722,13 +4902,18 @@
     if (!openCategories.length) return overview;
     const toggle = `<div class="pp-toolbar"><button type="button" class="pp-chip${jwState.creditHideDone ? " on" : ""}" data-credit-hide-done aria-pressed="${jwState.creditHideDone}">${jwState.creditHideDone ? "显示已修完" : "隐藏已修完"}</button><span>${grades.length} 门成绩记录</span></div>`;
     const courseCard = (r) => {
+      // 三态：拿满学分 / 有成绩但没拿到 / 还在修（没成绩）。教务只给 SFHDXF，
+      // 没出分的课若按「未获得」画红框，会让人以为自己挂了。
       const done = jwGradeDone(r);
-      return `<div class="jw-card jw-credit-course ${done ? "done" : "fail"}">
+      const scored = r.ZPCJ != null && String(r.ZPCJ).trim() !== "";
+      const tone = done ? "done" : scored ? "fail" : "doing";
+      const label = done ? "已获得学分" : scored ? "未获得学分" : "在修 · 未出分";
+      return `<div class="jw-card jw-credit-course ${tone}">
         <div class="jw-card-t">${esc(r.KCMC || "（未命名课程）")}</div>
         ${jwMetaLine([
-          jwTag(`${Number(r.XF) || 0} 学分`, done ? "ok" : "warn"),
-          jwTag(done ? "已获得学分" : "未获得学分", done ? "ok" : "live"),
-          r.ZPCJ != null && String(r.ZPCJ) !== "" ? jwTag(`成绩 ${r.ZPCJ}`) : "",
+          jwTag(`${Number(r.XF) || 0} 学分`, done ? "ok" : scored ? "warn" : "muted"),
+          jwTag(label, done ? "ok" : scored ? "live" : "muted"),
+          scored ? jwTag(`成绩 ${r.ZPCJ}`) : "",
           r.XNXQ ? jwTag(jwTermName(r.XNXQ)) : "",
         ])}
       </div>`;
@@ -4016,9 +5201,11 @@
 
   const JW_VIEWS = [
     {
-      id: "cppu-xk", title: "警大选课", icon: "list-check", keys: ["xkTask", "xkResult"], menu: JW_MENU.xk,
+      // qjCourse 一并拉：已选课程卡片上的「剩余学时」要用它的 KXXS 课序学时与 SKRQ 上课日
+      // （选课结果视图没有学时段），拉不到只是少一枚标签，不影响课表本身。
+      id: "cppu-xk", title: "警大选课", icon: "list-check", keys: ["xkTask", "xkResult", "qjCourse"], menu: JW_MENU.xk,
       kicker: "教 务 · 学 生 选 课",
-      tip: "选择任务可进入 U-Time 选课页查看状态与本学期已选课程；已结束和过期任务会自动置灰。",
+      tip: "选择任务可进入 U-Time 选课页查看状态与本学期已选课程；卡片上的「剩余学时」按教务课次表算（总学时 − 已上），慕课这类没排课次的课程不显示。已结束和过期任务会自动置灰。",
       body: () => jwState.selectedTaskId ? jwTaskDetailHtml() : jwTaskHtml() + jwResultHtml(),
     },
     {
@@ -4035,10 +5222,39 @@
       body: () => jwGradesHtml(),
     },
     {
+      /* 我的学分（v0.272.3）：教务「学生服务 › 我的学业 › 成绩 › 我的学分」，
+         功能码 V_JWBZK_XKGL_XKQK —— 就是 JW_FUNC.creditModule（一行一个课程模块，
+         自带 要求/获得/在修/待修 四列），配 creditPlan（培养计划总学分）
+         与 grade（课程成绩）挂明细。
+         渲染体 jwAcademicCreditHtml() 本来就在插件里、也有测试守着，只是从来没有入口；
+         这个视图只做接线，不另写一套学分口径 —— 两份算法迟早对不上。
+         学分是全校口径、不按学期切，所以这一页没有学期胶囊。
+         icon 用 scroll（卷轴 = 账本）：学分是「离毕业还差多少」，与成绩页的 chart-line
+         读起来不是同一件事（同侧栏放两张图表会混）。
+         不用 graduation-cap —— 那是 learning 侧栏 chaoxing-notify 的图标，
+         同一条侧栏里撞图标会被 test-plugin-view-icons 拦下。 */
+      id: "cppu-credit-ledger", title: "警大学分", icon: "scroll",
+      keys: ["creditPlan", "creditModule", "grade"], menu: JW_MENU.credit,
+      kicker: "教 务 · 我 的 学 分",
+      tip: "按课程模块看学分账本：要求、已获得、在修、待修；点分类卡展开模块与课程明细。数字取自教务「我的学分」，只读 —— 学分认定与免修仍在教务里办。",
+      body: () => jwAcademicCreditHtml(),
+    },
+    {
       id: "cppu-cx", title: "警大创新学分", icon: "medal", keys: ["cxCredit", "cxDetail"], menu: JW_MENU.cx,
       kicker: "教 务 · 创 新 实 践 学 分",
       tip: "按学期显示创新实践申报项目、级别、奖项、认定学分和审核状态。",
       body: () => jwInnovationCreditHtml(),
+    },
+    {
+      // 我的考试（v0.272.0）：校方在 学生服务 › 我的考试 › 我的考试计划 下，功能码
+      // V_JWBZK_KWGL_KS_STU（考试计划）+ V_JWBZK_KWGL_KSRW_STU（我本人的每一场）。
+      // icon 用 clock —— 这一页读的是「几点考、还有几天」；calendar-days / -week / -xmark
+      // 已被校历、选课、请假占掉。solid 精灵里**没有** calendar-clock，别写它：
+      // 引用不存在的 symbol 会画出一个空图标（v0.272.0 实测踩过）。
+      id: "cppu-exam", title: "警大考试", icon: "clock", keys: ["exam"], menu: JW_MENU.exam,
+      kicker: "教 务 · 我 的 考 试",
+      tip: "按学期显示你的每一场考试：日期、时段、考场与主考监考。待考按时间正序排在前面，已结束的收在下面。只读 —— 缓考/免考申请仍在教务里提交。",
+      body: () => jwExamHtml(),
     },
     {
       // 自习室查询（教室占用 / 借用）：校方挂在 学生服务 › 公共服务 下，nodeInfo=ZXZYCX。
@@ -4077,6 +5293,11 @@
       if (body) body.innerHTML = m.cfg.body();
       const term = m.el.querySelector("[data-jw-term]");
       if (term) term.textContent = jwState.term ? `${jwState.term.name}（${jwState.term.code}）` : "学期加载中…";
+      // v0.272.0：body 整个换掉了 ⇒ 学期光块要重挂、已有搜索词要重新套一遍，
+      // 否则切一次学期/刷一次新，过滤看起来就「失灵」了（与自习室同一处教训）
+      jwSyncExamGlow(m.el);
+      jwSyncRoomGlow(m.el);
+      jwApplyExamFilter(m.el);
     }
   }
 
@@ -4106,13 +5327,76 @@
         },
       });
     };
+    // 刷新必须「一按就有动静」：真机（尤其 APK）上取一次数可能要好几秒，
+    // 期间按钮若毫无反馈，用户会当成按钮坏了，于是连点三五下——那才是最坏的结果。
+    // 所以按钮先变成「刷新中…」并禁用，回来再给一句结果：数据没变就说「已是最新」，
+    // 别让人盯着同一屏以为没刷成。
+    const jwDataSig = (keys) =>
+      keys
+        .map((k) => {
+          const v = jwState.data[k];
+          if (Array.isArray(v)) return v.length;
+          if (v && v.terms) return Object.values(v.terms).reduce((n, list) => n + (Array.isArray(list) ? list.length : 0), 0);
+          return v ? 1 : 0;
+        })
+        .join("/");
+    const jwRefreshWithFeedback = async (btn, keys) => {
+      // btn 可能是 null（合成事件 / 横幅里的子节点），也可能不是真元素：那就只管刷新，别去摸 dataset。
+      if (!btn || !btn.dataset) { await jwEnsureKeys(keys, true); return; }
+      if (btn.dataset.jwBusy === "1") return;
+      const before = jwDataSig(keys);
+      const label = btn && btn.dataset.jwRefresh !== undefined ? btn.textContent : "";
+      if (btn) {
+        btn.dataset.jwBusy = "1";
+        btn.disabled = true;
+        btn.classList.add("is-busy");
+        if (label) btn.textContent = "刷新中…";
+      }
+      try {
+        await jwEnsureKeys(keys, true);
+        const changed = jwDataSig(keys) !== before;
+        if (changed) tide.notify("已刷新");
+        else tide.notify("已是最新，教务那边没有新数据");
+      } finally {
+        if (btn) {
+          btn.dataset.jwBusy = "";
+          btn.disabled = false;
+          btn.classList.remove("is-busy");
+          if (label) btn.textContent = label;
+        }
+      }
+    };
+    /* 换自习室的查看日期。今天用 "" 表示（让服务端 SYSDATE 决定，少一次参数特判）；
+       换天必须清掉 room 缓存 —— 那份行是别的日子的，留着就会被当成今天的数据显示。 */
+    const jwSetRoomDate = async (day) => {
+      const d = String(day || "");
+      const norm = d === jwDayISO(0) ? "" : d;
+      if (norm === jwState.roomDate) return;
+      jwState.roomDate = norm;
+      jwState.data.room = null;
+      jwState.at.room = 0;
+      jwState.error.room = "";
+      jwPaint();
+      jwSyncRoomGlow(el);
+      await jwEnsureKeys(["room"]);
+      if (!el.isConnected) return;
+      jwSyncRoomGlow(el);
+      jwApplyRoomFilter(el);
+      await jwSaveCache();
+    };
     el.addEventListener("click", async (e) => {
       if (e.target.closest("[data-jw-login]")) { await openLogin(); return; }
-      if (e.target.closest("[data-jw-refresh]")) { await jwEnsureKeys(cfg.keys, true); return; }
+      if (e.target.closest("[data-jw-refresh]")) {
+        await jwRefreshWithFeedback(e.target.closest("[data-jw-refresh]"), cfg.keys);
+        return;
+      }
       // 横幅（登录失败 / 拉取失败 / 解析失败）也是刷新入口：与上方「刷新」走同一条通路。
       // 点哪一条都刷整个视图的 keys —— 登录失败时每条横幅都挂了同一个错，
       // 只刷被点的那条会让另一条留着旧提示，看着像「刷了没用」。
-      if (e.target.closest("[data-jw-banner-refresh]")) { await jwEnsureKeys(cfg.keys, true); return; }
+      if (e.target.closest("[data-jw-banner-refresh]")) {
+        await jwRefreshWithFeedback(e.target.closest("[data-jw-banner-refresh]"), cfg.keys);
+        return;
+      }
       if (e.target.closest("[data-jw-back]")) { tide.util.navigate("plug:cppu-notify"); return; }
       if (e.target.closest("[data-jw-site]")) {
         const btn = e.target.closest("[data-jw-site]");
@@ -4145,12 +5429,49 @@
         if (!Array.isArray(jwState.data.qjCourse)) await jwEnsureKeys(["qjCourse"]);
         return;
       }
-      // 自习室分组切换：重绘后要把已有的过滤词再套一遍，否则切一次分组过滤就「失效」了
-      const roomGroup = e.target.closest("[data-room-group]");
-      if (roomGroup) {
-        jwState.roomGroup = roomGroup.dataset.roomGroup || "room";
+      // 自习室节次切换：重绘后要把已有的过滤词再套一遍，否则切一次节次过滤就「失效」了
+      const roomSlot = e.target.closest("[data-room-slot]");
+      if (roomSlot) {
+        jwState.roomSlot = roomSlot.dataset.roomSlot || "all";
         jwPaint();
+        jwSyncRoomGlow(el);
         jwApplyRoomFilter(el);
+        return;
+      }
+      // 自习室换日期：缓存里那份是别的日子，清掉再拉（不 force —— force 会重跑登录判定）
+      const roomDay = e.target.closest("[data-room-date]");
+      if (roomDay) {
+        await jwSetRoomDate(roomDay.dataset.roomDate || "");
+        return;
+      }
+      if (e.target.closest("[data-room-date-btn]")) {
+        el.querySelector("[data-room-date-in]")?.showPicker?.();
+        return;
+      }
+      // 考试学期切换：已有数据的学期直接换看，没拉过的补一次再重绘。
+      // 补数失败只弹提示 —— 失败的是「另一个学期」，不该把已画好的这一页换成红横幅。
+      const examTerm = e.target.closest("[data-exam-term]");
+      if (examTerm) {
+        const term = examTerm.dataset.examTerm || "";
+        const d = jwState.data.exam;
+        if (term && d && term !== d.current) {
+          d.current = term;
+          jwPaint();
+          jwSyncExamGlow(el);
+          jwApplyExamFilter(el);
+          if (!Array.isArray(d.terms?.[term])) {
+            try { await jwEnsureExamTerm(term); } catch (err) { tide.notify(`读取 ${jwExamTermLabel(term)} 的考试安排失败：${err?.message || err}`, { ms: 6000 }); }
+            if (el.isConnected) { jwPaint(); jwSyncExamGlow(el); jwApplyExamFilter(el); }
+          }
+          await jwSaveCache();
+        }
+        return;
+      }
+      // 考试卡摊开/收起：整张卡自己就是按钮（role="button"），点卡上任何位置都算 ——
+      // 卡片里没有输入控件，所以不担心误触。开着的卡按考试 ID 记在 jwState.examOpen，重绘后自动还原。
+      const examCard = e.target.closest(".jw-exam-card");
+      if (examCard && el.contains(examCard)) {
+        jwToggleExamCard(examCard);
         return;
       }
       const leaveBtn = e.target.closest("[data-leave-course]");
@@ -4209,16 +5530,39 @@
         jwState.roomFilter = e.target.value;
         jwApplyRoomFilter(el);
       }
+      if (e.target.matches("[data-exam-filter]")) {
+        jwState.examFilter = e.target.value;
+        jwApplyExamFilter(el);
+      }
+    });
+    // 原生日期选择器选完 → 换天（change 冒泡到容器上，日期框是浮层里唯一带这个属性的）
+    el.addEventListener("change", (e) => {
+      if (!e.target.matches?.("[data-room-date-in]")) return;
+      jwSetRoomDate(e.target.value || "");
+    });
+    // 键盘也能摊开考试卡：卡片的 role="button" + tabindex 只是「看起来能按」，
+    // 空格/回车得自己接（原生 button 才有默认行为）。只在焦点就在卡本身时处理，
+    // 卡里的输入框（目前没有）将来也不会被抢走按键。
+    el.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " " && e.key !== "Spacebar") return;
+      if (!e.target.matches?.(".jw-exam-card")) return;
+      e.preventDefault();
+      jwToggleExamCard(e.target);
     });
     (async () => {
       await loadPrefs();
       await jwRestoreCache();
       jwPaint();
+      jwSyncRoomGlow(el);
       jwApplyRoomFilter(el);
+      jwApplyExamFilter(el);
       await jwEnsureKeys(cfg.keys);
       jwApplyRoomFilter(el);
+      jwApplyExamFilter(el);
       // 登录失败保留已有缓存；没有缓存时显示共用登录卡。
-      if (!jwLive() && el.isConnected && cfg.keys.some(key => Array.isArray(jwState.data[key]))) {
+      // 考试是对象（不是数组），缓存判定要单独放行，否则有考试的号也会被当成「没有缓存」
+      // 而拉出登录卡，把刚读到的一整页考试挡在后面。
+      if (!jwLive() && el.isConnected && cfg.keys.some(key => Array.isArray(jwState.data[key]) || (key === "exam" && jwState.data.exam?.plans?.length))) {
         for (const key of cfg.keys) jwState.error[key] = `登录失败，正在显示缓存（${jwAt(key)}）；点这条横幅或上方「刷新」可重试，需要重新登录时点「重新登录」。`;
         jwPaint();
       } else if (!jwLive() && el.isConnected) {
@@ -6002,6 +7346,12 @@
   // 个人信息（pdata.cppu.edu.cn/stu/dataReport/basicInfo）：档案字段点一下就复制到剪贴板。
   // icon 用 address-card 不用 id-card：id-card 已是本插件侧栏「学工」入口的图标。
   tide.ui.registerView({ id: "cppu-profile", title: "个人信息", icon: "address-card", render: mountProfileView });
+  // 后台轮询：收到验证码就写进剪贴板（v0.268.0）。没 window 的环境（测试 / 极早期加载）不排程。
+  scheduleMailWatch();
+  // 启动预热（v0.246.0 引入，v0.272.7 才真正挂上）—— 插件在应用启动时由 initPluginHost
+  // 全部执行一遍，所以这一行就是「开机 8 秒后在后台把 CASTGC 的使用时间推后」。
+  // 之前只有定义没有调用，预热一次都没跑过，5 天没开就必弹验证码。
+  scheduleWarm();
   // 教务只读视图：侧栏「校园服务」里的选课 / 请假 / 成绩 / 创新学分入口直接 navigate 过来
   for (const cfg of JW_VIEWS) {
     tide.ui.registerView({

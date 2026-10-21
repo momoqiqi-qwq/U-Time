@@ -59,6 +59,12 @@ const VIEW_ICONS8 = {
   // 上网记录：Dr.COM 自助服务的流量账单，取「联网」语义（不是图表 —— line-chart 已是警大成绩）。
   "cppu-net": ["network", "data-transfer", "network-wireless"],
   "cppu-mail": ["email", "mail", "envelope"],
+  // 我的考试：钟表语义（这一页看的是「哪天几点在哪考」）。清单类 slug 已经够挤 ——
+  // todo-list 是学生选课、test-passed 也是一张打勾清单，再添第三个就分不清了。
+  "cppu-exam": ["clock"],
+  // 我的学分：取「学校 / 学分账本」语义。line-chart 已是警大成绩，同侧栏再放一张图表
+  // 会读成同一件事；university 在 icons8 语义里就是学士帽+建筑，与 FA 的 graduation-cap 同义。
+  "cppu-credit-ledger": ["scroll", "certificate"],
 };
 
 // 视图 id → 轮廓图标用的 FontAwesome 名（与 registerView 的 icon 一致）。
@@ -82,6 +88,11 @@ const VIEW_FA_ICONS = {
   // 上网记录 用 network-wired（chart-line 已是警大成绩、chart-column 已被周度报告占用）。
   "cppu-net": "network-wired",
   "cppu-mail": "envelope",
+  // 我的考试 用 clock（时间块是主导航里的 clock，不在这条侧栏；本侧栏内不撞）。
+  "cppu-exam": "clock",
+  // 我的学分 用 scroll（卷轴 = 账本）：学分是「离毕业还差多少」，与成绩的 chart-line 不是一件事。
+  // 不用 graduation-cap —— 那是 chaoxing-notify 的图标，同侧栏撞图标会被测试拦下。
+  "cppu-credit-ledger": "scroll",
 };
 
 const ICONS8 = { ...NAV_ICONS8, ...PLUGIN_ICONS8, ...VIEW_ICONS8 };

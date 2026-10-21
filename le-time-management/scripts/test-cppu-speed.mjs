@@ -206,9 +206,15 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
      重新登录成功同理 —— 换票后那份数据属于新身份。 */
   assert.match(growthSrc, /on\("\[data-pg-refresh\]", \(\) => loadAll\(true\)\)/, '成长页刷新必须走 force');
   assert.match(profileSrc, /\[data-pf-refresh\]"\)\) \{ loadAll\(true\); return; \}/, '个人信息刷新必须走 force');
+  /* 重进窗口：成长页 v0.268.0 起是「一个月内直接用车里的/磁盘上的缓存」（数据不勤变，
+     8 个接口每次打开都重打纯属白等）；个人信息页仍是 1 分钟。两边都必须是常量，不能散写数字。 */
+  const freshWindow = {
+    'growth.js': /const FRESH_MS = 30 \* 24 \* 60 \* 60 \* 1000;/,
+    'profile.js': /const FRESH_MS = 60 \* 1000;/,
+  };
   for (const [name, src] of [['growth.js', growthSrc], ['profile.js', profileSrc]]) {
     assert.match(src, /loadAll\(force = false\)/, `${name} 的 loadAll 必须收 force`);
-    assert.match(src, /const FRESH_MS = 60 \* 1000;/, `${name} 的重进窗口`);
+    assert.match(src, freshWindow[name], `${name} 的重进窗口`);
     // 手里有数据时不打蒙版，但兜底占位不能丢（老宿主还要靠它）
     assert.match(src, /const releaseWait = state\.loadedAt \? \(\) => \{\} : waitMask\("/, `${name} 有数据时不打蒙版`);
     assert.match(src, /result === "ok"\) \{ state\.error = ""; state\.stale = ""; loadAll\(true\); return; \}/,
