@@ -951,8 +951,27 @@ assert.match(roomSrc, /const id = name \|\| jwRoomText\(r\.YW_ID\)/,
   '自习室按教室名分组：YW_ID 在别的数据形态下可能每节次一个，按它分组会把 101 拆成五行「101」');
 assert.match(roomSrc, /data-room-date="\$\{esc\(id\)\}"/, '自习室要有日期胶囊（今天 / 明天 / 后天 / 自选）');
 assert.match(roomSrc, /data-room-date-in/, '要能选任意一天：原生日期框叠在胶囊行尾');
-assert.match(roomSrc, /空闲位 \$\{free\} \/ \$\{seats\}/, '计数行给出那天的空闲位数 —— 用户点日期就是为了这一句');
+assert.match(roomSrc, /空闲位 \$\{p?Free\} \/ \$\{p?Seats\}/, '计数行给出那天的空闲位数 —— 用户点日期就是为了这一句');
 assert.match(roomSrc, /全天空闲/, '整天一位没占的楼给绿标，省得用户自己换算数字');
+
+/* 按楼筛选（v0.275.0）：17 栋楼一次铺开要滚三屏，先把范围收到自己那栋。
+   三处必须同时存在，少一处就是半成品：
+   ① 楼胶囊行 data-room-blds + 每颗 data-room-bld-chip（与卡片上的 data-room-bld 分开命名 ——
+      同名会让 closest() 把点卡片也当成点胶囊）；
+   ② 卡片按选中楼隐藏，但**留在 DOM 里**（[hidden] 而非不渲染），否则搜索框会随着重绘丢焦点；
+   ③ 过滤时分母跟着楼走，不能写「全部 N 间」—— 那会让用户以为搜索漏了东西。 */
+assert.match(roomSrc, /data-room-blds/, '自习室要有「楼」胶囊组');
+assert.match(roomSrc, /data-room-bld-chip="\$\{esc\(id\)\}"/, '「楼」胶囊用独立属性名，不能与卡片的 data-room-bld 撞名');
+assert.match(roomSrc, /jwRoomCardHtml\(bld, rooms, slots, sel, !bldSel \|\| bldSel === bld\)/, '选中楼以外的卡片要收起（传 visible）');
+assert.match(roomSrc, /card\.hidden = !left \|\| \(!!bldSel && card\.dataset\.roomBld !== bldSel\)/, '过滤要跟楼选择叠加：只靠搜索的话选完楼再搜会把别的楼又放出来');
+assert.match(roomSrc, /\[data-room-dates\], \[data-room-blds\], \[data-room-slots\]/, '「楼」这组单选项也要有滑动选中光（铁律六）');
+
+/* 顶部工具栏顺序（v0.275.0 用户指定）：刷新 → 回通知 → 重新登录 → 浏览器打开。
+   「去教务」这个名字换掉、并且挪到最右 —— 它是最不常用的一颗，摆在第二个位置挡着常用键。 */
+const shellSrc = source.slice(source.indexOf('function jwShellHtml'), source.indexOf('function jwPaint'));
+assert.match(shellSrc, /data-jw-site>浏览器打开</, '跳转教务那颗按钮改名为「浏览器打开」');
+assert.ok(shellSrc.indexOf('data-jw-back') < shellSrc.indexOf('data-jw-site'), '「浏览器打开」要排到最后');
+assert.ok(!shellSrc.includes('>去教务<'), '顶部不再有「去教务」按钮');
 
 /* ── 11.1 传输层抖动：reqwest 的 Display 只有 "error sending request for url (…)" 一句，
    成因（DNS / 超时 / 连接被掐）全在 cause 链里，由 Rust 侧摊平后送上来。

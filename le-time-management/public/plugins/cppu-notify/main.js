@@ -3495,6 +3495,9 @@
     loading: {}, error: {}, at: {},
     courseScope: "week",            // today | week | term，默认本周（本学期是 200+ 行的紧凑列表）
     roomSlot: "all",                // all | 节次码（01…05）：选一个节次就把别的格子调暗，好判断「现在哪间空」
+    // 看哪一栋楼："" = 全部（v0.275.0）。学生几乎只在固定几栋楼自习，17 栋一次铺开
+    // 要滚三屏才能看到自己那栋 —— 先按楼收窄，再看节次。
+    roomBld: "",
     // 看哪一天的自习室："" = 今天（不覆盖 RQ，让服务端用 SYSDATE），否则 "YYYY-MM-DD"。
     // 教务那条 SQL 是 (select ? rq from dual)，RQ 由 FUNCINFO_QUERYPARAM 声明，改 defaultValue
     // 就能查任意一天（实测 2026-10-25 空闲 614/630，今天 332/630，服务端按天换数）。
@@ -4340,7 +4343,7 @@
   }
   /* 一栋楼一张卡：标题带这一栋的间数 / 空闲数，卡里每间教室一行，五个节次各一个小格。
      选了节次就把别的格子调暗（不是删掉）—— 一边看「现在哪间空」一边仍能扫到全天分布。 */
-  function jwRoomCardHtml(bld, rooms, slots, sel) {
+  function jwRoomCardHtml(bld, rooms, slots, sel, visible = true) {
     const freeIn = (slot) => rooms.filter((x) => x.slots.get(slot) === "2").length;
     const freeN = rooms.reduce((n, x) => n + slots.filter((s) => x.slots.get(s) === "2").length, 0);
     const seatN = rooms.reduce((n, x) => n + slots.filter((s) => x.slots.get(s) !== undefined).length, 0);
@@ -4360,7 +4363,9 @@
       roomRowFields.set(room.idx, [bld, room.name, ...slots.map((s) => `${jwRoomSlotLabel(s)} ${jwRoomSlotText(room.slots.get(s) || "")}`)]);
       return `<div class="jw-room-line" data-room-idx="${room.idx}"><span class="jw-room-name" title="${esc(room.name)}">${esc(room.name)}</span><span class="jw-room-slots">${pills}</span></div>`;
     }).join("");
-    return `<div class="jw-card jw-room-bld" data-room-bld="${esc(bld)}">
+    // 没选中的楼整张收起（不是不渲染）：搜索 / 节次切换都在 DOM 上就地做，
+    // 卡片必须一直在树里，[hidden] 只切显隐 —— 重绘会把输入框换掉、用户打两个字就丢焦点。
+    return `<div class="jw-card jw-room-bld"${visible ? "" : " hidden"} data-room-bld="${esc(bld)}">
       <div class="jw-room-bld-hd"><span class="jw-room-bld-name">${esc(bld)}</span><span class="jw-room-bld-sum" data-room-sum>${sum}</span>${allDay}</div>
       ${lines}
     </div>`;
@@ -4372,7 +4377,7 @@
     if (!Array.isArray(rows)) return jwSection("自习室", jwAt("room"), `<div class="pp-empty">还没有拉取过自习室数据，点上方「刷新」</div>`);
     if (!rows.length) {
       return jwSection("自习室", jwAt("room"),
-        `<div class="pp-empty">教务这次没返回自习室记录。若确有开放时段，点「去教务」进「${JW_MENU.room}」查看。</div>`);
+        `<div class="pp-empty">教务这次没返回自习室记录。若确有开放时段，点「浏览器打开」进「${JW_MENU.room}」查看。</div>`);
     }
     roomRowFields.clear();
     const cols = jwRoomCols(rows);
@@ -4384,11 +4389,19 @@
       return jwSection("自习室", jwAt("room"), bar
         + rows.map((r, idx) => jwRoomRowHtml(r, idx, cols, "flat")).join(""));
     }
-    const { slots, date: dataDate, blds, total, free, seats } = jwRoomModel(rows);
+    const { slots, date: dataDate, blds } = jwRoomModel(rows);
     const sel = slots.includes(jwState.roomSlot) ? jwState.roomSlot : "all";
     const theDay = dataDate || jwState.roomDate || jwDayISO(0);
+    /* 楼胶囊（v0.275.0）：选过的楼不在这次数据里（换了日期、那栋楼当天全满不返回）就当「全部」，
+       否则会渲染出一屏「全部楼都藏起来了」的空白页。三个数字（计数行 / 卡片标题 / 搜索匹配数）
+       必须同一个口径，全部按 picked 算。 */
+    const bldSel = blds.some(([b]) => b === jwState.roomBld) ? jwState.roomBld : "";
+    const picked = bldSel ? blds.filter(([b]) => b === bldSel) : blds;
+    const pTotal = picked.reduce((n, [, rooms]) => n + rooms.length, 0);
+    const pFree = picked.reduce((n, [, rooms]) => n + rooms.reduce((m, x) => m + slots.filter((s) => x.slots.get(s) === "2").length, 0), 0);
+    const pSeats = picked.reduce((n, [, rooms]) => n + rooms.reduce((m, x) => m + slots.filter((s) => x.slots.get(s) !== undefined).length, 0), 0);
     // 计数行先给「哪天 · 空闲多少」——用户点日期就是为了这一句
-    roomCountIdle = `${theDay} · ${blds.length} 栋 ${total} 间 · 空闲位 ${free} / ${seats}`;
+    roomCountIdle = `${theDay} · ${picked.length} 栋 ${pTotal} 间 · 空闲位 ${pFree} / ${pSeats}`;
     /* 日期胶囊：今天 = 不传 RQ（服务端 SYSDATE）。选过的自定义日期额外补一颗，
        并把原生日期选择器叠在最后一颗胶囊上（原生弹层做不了双向动画，铁律七只约束
        自建下拉栏，这里用系统的日历）。 */
@@ -4401,13 +4414,19 @@
         `<button type="button" class="pp-chip${(jwState.roomDate || "") === id ? " on" : ""}" data-room-date="${esc(id)}">${esc(label)}</button>`).join("")
       + `</div><span class="pp-datesel" data-room-date-btn><input class="jw-date-in" type="date" data-room-date-in value="${esc(theDay)}" aria-label="选日期，看那天有没有空闲" tabindex="-1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 11h18"/></svg></span></div>`;
     const bar = dateBar
+      + `<div class="pp-toolbar jw-room-bar"><span class="pp-lab">楼</span><div class="pp-chips" data-room-blds>`
+      + [["", "全部"], ...blds.map(([b]) => [b, b])].map(([id, label]) => {
+        const n = id ? (blds.find(([b]) => b === id)?.[1].length || 0) : pTotal;
+        return `<button type="button" class="pp-chip${bldSel === id ? " on" : ""}" data-room-bld-chip="${esc(id)}" title="${esc(id ? `${id} · ${n} 间` : `全部 ${blds.length} 栋 ${n} 间`)}">${esc(label)}</button>`;
+      }).join("")
+      + `</div></div>`
       + `<div class="pp-toolbar jw-room-bar"><span class="pp-lab">节次</span><div class="pp-chips" data-room-slots>`
       + [["all", "全部"], ...slots.map((s) => [s, jwRoomSlotLabel(s)])].map(([id, label]) =>
         `<button type="button" class="pp-chip${sel === id ? " on" : ""}" data-room-slot="${esc(id)}">${esc(label)}</button>`).join("")
       + `</div></div><div class="pp-toolbar"><span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>`
       + `<input class="pp-kw" data-room-filter type="text" value="${esc(jwState.roomFilter || "")}" aria-label="筛选楼、教室、节次、状态（支持拼音首字母与简写）" placeholder="搜楼 / 教室，可打拼音首字母…"></span></div>`
       + `<div class="pp-meta" data-room-count>${esc(roomCountIdle)}</div>`;
-    return jwSection("自习室", jwAt("room"), bar + blds.map(([bld, rooms]) => jwRoomCardHtml(bld, rooms, slots, sel)).join(""));
+    return jwSection("自习室", jwAt("room"), bar + blds.map(([bld, rooms]) => jwRoomCardHtml(bld, rooms, slots, sel, !bldSel || bldSel === bld)).join(""));
   }
   /* 过滤在 DOM 上就地做（不重绘）：重绘会把 input 换掉，用户打两个字就丢焦点。
      组头下一条都没剩就一起藏起来，避免一屏空标题。
@@ -4420,20 +4439,28 @@
     if (q && !roomPinyinMod && /[a-z]/.test(q)) loadRoomPinyin().then(() => jwApplyRoomFilter(el));
     const rows = el.querySelectorAll(".jw-room-line, .jw-room-row");
     if (!rows.length) return;
-    let shown = 0;
+    /* 楼选择是「范围」不是「搜索」：选了一栋楼，别的楼的教室连"全部"都不该算进分母 ——
+       否则计数行写着「匹配 3 / 全部 214 间」，用户会以为搜索漏了东西。
+       楼不在这次数据里（换日期后那栋没返回）就自动退回全部，与渲染层的 bldSel 同一条口径。 */
+    const wantBld = String(jwState.roomBld || "");
+    const bldSel = wantBld && [...el.querySelectorAll("[data-room-bld]")].some((c) => c.dataset.roomBld === wantBld) ? wantBld : "";
+    let shown = 0, scope = 0;
     for (const row of rows) {
+      const card = row.closest("[data-room-bld]");
+      const inScope = !bldSel || (!!card && card.dataset.roomBld === bldSel);
       const fields = roomRowFields.get(Number(row.dataset.roomIdx));
       const hit = !q || (Array.isArray(fields)
         ? fields.some((f) => roomFieldHits(f, q))
         : String(row.dataset.kw || "").includes(q));
-      row.hidden = !hit;
-      if (hit) shown++;
+      row.hidden = !hit || !inScope;
+      if (inScope) scope++;
+      if (inScope && hit) shown++;
     }
     // 楼卡片：一间都没剩就整张收起来，剩几间就更新卡片右上角的计数（清空搜索时整页重绘复原）。
     for (const card of el.querySelectorAll("[data-room-bld]")) {
       const all = card.querySelectorAll(".jw-room-line").length;
       const left = card.querySelectorAll(".jw-room-line:not([hidden])").length;
-      card.hidden = !left;
+      card.hidden = !left || (!!bldSel && card.dataset.roomBld !== bldSel);
       const sum = card.querySelector("[data-room-sum]");
       if (sum && q) sum.textContent = `${left} / ${all} 间匹配`;
     }
@@ -4448,7 +4475,7 @@
     const count = el.querySelector("[data-room-count]");
     if (count) {
       count.textContent = !q ? roomCountIdle || count.textContent
-        : shown ? `匹配 ${shown} / 全部 ${rows.length} 间教室`
+        : shown ? `匹配 ${shown} / ${bldSel ? `${bldSel} ` : "全部 "}${scope} 间教室`
           : `没有匹配「${raw}」的记录 —— 能搜楼（如 zl 找主楼、jtjs 找阶梯教室）、教室号、节次与占用状态；空格无所谓，也能打拼音首字母和跳字简写`;
     }
   }
@@ -4530,7 +4557,7 @@
     if (!d || !Array.isArray(d.plans)) return jwSection("我的考试", jwAt("exam"), `<div class="pp-empty">还没有拉取过考试安排，点上方「刷新」</div>`);
     if (!d.plans.length) {
       return jwSection("我的考试", jwAt("exam"),
-        `<div class="pp-empty">教务没返回任何考试计划。若班里已发考试通知，点「去教务」进「${JW_MENU.exam}」看看。</div>`);
+        `<div class="pp-empty">教务没返回任何考试计划。若班里已发考试通知，点「浏览器打开」进「${JW_MENU.exam}」看看。</div>`);
     }
     const cur = d.current;
     const rows = Array.isArray(d.terms?.[cur]) ? d.terms[cur] : null;
@@ -4562,7 +4589,7 @@
     if (!rows.length) {
       examCountIdle = plan?.name || "";
       return jwSection("我的考试", `${jwTermName(cur)}${plan?.range ? ` · ${plan.range}` : ""}`, chips + examBar()
-        + `<div class="pp-empty">这个学期教务没给你的考试记录${stale ? "（它已经结束了）" : ""}。考试计划名称：${esc(plan?.name || cur)}；若班里已发通知，点「去教务」查看。</div>`);
+        + `<div class="pp-empty">这个学期教务没给你的考试记录${stale ? "（它已经结束了）" : ""}。考试计划名称：${esc(plan?.name || cur)}；若班里已发通知，点「浏览器打开」查看。</div>`);
     }
     const now = Date.now();
     const up = [], done = [];
@@ -4672,14 +4699,14 @@
     if (glow) examGlows.set(root, { box, glow });
   }
 
-  /* 自习室的「日期」「节次」两组胶囊同样要滑动选中光（铁律六）：光块由宿主的
+  /* 自习室的「日期」「楼」「节次」三组胶囊同样要滑动选中光（铁律六）：光块由宿主的
      tide.ui.selectionGlow 画在各自的 .pp-chips 上，插件每次重绘后重挂一次 ——
      body 被整个换掉，旧实例必须 dispose，否则宿主那边会累积分区 Disposer
      （与学期胶囊 jwSyncExamGlow 完全同一处教训）。 */
   const roomGlows = new WeakMap();   // root -> [{ box, glow }]
   function jwSyncRoomGlow(root) {
     if (!root || !root.isConnected) return;
-    const boxes = [...root.querySelectorAll("[data-room-dates], [data-room-slots]")];
+    const boxes = [...root.querySelectorAll("[data-room-dates], [data-room-blds], [data-room-slots]")];
     const prev = roomGlows.get(root) || [];
     const same = prev.length === boxes.length && prev.every((p, i) => p.box === boxes[i] && p.box.isConnected);
     if (same) { for (const p of prev) p.glow?.sync?.(); return; }
@@ -5262,7 +5289,7 @@
       // 只读：申请借用仍去教务提交（与交请假、选课同一条口径）。
       id: "cppu-room", title: "自习室", icon: "door-open", keys: ["room"], menu: JW_MENU.room,
       kicker: "教 务 · 自 习 室 查 询",
-      tip: "教室占用与开放时段按教室分组；可切成按日期看或平铺，也能按教室 / 时段 / 状态筛选。申请借用仍在教务里提交。",
+      tip: "教室占用与开放时段按楼与教室分组；可切成按日期看或平铺，也能按楼 / 节次 / 状态筛选。申请借用仍在教务里提交。",
       body: () => jwRoomHtml(),
     },
   ];
@@ -5275,9 +5302,9 @@
       <div class="jw-head"><h3>${esc(cfg.title)}</h3><span data-jw-term>${esc(jwState.term ? `${jwState.term.name}（${jwState.term.code}）` : "学期加载中…")}</span></div>
       <div class="pp-toolbar">
         <button class="pp-btn pri" data-jw-refresh>刷新</button>
-        <button class="pp-btn" data-jw-site>去教务</button>
         <button class="pp-btn" data-jw-back>回通知</button>
         <button class="pp-btn" data-jw-login>重新登录</button>
+        <button class="pp-btn" data-jw-site>浏览器打开</button>
         <span style="flex:1"></span>
       </div>
       <div class="jw-tip">${esc(cfg.tip)}</div>
@@ -5427,6 +5454,17 @@
         jwState.courseScope = scope.dataset.jwScope || "week";
         jwPaint();
         if (!Array.isArray(jwState.data.qjCourse)) await jwEnsureKeys(["qjCourse"]);
+        return;
+      }
+      // 自习室按楼收窄（v0.275.0）：只改 jwState 再重绘，卡片显隐由渲染层的 visible 与
+      // jwApplyRoomFilter 的 scope 共同决定 —— 搜索词必须就地重套一遍，否则选楼之后
+      // 之前打的过滤词看着还在输入框里、却没有生效。
+      const roomBldChip = e.target.closest("[data-room-bld-chip]");
+      if (roomBldChip) {
+        jwState.roomBld = roomBldChip.dataset.roomBldChip || "";
+        jwPaint();
+        jwSyncRoomGlow(el);
+        jwApplyRoomFilter(el);
         return;
       }
       // 自习室节次切换：重绘后要把已有的过滤词再套一遍，否则切一次节次过滤就「失效」了
