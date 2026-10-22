@@ -20,12 +20,13 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /* ── 1. 并发数口径 ── */
 assert.equal(AWARD_CONCURRENCY_DEFAULT, 3, "默认并发 3");
-assert.equal(AWARD_CONCURRENCY_MAX, 8, "上限 8");
-assert.deepEqual([...AWARD_CONCURRENCY_CHOICES], [1, 2, 3, 4, 5, 6, 8], "设置页档位");
+assert.equal(AWARD_CONCURRENCY_MAX, 16, "上限 16（瓶颈是对端 RTT，并发是唯一线性提速手段）");
+assert.deepEqual([...AWARD_CONCURRENCY_CHOICES], [1, 2, 3, 4, 6, 8, 12, 16], "设置页档位");
 assert.equal(clampConcurrency(1), 1);
 assert.equal(clampConcurrency("4"), 4, "storage 里存的可能是字符串");
 assert.equal(clampConcurrency(8), 8);
-assert.equal(clampConcurrency(9), 8, "超过上限要压回 8");
+assert.equal(clampConcurrency(16), 16);
+assert.equal(clampConcurrency(17), 16, "超过上限要压回 16");
 assert.equal(clampConcurrency(0), AWARD_CONCURRENCY_DEFAULT, "0 会让一个 worker 都不起 —— 回默认值");
 assert.equal(clampConcurrency(-3), AWARD_CONCURRENCY_DEFAULT);
 assert.equal(clampConcurrency(2.7), 2, "小数向下取整");

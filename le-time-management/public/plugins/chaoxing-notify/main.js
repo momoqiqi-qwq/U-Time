@@ -35,6 +35,9 @@
   // 刷新入口有三条（打开插件时的自动刷新、手点「刷新」、任务栏角标每 5 分钟的后台刷新），
   // 全部汇到 probePendingWorks()；不设冷却时连着点两下刷新就把同一批作业再向学习通打一遍。
   const PROBE_COOLDOWN_MS = 40 * 1000;
+  // 课程域会话过期时的自动重登冷却：后台角标每 5 分钟刷新一次，没有冷却就等于每 5 分钟
+  // 静默登录一次，很容易撞上 fanyalogin 的风控（登录太频繁会要求验证码 / 直接失败）。
+  const RELOGIN_COOLDOWN_MS = 30 * 60 * 1000;
   const REFRESH_MODES = {
     auto: {
       label: "自动刷新",
@@ -116,6 +119,7 @@
   let badgeTimer = null;
   let backgroundBusy = false;
   const probeTimes = new Map();
+  let reloginAt = 0;   // 上次「课程域过期 → 自动重登」的毫秒时间戳，见 RELOGIN_COOLDOWN_MS
   let prefsReady = null;
   const ensurePrefs = () => prefsReady || (prefsReady = loadPrefs());
 
@@ -333,6 +337,21 @@ const CX_PY_DATA = {
   const withTimeout = (promise, ms, fallback) => Promise.race([
     promise.catch(() => fallback),
     new Promise((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+
+  /* 带死线的请求：超时抛出来（withTimeout 会把错误吞成 fallback，适合"探活"，不适合
+     "用户点了要东西"）。课件链路以前没有超时，平台风控把连接挂住时界面就一直停在
+     「正在读取章节目录…」—— 用户看到的就是"点了卡片没反应"。 */
+  const COURSE_TIMEOUT_MS = 15000;
+  const withDeadline = (promise, ms, label) => Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`${label}超时（${Math.round(ms / 1000)} 秒没响应），可能是网络或平台风控，稍后再点一次`)),
+        ms,
+      );
+      if (timer && typeof timer.unref === "function") timer.unref();
+    }),
   ]);
 
   // 用本机会话探一次目标页：被扔到 passport 就是需要登录。
@@ -611,7 +630,9 @@ const CX_PY_DATA = {
       .cx2-tl-sec.st-blue .cx2-tl-date{color:color-mix(in srgb,var(--sea) 55%,var(--ink))}
       .cx2-tl-sec.st-green .cx2-tl-date{color:color-mix(in srgb,var(--mint) 42%,var(--ink))}
       .cx2-tl-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px}
-      .cx2-tl-item{display:flex;align-items:baseline;gap:8px;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 10px}
+      .cx2-tl-item{display:flex;align-items:baseline;gap:8px;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:7px 10px;cursor:pointer;text-align:left}
+      .cx2-tl-item:hover{border-color:color-mix(in srgb,var(--deep) 34%,var(--line))}
+      .cx2-tl-item:focus-visible{outline:2px solid var(--deep);outline-offset:2px}
       .cx2-tl-sec.st-green .cx2-tl-item{background:var(--paper)}
       .cx2-tl-name{flex:1;min-width:0;font-size:calc(12.5px * var(--ui-text-scale));color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .cx2-tl-meta{font-size:calc(10.5px * var(--ui-text-scale));color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%}
@@ -817,12 +838,63 @@ const CX_PY_DATA = {
     return normalized;
   }
 
+  /* 课程列表失败的三种真实形态，以前一律报「登录态可能失效」，用户只能猜：
+       a) 被 302 到 passport2 —— 课程域（mooc2-ans）会话过期，而收件箱域（notice）常常还没过期；
+       b) HTTP 非 200 —— 限流 / 网关；
+       c) 200 但页面里没有课程卡片 —— 平台改版或本学期无课。
+     文案里带上域名与字节数，出问题时截图就能定位。 */
+  function courseErrorText(res) {
+    const finalUrl = String(res?.finalUrl || "");
+    let where = "";
+    try { where = finalUrl ? new URL(finalUrl).host : ""; } catch { where = finalUrl.slice(0, 60); }
+    const body = String(res?.body || "");
+    if (/passport2\.chaoxing\.com/.test(finalUrl)) {
+      return `课程列表加载失败：课程域会话已失效（被跳回登录页${where ? ` ${where}` : ""}）。`
+        + (state.creds?.uname
+          ? "已用保存的账号自动重登仍未通过，请点「更多 → 切换登录」重新登录。"
+          : "收件箱可能还能读，但课程页要重新登录：点「更多 → 切换登录」。");
+    }
+    if (Number(res?.status) !== 200) {
+      return `课程列表加载失败：HTTP ${res?.status ?? "无响应"}${where ? `（${where}）` : ""}，平台可能限流或接口变更，稍后再点刷新。`;
+    }
+    const cards = (body.match(/class="courseId"/g) || []).length;
+    if (!cards) {
+      return `课程列表加载失败：页面拿到了（${body.length} 字节，来自 ${where || "未知域名"}），但里面没有课程卡片 —— 平台改版或本学期没有课。`;
+    }
+    return `课程列表加载失败：页面里有 ${cards} 张课程卡片但字段没解析出来（${where || "未知域名"}），平台可能改了卡片结构。`;
+  }
+
+  async function fetchCoursesRes() {
+    const res = await withDeadline(
+      tide.http.fetch(state.sid, "GET", `${COURSES_URL}?v=${Date.now()}`, {
+        headers: authHeaders({ "Accept": "text/html, */*; q=0.01", "Referer": "https://mooc2-ans.chaoxing.com/visit/interaction" }),
+      }),
+      COURSE_TIMEOUT_MS, "课程列表",
+    );
+    state.cookie = mergeCookies(state.cookie, res?.cookies);
+    return res;
+  }
+  const coursesExpired = (res) => Number(res?.status) !== 200
+    || /passport2\.chaoxing\.com/.test(String(res?.finalUrl || ""));
+
   async function loadCourses() {
-    const res = await tide.http.fetch(state.sid, "GET", `${COURSES_URL}?v=${Date.now()}`, {
-      headers: authHeaders({ "Accept": "text/html, */*; q=0.01", "Referer": "https://mooc2-ans.chaoxing.com/visit/interaction" }),
-    });
-    state.cookie = mergeCookies(state.cookie, res.cookies);
-    if (res.status !== 200 || /passport2\.chaoxing\.com/.test(res.finalUrl || "")) throw new Error("课程列表加载失败：登录态可能失效");
+    if (!state.sid) state.sid = await tide.http.session();
+    let res = await fetchCoursesRes();
+    /* 自动登录过去只在打开插件时跑一次，而那次只验证收件箱（notice 域）。学习通给各子域
+       签的会话不是同一个生命周期，mooc2-ans 先过期时就会出现「通知都能看、课程列表一片红」。
+       这里做定点自愈：用保存的账号重登一次，再把这一次请求重放 —— 用户不必手点切换登录。 */
+    if (coursesExpired(res) && state.creds?.uname && state.creds?.password
+      && Date.now() - reloginAt > RELOGIN_COOLDOWN_MS) {
+      reloginAt = Date.now();
+      try {
+        await cxLogin(state.creds.uname, state.creds.password);
+        entryCache.clear();   // 旧会话签发的 enc 不能复用
+        res = await fetchCoursesRes();
+      } catch (err) {
+        throw new Error(`课程列表加载失败：自动重登没有成功（${(err && err.message) || err}），请点「更多 → 切换登录」重新登录。`);
+      }
+    }
+    if (coursesExpired(res)) throw new Error(courseErrorText(res));
     const courses = [], pick = (s, re) => (s.match(re) || [])[1] || "";
     for (const li of String(res.body || "").split('<li class="course ').slice(1)) {
       const cid = pick(li, /class="courseId"\s+name="courseId"\s+value="(\d+)"/);
@@ -838,6 +910,12 @@ const CX_PY_DATA = {
         // 卡片里还有一行「开课时间：2025-09-01～2027-09-01」，课程页的年级分组与完成状态全靠它推断。
         start: pick(li, /开课时间：\s*(\d{4}-\d{2}-\d{2})/),
         end: pick(li, /开课时间：\s*\d{4}-\d{2}-\d{2}\s*[～~\-]\s*(\d{4}-\d{2}-\d{2})/) });
+    }
+    // 页面里明明有卡片、却一张也没解析出来 = 结构变了，要说出来；一张卡片都没有 = 本学期真没课，
+    // 交给课程页显示空列表，不当作错误。
+    const cardCount = (String(res.body || "").match(/class="courseId"/g) || []).length;
+    if (!courses.length && cardCount) {
+      throw new Error(`课程列表加载失败：页面里有 ${cardCount} 张课程卡片，但 courseId / clazzId / 课程名一个都没解析出来，平台可能改了卡片结构。`);
     }
     state.courses = courses; await saveAuth(); return courses;
   }
@@ -1450,7 +1528,7 @@ const CX_PY_DATA = {
       let rel = "";
       if (t && t.rank > cur) rel = `${Math.max(0, Math.round((new Date(`${d}T00:00:00`).getTime() - today) / 86400000))} 天后开课`;
       else if (t && t.rank === cur) rel = "本学期";
-      return `<section class="cx2-tl-sec st-${st}"><h4 class="cx2-tl-head"><span class="cx2-tl-dot dot-${st}"></span><b class="cx2-tl-date" title="${esc(t ? t.label : '接口卡片里没有开课时间')}">${esc(d || "无开课时间")}</b><span class="cx2-tl-term">${esc(grade)}</span>${rel ? `<span class="cx2-tl-rel">${esc(rel)}</span>` : ""}<span class="cx2-tl-count">${items.length} 门</span></h4><div class="cx2-tl-list">${items.map((c) => `<div class="cx2-tl-item"><span class="cx2-tl-name" title="${esc(c.name)}">${esc(c.name)}</span><span class="cx2-tl-meta" title="${esc([c.teacher, c.clazz].filter(Boolean).join(' · ') || '')}">${esc(c.teacher || '—')}</span></div>`).join("")}</div></section>`;
+      return `<section class="cx2-tl-sec st-${st}"><h4 class="cx2-tl-head"><span class="cx2-tl-dot dot-${st}"></span><b class="cx2-tl-date" title="${esc(t ? t.label : '接口卡片里没有开课时间')}">${esc(d || "无开课时间")}</b><span class="cx2-tl-term">${esc(grade)}</span>${rel ? `<span class="cx2-tl-rel">${esc(rel)}</span>` : ""}<span class="cx2-tl-count">${items.length} 门</span></h4><div class="cx2-tl-list">${items.map((c) => `<div class="cx2-tl-item" role="button" tabindex="0" data-course-files data-key="${esc(`${c.courseid}_${c.clazzid}`)}" title="${esc(`点击进入《${c.name}》的课件界面`)}"><span class="cx2-tl-name" title="${esc(c.name)}">${esc(c.name)}</span><span class="cx2-tl-meta" title="${esc([c.teacher, c.clazz].filter(Boolean).join(' · ') || '')}">${esc(c.teacher || '—')}</span></div>`).join("")}</div></section>`;
     }).join("");
     return `<div class="cx2-tl-sum">共 ${list.length} 门课，分布在 ${dates.filter((d) => d).length} 个开课时间${groups.has("") ? `（另有 ${groups.get("").length} 门没有开课时间）` : ""}</div>${secs || '<div class="cx2-empty">没有匹配课程。</div>'}`;
   }
@@ -1487,9 +1565,9 @@ const CX_PY_DATA = {
     const key = `${c.courseid}_${c.clazzid}`;
     if (entryCache.has(key)) return entryCache.get(key);
     if (!c.url) throw new Error("这张课程卡片没解析出课程地址（多半是平台改了卡片结构）");
-    const res = await tide.http.fetch(state.sid, "GET", c.url, {
+    const res = await withDeadline(tide.http.fetch(state.sid, "GET", c.url, {
       headers: authHeaders({ "Accept": "text/html, */*; q=0.01" }),
-    });
+    }), COURSE_TIMEOUT_MS, "课程页");
     const finalUrl = res.finalUrl || "";
     if (/passport2\.chaoxing\.com/.test(finalUrl)) throw new Error("登录会话已失效，请重新登录学习通后再进课件");
     let sp = new URLSearchParams();
@@ -1550,17 +1628,17 @@ const CX_PY_DATA = {
   }
 
   async function loadChapters(entry) {
-    const res = await tide.http.fetch(state.sid, "GET", CHAPTERS_URL(entry), {
+    const res = await withDeadline(tide.http.fetch(state.sid, "GET", CHAPTERS_URL(entry), {
       headers: authHeaders({ "Accept": "text/html, */*; q=0.01", "Referer": `${MOOC2}/mooc2-ans/mycourse/stu` }),
-    });
+    }), COURSE_TIMEOUT_MS, "章节目录");
     if (/passport2\.chaoxing\.com/.test(res.finalUrl || "")) throw new Error("登录会话已失效，请重新登录学习通");
     return parseChapters(res.body);
   }
 
   async function loadPointFiles(entry, point) {
-    const res = await tide.http.fetch(state.sid, "GET", CARDS_URL(entry, point.kid), {
+    const res = await withDeadline(tide.http.fetch(state.sid, "GET", CARDS_URL(entry, point.kid), {
       headers: authHeaders({ "Accept": "text/html, */*; q=0.01", "Referer": STUDY_REFERER(entry, point.kid) }),
-    });
+    }), COURSE_TIMEOUT_MS, "课件列表");
     return parseAttachments(res.body);
   }
 
@@ -1879,7 +1957,7 @@ const CX_PY_DATA = {
       const viewBtn=e.target.closest('[data-course-view]');if(viewBtn){state.course.view=viewBtn.dataset.courseView==='timeline'?'timeline':'year';paintMain();return;}
       const openCourse=e.target.closest('[data-course-open]');if(openCourse){const c=state.courses.find((x)=>`${x.courseid}_${x.clazzid}`===openCourse.closest('[data-key]')?.dataset.key);if(c)await openWithLogin(c.url);return;}
       const courseCard=e.target.closest('[data-course-toggle]');if(courseCard){const card=courseCard.closest('.cx2-course');if(card)card.classList.toggle('open');return;}
-      const filesCard=e.target.closest('[data-course-files]');if(filesCard){const c=state.courses.find((x)=>`${x.courseid}_${x.clazzid}`===filesCard.dataset.key);if(c)await openCourseFiles(c);return;}
+      const filesCard=e.target.closest('[data-course-files]');if(filesCard){const key=filesCard.dataset.key||"";const c=state.courses.find((x)=>`${x.courseid}_${x.clazzid}`===key);if(!c){tide.notify('这门课的课程数据不在当前列表里，先点「刷新」再试一次');return;}await openCourseFiles(c);return;}
       const docBack=e.target.closest('[data-coursedoc-back]');if(docBack){state.files.course=null;state.files.chapters=[];paintMain();return;}
       const docRefresh=e.target.closest('[data-coursedoc-refresh]');if(docRefresh){await refreshCourseFiles();return;}
       const docSec=e.target.closest('[data-coursedoc-sec]');if(docSec){const k=docSec.dataset.coursedocSec;if(state.files.open.has(k))state.files.open.delete(k);else state.files.open.add(k);paintMain();return;}
@@ -1900,7 +1978,7 @@ const CX_PY_DATA = {
     });
     host.addEventListener("input", (e) => { if(e.target.matches('[data-search]')){state.filter.kw=e.target.value;savePrefs();const pos=e.target.selectionStart;paintMain();const next=host.querySelector('[data-search]');if(next){next.focus();try{next.setSelectionRange(pos,pos);}catch{}}} });
     host.addEventListener("change", (e) => { if(e.target.matches("[data-taskbar-badge]")){setTaskbarBadgeEnabled(e.target.checked);return;} if(e.target.matches('[data-category]')){state.filter.category=e.target.value;savePrefs();paintMain();}if(e.target.matches('[data-unread]')){state.filter.onlyUnread=e.target.checked;savePrefs();paintMain();}if(e.target.matches('[data-cat-year]')){state.filter.catYear=e.target.value;savePrefs();paintMain();} });
-    host.addEventListener('keydown',e=>{if(e.target.matches('input,textarea,select'))e.stopPropagation();if(e.key==='Escape'){if(cardMenu){closeCardMenu();paintMain();e.stopPropagation();return;}const tools=host.querySelector('[data-tools]');if(tools?.open){tools.open=false;tools.querySelector('summary').focus();e.stopPropagation();return;}}if(e.target.matches('[data-search]')&&e.key==='Escape'){state.course.searchOpen=false;state.filter.kw='';paintMain();}});
+    host.addEventListener('keydown',e=>{const tlKey=e.target.closest?.('[data-course-files][role="button"]');if(tlKey&&(e.key==='Enter'||e.key===' ')){e.preventDefault();const c=state.courses.find((x)=>`${x.courseid}_${x.clazzid}`===tlKey.dataset.key);if(c)openCourseFiles(c);else tide.notify('这门课的课程数据不在当前列表里，先点「刷新」再试一次');return;}if(e.target.matches('input,textarea,select'))e.stopPropagation();if(e.key==='Escape'){if(cardMenu){closeCardMenu();paintMain();e.stopPropagation();return;}const tools=host.querySelector('[data-tools]');if(tools?.open){tools.open=false;tools.querySelector('summary').focus();e.stopPropagation();return;}}if(e.target.matches('[data-search]')&&e.key==='Escape'){state.course.searchOpen=false;state.filter.kw='';paintMain();}});
     /* 颜色菜单唤起：桌面走右键（contextmenu），手机/平板走长按 —— Android WebView 里
        长按不一定会派发 contextmenu，所以两条都接，谁先到都能开出同一个菜单（重复调用幂等）。 */
     host.addEventListener('contextmenu', (e) => {

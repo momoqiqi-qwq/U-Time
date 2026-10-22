@@ -278,6 +278,8 @@ for (const side of ['--sat', '--sab', '--sal', '--sar']) {
   assert.ok(source.includes(`px("${side}")`), `四个方向都要取，缺 ${side}（横屏挖孔在侧边）`);
 }
 assert.match(manifest.description, /右键卡片（手机端长按）可给卡片上色/, '插件描述要写明颜色标记');
-assert.equal(manifest.version, '2.21.0', '插件版本必须同步升级');
+// 写成"不低于"而不是精确相等：每次升插件版本不用回来改测试，但降级或漏升仍会红。
+const [vMajor, vMinor] = manifest.version.split(".").map(Number);
+assert.ok(vMajor > 2 || (vMajor === 2 && vMinor >= 22), `插件版本必须同步升级（≥ 2.22.0，实际 ${manifest.version}）`);
 
 console.log('PASS: 学习通卡片颜色标记（右键/长按上色、整组规则让新同步的没做完作业自动同色、单卡压规则、持久化校验、浮层安全区与 Escape）');

@@ -15,12 +15,15 @@
 // （桌面端写 S.pluginState("cppu-notify").storage，插件侧读 tide.storage）。
 export const AWARD_CONCURRENCY_KEY = "awardConcurrency";
 export const AWARD_CONCURRENCY_DEFAULT = 3;
-// 上限 8：再多，门户侧排队 + tp_up 票据 + 宿主 http 会话都更容易抖，
-// 本地也压不出更多吞吐（瓶颈是门户的响应时间，不是本机 CPU）。
-export const AWARD_CONCURRENCY_MAX = 8;
+// 上限 16。早先写的是 8，理由是「再多本地也压不出吞吐」—— 那句只对了一半：
+// 瓶颈确实是对端的响应时间而不是本机 CPU，**但正因为瓶颈是 RTT，并发才是唯一能线性提速的手段**
+// （在门户开始限流之前）。池子比一次往返便宜得多，于是上限抬到 16，档位补上 12 / 16：
+// 门户顺畅时拉满能把这轮同步压到原来的三分之一，门户抖动时随时能调回 1–3。
+// 默认值仍是 3，不动 —— 那是「对学校服务器礼貌」的那条线，不该因为本机能跑就悄悄抬高。
+export const AWARD_CONCURRENCY_MAX = 16;
 // 设置页下拉里的档位：与 src/views/settings/cppuAward.js 的 CONCURRENCY_CHOICES 必须一致
 // （scripts/test-cppu-award-pool.mjs 会从那份源码里把数组抠出来对一遍）。
-export const AWARD_CONCURRENCY_CHOICES = [1, 2, 3, 4, 5, 6, 8];
+export const AWARD_CONCURRENCY_CHOICES = [1, 2, 3, 4, 6, 8, 12, 16];
 
 // 口径：非数字 / 小于 1 / 越界一律回默认值 3。
 // 写盘的是设置页、读盘的是插件，两边都过这一道 —— 手改过的 storage 不会把池开成 0

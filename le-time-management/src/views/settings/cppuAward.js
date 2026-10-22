@@ -5,7 +5,7 @@ import * as S from "../../store.js";
 // 两项都写在插件 storage 上（与插件侧 tide.storage 同一份），插件视图每次进入 / 刷新时重读。
 export const AWARD_CONCURRENCY_KEY = "awardConcurrency";
 export const AWARD_CONCURRENCY_DEFAULT = 3;
-export const AWARD_CONCURRENCY_MAX = 8;
+export const AWARD_CONCURRENCY_MAX = 16;
 // 与 public/plugins/cppu-notify/award-pool.js 的 clampConcurrency 同一口径：
 // 非数字、小于 1、越界一律回默认值 3（0 会让并发池一个 worker 都起不来，榜单直接空掉）。
 export const normalizeAwardConcurrency = value => {
@@ -14,7 +14,7 @@ export const normalizeAwardConcurrency = value => {
 };
 // 下拉档位。与 award-pool.js 的 AWARD_CONCURRENCY_CHOICES 必须一致 ——
 // scripts/test-cppu-award-pool.mjs 会把这份源码里的数组抠出来逐项对一遍。
-const CONCURRENCY_CHOICES = [1, 2, 3, 4, 5, 6, 8];
+const CONCURRENCY_CHOICES = [1, 2, 3, 4, 6, 8, 12, 16];
 
 export function createCppuAwardCard() {
   const store = () => S.pluginState("cppu-notify").storage;
@@ -52,6 +52,6 @@ export function createCppuAwardCard() {
     el("p", { class: "set-hint" }, "默认关闭。开启后「警大获奖名单」视图多出一档「人名榜」：把个人获奖者与团体成员一并算到人头上，按获奖数量排名；名次数字前 10 名绿色、11–20 名黄色、其余红色。"),
     el("p", { class: "set-hint" }, "关掉时这一档不出现，不影响「奖项项目」与「获奖排名」。名单仍来自通知正文里明确的获奖段落，团体成员只在通知列了成员时才计入。"),
     el("div", { class: "setting-row" }, el("b", {}, "读取并发数"), conc),
-    el("p", { class: "set-hint" }, "默认 3 条同时读，可选 1–8。获奖名单一轮要读几十条通知正文、还可能下载若干附件台账，过去是一条读完再读下一条；并发读把这段等待叠起来，同步明显更快。"),
-    el("p", { class: "set-hint" }, "数字越大越快，但同时打到学校的请求也越多 —— 门户偶有超时或限流时调回 1–3 更稳。改完点「刷新」（或重新打开）生效，不影响已保存的名单与登录状态。"));
+    el("p", { class: "set-hint" }, "默认 3 条同时读，可选 1–16。获奖名单一轮要读几十到二百多条通知正文、还可能下载若干附件台账，过去是一条读完再读下一条；并发读把这段等待叠起来，同步明显更快。"),
+    el("p", { class: "set-hint" }, "数字越大越快（瓶颈在门户的响应时间，同时在飞的请求越多越快），但同时打到学校的请求也越多 —— 门户偶有超时或限流时调回 1–3 更稳。改完点「刷新」（或重新打开）生效，不影响已保存的名单与登录状态。"));
 }

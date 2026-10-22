@@ -58,6 +58,11 @@
   // v2 之前「单行单名」只看「正文出现过级别行」，把落款与附件字体名 / 样式名（等线 / 仿宋 /
   // 无列表 / 教务处）一起收进了名单。这里不做迁移，版本不符就整份丢掉重新同步（正文在门户上）。
   const AWARD_CACHE_VER = 2;
+  // 缓存新鲜期：这一页每次打开都会「拉通知 → 逐条读正文 → 读附件」走完一整轮，
+  // 一分钟起步，而获奖名单一个月才变几次 —— 「每次点开都等一轮」才是体感慢的真正来源。
+  // 所以新鲜期内只画缓存、不自动重爬；要更新就点「刷新名单」。过期 / 没缓存才自动跑一轮。
+  // 6 小时：一天里多次点开都秒开，隔夜第一次进来会自动更新。
+  const AWARD_CACHE_FRESH_MS = 6 * 60 * 60 * 1000;
   // 翻页策略：**按时间回溯，而不是固定页数**。门户通知一年几百条，写死 4 页只够看到今年，
   // 而获奖名单往往要看前两三年。所以首屏先翻 AWARD_PAGES 页，再一路往后翻到覆盖
   // AWARD_YEARS 个自然年为止（或翻到底、或撞上 AWARD_PAGES_MAX 的防呆上限）。
@@ -203,7 +208,10 @@
   let filterOutsideHandler = null; // 筛选下拉的「点外部收回」监听，重进插件时替换旧监听
   // 获奖名单视图的状态：与通知视图共用 state.notices / state.details（同一次登录、同一份正文缓存），
   // 但 DOM 引用、进度与解析结果独立 —— 两个视图会同时活着，不能让它们互相盖掉对方的 ui。
-  const awState = { el: null, loading: false, error: "", progress: "", records: [], board: null, syncedAt: 0, pages: AWARD_PAGES, pendingCands: 0, affixCount: 0, affixWait: 0, sessionOk: false };
+  // cacheOnly：这次画出来的榜单来自本机缓存、本进程还没同步过 —— 状态行要据此说明「点刷新可更新」。
+  // wantSync：用户在本进程里表达过「就是要同步」（点了刷新 / 刚登录成功）。缓存新鲜期会让路，
+  // 免得登录成功后又被自己的新鲜期判定挡回去、白等一轮。
+  const awState = { el: null, loading: false, error: "", progress: "", records: [], board: null, syncedAt: 0, pages: AWARD_PAGES, pendingCands: 0, affixCount: 0, affixWait: 0, sessionOk: false, cacheOnly: false, wantSync: false };
   let awardPanel = null, awardPanelLoading = null;
   let attachMod = null, attachLoading = null;
   let affixScanned = null;         // { "rid::附件名": 时间戳 } —— 扫过的附件不再扫
@@ -1783,7 +1791,30 @@
    * 里面筛出获奖名单，而两个视图会同时活在内存里 —— 共用一个 `ui` 变量必然互相污染。
    * 取数（这里）与呈现（loadDetail / 获奖视图）分开后，两边都能各自决定什么时候画。
    */
+  /* 一条通知的正文 + 附件表。
+     ⚠️ 时序是有意安排的，改动前先看懂这一段：
+     这里的三个请求是 ①详情（给 PIM_CONTENT 与 CONTENT_URL）②正文页 ③附件列表。
+     过去写成 ①→②→③ 三连串行 await，等于一条候选要等 **三个 RTT**：门户单次 300~600ms，
+     一条就是 1.0~1.6s，获奖名单 200 多条候选按并发 3 摊下来要一分半 —— 那就是「感觉太慢」。
+     但依赖关系只有一层：②要等①给的 CONTENT_URL，③**只要 rid**。
+     所以③在函数一进去就发出去，②与③再并一层 ⇒ 三连压成两连，一条省掉约 1/3 的等待，
+     而且不改任何判定口径（该读的条目一条不少，只是等得更省）。
+     失败语义保持原样：①③是硬依赖（①没了整条失败，③失败只记 attachmentError），
+     ②失败记 contentError 但仍回退到 PIM_CONTENT。 */
   async function fetchNoticeContent(rid) {
+    // ③ 附件列表：只依赖 rid，立刻发，让它和①③并行跑。
+    let attachmentError = "";
+    const affixTask = tide.http.fetch(state.sid, "POST", PORTAL + "/tp_up/up/pim/showpim/getPimAffixList", {
+      headers: { "Content-Type": "application/json;charset=utf-8", "Referer": referer(), "Cookie": "tp_up=" + state.token },
+      body: JSON.stringify({ RESOURCE_ID: rid }),
+    }).then((ares) => {
+      if (ares.status !== 200) throw new Error(`附件列表接口 HTTP ${ares.status}`);
+      const list = JSON.parse(ares.body);
+      if (!Array.isArray(list)) throw new Error("附件列表格式异常或会话已过期");
+      return list;
+    }).catch((e) => { attachmentError = String(e?.message || e); return []; });
+
+    // ① 详情
     let res;
     try {
       res = await tide.http.fetch(state.sid, "POST", PORTAL + "/tp_up/up/pim/showpim/getPimDetailInfoById", {
@@ -1801,29 +1832,26 @@
     const arr = JSON.parse(res.body);
     const d = Array.isArray(arr) ? arr[0] : null;
     if (!d) throw new Error("通知详情格式异常或会话已过期");
-    let text = d.PIM_CONTENT || "", contentData = null, contentError = "", attachmentError = "", affixes = [];
+    let text = d.PIM_CONTENT || "", contentData = null, contentError = "";
     const cu = d.CONTENT_URL || "";
-    if (cu) {
-      const url = portalUrl(cu);
+    // ② 正文页：与 ③ 并行收。正文页抛错要落成 contentError（不能把整条拖下水），
+    // 所以先包一层结果对象，别让 Promise.all 直接 reject。
+    const pageTask = cu
+      ? getPage(portalUrl(cu), false, { headers: { "Referer": referer(), "Cookie": "tp_up=" + state.token } })
+        .then((cres) => ({ cres }), (e) => ({ error: e }))
+      : Promise.resolve(null);
+    const [pageGot, affixes] = await Promise.all([pageTask, affixTask]);
+    if (pageGot) {
       try {
-        const cres = await getPage(url, false, { headers: { "Referer": referer(), "Cookie": "tp_up=" + state.token } });
+        if (pageGot.error) throw pageGot.error;
+        const cres = pageGot.cres;
         if (cres.status !== 200) throw new Error(`正文接口 HTTP ${cres.status}`);
         const mm = cres.body.match(/^[^(]*\(([\s\S]*)\)\s*;?\s*$/);
         let obj;
         try { obj = JSON.parse(mm ? mm[1] : cres.body); contentData = obj; text = obj.result || obj.content || text; }
         catch { text = cres.body; }
-      } catch (e) { contentError = String(e.message || e); }
+      } catch (e) { contentError = String(e?.message || e); }
     }
-    // 附件与正文独立获取；任一路失败仍展示另一路，且允许重试。
-    try {
-      const ares = await tide.http.fetch(state.sid, "POST", PORTAL + "/tp_up/up/pim/showpim/getPimAffixList", {
-        headers: { "Content-Type": "application/json;charset=utf-8", "Referer": referer(), "Cookie": "tp_up=" + state.token },
-        body: JSON.stringify({ RESOURCE_ID: rid }),
-      });
-      if (ares.status !== 200) throw new Error(`附件列表接口 HTTP ${ares.status}`);
-      affixes = JSON.parse(ares.body);
-      if (!Array.isArray(affixes)) throw new Error("附件列表格式异常或会话已过期");
-    } catch (e) { attachmentError = String(e.message || e); }
     return {
       content: cleanText(text) || cleanText(d.PIM_CONTENT),
       attachments: extractAttachments([arr, contentData, affixes], text),
@@ -5654,6 +5682,11 @@
     const s = awState.board.stats;
     const at = awState.syncedAt ? new Date(awState.syncedAt).toLocaleString("zh-CN", { hour12: false }) : "—";
     const cov = awCoverage();
+    // 缓存直出：这一轮没拉过通知列表（state.notices 为空），所以绝不能沿用下面那句「已扫 N 条通知」——
+    // 那会读成「扫了 0 条」。只说这份名单本身，外加它是什么时候的、怎么更新。
+    if (awState.cacheOnly) {
+      return `本机缓存 · 奖项 ${s.awards} 人次 · 同步于 ${at} · 点「刷新名单」重新同步`;
+    }
     // 一轮读到底之后，这里的非零只可能来自「撞上单轮预算」或「会话掉线」两种极端情况，
     // 所以要把话说明白：这是本轮的上限，不是「名单就这些」。
     const pending = awState.pendingCands
@@ -5680,6 +5713,18 @@
       syncedAt: awState.syncedAt, progress: awState.progress, error: awState.error,
       onOpenSource: (rid) => awOpenNotice(rid),
     });
+  }
+
+  /* 同步进行中只刷状态行：`awState.board` 这时候还是**上一轮的榜单**（本轮要等候选全读完
+     才重算），所以每读完一条正文就 awPaint 一次，等于把一份完全没变的榜单整段重绘几百遍 ——
+     本机白烧 CPU，界面上还会一路闪。读正文/读附件这两段循环只改进度文字，走这条。 */
+  function awStatusOnly(el) {
+    if (!el || el.isConnected === false) return;
+    const box = el.querySelector("[data-aw-status]");
+    if (!box) return;
+    box.innerHTML = awState.error && !awState.progress
+      ? bannerRefreshHtml(awState.error, "aw-banner-refresh")
+      : `<div style="margin:2px 0 10px;font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#4A5A66)">${esc(awStatusLine())}</div>`;
   }
 
   /* 「来源通知」按钮：切回通知视图并把那条通知展开 —— 名单是从那句话里抽出来的，
@@ -5955,14 +6000,14 @@
         } catch { /* 读失败不记标记，下一轮刷新会再试 */ }
         done += 1;
         awState.progress = `正在读附件里的获奖名单 ${done}/${batch.length}（${att.name}）${pace}`;
-        awPaint(el);
+        awStatusOnly(el);
       }, () => !el.isConnected);
       if (!el.isConnected) break;
       readTotal += batch.length;
       if (readTotal >= AWARD_AFFIX_BUDGET) break;
       if (plan.length <= batch.length) break;              // 这批就是全部，没有下一批
       awState.progress = `附件名单已读 ${readTotal} 份，接着读剩下的 ${plan.length - batch.length} 份…${pace}`;
-      awPaint(el);
+      awStatusOnly(el);
     }
     return out;
   }
@@ -5990,6 +6035,13 @@
       awState.syncedAt = Number(cache.syncedAt) || 0;
       return true;
     } catch { return false; }
+  }
+
+  /* 缓存够不够新。restoreAwardCache 成功只说明「盘上有这份」，不代表它值得挡住一次整轮重爬；
+      真正的门槛是 syncedAt（上一轮同步完成的时刻）。没有 syncedAt 的一律当过期，走自动同步。 */
+  function awCacheFresh() {
+    if (!awState.board || !awState.syncedAt) return false;
+    return Date.now() - awState.syncedAt < AWARD_CACHE_FRESH_MS;
   }
 
   async function awSync(el, deeper = false) {
@@ -6024,7 +6076,8 @@
       const tried = new Set();
       let failed = 0, sessionLost = false, readTotal = 0;
       // 正文并发读：一串 60 条候选 × 门户 300~600ms 的串行等待是这套同步里最长的一段，
-      // 并发数读「设置 → 警大获奖名单 → 读取并发数」（默认 3，上限 8，键见 award-pool.js）。
+      // 并发数读「设置 → 警大获奖名单 → 读取并发数」（默认 3，上限 16，键见 award-pool.js）。
+      // 默认值刻意压在对学校服务器客气的档位：拉高只为了自己赶时间，别让默认行为替所有人决定。
       const conc = await awConcurrency();
       const pace = conc > 1 ? ` · 并发 ${conc}` : "";
       for (;;) {
@@ -6040,7 +6093,7 @@
           try { await awDetailFetch(itemKey(it)); } catch (e) { failed += 1; if (awSessionError(e)) sessionLost = true; }
           done += 1;
           awState.progress = `正在读正文筛选获奖名单 ${readTotal + done} 条（本批 ${done}/${batch.length} · 待读 ${left.length} 条）${pace}`;
-          awPaint(el);
+          awStatusOnly(el);
         }, () => !el.isConnected);
         if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
         readTotal += batch.length;
@@ -6048,7 +6101,7 @@
         if (sessionLost || readTotal >= AWARD_CAND_BUDGET) break;
         if (!unreadAll().length) break;
         awState.progress = `候选正文已读 ${readTotal} 条，接着读剩下的 ${unreadAll().length} 条…${pace}`;
-        awPaint(el);
+        awStatusOnly(el);
       }
       // 池子跑完才发现视图已经关掉：这时状态要收干净（与串行版逐条判断的收尾一致）
       if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
@@ -6058,7 +6111,7 @@
       let affixMap = new Map();
       if (!el.isConnected) { awState.loading = false; awState.progress = ""; return; }
       awState.progress = "正在看有没有「名单在附件」的通知…";
-      awPaint(el);
+      awStatusOnly(el);
       try {
         affixMap = await awAffixPass(el, cands);
       } catch (e) {
@@ -6086,6 +6139,9 @@
       await saveAwardCache();
       if (sessionLost) awState.sessionOk = false;   // 会话中途丢了：下一次刷新重新走登录链
       if (failed) awState.error = `${failed} 条通知的正文没读到（网络或会话中断），名单可能不全，点这条状态行可重试。`;
+      // 这一轮真跑完了：盘上的缓存就是本轮产物，「缓存直出」的说明与欠下的那次同步都该销账。
+      awState.cacheOnly = false;
+      awState.wantSync = false;
     } catch (e) {
       awState.error = String(e?.message || e);
       if (awSessionError(e)) awState.sessionOk = false;
@@ -6101,9 +6157,9 @@
     loadLinkMeta(el);
     awStart(el);
   }
-  async function awStart(el) {
-    try { await ensureAwardPanel(); } catch { awPaint(el); return; }
-    if (await restoreAwardCache()) awPaint(el);
+  /* 「确保会话就绪，否则把人工登录摆出来」。awStart 与「刷新名单」共用这一段：
+      缓存新鲜期让 awStart 跳过了它，所以点刷新时必须自己能把会话建起来，不能指望开局铺过路。 */
+  async function awEnsureReady(el) {
     if (!state.token) { awState.progress = "正在恢复登录状态…"; awPaint(el); }
     let ok = false;
     try {
@@ -6114,21 +6170,37 @@
       awState.progress = "";
       awState.error = explainHttpError(e);
       awPaint(el);
-      return;
+      return false;
     }
-    if (!el.isConnected) return;
+    if (!el.isConnected) return false;
     if (!ok) {
       awState.progress = "";
       await prepareLoginForm();
-      if (!el.isConnected) return;
+      if (!el.isConnected) return false;
       paintLogin(el, loginHint?.msg || "", {
         prefillCode: loginHint?.code || "",
         // 只换回页面内容，不重跑 mountAwardView：容器上的监听器挂在 el 本身，再挂一遍会双触发。
-        onDone: () => awRemount(el),
+        // 登录成功说明用户本来就要看数据，把「欠一次同步」记下来，免得回来又被新鲜期挡回去。
+        onDone: () => { awState.wantSync = true; awRemount(el); },
         onFailure: () => false,
       });
+      return false;
+    }
+    return true;
+  }
+  async function awStart(el) {
+    try { await ensureAwardPanel(); } catch { awPaint(el); return; }
+    const fromCache = await restoreAwardCache();
+    // 新鲜期内只画缓存，不自动整轮重爬：这一页一轮要读上百条正文 + 附件，一分钟起步，
+    // 而名单一个月才变几次。用户点「刷新名单」（wantSync）时无条件放行。
+    // 先判后画：cacheOnly 一旦成立，状态行要立刻是「本机缓存 · …」那一句，不能先闪一次同步口径。
+    if (fromCache && !awState.wantSync && awCacheFresh()) {
+      awState.cacheOnly = true;
+      awPaint(el);
       return;
     }
+    if (fromCache) awPaint(el);
+    if (!await awEnsureReady(el)) return;
     await awSync(el);
   }
 
@@ -6147,16 +6219,21 @@
       });
     };
     el.addEventListener("click", async (e) => {
-      if (e.target.closest("[data-aw-sync]")) { await awSync(el); return; }
-      if (e.target.closest("[data-aw-banner-refresh]")) { await awSync(el); return; }
+      // 这三个入口都是「我就是要同步」：先记账（让缓存新鲜期让路），再自己把会话建起来 ——
+      // awStart 在新鲜期下根本没跑登录链，这里不补就只会在 awFetchList 上撞一次墙。
+      if (e.target.closest("[data-aw-sync]")) { awState.wantSync = true; if (await awEnsureReady(el)) await awSync(el); return; }
+      if (e.target.closest("[data-aw-banner-refresh]")) { awState.wantSync = true; if (await awEnsureReady(el)) await awSync(el); return; }
       // 「再往前翻」：把回溯页数往上加一档再同步 —— 首页只翻到近三年，更早的要用户自己决定。
-      if (e.target.closest("[data-aw-deeper]")) { await awSync(el, true); return; }
+      if (e.target.closest("[data-aw-deeper]")) { awState.wantSync = true; if (await awEnsureReady(el)) await awSync(el, true); return; }
       if (e.target.closest("[data-aw-notify]")) { tide.util.navigate("plug:cppu-notify"); return; }
       if (e.target.closest("[data-aw-relogin]")) {
         state.token = ""; state.notices = []; state.details = {}; state.pending = null; state.captcha = "";
         awState.board = null; awState.records = []; awState.error = ""; awState.syncedAt = 0;
         awState.pages = AWARD_PAGES; awState.pendingCands = 0; awState.affixCount = 0; awState.affixWait = 0;
         awState.sessionOk = false;   // 用户明确要求重新登录：缓存里的「会话已核验」也必须作废
+        // 盘上的榜单缓存没删（同一学号、同一口径还能读回来），所以只能靠 wantSync 压过新鲜期，
+        // 否则重新登录回来又被自己的缓存挡成「只看缓存、不同步」。
+        awState.cacheOnly = false; awState.wantSync = true;
         await openLogin();
         return;
       }

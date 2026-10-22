@@ -730,7 +730,7 @@ assert.match(source, /if \(force\) \{ awState\.sessionOk = false; state\.token =
 assert.match(source, /if \(state\.token && await awProbeSession\(\)\) \{ awState\.sessionOk = true; return true; \}/);
 assert.match(source, /if \(await silentRenew\(\)\) \{[\s\S]{0,160}?if \(await awProbeSession\(\)\) \{ awState\.sessionOk = true; return true; \}/);
 assert.match(source, /if \(await passwordAutoLogin\(\)\) \{ awState\.sessionOk = true; return true; \}/);
-assert.match(source, /sessionOk: false \};/);
+assert.match(source, /sessionOk: false, cacheOnly: false, wantSync: false \};/);
 // 长同步中途会话失效：续一次期 / 走一次密码兜底再重跑，成不了才把错误摆出来
 assert.match(source, /if \(!awSessionError\(e\) \|\| !await awEnsureSession\(true\)\) throw e;/);
 assert.match(source, /if \(awSessionError\(e\)\) awState\.sessionOk = false;/);
@@ -740,4 +740,20 @@ assert.match(source, /awState\.error = explainHttpError\(e\);/);
 // 用户点「重新登录」时，缓存里的「会话已核验」也必须作废
 assert.match(source, /awState\.sessionOk = false;   \/\/ 用户明确要求重新登录/);
 
-console.log("PASS: 获奖名单解析（标题清洗/级别层级/名单行/团体成员）· 个人团体排名并列 · 人名榜（团体成员计入本人）与名次配色 · 时间正倒序 · 下拉展开收起 · 每条记录回原通知 · 附件名单标与来源附件名 · 偏好落盘 · 单选走宿主滑动选中光 · 设置开关接线 · 视图接线 · 自动登录（票据先验证 再续期 再密码兜底）");
+// 缓存新鲜期：打开这一页不再无条件整轮重爬（一轮要逐条读上百条正文，一分钟起步，而名单一个月才变几次）。
+// 钉住四件事，缺一件就会退回「每次点开都等一轮」：
+//  ① 新鲜期常量存在且有明确时长；
+//  ② 判定只看 syncedAt，没有同步时刻的缓存不许冒充新鲜；
+//  ③ awStart 走缓存直出的分支必须同时受「用户要同步」否决；
+//  ④ 三个同步入口（刷新 / 横幅重试 / 再往前翻）都要自己确保会话 —— 缓存直出时 awStart 没跑登录链。
+assert.match(source, /const AWARD_CACHE_FRESH_MS = 6 \* 60 \* 60 \* 1000;/);
+assert.match(source, /function awCacheFresh\(\) \{\n    if \(!awState\.board \|\| !awState\.syncedAt\) return false;\n    return Date\.now\(\) - awState\.syncedAt < AWARD_CACHE_FRESH_MS;/);
+assert.match(source, /if \(fromCache && !awState\.wantSync && awCacheFresh\(\)\) \{\n      awState\.cacheOnly = true;/);
+assert.match(source, /\]"\)\) \{ awState\.wantSync = true; if \(await awEnsureReady\(el\)\) await awSync\(el\); return; \}/);
+assert.match(source, /\]"\)\) \{ awState\.wantSync = true; if \(await awEnsureReady\(el\)\) await awSync\(el, true\); return; \}/);
+// 缓存直出时 state.notices 是空的，「已扫 N 条通知」会读成「扫了 0 条」—— 那条分支必须早退
+assert.match(source, /if \(awState\.cacheOnly\) \{\n      return `本机缓存 · 奖项 \$\{s\.awards\} 人次 · 同步于 \$\{at\} · 点「刷新名单」重新同步`;/);
+// 真跑完一轮要销账，否则下次进页面还会挂着「缓存直出」的说明
+assert.match(source, /awState\.cacheOnly = false;\n      awState\.wantSync = false;/);
+
+console.log("PASS: 获奖名单解析（标题清洗/级别层级/名单行/团体成员）· 个人团体排名并列 · 人名榜（团体成员计入本人）与名次配色 · 时间正倒序 · 下拉展开收起 · 每条记录回原通知 · 附件名单标与来源附件名 · 偏好落盘 · 单选走宿主滑动选中光 · 设置开关接线 · 视图接线 · 自动登录（票据先验证 再续期 再密码兜底）· 缓存新鲜期（6 小时内只画缓存）");
