@@ -1,13 +1,14 @@
-// 「个人信息 → 数据报告目录」（v0.240.0）。
+// 「个人信息 → 数据报告目录」（v0.240.0；v0.281.0 两页合一时改为随第二批一起取）。
 //
 // 用户口径：个人信息页只有 5 个档案字段，下面大片空白 —— 要问的是「同一个网址还能取到什么」。
 // 答案就是这页背后的 pdata 还有一整组「数据报告」目录（basicInfo 只是其中之一）。
 //
-// 本测试盯四件事：
-//   ① 目录必须在**档案落地之后**才发请求（首屏不许等第二个接口）；
-//   ② 目录接口失败不牵连档案 —— 字段照样能复制，只是少一张卡；
-//   ③ key 的两种形态都要认：CATALOGID 直给，或老接口只给 "1-13-basicInfo" 这种复合 id；
-//   ④ 点一格必须走 bridge.open('/stu/dataReport/<key>')，这条通道才带得上会话。
+// 本测试盯五件事：
+//   ① 目录与成长数据同属第二批：首屏三块（身份 / 学业 / KPI）先落画面，目录到了再补；
+//   ② 目录没回来之前不许先摆一个空壳，也不许说「暂无」；
+//   ③ 目录接口失败不牵连档案 —— 字段照样能复制，只是少一张卡；
+//   ④ key 的两种形态都要认：CATALOGID 直给，或老接口只给 "1-13-basicInfo" 这种复合 id；
+//   ⑤ 点一格必须走 bridge.open('/stu/dataReport/<key>')，这条通道才带得上会话。
 import assert from 'node:assert/strict';
 
 /* paint() 只写 root.innerHTML，bind() 只读 querySelector / querySelectorAll
@@ -20,7 +21,7 @@ globalThis.document = {
 
 const { createProfileView } = await import('../public/plugins/cppu-notify/profile.js');
 
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+const flush = async () => { await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0)); };
 function deferred() {
   let resolve = null;
   const promise = new Promise((r) => { resolve = r; });
@@ -44,7 +45,8 @@ function harness() {
   const host = { innerHTML: '', querySelector: () => null, querySelectorAll: () => [] };
   const view = createProfileView(tideStub, bridge);
   const find = (needle) => calls.filter((c) => c.path.includes(needle));
-  return { calls, opened, bridge, host, view, find };
+  const one = (needle) => find(needle)[0];
+  return { calls, opened, bridge, host, view, find, one };
 }
 
 const PROFILE = {
@@ -54,6 +56,8 @@ const PROFILE = {
     column: [{ dataField: 'RXNF', dataFieldName: '入学年份' }],
   },
 };
+const LEARN = { ok: true, data: { GOTTENUNIT: 218, TOTALUNIT: 59.6 } };
+const KPI = { ok: true, data: [] };
 const MODULES = {
   ok: true,
   data: [{
@@ -66,26 +70,41 @@ const MODULES = {
     ],
   }],
 };
+/* 第二批的五路应答（顺序 = consume / online / attend / bonus / dirs）。 */
+const tailOf = (dirs) => [
+  { ok: true, data: { placeRanking: [{ MERCHANT: '食堂' }], balance: { BALANCE: 88.5 } } },
+  { ok: true, data: { placeRanking: [] } },
+  { ok: true, data: [] },
+  { ok: true, data: [] },
+  dirs,
+];
+const resolveTail = (h, dirs) => {
+  ['/cardConsume', '/onlineState', '/getMyAttendance', '/bonusPenaltyList', '/getModuleList']
+    .forEach((p, i) => h.one(p).d.resolve(tailOf(dirs)[i]));
+};
 
-/* ── ① 两批落画面：档案先出，目录后补 ───────────────────────────────────── */
+/* ── ① 两批落画面：身份 / 学业 / KPI 先出，目录随第二批补 ───────────────── */
 {
   const h = harness();
   h.view.render(h.host);
   await flush();
 
-  assert.equal(h.calls.length, 1, '首屏只该先要档案，目录是第二屏');
+  assert.equal(h.calls.length, 8, '首屏就把 8 个接口一起发出去（分两批落画面，不是串行）');
   assert.match(h.calls[0].path, /\/tsa\/shc\/homepage\/personInfo$/, '第一枪必须还是 personInfo');
+  assert.equal(h.find('/getModuleList').length, 1, '目录清单在第二批里，但同一次打开就发出');
   assert.match(h.host.innerHTML, /正在读取个人信息…/, '数据没到之前要有占位');
 
-  h.calls[0].d.resolve(PROFILE);
+  h.one('/personInfo').d.resolve(PROFILE);
+  h.one('/learnSituation').d.resolve(LEARN);
+  h.one('/getKpiList').d.resolve(KPI);
   await flush();
 
-  assert.match(h.host.innerHTML, /梁逸乐/, '档案到了先把身份卡与字段画出来');
-  assert.equal(h.calls.length, 2, '档案落地后才去补目录');
-  assert.match(h.calls[1].path, /\/tsa\/shc\/customStyle\/getModuleList/, '第二个接口是目录清单');
+  assert.match(h.host.innerHTML, /梁逸乐/, '首屏到了先把身份卡与字段画出来');
   assert.doesNotMatch(h.host.innerHTML, /数据报告目录/, '目录还没回来时不许先摆一个空壳');
+  assert.doesNotMatch(h.host.innerHTML, /暂无/, '第二批没回来时也不许说「暂无」');
+  assert.match(h.host.innerHTML, /正在读取…/, '第二批的位置要说「正在读取…」');
 
-  h.calls[1].d.resolve(MODULES);
+  resolveTail(h, MODULES);
   await flush();
 
   const html = h.host.innerHTML;
@@ -93,8 +112,9 @@ const MODULES = {
   assert.match(html, /3 个 · 点开直达/, '条数要对得上（重名 / 缺 key 的会剔掉）');
   assert.match(html, /借书情况/);
   assert.match(html, /成绩单/);
-  assert.match(html, /个人信息只是「数据报告」下的一个目录|上面这些与「个人信息」同站同权限/, '要说明这批目录和本页的关系');
-  assert.doesNotMatch(html, /暂无/, '不该冒出空态文案');
+  assert.match(html, /上面这些与「个人信息」同站同权限/, '要说明这批目录和本页的关系');
+  assert.doesNotMatch(html, /正在读取…/, '全部到齐后不该再有读取中');
+  assert.match(html, /暂无出勤记录/, '考勤确实是空的 ⇒ 这才是「暂无」该出现的时机');
 
   /* ② 点一格：必须走 bridge.open 的站内路径（那条通道才换票 + 注入 Cookie） */
   const dirTarget = (idx) => ({ closest: (sel) => (sel === '[data-pf-dir]' ? { dataset: { pfDir: String(idx) } } : null) });
@@ -109,9 +129,10 @@ const MODULES = {
   const h = harness();
   h.view.render(h.host);
   await flush();
-  h.calls[0].d.resolve(PROFILE);
-  await flush();
-  h.calls[1].d.resolve({ ok: false, message: '个人成长中心返回 502' });
+  h.one('/personInfo').d.resolve(PROFILE);
+  h.one('/learnSituation').d.resolve(LEARN);
+  h.one('/getKpiList').d.resolve(KPI);
+  resolveTail(h, { ok: false, message: '个人成长中心返回 502' });
   await flush();
 
   assert.match(h.host.innerHTML, /梁逸乐/, '目录挂了不影响档案');
@@ -120,15 +141,17 @@ const MODULES = {
   assert.doesNotMatch(h.host.innerHTML, /502/, '目录失败不弹错 —— 它不是本页主体');
 }
 
-/* ── ④ 点「刷新」：档案与目录都必须走 force ─────────────────────────────── */
+/* ── ④ 点「刷新」：八路都必须走 force（否则看到的是旧目录旧数据）───────── */
 {
   const h = harness();
   h.view.render(h.host);
   await flush();
-  h.calls[0].d.resolve(PROFILE);
+  h.one('/personInfo').d.resolve(PROFILE);
+  h.one('/learnSituation').d.resolve(LEARN);
+  h.one('/getKpiList').d.resolve(KPI);
+  resolveTail(h, MODULES);
   await flush();
-  h.calls[1].d.resolve(MODULES);
-  await flush();
+  assert.match(h.host.innerHTML, /借书情况/);
 
   const before = h.calls.length;
   // 工具栏那颗「刷新」：走的是 loadAll(true)，不是 refresh() 的 TTL 分支
@@ -136,19 +159,17 @@ const MODULES = {
   await flush();
 
   const fresh = h.calls.slice(before);
-  assert.equal(fresh.length, 1, '刷新先重取档案');
-  assert.equal(fresh[0].force, true, '刷新必须绕缓存');
-  assert.match(fresh[0].path, /\/personInfo$/);
-  fresh[0].d.resolve(PROFILE);
-  await flush();
+  assert.equal(fresh.length, 8, '刷新要重打 8 个接口');
+  assert.ok(fresh.every((c) => c.force), '每一个都必须带 force，否则主进程缓存会把请求吃掉');
+  assert.equal(fresh.filter((c) => /\/getModuleList/.test(c.path)).length, 1, '目录也要一起刷');
 
-  const after = h.calls.slice(before + 1);
-  assert.equal(after.length, 1, '档案回来后要一起刷新目录');
-  assert.equal(after[0].force, true, '目录也要绕缓存，否则刷新看到的是旧目录');
-  assert.match(after[0].path, /\/getModuleList/);
-  after[0].d.resolve(MODULES);
+  fresh.find((c) => /\/personInfo$/.test(c.path)).d.resolve(PROFILE);
+  fresh.find((c) => /\/learnSituation/.test(c.path)).d.resolve(LEARN);
+  fresh.find((c) => /\/getKpiList/.test(c.path)).d.resolve(KPI);
+  fresh.filter((c) => /cardConsume|onlineState|getMyAttendance|bonusPenaltyList|getModuleList/.test(c.path))
+    .forEach((c, i) => c.d.resolve(tailOf(MODULES)[i]));
   await flush();
   assert.match(h.host.innerHTML, /借书情况/);
 }
 
-console.log('PASS: 个人信息数据报告目录（第二屏取数 · 目录口径 · 站内直达 · 失败不牵连档案 · 刷新走 force）');
+console.log('PASS: 个人信息数据报告目录（随第二批取数 · 目录口径 · 站内直达 · 失败不牵连档案 · 刷新八路走 force）');

@@ -207,6 +207,22 @@ const editableText = dom.text(editable, "本人 1990 年生");
 const face = dom.el("span", { parent: body, "data-private-face": "" });
 const faceImg = dom.el("img", { parent: face });
 
+/* ⑤ 身份文字（v0.279.0）：姓名 / 学院这类「既没有数字、也不含校名」的值，靠插件打标、
+   CSS 整块糊。扫描器必须把它当跳过区 —— 已经把字糊掉了再去做 9 化，
+   关掉模式时还原出来的就是 9 化后的值，等于把数据改坏。 */
+const idTextBox = dom.el("span", { parent: body, "data-private-text": "" });
+const idTextNode = dom.text(idTextBox, "梁逸乐");
+const idTextMixed = dom.el("div", { parent: body, "data-private-text": "" });
+const idTextMixedNode = dom.text(idTextMixed, "防火工程学院 电子信息工程");
+
+/* ⑤ 的属性面（v0.280.0）：CSS 糊不到属性 —— title 悬浮提示、aria-label 读屏、alt 替代文本
+   照样能把真名写出来。这三个要跟文字走同一套保存 / 还原纪律。 */
+const attrBox = dom.el("button", {
+  parent: body, "data-private-text": "", "aria-label": "给 梁逸乐 改名", title: "点击名字以改名",
+});
+const attrBoxText = dom.text(attrBox, "梁逸乐");
+const attrImg = dom.el("img", { parent: body, "data-private-face": "", alt: "梁逸乐的照片" });
+
 /* 校名相关的四个夹具：带数字的、不带数字的、跳过区里的、全称的。 */
 const wordBox = dom.el("div", { parent: body });
 const wordText = dom.text(wordBox, "警大成绩 87.5 分");
@@ -309,6 +325,17 @@ assert.equal(editableText.nodeValue, "本人 1990 年生", "可编辑区域不�
 assert.equal(face.classList.contains("privacy-blur"), true, "人脸要被标上模糊类");
 assert.ok(faceImg, "人脸里的 img 不是 JS 的目标（CSS 统一处理）");
 
+// ⑤ 身份文字：整块交给 CSS，扫描器一律跳过
+assert.equal(idTextNode.nodeValue, "梁逸乐", "⑤ data-private-text 子树里的文字一个字符都不改（模糊是 CSS 的事）");
+assert.equal(idTextMixedNode.nodeValue, "防火工程学院 电子信息工程",
+  "⑤ 跳过区里的数字与校名都不处理 —— 整块已糊，改字只会让还原失真");
+
+// ⑤ 属性面：提示文本同样不许露真名
+assert.equal(attrBox.getAttribute("aria-label"), "已隐藏", "aria-label 里的真名要换成占位串（读屏会念出来）");
+assert.equal(attrBox.getAttribute("title"), "已隐藏", "title 的悬浮提示也要换（鼠标一停就现原形）");
+assert.equal(attrImg.getAttribute("alt"), "已隐藏", "人脸元素的 alt 同样处理");
+assert.equal(attrBoxText.nodeValue, "梁逸乐", "属性被换掉不影响子树文字（文字交给 CSS 糊）");
+
 // ④ 校名：只糊命中的那一段，其余文本照常 9 化，结构不散
 assert.equal(wordText.parentNode, null, "原文本节点要被整段换掉（纯文本节点糊不了两个字符）");
 const wordSpans = wordBox.children.filter((c) => c.nodeType === 1);
@@ -355,6 +382,9 @@ assert.equal(plain.classList.contains("privacy-masked"), false, "关掉后要摘
 assert.equal(face.classList.contains("privacy-blur"), false, "关掉后要摘掉模糊");
 
 assert.equal(wordBox.textContent, "警大成绩 87.5 分", "关掉后校名与数字都要还原成原文");
+assert.equal(attrBox.getAttribute("aria-label"), "给 梁逸乐 改名", "关掉后 aria-label 要还原");
+assert.equal(attrBox.getAttribute("title"), "点击名字以改名", "关掉后 title 要还原");
+assert.equal(attrImg.getAttribute("alt"), "梁逸乐的照片", "关掉后 alt 要还原");
 assert.equal(wordBox.childNodes.length, 1, "包裹层必须消失，不许留空壳");
 assert.equal(wordBox.childNodes[0].nodeType, 3, "还原成一个纯文本节点（与包裹前严格互逆）");
 assert.equal(wordBox.children.length, 0, "不许留 span");
@@ -406,9 +436,26 @@ assert.match(appearance, /校名模糊/, "索引标题「校名模糊」要真�
 assert.match(appearance, /人脸模糊/, "设置页要写清人脸会怎样");
 assert.match(appearance, /三维图全满/, "设置页要写清三维图会怎样");
 assert.match(appearance, /校名模糊/, "设置页要写清校名会怎样");
+assert.match(appearance, /身份字段模糊/, "设置页要写清第五条（姓名/学院这类）会怎样");
+
+/* ⑤ 身份文字的打标必须真的落在插件里 —— 房主测不到它，只能靠这几条锚点守着。
+   宿主分不清「防火工程学院」是身份还是业务数据，漏一处就是一个真名原样露出。 */
+assert.match(read("../public/plugins/cppu-notify/profile.js"), /<h2 data-private-text>/, "个人信息页姓名要打标");
+assert.match(read("../public/plugins/cppu-notify/profile.js"), /pf-face" data-private-face/, "个人信息页头像算人脸锚点");
+/* v0.281.0：「学生成长」并进「个人信息」，growth.js 不再存在 —— 原来那三块
+   （校园生活 / 我的考勤 / 奖惩记录）现在画在 profile.js 里，打标口径必须跟着一起搬过来，
+   别在合并时把成长数据的姓名/人脸锚点丢了。 */
+const mergedProfile = read("../public/plugins/cppu-notify/profile.js");
+assert.equal((mergedProfile.match(/data-private-text/g) || []).length >= 3, true,
+  "合并后个人信息页要有多处 data-private-text（身份卡姓名 + 可复制字段值），别在合并时丢打标");
+assert.match(mergedProfile, /我的考勤[\s\S]*暂无出勤记录/, "成长数据的考勤块要在这页里");
+assert.match(mergedProfile, /奖惩记录[\s\S]*暂无奖惩记录/, "成长数据的奖惩块要在这页里");
+assert.match(read("../public/plugins/cppu-notify/award-list.js"), /data-private-text/, "获奖名单的人名要打标（一屏几十个真名）");
+assert.match(read("../public/plugins/dorm-duty/main.js"), /class="dd-bed-name" data-private-text/,
+  "床位人名牌要打标（宿舍号 + 真人名的组合是最容易被认出来的）");
 assert.match(shell, /quick-menu-avatar[\s\S]{0,80}data-private-face/, "快捷菜单头像是人脸锚点");
 assert.match(shell, /class: "privacy-badge"/, "顶栏要有展示模式徽标");
-assert.match(shell, /隐私展示模式已开启：人脸模糊、数字 9 化、三维图全满、校名模糊/, "徽标提示要列全四条");
+assert.match(shell, /隐私展示模式已开启：人脸模糊、数字 9 化、三维图全满、校名模糊、身份字段模糊/, "徽标提示要列全五条");
 assert.match(helper, /syncPrivacyBadge/, "徽标显隐要有出口函数");
 assert.match(read("../public/plugins/dorm-duty/main.js"), /data-private-full/, "三维星图要有全满锚点");
 assert.match(read("../public/plugins/inbox-drop/main.js"), /id-preview" data-private-face/, "本人截图预览算人脸锚点");
@@ -416,6 +463,7 @@ assert.match(read("../public/plugins/inbox-drop/main.js"), /id-preview" data-pri
 // 样式：ON 才生效、模糊用 filter、全满压住插件自身的三级选择器
 for (const rule of [
   ":root[data-privacy-mask=\"on\"] [data-private-face]",
+  ":root[data-privacy-mask=\"on\"] [data-private-text]",
   ":root[data-privacy-mask=\"on\"] [data-private-word]",
   ".privacy-masked",
   "[data-private-full] .dd-bed.empty",
@@ -427,6 +475,10 @@ assert.match(css, /pointer-events: none/, "模糊层不许吃掉点击（头像�
 assert.match(css, /!important/, "三维图全满要压住插件目录里排在其后的选择器");
 assert.match(css, /\[data-private-word\] \{\s*\n\s*display: inline-block;\s*\n\s*filter: blur\(/,
   "校名那层也要用 filter（换字符会改宽度、断行与复制结果），且得给 filter 一个稳定渲染块");
+assert.match(css, /:root\[data-privacy-mask="on"\] \[data-private-text\] \{[\s\S]{0,160}filter: blur\(/,
+  "身份文字同样用 filter 糊，不换字符（关掉模式要能原样还原）");
+assert.match(css, /:root\[data-privacy-mask="on"\] \[data-private-text\] \{[\s\S]{0,200}user-select: none/,
+  "糊掉的字必须禁选 —— 拖选复制到原文等于白糊");
 assert.match(html, /styles\/privacy-mask\.css/, "index.html 要静态引一份（开着模式启动时首屏就位）");
 
 /* ── ⑤ v0.252.0 · 左下角一键关闭键 ────────────────────────────────────────

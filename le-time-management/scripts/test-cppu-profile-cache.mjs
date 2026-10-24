@@ -1,4 +1,4 @@
-/* 学生成长页的本地缓存（v0.268.0）
+/* 个人信息（含成长数据）页的本地缓存（v0.268.0 起，v0.281.0 两页合一时保持）
  *
  * 需求原话：这个界面不用每一次打开都刷新，默认用缓存直到一个月后，要「无感」。
  * 所以这里验的不是「有缓存文件」，而是四件事：
@@ -6,8 +6,9 @@
  *   ② 30 天内重开（**新的视图实例**才等于重启应用）⇒ 一个请求都不发，直接画上次那份；
  *   ③ 超过 30 天 ⇒ 必须自己重抓，不能一年后还在画旧数据；
  *   ④ 快照坏了 / 只有半页 / 宿主没 tide.cache ⇒ 退回取数，不许把页面画成空白。
- * 另外钉住一条容易被"优化"掉的口径：抓取**没到半数**的那次不许落盘，
- * 否则一次断网就把「暂无」写死 30 天。
+ * 另外钉住两条容易被"优化"掉的口径：
+ *   · 抓取**没到半数**的那次不许落盘，否则一次断网就把「暂无」写死 30 天；
+ *   · v0.281.0 合并前的 `growthSnapshot` 只可能是半页数据，读到就删，不许再当缓存用。
  */
 import assert from 'node:assert/strict';
 
@@ -19,20 +20,23 @@ globalThis.document = {
   head: { append: () => {} },
 };
 
-const { createGrowthView } = await import('../public/plugins/cppu-notify/growth.js');
+const { createProfileView } = await import('../public/plugins/cppu-notify/profile.js');
 
 const DAY = 24 * 60 * 60 * 1000;
-const SNAPSHOT_KEY = 'growthSnapshot';
+const SNAPSHOT_KEY = 'profileSnapshot';
+const LEGACY_KEY = 'growthSnapshot';
 const flush = async () => { await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0)); };
 
-/* 磁盘缓存替身：值的拷贝都过一遍 JSON，跟真实落盘一致（否则测试会因为共享引用假通过）。 */
-function fakeCache(seed = null) {
+/* 磁盘缓存替身：值的拷贝都过一遍 JSON，跟真实落盘一致（否则测试会因为共享引用假通过）。
+   remove 是宿主 vue- 侧的名字（pluginCache.js 返回的是 remove，没有 delete）。 */
+function fakeCache(seed = null, seedKey = SNAPSHOT_KEY) {
   const map = new Map();
-  if (seed) map.set(SNAPSHOT_KEY, JSON.parse(JSON.stringify(seed)));
+  if (seed) map.set(seedKey, JSON.parse(JSON.stringify(seed)));
   return {
     map,
     get: async (k, d = null) => (map.get(k) == null ? d : JSON.parse(JSON.stringify(map.get(k)))),
     set: async (k, v) => { map.set(k, v == null ? null : JSON.parse(JSON.stringify(v))); },
+    remove: async (k) => { map.delete(k); },
   };
 }
 
@@ -70,12 +74,28 @@ const tideStub = (cache) => ({
 });
 const host = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll: () => [] });
 
+/* 一份「完整」的旧快照：dirs 是 v0.281.0 起的数据报告目录字段（旧版叫 modules）。 */
+const seedOf = (savedAt, extra = {}) => ({
+  savedAt,
+  profile: { USERNAME: '张三', USERID: '2025' },
+  photo: '',
+  fields: [],
+  learn: { GOTTENUNIT: 218 },
+  kpi: [{ FORMNAME: '图书借阅数', WID: 'w1', KPI_COLOR: '#118AB2' }],
+  consume: { placeRanking: [{ MERCHANT: '食堂' }], balance: { BALANCE: 88.5 } },
+  online: null,
+  attend: [],
+  bonus: [],
+  dirs: [],
+  ...extra,
+});
+
 /* ① 第一次：全部成功 ⇒ 落盘，且快照里该有的都在 */
 {
   const cache = fakeCache();
   const b = bridge();
   const h = host();
-  const view = createGrowthView(tideStub(cache), b);
+  const view = createProfileView(tideStub(cache), b);
   view.render(h);
   await flush();
 
@@ -94,26 +114,38 @@ const host = () => ({ innerHTML: '', querySelector: () => null, querySelectorAll
 
 /* ② 30 天内重开（新实例 = 重启应用）⇒ 零请求，直接画缓存 */
 {
-  const cache = fakeCache({ savedAt: Date.now() - 20 * DAY, profile: { USERNAME: '张三', USERID: '2025' }, photo: '', learn: { GOTTENUNIT: 218 }, learnTags: [], kpi: [{ FORMNAME: '图书借阅数', WID: 'w1', KPI_COLOR: '#118AB2' }], consume: { placeRanking: [{ MERCHANT: '食堂' }], balance: { BALANCE: 88.5 } }, online: null, attend: [], bonus: [], modules: [] });
+  const cache = fakeCache(seedOf(Date.now() - 20 * DAY));
   const b = bridge();
   const h = host();
-  createGrowthView(tideStub(cache), b).render(h);
+  createProfileView(tideStub(cache), b).render(h);
   await flush();
 
   assert.equal(b.calls.length, 0, '一个月内打开不该发任何请求（这就是"无感"）');
   assert.match(h.innerHTML, /张三/, '缓存要立刻画出身份卡');
   assert.match(h.innerHTML, /食堂/, '缓存里的第二批数据也在');
-  assert.doesNotMatch(h.innerHTML, /正在读取个人成长数据…/, '有缓存就不该停在整页占位');
+  assert.doesNotMatch(h.innerHTML, /正在读取个人信息…/, '有缓存就不该停在整页占位');
   assert.match(h.innerHTML, /更新于/, '仍要给出数据的时间戳（用抓取那一刻，不是打开这一刻）');
   assert.match(h.innerHTML, /一个月内直接显示本地缓存/, '工具栏要说明这是缓存口径');
 }
 
-/* ③ 超过 30 天 ⇒ 必须重抓 */
+/* ②b 合并前的 growthSnapshot：读盘时删掉，不许当缓存（它只可能是半页） */
 {
-  const cache = fakeCache({ savedAt: Date.now() - 31 * DAY, profile: { USERNAME: '李四' }, kpi: [], learnTags: [], attend: [], bonus: [], modules: [] });
+  const cache = fakeCache(seedOf(Date.now() - 2 * DAY), LEGACY_KEY);
   const b = bridge();
   const h = host();
-  createGrowthView(tideStub(cache), b).render(h);
+  createProfileView(tideStub(cache), b).render(h);
+  await flush();
+  assert.equal(b.calls.length, 8, '旧 key 不是缓存，必须重新取数');
+  assert.equal(cache.map.has(LEGACY_KEY), false, '旧 key 读到就删，别继续占地方');
+  assert.ok(cache.map.get(SNAPSHOT_KEY), '重抓后写的是新 key');
+}
+
+/* ③ 超过 30 天 ⇒ 必须重抓 */
+{
+  const cache = fakeCache(seedOf(Date.now() - 31 * DAY, { profile: { USERNAME: '李四' }, kpi: [] }));
+  const b = bridge();
+  const h = host();
+  createProfileView(tideStub(cache), b).render(h);
   await flush();
 
   assert.equal(b.calls.length, 8, '过了 30 天要自己重抓');
@@ -133,7 +165,7 @@ for (const bad of [
   const cache = fakeCache(bad);
   const b = bridge();
   const h = host();
-  createGrowthView(tideStub(cache), b).render(h);
+  createProfileView(tideStub(cache), b).render(h);
   await flush();
   assert.equal(b.calls.length, 8, `坏快照 ${JSON.stringify(bad).slice(0, 40)} 要退回取数`);
   assert.match(h.innerHTML, /张三/);
@@ -141,11 +173,11 @@ for (const bad of [
 
 /* ⑤ 抓取只到一半（首屏齐、后五块全灭）⇒ 不许落盘，别把「暂无」写死 30 天 */
 {
-  const old = { savedAt: Date.now() - 40 * DAY, profile: { USERNAME: '张三' }, kpi: [], learnTags: [], attend: [], bonus: [], modules: [], consume: { placeRanking: [{ MERCHANT: '食堂' }] } };
+  const old = seedOf(Date.now() - 40 * DAY);
   const cache = fakeCache(old);
   const b = bridge('tail-fail');
   const h = host();
-  createGrowthView(tideStub(cache), b).render(h);
+  createProfileView(tideStub(cache), b).render(h);
   await flush();
   assert.equal(b.calls.length, 8);
   assert.equal(cache.map.get(SNAPSHOT_KEY).savedAt, old.savedAt, '半页结果不许盖掉上一份完整快照');
@@ -156,7 +188,7 @@ for (const bad of [
   const b = bridge();
   const h = host();
   const tide = { storage: { get: async (k, d) => d, set: async () => {} }, ui: { selectionGlow: () => null, waitMask: () => () => {} }, notify: () => {} };
-  createGrowthView(tide, b).render(h);
+  createProfileView(tide, b).render(h);
   await flush();
   assert.equal(b.calls.length, 8, '没有缓存层也要能正常取数');
   assert.match(h.innerHTML, /张三/);
@@ -164,10 +196,10 @@ for (const bad of [
 
 /* ⑦ 一个月内手动刷新 ⇒ 必须真的重打（缓存只能拦住「自动重开」，不能拦住用户按刷新） */
 {
-  const cache = fakeCache({ savedAt: Date.now() - 3 * DAY, profile: { USERNAME: '张三' }, kpi: [], learnTags: [], attend: [], bonus: [], modules: [] });
+  const cache = fakeCache(seedOf(Date.now() - 3 * DAY));
   const b = bridge();
   const h = host();
-  const view = createGrowthView(tideStub(cache), b);
+  const view = createProfileView(tideStub(cache), b);
   view.render(h);
   await flush();
   assert.equal(b.calls.length, 0, '自动重开零请求');
@@ -179,4 +211,4 @@ for (const bad of [
   assert.ok(Number(cache.map.get(SNAPSHOT_KEY).savedAt) > Date.now() - 60 * 1000, '刷新成功后快照时间要更新');
 }
 
-console.log('PASS: 学生成长页本地缓存（30 天快照 · 打开零请求 · 过期自愈 · 坏快照与半页结果不落盘 · 刷新走 force · 无缓存层降级）');
+console.log('PASS: 个人信息页本地缓存（30 天快照 · 打开零请求 · 过期自愈 · 旧 growthSnapshot 清掉 · 坏快照与半页结果不落盘 · 刷新走 force · 无缓存层降级）');

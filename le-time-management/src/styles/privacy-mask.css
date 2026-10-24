@@ -2,11 +2,12 @@
    由 src/privacyMask.js 的 ensurePrivacyMaskStyles() 插入，index.html 里也有一份静态
    引用（首屏前就位，避免开着模式启动时闪一下原值）。
 
-   三条规则与 js 模块头部注释一一对应（v0.245.0 起为四条）：
+   五条规则与 js 模块头部注释一一对应（v0.234.0 三条 → v0.245.0 四条 → v0.279.0 五条）：
      ① 人脸模糊  → `[data-private-face]`（肖像、人脸、以及本人截图预览）
      ② 数字 9 化 → `.privacy-masked`（文本节点已由 js 改写，这里只做淡淡的「已遮蔽」质感）
      ③ 三维图全满 → `[data-private-full]` 里的空位星点按占用样式显示（宿舍床位星图）
      ④ 校名模糊  → `[data-private-word]`（「警大」这类能定位到具体学校的词）
+     ⑤ 身份文字  → `[data-private-text]`（姓名 / 民族 / 学院 / 专业 / 班级）
 
    只在 ON 时生效：宿主把 `data-privacy-mask="on"` 写在 <html> 上，关掉即整块失效。 */
 
@@ -76,6 +77,25 @@
   filter: blur(5px);
   /* 糊掉的字仍占原宽度：后面那几个字的位置不变，界面不会重排 */
   overflow: visible;
+}
+
+/* ── ⑤ 身份文字遮蔽（v0.279.0）：姓名 / 民族 / 学院 / 专业 / 班级 ──────────
+   这些值既不含数字、也不含校名，①②④ 一条都碰不到 —— 学号 9 化、校名糊掉之后，
+   一张截图上唯一还能读出「这是谁」的就剩它们（姓名 + 学院 + 班级就是点名）。
+   插件给值打 `data-private-text`，这里是唯一消费方。
+
+   为什么用 filter 而不是「换成 ██」：一换字，宽度、断行、无障碍名称、复制出来的
+   文本全跟着变，本来只是展示层的事就动到数据语义了。
+   为什么不写 pointer-events: none：这些值常常就长在按钮里（点一下复制），糊掉也要能点。
+   但 user-select 一定要关：拖选能拿到原文，等于白糊。
+
+   不加 display: inline-block —— ④ 的校名是两三个字，⑤ 的值可能是一整串
+   「电子信息工程（智慧消防方向）」，改成 inline-block 会把折行搞坏、撑出容器。
+   inline 元素上的 filter 在 Chromium 里是整体绘制，实测正常。 */
+:root[data-privacy-mask="on"] [data-private-text] {
+  filter: blur(5px);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* ── 顶栏「展示模式」徽标 ──────────────────────────────────────────────── */

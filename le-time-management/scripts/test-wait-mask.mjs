@@ -566,7 +566,7 @@ return { SHOW_DELAY_MS, MIN_VISIBLE_MS, FADE_MS, MAX_HOLD_MS, showWaitMask, with
 /* ── 16. 插件接线：重活处必须真的挂了蒙版，且插件不许自己造一套 ── */
 {
   const plugins = [
-    ["cppu-notify", /waitMask\(/, ["calendar.js", "growth.js", "profile.js"]],
+    ["cppu-notify", /waitMask\(/, ["calendar.js", "profile.js"]],
     ["chaoxing-notify", /waitMask\(/],
     ["school-notice", /waitMask\(/],
     ["rss-reader", /waitMask\(/],

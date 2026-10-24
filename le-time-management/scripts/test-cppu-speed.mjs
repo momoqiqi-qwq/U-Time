@@ -1,20 +1,19 @@
-// 「学生成长 / 个人信息」的获取速度（v0.236.0）。
+// 「个人信息（含成长数据）」的获取速度（v0.236.0，v0.281.0 两页合一后重写）。
 //
-// 用户口径：这两页每次进去都在转圈，要的是「切走再切回别再等一遍」。
+// 用户口径：这页每次进去都在转圈，要的是「切走再切回别再等一遍」。
 //
 // 本测试盯四件容易悄悄退回去的事：
 //   ① 主进程那层缓存必须挂在 pdataApi **之外** —— 挂进去会把
 //      test-cppu-pdata-login 的「同一个 path 第二次必须重新问服务端」变成假绿；
 //   ② 只缓存成功响应：失败 / 未登录不落缓存（否则一次网络抖动会被记住一整个 TTL，
 //      用户点几次刷新都是「读不到」）；
-//   ③ 两个视图重进 TTL 内不再问 bridge，「刷新」走 force 真的绕过去；
+//   ③ 重进 TTL 内不再问 bridge，「刷新」走 force 真的绕过去；
 //   ④ 首屏分两批落画面：三块先画，其余五块没回来之前**不许**冒出「暂无 …」。
 import { readProductSource } from './lib/read-product-source.mjs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 
 const mainSrc = readProductSource(new URL('../public/plugins/cppu-notify/main.js', import.meta.url), 'utf8');
-const growthSrc = readProductSource(new URL('../public/plugins/cppu-notify/growth.js', import.meta.url), 'utf8');
 const profileSrc = readProductSource(new URL('../public/plugins/cppu-notify/profile.js', import.meta.url), 'utf8');
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -136,7 +135,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
     createElement: () => ({}),
     head: { append: () => {} },
   };
-  const { createGrowthView } = await import('../public/plugins/cppu-notify/growth.js');
+  const { createProfileView } = await import('../public/plugins/cppu-notify/profile.js');
 
   const calls = [];
   const bridge = {
@@ -156,13 +155,13 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
     return { promise, resolve };
   }
   const host = { innerHTML: '', querySelector: () => null, querySelectorAll: () => [] };
-  const view = createGrowthView(tideStub, bridge);
+  const view = createProfileView(tideStub, bridge);
   view.render(host);
   await flush();
 
   assert.equal(calls.length, 8, '八个接口还是要并发发出（只是分两批落画面）');
   const find = (needle) => calls.filter((c) => c.path.includes(needle))[0];
-  assert.match(host.innerHTML, /正在读取个人成长数据…/, '首屏之前还是要有整页占位（老宿主的兜底）');
+  assert.match(host.innerHTML, /正在读取个人信息…/, '首屏之前还是要有整页占位（老宿主的兜底）');
   const okHead = [
     { ok: true, data: { personInfo: { USERNAME: '张三', USERID: '2025290058' }, column: [] } },
     { ok: true, data: { GOTTENUNIT: 218, TOTALUNIT: 59.6 } },
@@ -177,7 +176,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
   assert.match(mid, /更新于/, '首屏落地就要给更新时间（手里有数据了）');
   assert.doesNotMatch(mid, /暂无出勤记录|当月无消费记录|暂无奖惩记录/, '其余五块还没回来时不许说「暂无」');
   assert.match(mid, /正在读取…/, '其余五块的位置要说「正在读取…」');
-  assert.doesNotMatch(mid, /正在读取个人成长数据…/, '有数据了就不该再退回整页占位');
+  assert.doesNotMatch(mid, /正在读取个人信息…/, '有数据了就不该再退回整页占位');
 
   const tailData = [
     { ok: true, data: { placeRanking: [{ MERCHANT: '食堂', SPENDGMONEY: 12 }], balance: { BALANCE: 88.5, TOTALAMOUNT: 300 } } },
@@ -202,30 +201,24 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
   assert.match(host.innerHTML, /张三/, '重进要能立刻画出上次那份');
   assert.equal(view.refresh === undefined, false, '对外仍要暴露 refresh');
 
-  /* 静态接线：两个视图的「刷新」都必须走 force（否则用户按了刷新还是旧数据），
-     重新登录成功同理 —— 换票后那份数据属于新身份。 */
-  assert.match(growthSrc, /on\("\[data-pg-refresh\]", \(\) => loadAll\(true\)\)/, '成长页刷新必须走 force');
-  assert.match(profileSrc, /\[data-pf-refresh\]"\)\) \{ loadAll\(true\); return; \}/, '个人信息刷新必须走 force');
-  /* 重进窗口：成长页 v0.268.0 起是「一个月内直接用车里的/磁盘上的缓存」（数据不勤变，
-     8 个接口每次打开都重打纯属白等）；个人信息页仍是 1 分钟。两边都必须是常量，不能散写数字。 */
-  const freshWindow = {
-    'growth.js': /const FRESH_MS = 30 \* 24 \* 60 \* 60 \* 1000;/,
-    'profile.js': /const FRESH_MS = 60 \* 1000;/,
-  };
-  for (const [name, src] of [['growth.js', growthSrc], ['profile.js', profileSrc]]) {
-    assert.match(src, /loadAll\(force = false\)/, `${name} 的 loadAll 必须收 force`);
-    assert.match(src, freshWindow[name], `${name} 的重进窗口`);
-    // 手里有数据时不打蒙版，但兜底占位不能丢（老宿主还要靠它）
-    assert.match(src, /const releaseWait = state\.loadedAt \? \(\) => \{\} : waitMask\("/, `${name} 有数据时不打蒙版`);
-    assert.match(src, /result === "ok"\) \{ state\.error = ""; state\.stale = ""; loadAll\(true\); return; \}/,
-      `${name} 重新登录成功后必须强制重取`);
-  }
-  assert.match(growthSrc, /const HEAD_FIELDS = \["profile", "learn", "kpi"\];/);
-  assert.match(growthSrc, /const TAIL_FIELDS = \["consume", "online", "attend", "bonus", "modules"\];/);
-  assert.match(growthSrc, /state\.partial \? "正在读取…" : onConsume \? "当月无消费记录"/);
-  assert.match(growthSrc, /state\.partial \? "正在读取…" : "暂无出勤记录"/);
-  assert.match(growthSrc, /state\.partial \? "正在读取…" : "暂无奖惩记录"/);
-  assert.match(profileSrc, /const res = await call\("\/tsa\/shc\/homepage\/personInfo", force\);/);
+  /* 静态接线：「刷新」「重新登录」都必须走 force（否则用户按了刷新还是旧数据；
+     换票后那份数据属于新身份）。v0.281.0 起只剩一个视图、一个文件。 */
+  assert.match(profileSrc, /hit\("\[data-pf-refresh\]"\)\) \{ loadAll\(true\); return; \}/, '刷新必须走 force');
+  assert.match(profileSrc, /result === "ok"\) \{ state\.error = ""; state\.stale = ""; loadAll\(true\); return; \}/,
+    '重新登录成功后必须强制重取');
+  /* 重进窗口：v0.268.0 起是「一个月内直接用车里的/磁盘上的缓存」（数据不勤变，
+     8 个接口每次打开都重打纯属白等）。必须是常量，不能散写数字。 */
+  assert.match(profileSrc, /loadAll\(force = false\)/, 'loadAll 必须收 force');
+  assert.match(profileSrc, /const FRESH_MS = 30 \* 24 \* 60 \* 60 \* 1000;/, '重进窗口是一个月');
+  // 手里有数据时不打蒙版，但兜底占位不能丢（老宿主还要靠它）
+  assert.match(profileSrc, /const releaseWait = state\.loadedAt \? \(\) => \{\} : waitMask\("正在读取个人信息与成长数据…"\);/, '有数据时不打蒙版');
+  assert.match(profileSrc, /const HEAD_FIELDS = \["profile", "learn", "kpi"\];/);
+  assert.match(profileSrc, /const TAIL_FIELDS = \["consume", "online", "attend", "bonus", "dirs"\];/);
+  assert.match(profileSrc, /state\.partial \? "正在读取…" : onConsume \? "当月无消费记录"/);
+  assert.match(profileSrc, /state\.partial \? "正在读取…" : "暂无出勤记录"/);
+  assert.match(profileSrc, /state\.partial \? "正在读取…" : "暂无奖惩记录"/);
+  // 「学生成长」不再是独立视图：入口、视图注册、模块文件都必须只剩个人信息这一份
+  assert.doesNotMatch(mainSrc, /cppu-growth|growth\.js|data-pg-host/, '成长页已并入个人信息，不许留半截入口');
 }
 
-console.log('PASS: 成长/个人信息取数速度（pdata 缓存与并发去重 · 失败不缓存 · 票据换人作废 · 首屏分两批落画面 · 重进不打网络 · 刷新走 force）');
+console.log('PASS: 个人信息（含成长数据）取数速度（pdata 缓存与并发去重 · 失败不缓存 · 票据换人作废 · 首屏分两批落画面 · 重进不打网络 · 刷新走 force）');

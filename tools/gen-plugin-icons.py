@@ -96,7 +96,8 @@ VIEW_ICONS = {
     "cppu-credit":   (["line-chart", "combo-chart--v1", "statistics"], "警大门户通知 · 警大成绩"),
     "cppu-cx":       (["medal", "medal2", "diploma"],                  "警大门户通知 · 创新学分"),
     "cppu-calendar": (["calendar", "calendar--v1"],                    "警大门户通知 · 警大校历"),
-    "cppu-growth":   (["sprout", "seedling", "plant-under-sun"],       "警大门户通知 · 学生成长"),
+    # v0.281.0：「学生成长」并进个人信息页 ⇒ 这个视图 id 不再注册，也不再出图标
+    # （icons.js 的 VIEW_ICONS8 / VIEW_FA_ICONS 与 test-plugin-view-icons.mjs 同步摘掉）。
     "cppu-profile":  (["contact-card", "id-card", "business-contact"], "警大门户通知 · 个人信息"),
     # 上网记录（v0.253.0）：Dr.COM 自助服务的流量账单。取「联网」语义而不是图表语义 ——
     # line-chart 已经是警大成绩，同侧栏里再放一张图表图标会读成同一类东西。
@@ -121,6 +122,11 @@ VIEW_ICONS = {
     # 不用 university —— 那是插件自己的图标（cppu-notify），同字节会被
     # test-plugin-view-icons 的「PNG 两两不同」拦下；statistics 已被 cppu-credit 占用。
     "cppu-credit-ledger": (["scroll", "certificate"],                   "警大门户通知 · 我的学分"),
+    # 我的体测（v0.282.0）：心率语义，与轮廓图标（FA solid 的 heart-pulse）同义。
+    # 不用 dumbbell / sport 打头：这一页真正的产物是那张成绩单，心率比哑铃更贴近「体测」。
+    # pulse / health-checkup / dumbbell 只是兜底（Icons8 的 slug 时有增删，一个不保证存在）。
+    "cppu-fitness":  (["heart-with-pulse", "pulse", "health-checkup", "dumbbell"],
+                      "警大门户通知 · 我的体测"),
 }
 
 # 印章式文字图标：plugin-id -> (文字(至多 2 字，竖排堆叠), 说明)。

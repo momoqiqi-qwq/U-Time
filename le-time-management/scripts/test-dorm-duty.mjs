@@ -865,7 +865,7 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
   const host = fakeEl('div');
   await fx.render(host);
   await settle();
-  assert.match(host.innerHTML, /<b>阿青<\/b>/, '首页必须显示本轮当班人');
+  assert.match(host.innerHTML, /<b data-private-text>阿青<\/b>/, '首页必须显示本轮当班人（并打隐私标记）');
   assert.match(host.innerHTML, /今天换人/, '起始日当天应标出「今天换人」');
   assert.match(host.innerHTML, /轮到 <b>小北<\/b>/, '「下次换人」应显示下一轮的人');
   assert.match(host.innerHTML, /第 1 轮/, '轮次表必须标出轮次序号');
@@ -920,7 +920,7 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
   const host = fakeEl('div');
   await fx.render(host);
   await settle();
-  assert.match(host.innerHTML, /<b>老陈<\/b>/, '当班人显示换上去的那位');
+  assert.match(host.innerHTML, /<b data-private-text>老陈<\/b>/, '当班人显示换上去的那位');
   assert.match(host.innerHTML, /已换人 · 原 阿青/, '要说清原本该谁当班，别把替补当成「原」');
   assert.ok(!/已换人 · 原 老陈/.test(host.innerHTML), '「原」不能写成替补自己');
 }
@@ -1165,7 +1165,7 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
   const html = host.innerHTML;
   assert.match(html, /class="dd-multi"/, '多人当班时名字要用小一号的字（dd-multi）');
   assert.match(html, /每轮 2 人/, 'kicker 必须标出每轮人数');
-  assert.match(html, /<b class="dd-multi">阿青、小北<\/b>/, '首页显示完整的当班名单');
+  assert.match(html, /<b data-private-text class="dd-multi">阿青、小北<\/b>/, '首页显示完整的当班名单');
   assert.match(html, /data-perround="2"/, '「每轮人数」快捷档要渲染成 chips');
   assert.match(html, /data-perround="3"/, '每轮人数快捷档要有 3 人档');
   assert.match(html, /data-perround-custom/, '每轮人数要有自定义输入');
@@ -1178,7 +1178,7 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
   const host2 = fakeEl('div');
   await swapped.fx.render(host2);
   await settle();
-  assert.match(host2.innerHTML, /<b class="dd-multi">老陈、阿青<\/b>/, '换人后显示换上的名单');
+  assert.match(host2.innerHTML, /<b data-private-text class="dd-multi">老陈、阿青<\/b>/, '换人后显示换上的名单');
   assert.match(host2.innerHTML, /已换人 · 原 阿青、小北/, '「原」必须显示正常排班的整批人');
   assert.match(host2.innerHTML, /data-swap-clear/, '有换人记录时要有撤销入口');
 }

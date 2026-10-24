@@ -664,9 +664,13 @@ function rowsHtml(rows, kind) {
   return rows.map((row) => {
     // 团体档的行名就是成员姓名（rankAwards 已滤掉没列成员的队），不出现任何队名。
     const label = kind === "team" ? joinPeople(row.members) : row.name;
+    /* v0.279.0 隐私模式：这一列几乎总是人名（names / people / team 三档都是），
+       整站真名密度最高的地方 —— 一屏几十个同学的名字，宿主的数字 9 化与校名模糊
+       对此完全无感。只有 items 档例外（那里是奖项项目名），所以按档位判断。 */
+    const personAttr = kind === "items" ? "" : " data-private-text";
     return `<li class="aw-item" data-aw-item="${esc(row.key)}">
   <button type="button" class="aw-row" data-aw-toggle="${esc(row.key)}" aria-expanded="false" aria-controls="aw-body-${esc(row.id)}">
-    <span class="aw-no ${rankTone(row.rank)}">${row.rank}</span><span class="aw-name">${esc(label)}</span>
+    <span class="aw-no ${rankTone(row.rank)}">${row.rank}</span><span class="aw-name"${personAttr}>${esc(label)}</span>
     <span class="aw-bar" aria-hidden="true"><i style="width:${Math.max(6, Math.round(row.count / row.max * 100))}%"></i></span>
     <span class="aw-total">${row.count} 项</span><span class="aw-arrow" aria-hidden="true">▸</span>
   </button>
@@ -702,10 +706,11 @@ function itemsHtml(items) {
     ${shown.length ? `<div class="aw-group"><b>获奖人员 / 团体成员 ${shown.length}</b><div class="aw-pills">${shown.map((n) => {
       const note = people.find((g) => g.name === n)?.note || "";
       const inTeam = memberNames.includes(n);
-      return `<span class="aw-pill"${inTeam ? ` title="团体获奖成员（团体获奖按人署名）"` : ""}>${esc(n)}${note ? `<span>${esc(note)}</span>` : ""}${inTeam ? `<span>团体</span>` : ""}</span>`;
+      // data-private-text 只包姓名那一截，note（奖项项目）不糊 —— v0.279.0
+      return `<span class="aw-pill"${inTeam ? ` title="团体获奖成员（团体获奖按人署名）"` : ""}><span data-private-text>${esc(n)}</span>${note ? `<span>${esc(note)}</span>` : ""}${inTeam ? `<span>团体</span>` : ""}</span>`;
     }).join("")}</div></div>` : ""}
     ${unlisted ? `<div class="aw-group"><b>${unlisted} 个团体获奖未列出成员姓名（无姓名可署名，不计入本页）</b></div>` : ""}
-    ${item.mentors.length ? `<div class="aw-group"><b>指导教师 / 领队（不计入排名）</b><div class="aw-pills">${item.mentors.map((m) => `<span class="aw-pill">${esc(m)}</span>`).join("")}</div></div>` : ""}
+    ${item.mentors.length ? `<div class="aw-group"><b>指导教师 / 领队（不计入排名）</b><div class="aw-pills">${item.mentors.map((m) => `<span class="aw-pill" data-private-text>${esc(m)}</span>`).join("")}</div></div>` : ""}
     <div class="aw-src">来源通知：<button type="button" data-aw-source="${esc(item.rid)}">${esc(item.title)}</button>${item.affix?.length ? `<span class="aw-affix">（获奖名单来自附件：${esc(item.affix.join("、"))}）</span>` : ""}${(item.mergedRids?.length || 0) > 1 ? `<span class="aw-affix">（另有 ${item.mergedRids.length - 1} 条通知是同一奖项，已合并计数）</span>` : ""}</div>
   </div></div></div>
 </li>`;

@@ -1024,9 +1024,12 @@ assert.doesNotMatch(source, /\/je\/doAct|\/je\/develop\/funcInfo\/(save|add|upda
 assert.ok(source.includes('const JW_LOAD = JWAPP + "/je/load"'), '教务取数端点必须挂在 jw 域，不能混进 sso-jw');
 
 /* 警大学分原入口成为警大成绩，避免教务菜单出现两张重复成绩页；校历 v0.216.0 从独立插件并入；
-   学生个人成长中心（pdata）v0.217.0 并入；个人信息 v0.221.0 并入。 */
-assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-credit-ledger', 'cppu-cx', 'cppu-exam', 'cppu-growth', 'cppu-mail', 'cppu-net', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-room', 'cppu-xk'],
-  '必须注册通知、获奖名单、警大校历、自习室、学生成长、个人信息、上网记录、邮箱、我的学分、我的考试及六个教务/一卡通视图，登录设置属于应用设置');
+   学生个人成长中心（pdata）v0.217.0 并入；个人信息 v0.221.0 并入；
+   v0.281.0 起这两页合并 —— 同一个 pdata 站点、同一份 token，只留「个人信息」一个入口。
+   v0.282.0 新增「我的体测」：sport-wechat 体测成绩单，走企业微信 OAuth 的 Authorization token，
+   数据是快照（进页面读缓存，只有点刷新才重新拉）。 */
+assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-credit-ledger', 'cppu-cx', 'cppu-exam', 'cppu-fitness', 'cppu-mail', 'cppu-net', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-room', 'cppu-xk'],
+  '必须注册通知、获奖名单、警大校历、自习室、个人信息（含成长数据）、我的体测、上网记录、邮箱、我的学分、我的考试及六个教务/一卡通视图，登录设置属于应用设置');
 assert.ok(views.filter((v) => v.id !== 'cppu-notify').every((v) => typeof v.render === 'function'), '插件子视图必须有 render');
 assert.ok(views.some((v) => v.id === 'cppu-cx' && v.title === '警大创新学分'), '创新学分视图要有独立标题');
 assert.ok(views.some((v) => v.id === 'cppu-credit' && v.title === '警大成绩'), '原警大学分视图应以警大成绩注册');
@@ -1035,7 +1038,7 @@ assert.match(source, /view: "cppu-credit", label: "警大成绩"/, '教务菜单
 assert.match(source, /id: "cppu-credit", title: "警大成绩"[^\n]*keys: \["grade", "pdataStudy"\][^\n]*menu: JW_MENU\.grades,[\s\S]*?body: \(\) => jwGradesHtml\(\)/,
   '警大成绩入口必须读取成绩接口，并同时拉个人成长中心的绩点排名 / 六维图');
 assert.doesNotMatch(source, /view: "cppu-grades"|id: "cppu-grades"/, '不能保留重复的成绩入口');
-for (const v of ['cppu-xk', 'cppu-qj', 'cppu-credit', 'cppu-credit-ledger', 'cppu-cx', 'cppu-exam', 'cppu-room', 'cppu-card', 'cppu-award', 'cppu-calendar', 'cppu-growth', 'cppu-profile']) assert.ok(source.includes(`view: "${v}"`), `校园服务栏必须有 ${v} 入口`);
+for (const v of ['cppu-xk', 'cppu-qj', 'cppu-credit', 'cppu-credit-ledger', 'cppu-cx', 'cppu-exam', 'cppu-room', 'cppu-card', 'cppu-award', 'cppu-calendar', 'cppu-profile']) assert.ok(source.includes(`view: "${v}"`), `校园服务栏必须有 ${v} 入口`);
 assert.match(source, /url\.startsWith\("view:"\)\) \{ tide\.util\.navigate\("plug:" \+ url\.slice\(5\)\)/,
   'view: 入口必须在插件内切视图，而不是开系统浏览器（教务 SPA 没有 URL 深链）');
 assert.match(source, /data-goto="\$\{esc\("view:" \+ item\.view\)\}"/,

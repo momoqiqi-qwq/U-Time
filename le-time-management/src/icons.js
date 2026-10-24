@@ -54,7 +54,7 @@ const VIEW_ICONS8 = {
   // 自习室：教室语义（不是 calendar —— 那是警大校历的）。
   // 首选 classroom 是随包 PNG 的实际来源（tools/icon-masters 里没有、也不许有它的母版）。
   "cppu-room": ["classroom", "door", "open-door"],
-  "cppu-growth": ["sprout", "seedling", "plant-under-sun"],
+  // 个人信息（v0.281.0 起也含原来的「学生成长」六块，视图 id 与图标不变，用户不用重新找入口）。
   "cppu-profile": ["contact-card", "id-card", "business-contact"],
   // 上网记录：Dr.COM 自助服务的流量账单，取「联网」语义（不是图表 —— line-chart 已是警大成绩）。
   "cppu-net": ["network", "data-transfer", "network-wireless"],
@@ -65,6 +65,9 @@ const VIEW_ICONS8 = {
   // 我的学分：取「学校 / 学分账本」语义。line-chart 已是警大成绩，同侧栏再放一张图表
   // 会读成同一件事；university 在 icons8 语义里就是学士帽+建筑，与 FA 的 graduation-cap 同义。
   "cppu-credit-ledger": ["scroll", "certificate"],
+  // 我的体测（v0.282.0）：心率语义，与轮廓图标（FA solid 的 heart-pulse）同义。
+  // pulse / health-checkup / dumbbell 只是兜底 —— Icons8 的 slug 时有增删，一个不保证存在。
+  "cppu-fitness": ["heart-with-pulse", "pulse", "health-checkup", "dumbbell"],
 };
 
 // 视图 id → 轮廓图标用的 FontAwesome 名（与 registerView 的 icon 一致）。
@@ -82,7 +85,6 @@ const VIEW_FA_ICONS = {
   "cppu-calendar": "calendar-week",
   // 自习室 用 door-open：一扇开着的门，与教务子菜单里其余视图图标都不撞。
   "cppu-room": "door-open",
-  "cppu-growth": "seedling",
   // 个人信息 用 address-card（不是 id-card，那是本插件侧栏「学工」入口的图标）。
   "cppu-profile": "address-card",
   // 上网记录 用 network-wired（chart-line 已是警大成绩、chart-column 已被周度报告占用）。
@@ -93,6 +95,8 @@ const VIEW_FA_ICONS = {
   // 我的学分 用 scroll（卷轴 = 账本）：学分是「离毕业还差多少」，与成绩的 chart-line 不是一件事。
   // 不用 graduation-cap —— 那是 chaoxing-notify 的图标，同侧栏撞图标会被测试拦下。
   "cppu-credit-ledger": "scroll",
+  // 我的体测（v0.282.0）：心率语义 —— 服务端会给项目彩色图，侧栏只要一个「一眼是体测」的轮廓。
+  "cppu-fitness": "heart-pulse",
 };
 
 const ICONS8 = { ...NAV_ICONS8, ...PLUGIN_ICONS8, ...VIEW_ICONS8 };

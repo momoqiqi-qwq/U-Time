@@ -443,7 +443,7 @@ export function renderShell(root) {
     role: "status",
     "aria-live": "polite",
     "data-privacy-skip": "",
-    title: "隐私展示模式已开启：人脸模糊、数字 9 化、三维图全满、校名模糊",
+    title: "隐私展示模式已开启：人脸模糊、数字 9 化、三维图全满、校名模糊、身份字段模糊",
   }, el("span", { class: "privacy-badge-dot", "aria-hidden": "true" }), "展示模式");
   const topbar = el("header", { class: "topbar", "data-tauri-drag-region": dragRegion },
       el("div", { class: "topbar-title-card", "data-tauri-drag-region": dragRegion },

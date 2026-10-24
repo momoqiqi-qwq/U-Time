@@ -10,6 +10,11 @@
      ④ 校名模糊（v0.245.0）：屏幕上出现的「警大 / 警察大学 / 中国人民警察大学 /
         CPPU」一律就地模糊 —— 这四个字比学号更早暴露「截图里的人是谁」。
         （需求原文：「隐私模式将警大 2 个字也模糊掉」。）
+     ⑤ 身份文字遮蔽（v0.279.0）：姓名、民族、学院、专业、班级这类**纯文字**身份字段
+        既不含数字、也不含校名 —— 前四条一条都碰不到。学号被 9 化、校名被糊掉之后，
+        一张截图上唯一还能读出「这是谁」的就剩这几行字（姓名 + 学院 + 班级等于点名）。
+        所以插件给这些值打 `data-private-text`，CSS 整块糊掉，扫描时连子树一起跳过：
+        糊掉的字不该再被 9 化，否则关掉模式还原出的是 9 化后的值。
 
    实现取「先渲染再处理」的追加层，不动任何业务渲染路径：
      · 数字：只扫**文本节点**并就地改写；原串存 WeakMap，关掉开关即可逐节点
@@ -22,6 +27,9 @@
        番茄钟每秒在刷，靠 querySelectorAll 去逐个加类会拖慢这两处。
      · 重扫走 MutationObserver + 时间节流：只扫本批新增的子树，1.2s 兜底全量一次。
 
+   五条规则的分工：①②③④ 由宿主自己扫（不用插件知道），
+   ⑤ 只能靠插件打标 —— 宿主分不清「防火工程学院」是身份还是业务数据，插件最清楚哪个值是姓名。
+
    已知取舍：整个应用一视同仁地 9 化 / 模糊校名（真机上要能一键验证），
    需要保留原值的区域用 `data-privacy-skip` 标记，扫描时整棵子树跳过。
    另外只处理**屏幕上的文本节点**：`title` / `aria-label` / `alt` 这类属性里的校名
@@ -32,6 +40,9 @@ const HOST_ATTR = "data-privacy-mask";
 /** ④ 校名模糊用的包裹层标记：CSS 认它，扫描也靠它整棵跳过（否则自己会把自己无限包下去）。 */
 const WORD_ATTR = "data-private-word";
 const WORD_CLASS = "privacy-word";
+/** ⑤ 身份文字遮蔽：插件给「姓名 / 民族 / 学院 / 专业 / 班级」这类值打上它，CSS 整块糊。
+    纯 CSS 属性选择器命中，JS 不进循环 —— 视图重建后属性还在，不需要重新标记。 */
+export const TEXT_ATTR = "data-private-text";
 /** 文本节点里的连续数字串（半角 + 全角，中文全角数字不能漏）。 */
 const DIGIT_RUN_RE = /[0-9０-９]/;
 const DIGIT_RUN_RE_G = /[0-9０-９]+/g;
@@ -47,8 +58,8 @@ const WORD_SOURCE = SENSITIVE_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, 
 /** 不带 g：`test()` 复用带 g 的正则会因 lastIndex 忽真忽假。 */
 const WORD_TEST_RE = new RegExp(WORD_SOURCE, "i");
 
-/** 扫描时整棵子树跳过的标记（隐私徽标、版本号区、代码块、URL、已包好的校名等）。 */
-const SKIP_SELECTOR = `[data-privacy-skip],code,pre,kbd,samp,script,style,[${WORD_ATTR}]`;
+/** 扫描时整棵子树跳过的标记（隐私徽标、版本号区、代码块、URL、已包好的校名、已整块糊掉的身份值等）。 */
+const SKIP_SELECTOR = `[data-privacy-skip],code,pre,kbd,samp,script,style,[${WORD_ATTR}],[${TEXT_ATTR}]`;
 /** 这些容器里的文字是用户输入或表单状态，9 化会改坏表单语义、也可能与 value 打架。 */
 const FORM_SELECTOR = "input,textarea,select,option,[contenteditable='true'],[contenteditable='']";
 /** 重扫节流：连点 / 快速翻页时不至于每帧扫一遍。 */
@@ -164,6 +175,8 @@ function scan(root) {
   if (!active || !root) return;
   const doc = root.ownerDocument || (typeof document !== "undefined" ? document : null);
   if (!doc || typeof doc.createTreeWalker !== "function" || typeof NodeFilter === "undefined") return;
+  /* 新插进来的那段界面，属性也要一起遮 —— 光靠 applyPrivacyMask 只覆盖得到「打开模式那一刻」。 */
+  maskPrivateAttrs(root);
   const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) => (shouldScan(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT),
   });
@@ -245,6 +258,62 @@ function restoreWords() {
   }
 }
 
+/* ⑤ 的属性面（v0.280.0）：CSS 只糊得了文字节点，糊不到属性 ——
+   `title=` 悬浮提示、`aria-label=` 读屏播报、`alt=` 图片替代文本，里面照样能写出真名。
+   这里在同一个跳过区范围内把它们换成固定串，关掉模式再按记录写回（与文本同一套纪律：
+   只还原仍然停在我们写上去的那个值上的属性，应用自己改过的绝不覆盖）。 */
+const PRIVATE_ATTRS = Object.freeze(["title", "aria-label", "alt"]);
+const ATTR_MASK_TEXT = "已隐藏";
+/** 元素 → { title: 原值, ... }；WeakMap 不可迭代，另存一份键列表供还原时遍历。 */
+const ATTR_RECORDS = new WeakMap();
+const ATTR_NODES = new Set();
+
+/** ⑤ 属性面：把身份字段（含它所在的可交互按钮）上的提示文本换成占位串。 */
+function maskPrivateAttrs(scope) {
+  if (!scope || typeof scope.querySelectorAll !== "function") return;
+  const hosts = new Set();
+  for (const holder of scope.querySelectorAll(`[${TEXT_ATTR}],[data-private-face]`)) {
+    hosts.add(holder);
+    /* 名字常被塞进「给 X 改名」这样的按钮 label 里 —— 属性挂在外层按钮上，
+       只认 holder 自己会漏掉它。限定在这几个可交互标签里，避免一路走到页面容器上。 */
+    const owner = holder.closest?.("button,a,label,summary");
+    if (owner && owner !== holder) hosts.add(owner);
+  }
+  for (const host of hosts) {
+    const targets = [host, ...host.querySelectorAll("[title],[aria-label],[alt]")];
+    for (const el of targets) {
+      if (ATTR_RECORDS.has(el)) continue;
+      const rec = {};
+      for (const name of PRIVATE_ATTRS) {
+        const raw = el.getAttribute?.(name);
+        if (raw == null || raw === "" || raw === ATTR_MASK_TEXT) continue;
+        rec[name] = raw;
+      }
+      const names = Object.keys(rec);
+      if (!names.length) continue;
+      ATTR_RECORDS.set(el, rec);
+      ATTR_NODES.add(el);
+      for (const name of names) el.setAttribute(name, ATTR_MASK_TEXT);
+    }
+  }
+}
+
+function restorePrivateAttrs() {
+  if (!ATTR_NODES.size) return;
+  for (const el of [...ATTR_NODES]) {
+    ATTR_NODES.delete(el);
+    const rec = ATTR_RECORDS.get(el);
+    ATTR_RECORDS.delete(el);
+    if (!rec) continue;
+    for (const name of Object.keys(rec)) {
+      try {
+        if (el.getAttribute?.(name) !== ATTR_MASK_TEXT) continue; // 应用自己改过：不盖回去
+        el.setAttribute(name, rec[name]);
+      } catch { /* 已卸载 */ }
+    }
+  }
+}
+
 function markFaces(scope) {
   for (const el of scope.querySelectorAll("[data-private-face]")) {
     el.classList.add("privacy-blur");
@@ -267,11 +336,13 @@ export function applyPrivacyMask() {
   if (!active) {
     stopObserver();
     restore();
+    restorePrivateAttrs();
     unmarkFaces();
     return;
   }
   markFaces(document);
   scan(document.body);
+  maskPrivateAttrs(document);
   startObserver();
 }
 

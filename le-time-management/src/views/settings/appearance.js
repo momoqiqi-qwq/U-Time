@@ -662,8 +662,8 @@ export function createPrivacyCard({ rerender = () => {} } = {}) {
     toggleRow("隐私展示模式", on, (value) => {
       setPrivacyMask(value);
       rerender(); // 开关的 aria 状态与说明要跟着重画
-      toast(value ? "已开启隐私展示模式：人脸模糊、数字变 9、校名模糊" : "已关闭隐私展示模式");
-    }, "人脸模糊 · 数字 9 化 · 三维图全满 · 校名模糊"),
+      toast(value ? "已开启隐私展示模式：人脸模糊、数字变 9、校名模糊、身份字段模糊" : "已关闭隐私展示模式");
+    }, "人脸模糊 · 数字 9 化 · 三维图全满 · 校名模糊 · 身份字段模糊"),
     el("div", { class: "setting-row setting-col privacy-sub" },
       el("span", { class: "privacy-note" },
         el("b", {}, "人脸模糊："),
@@ -681,6 +681,10 @@ export function createPrivacyCard({ rerender = () => {} } = {}) {
       el("span", { class: "privacy-note" },
         el("b", {}, "校名模糊："),
         "学校简称、全称与英文缩写（侧栏插件名、校历抬头那种也都算）统一糊掉，截图里看不出是哪所学校。",
+      ),
+      el("span", { class: "privacy-note" },
+        el("b", {}, "身份字段模糊："),
+        "姓名、民族、学院、专业、班级这类纯文字资料整块糊掉 —— 它们既没有数字、也不含校名，前三条一条都碰不到，却是截图里最直接能读出「这是谁」的东西。名字出现在悬浮提示、读屏播报或图片替代文本（title / aria-label / alt）里时，整串换成「已隐藏」。",
       ),
       el("span", { class: "privacy-note" },
         el("b", {}, "三维图全满："),

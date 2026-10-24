@@ -39,13 +39,13 @@
 | `cppu-credit` | color | `line-chart` | 警大门户通知 · 警大成绩（插件内视图） | `36a5207d12a69bd9…` |
 | `cppu-cx` | color | `medal` | 警大门户通知 · 创新学分（插件内视图） | `da2c74375b0c0222…` |
 | `cppu-calendar` | color | `calendar` | 警大门户通知 · 警大校历（插件内视图） | `3f9a3a3fb500fa6d…` |
-| `cppu-growth` | color | `sprout` | 警大门户通知 · 学生成长（插件内视图） | `c255940f7520e582…` |
 | `cppu-profile` | color | `contact-card` | 警大门户通知 · 个人信息（插件内视图） | `e2269e1ff917229d…` |
 | `cppu-net` | color | `network` | 警大门户通知 · 上网记录（插件内视图） | `891ee1545dc76124…` |
 | `cppu-mail` | color | `email` | 警大门户通知 · 警大邮箱（插件内视图） | `ea64c67160788ff1…` |
 | `cppu-room` | color | `classroom` | 警大门户通知 · 自习室查询（插件内视图） | `80d7769099ac563e…` |
 | `cppu-exam` | color | `clock` | 警大门户通知 · 我的考试（插件内视图） | `dca38110e1ddb25b…` |
 | `cppu-credit-ledger` | color | `scroll` | 警大门户通知 · 我的学分（插件内视图） | `3abb9f1c3588b659…` |
+| `cppu-fitness` | color | `heart-with-pulse` | 警大门户通知 · 我的体测（插件内视图） | `d139ee412752c47a…` |
 
 ## 许可
 

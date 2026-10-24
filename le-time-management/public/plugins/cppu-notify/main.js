@@ -123,12 +123,11 @@
     // 否则入口点开必失败；这里只保留裸地址 + hash 路由。
     { url: "https://xg.cppu.edu.cn/XGPhone/Phone/index.html#/StuDailyLeaveList", label: "我的请假", icon: "calendar-check" },
     { url: "https://service.cppu.edu.cn/fe/site/service", label: "一网通办", icon: "clipboard-list" },
-    // 学生个人成长中心（pdata.cppu.edu.cn）与门户 / 教务不同源：独立 SPA、独立 CAS、
+    // 个人信息（pdata.cppu.edu.cn）：与门户 / 教务不同源 —— 独立 SPA、独立 CAS、
     // 登录态是请求头里的 token 而不是 Cookie，所以做成 U-Time 内部视图，
     // 由插件自己换票 + 续期（见 ensurePdataAuth / growthBridge）。
-    { view: "cppu-growth", label: "学生成长", icon: "seedling" },
-    // 个人信息：与成长中心同一个 pdata 站点、同一份 token。做成内部视图的关键理由
-    // 不是排版，而是网页做不到的事 —— 点任意字段直接复制到剪贴板（见 profile.js）。
+    // v0.281.0 起「学生成长」并进这一页（同一站点、同一份 token，一个人在两页里各画一遍
+    // 身份卡是纯冗余）；这一页的卖点仍是网页做不到的：点任意字段直接复制到剪贴板。
     { view: "cppu-profile", label: "个人信息", icon: "address-card" },
     // 一卡通平台（慧新易校 / 新中新）不是 sso-jw/门户体系里的子系统。
     // 直接打开 cardRecharge 这类受保护深链，平台还没建立自己的 H5 session 时会先报「未授权」；
@@ -141,6 +140,12 @@
     // 获奖名单与「警大通知」同源（名单就长在通知正文里，共用同一份正文缓存），
     // 所以入口放在校园服务这一侧，跟着通知走，而不是挂到「教务」子菜单下。
     { view: "cppu-award", label: "获奖名单", icon: "trophy" },
+    // 我的体测（sport-wechat.cppu.edu.cn）：**不是统一身份认证体系**，也不是教务那套
+    // Cookie/ticket —— 它只认企业微信 OAuth 发下来的 Authorization token（appid 绑死 wxwork，
+    // 普通浏览器 UA 连授权页都过不去）。所以这一页自己不做登录，取数全靠
+    // tools/sync-fitness.mjs 从企业微信内置浏览器的 sessionStorage 里捞到的那枚 token；
+    // 数据是快照语义，**只有点「刷新」才重新拉**（见 fitness.js 头注释）。
+    { view: "cppu-fitness", label: "我的体测", icon: "heart-pulse" },
   ];
   // 需要登录才能进的入口：点一下不直接开裸地址（那样只会落到统一身份认证登录页），
   // 而是用插件自身那份统一身份认证会话（sso.cppu.edu.cn 的 CASTGC，随 rememberMe 保 5 天）
@@ -2570,7 +2575,7 @@
     tide.util.openUrl(url);
   }
 
-  /* growth.js / profile.js 只认这几件事：取数（可强制绕缓存）、开网页、重登。
+  /* profile.js 只认这几件事：取数（可强制绕缓存）、开网页、重登。
      SSO 会话与 token 不出本文件。 */
   const growthBridge = {
     api: (path) => pdataCached(path),
@@ -7127,40 +7132,13 @@
     return () => { disposed = true; if (typeof teardown === "function") teardown(); };
   }
 
-  /* 学生个人成长中心（pdata.cppu.edu.cn/stu/home）：视图主体在 growth.js，
-     与校历 / 获奖名单同一套边界 —— 只借宿主的能力（storage / ui / notify），
+  /* 个人信息（pdata.cppu.edu.cn/stu/dataReport/basicInfo + /stu/home）：视图主体在
+     profile.js，与校历 / 获奖名单同一套边界 —— 只借宿主的能力（storage / ui / notify），
      取数与鉴权一律走 growthBridge，SSO 会话与 token 不出本文件。
-     外壳（校园服务侧栏）由本文件画，成长页只画 [data-pg-host] 里那一块。
-     实例缓存住：growth.js 在 createGrowthView() 里挂着宿主事件监听与选中光句柄，
+     外壳（校园服务侧栏）由本文件画，视图只画 [data-pf-host] 里那一块。
+     v0.281.0：「学生成长」并进这一页（原来两个视图打同一套 8 个接口、各画一遍身份卡）。
+     实例缓存住：profile.js 在 createProfileView() 里挂着宿主事件监听与选中光句柄，
      每次进入都新建会把它们叠起来（切三次就三份）。 */
-  let growthModule = null, growthView = null;
-  function mountGrowthView(el) {
-    let disposed = false, teardown = null;
-    ensureStyle();
-    el.innerHTML = `<div class="${sideShellClass()}"><aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}`
-      + `<div class="pp-main"><div data-pg-host><div style="padding:30px;text-align:center;color:#A9B2BA;font-size:calc(12.5px * var(--ui-text-scale))">正在载入学生个人成长中心…</div></div></div></div>`;
-    bindSide(el);
-    loadLinkMeta(el);
-    (growthModule || (growthModule = import("/plugins/cppu-notify/growth.js")))
-      .then((mod) => {
-        if (disposed) return;
-        const host = el.querySelector("[data-pg-host]");
-        if (!host) return;
-        growthView = growthView || mod.createGrowthView(tide, growthBridge);
-        teardown = growthView.render(host);
-      })
-      .catch(() => {
-        growthModule = null;
-        const host = el.querySelector("[data-pg-host]");
-        if (host && !disposed) host.innerHTML = '<p class="pp-tip" style="padding:24px;text-align:center">个人成长中心模块加载失败，请重新打开本视图重试</p>';
-      });
-    return () => { disposed = true; if (typeof teardown === "function") teardown(); };
-  }
-
-  /* 个人信息（pdata.cppu.edu.cn/stu/dataReport/basicInfo）：视图主体在 profile.js，
-     与成长中心同一套边界 —— 只借宿主的能力（storage / notify），取数与鉴权一律走
-     growthBridge（同一站点、同一套 pdata token，桥对象本身不含状态，直接复用）。
-     这一页的卖点是网页没有的：**点任意字段即复制到剪贴板**。 */
   let profileModule = null, profileView = null;
   function mountProfileView(el) {
     let disposed = false, teardown = null;
@@ -7181,6 +7159,35 @@
         profileModule = null;
         const host = el.querySelector("[data-pf-host]");
         if (host && !disposed) host.innerHTML = '<p class="pp-tip" style="padding:24px;text-align:center">个人信息模块加载失败，请重新打开本视图重试</p>';
+      });
+    return () => { disposed = true; if (typeof teardown === "function") teardown(); };
+  }
+
+  /* 我的体测（sport-wechat.cppu.edu.cn）：视图主体在 fitness.js。
+     取数链路与上面几站都不同 —— 不做 OAuth（appid 绑死企业微信，宿主里进不去它的内置浏览器），
+     只用 tools/sync-fitness.mjs 写进 plugin-cache 的那枚 token 直接 POST 体测接口。
+     快照语义：进页面先读缓存 / 内置快照，**不自动联网**，只有点「刷新」才重新拉。
+     实例缓存住：fitness.js 里持有展开状态与 prefers 节流器，每次新建会叠加。 */
+  let fitnessModule = null, fitnessView = null;
+  function mountFitnessView(el) {
+    let disposed = false, teardown = null;
+    ensureStyle();
+    el.innerHTML = `<div class="${sideShellClass()}"><aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}`
+      + `<div class="pp-main"><div data-fit-host><div style="padding:30px;text-align:center;color:#A9B2BA;font-size:calc(12.5px * var(--ui-text-scale))">正在载入体测数据…</div></div></div></div>`;
+    bindSide(el);
+    loadLinkMeta(el);
+    (fitnessModule || (fitnessModule = import("/plugins/cppu-notify/fitness.js")))
+      .then((mod) => {
+        if (disposed) return;
+        const host = el.querySelector("[data-fit-host]");
+        if (!host) return;
+        fitnessView = fitnessView || mod.createFitnessView(tide);
+        teardown = fitnessView.render(host);
+      })
+      .catch(() => {
+        fitnessModule = null;
+        const host = el.querySelector("[data-fit-host]");
+        if (host && !disposed) host.innerHTML = '<p class="pp-tip" style="padding:24px;text-align:center">体测模块加载失败，请重新打开本视图重试</p>';
       });
     return () => { disposed = true; if (typeof teardown === "function") teardown(); };
   }
@@ -7454,13 +7461,13 @@
   // 警大校历：学期起止 / 教学周 / 个人事项 / 本周课次统计（v0.216.0 从独立插件并入）
   // icon 用 calendar-week 不用 calendar-days：后者已是「课程表」插件的侧栏图标。
   tide.ui.registerView({ id: "cppu-calendar", title: "警大校历", icon: "calendar-week", render: mountCalendarView });
-  // 学生个人成长中心（pdata.cppu.edu.cn/stu/home）：网页是整站 SPA，这里只留六块有信息量的，
-  // 按 U-Time 的卡片语言重排（见 growth.js 头部）。
-  // icon 用 seedling 不用 sprout：后者已是「成长/习惯」类插件的侧栏图标。
-  tide.ui.registerView({ id: "cppu-growth", title: "学生成长", icon: "seedling", render: mountGrowthView });
-  // 个人信息（pdata.cppu.edu.cn/stu/dataReport/basicInfo）：档案字段点一下就复制到剪贴板。
+  // 个人信息（pdata.cppu.edu.cn）：身份卡 / 学业概览 / 成长指标 / 校园生活 / 考勤奖惩 /
+  // 档案字段（点一下就复制）/ 数据报告目录，v0.281.0 起「学生成长」也在这页里。
   // icon 用 address-card 不用 id-card：id-card 已是本插件侧栏「学工」入口的图标。
   tide.ui.registerView({ id: "cppu-profile", title: "个人信息", icon: "address-card", render: mountProfileView });
+  // 我的体测（sport-wechat.cppu.edu.cn）：只有企业微信能进的体测系统，取数靠同步脚本落下的 token。
+  // icon 用 heart-pulse 不用 person-running：后者语义偏「运动」，这一页是体测成绩单。
+  tide.ui.registerView({ id: "cppu-fitness", title: "我的体测", icon: "heart-pulse", render: mountFitnessView });
   // 后台轮询：收到验证码就写进剪贴板（v0.268.0）。没 window 的环境（测试 / 极早期加载）不排程。
   scheduleMailWatch();
   // 启动预热（v0.246.0 引入，v0.272.7 才真正挂上）—— 插件在应用启动时由 initPluginHost

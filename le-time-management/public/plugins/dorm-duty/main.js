@@ -943,7 +943,7 @@
       const names = assigneesFor(g, tide.util.today()).map((m) => m.name).join("、");
       const on = g.id === state.activeId;
       return `<button class="dd-gchip${on ? " on" : ""}" data-group="${esc(g.id)}" type="button" aria-pressed="${on ? "true" : "false"}" title="切到「${esc(g.name)}」（右键或长按可重命名 / 复制到后面 / 删除）">
-        <span>${esc(g.name)}</span><em class="dd-gwho">${esc(pausedAt(g, tide.util.today()) ? "暂停中" : names || "未排班")}</em>
+        <span>${esc(g.name)}</span><em class="dd-gwho" data-private-text>${esc(pausedAt(g, tide.util.today()) ? "暂停中" : names || "未排班")}</em>
       </button>`;
     }).join("");
   }
@@ -970,7 +970,7 @@
     const normalNames = normalAssignees(g, s.cycle).map((m) => m.name).join("、");
     const rangeEnd = cycleEndOf(g, s.cycle, s.period);
     return `<div class="dd-kicker">${kicker}</div>
-      <div class="dd-who"><b${s.currentAll.length > 1 ? ' class="dd-multi"' : ""}>${esc(names)}</b>${onSwitch ? '<span class="dd-badge">今天换人</span>' : ""}${overrideHits(g, s.cycle).length ? `<span class="dd-badge warn">已换人 · 原 ${esc(normalNames)}</span>` : ""}</div>
+      <div class="dd-who"><b data-private-text${s.currentAll.length > 1 ? ' class="dd-multi"' : ""}>${esc(names)}</b>${onSwitch ? '<span class="dd-badge">今天换人</span>' : ""}${overrideHits(g, s.cycle).length ? `<span class="dd-badge warn">已换人 · 原 ${esc(normalNames)}</span>` : ""}</div>
       <div class="dd-range">本轮 ${fmt(s.cycle)}${s.period > 1 ? ` — ${fmt(rangeEnd)}` : `（${weekday(s.cycle)}）`}${s.period > 1 ? ` · ${weekday(s.cycle)}起` : ""} · 第 ${cycleIndexAt(g, s.cycle) + 1} 轮${s.currentLocation ? `<br>今日地点：<b>${esc(s.currentLocation)}</b>` : ""}</div>`;
   }
 
@@ -981,7 +981,7 @@
     if (!g.members.length) return "";
     const hits = s.cycle ? overrideHits(g, s.cycle) : [];
     const activeIds = new Set((hits.length ? hits : s.currentAll).map((m) => m.id));
-    const options = g.members.map((m) => `<button class="dd-chip${activeIds.has(m.id) ? " on" : ""}" data-swap-pick="${esc(m.id)}" type="button" aria-pressed="${activeIds.has(m.id) ? "true" : "false"}">${esc(m.name)}</button>`).join("");
+    const options = g.members.map((m) => `<button class="dd-chip${activeIds.has(m.id) ? " on" : ""}" data-swap-pick="${esc(m.id)}" type="button" aria-pressed="${activeIds.has(m.id) ? "true" : "false"}"><span data-private-text>${esc(m.name)}</span></button>`).join("");
     return `<div class="dd-field"><span>本轮换人</span>
       <div class="dd-inline">
         <div class="dd-chips" data-swap-box role="group" aria-label="勾选本轮当班的人（可多选）">${options}</div>
@@ -1000,7 +1000,7 @@
       return `<div class="dd-row${r.daysUntil === 0 ? " now" : ""}">
       <b>${r.daysUntil === 0 ? "本轮" : `第 ${r.index} 轮`}</b>
       <span class="dd-d">${s.period > 1 ? `${fmt(r.start)} — ${fmt(r.end)} · ${weekday(r.start)}起` : `${fmt(r.start)}（${weekday(r.start)}）`}</span>
-      <span class="dd-tag">${esc(names || "—")}${r.swapped ? " · 换人" : ""} · ${relLabel(r.daysUntil)}</span>
+      <span class="dd-tag"><span data-private-text>${esc(names || "—")}</span>${r.swapped ? " · 换人" : ""} · ${relLabel(r.daysUntil)}</span>
     </div>`;
     }).join("");
   }
@@ -1427,9 +1427,9 @@
           + ` placeholder="${m ? "成员名" : "空床"}"`
           + ` aria-label="${esc(m ? `第 ${i + 1} 号床的成员名` : `第 ${i + 1} 号床的别名`)}">`;
       } else if (m) {
-        nameHtml = `<button class="dd-bed-name" type="button" data-room-rename="${esc(m.id)}" title="点击名字以改名" aria-label="给 ${esc(m.name)} 改名">${esc(m.name)}</button>`;
+        nameHtml = `<button class="dd-bed-name" type="button" data-room-rename="${esc(m.id)}" title="点击名字以改名" aria-label="给 ${esc(m.name)} 改名"><span data-private-text>${esc(m.name)}</span></button>`;
       } else {
-        nameHtml = `<span class="dd-bed-name">${esc(aliases[i] || "空床")}</span>`;
+        nameHtml = `<span class="dd-bed-name" data-private-text>${esc(aliases[i] || "空床")}</span>`;
       }
       return `<div class="${cls}"`
         + ` style="left:${(p.x / box.w * 100).toFixed(3)}%;top:${(p.y / box.h * 100).toFixed(3)}%;--k:${L.kAt(p).toFixed(3)};--phase:${(-(i * 0.6) % 4).toFixed(2)}s">`
