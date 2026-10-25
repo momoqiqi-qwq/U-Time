@@ -8,10 +8,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { tmpdir } from "node:os";
 
 const PLUGIN = new URL("../public/plugins/cppu-notify/main.js", import.meta.url);
 const STYLES = new URL("../src/styles.css", import.meta.url);
-const FIXTURE = process.env.EXAM_FIXTURE || "C:/Users/yile/AppData/Local/Temp/jwprobe/jw_exam_fixture.json";
+const FIXTURE = process.env.EXAM_FIXTURE || path.join(tmpdir(), "jwprobe", "jw_exam_fixture.json");
 const OUT = new URL("../.workbuddy/shots/", import.meta.url);
 fs.mkdirSync(OUT, { recursive: true });
 

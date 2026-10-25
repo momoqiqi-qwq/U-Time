@@ -2,11 +2,12 @@
 
 // 作者署名：产品内「关于」页是唯一消费方，打包元数据（package.json / Cargo.toml /
 // tauri.conf.json）与文档各自独立声明，改动时四处一起改，别只改这里。
-// aliases 是同一作者在各处的账号 / 昵称，关于页紧跟在拉丁名后面平铺展示。
+// aliases 是同一作者在各处的账号 / 昵称，关于页紧跟在名字后面平铺展示。
+// v0.285.0：署名统一为 lyl，不再分中/拉丁两列 —— latin 留空，aboutCard 遇空就不渲染那一格。
 export const AUTHOR = {
-  name: "梁逸乐",
-  latin: "Yile Liang",
-  aliases: ["momoni", "lele", "liangyile"],
+  name: "lyl",
+  latin: "",
+  aliases: ["momoni", "lele"],
   role: "设计与开发",
 };
 

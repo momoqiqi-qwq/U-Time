@@ -10,11 +10,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const LM = "E:/E-Develop-Project/时间管理软件/le-time-management";
+// 仓库根 = docs/design/card-badges 往上三层，别写死本机绝对路径。
+const LM = path.resolve(HERE, "../../../le-time-management");
 const PROBE = path.join(HERE, "probe");
 const OUT = path.join(HERE, "shots");
 mkdirSync(OUT, { recursive: true });
-const CH = "C:/Program Files/Google/Chrome/Application/chrome.exe";
+const CH = process.env.CHROME_PATH || "C:/Program Files/Google/Chrome/Application/chrome.exe";
 
 const CARD_STATUS = "已自动登录并同步 1289 笔一卡通流水（充值 24 笔 / 消费 1265 笔）。";
 

@@ -20,7 +20,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 /* ── ① 主进程：缓存层挂在 pdataApi 之外 ─────────────────────────────────── */
 {
   const fetches = [];
-  const vaultData = { pdataToken: JSON.stringify({ token: 'TK-1', userId: '2025290058', at: Date.now() }) };
+  const vaultData = { pdataToken: JSON.stringify({ token: 'TK-1', userId: '2025000001', at: Date.now() }) };
   let response = () => ({ status: 200, body: JSON.stringify({ code: 2000, data: { ok: 1 } }) });
   let gate = null;   // 用来把响应挂在半空，验证并发去重
 
@@ -113,7 +113,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(api.pdataCache.size > 0, true);
   await api.dropPdataAuth();
   // dropPdataAuth 连密钥库里的票一起删了，这里补一份新票（本用例只看缓存有没有作废）
-  vaultData.pdataToken = JSON.stringify({ token: 'TK-2', userId: '2025290058', at: Date.now() });
+  vaultData.pdataToken = JSON.stringify({ token: 'TK-2', userId: '2025000001', at: Date.now() });
   await api.pdataCached('/tsa/shc/homepage/cardConsume');
   assert.equal(count('/cardConsume'), beforeDrop + 1, '重登（dropPdataAuth）必须把缓存整层作废');
   api.forgetPdataAuth();
@@ -163,7 +163,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
   const find = (needle) => calls.filter((c) => c.path.includes(needle))[0];
   assert.match(host.innerHTML, /正在读取个人信息…/, '首屏之前还是要有整页占位（老宿主的兜底）');
   const okHead = [
-    { ok: true, data: { personInfo: { USERNAME: '张三', USERID: '2025290058' }, column: [] } },
+    { ok: true, data: { personInfo: { USERNAME: '张三', USERID: '2025000001' }, column: [] } },
     { ok: true, data: { GOTTENUNIT: 218, TOTALUNIT: 59.6 } },
     { ok: true, data: [{ FORMNAME: '跑操', KPICONFIG: 12, KPI_COLOR: '#118AB2', WID: 'w1' }] },
   ];

@@ -12,7 +12,7 @@
 
 ## 用户要求原文
 
-> 「去除跟手的副本，并且让它的侧边栏上下拖动参考 E:\E-Develop-Project\tauri-shortcut-launcher 的子目录上下拖动，定位好代码再修改」
+> 「去除跟手的副本，并且让它的侧边栏上下拖动参考 %OTHER_PROJECT% 的子目录上下拖动，定位好代码再修改」
 
 ## 一、问题形态：拖一个插件，屏幕上出现两个一模一样的条目
 
@@ -38,7 +38,7 @@
 
 ## 二、参考实现：`tauri-shortcut-launcher` 的子目录拖动
 
-读 `E:\E-Develop-Project\tauri-shortcut-launcher\src\components\Sidebar\Sidebar.tsx`（257 行）+ 同目录 `Sidebar.css`，
+读 `%OTHER_PROJECT%\src\components\Sidebar\Sidebar.tsx`（257 行）+ 同目录 `Sidebar.css`，
 它用的是 `@dnd-kit/core` + `@dnd-kit/sortable`：
 
 ```tsx

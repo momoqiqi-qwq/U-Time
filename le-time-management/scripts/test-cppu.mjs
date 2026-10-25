@@ -464,7 +464,9 @@ assert.match(roomSrc, /没有匹配「\$\{raw\}」[^`]*拼音首字母/,
 assert.doesNotMatch(roomSrc, /\.join\(" "\)\.toLowerCase\(\)[\s\S]{0,40}includes\(q\)/,
   '自习室过滤不得退回「整串 includes」——这正是铁律十禁止的假命中写法');
 
-assert.ok(source.includes('MAIL_ACCOUNT = "2025290058@cppu.edu.cn"'), '教育邮箱自动登录必须使用用户指定的完整邮箱账号');
+assert.match(source, /const mailAccount = \(\) => \{\s*const name = String\(state\.username \|\| ""\)/,
+  '教育邮箱账号必须由本机登录学号推导，不能在源码里写死某个人的完整邮箱');
+assert.ok(!/\d{10}@cppu\.edu\.cn/.test(source), '源码里不许出现写死的「学号@cppu.edu.cn」邮箱账号');
 assert.match(source, /if \(url === MAIL_WEB\) \{ await openMailWeb\(btn\); return; \}/,
   '点击教育邮箱必须进入专用自动登录链路，而不是裸开 mail.cppu.edu.cn');
 assert.ok(source.includes('readSavedPassword') && source.includes('tide.vault.get("secret")'),
@@ -511,6 +513,9 @@ const MAIL_DOOR = '<html><head><META HTTP-EQUIV=REFRESH CONTENT="0; URL=x"></hea
   + '%3Fsid%3Dmail-sid%26show_window%3D0&sid=mail-sid");</script></body></html>';
 
 vaultData.secret = JSON.stringify({ password: 'mail-pass' });
+// 邮箱账号由本机登录学号推导（源码里不再写死），所以要先把学号喂给 state。
+storageData.username = '2025000001';
+state.username = '2025000001';
 state.autoLogin = true; state.savedPassword = ''; calls = []; opened = []; notices = [];
 let loginOk = true;
 response = (sid, method, url, opts = {}) => {
@@ -555,7 +560,7 @@ assert.equal(unreadMail.read, false, '未读邮件的 read 必须是 false');
 const mailPost = calls.find((c) => c[1] === 'POST' && c[2].includes('/cppu/api/login'));
 assert.ok(mailPost, '登录必须 POST 到中间件 /cppu/api/login');
 const posted = new URLSearchParams(String(mailPost[3].body));
-assert.equal(posted.get('accountName'), '2025290058', '中间件要的是不带域名的账号');
+assert.equal(posted.get('accountName'), '2025000001', '中间件要的是不带域名的账号');
 assert.equal(posted.get('domain'), 'cppu.edu.cn');
 assert.equal(posted.get('language'), 'zh_CN');
 assert.equal(
@@ -793,7 +798,7 @@ assert.equal(calls.length,0,'未声明换票的入口不应发起任何请求');
    三条硬规矩：① 建立教务会话要「要票 → 自己消费落票」两段（跟侧栏「把票交给浏览器」正相反）；
    ② 取数只走通用查询端点 /je/load，请求体配方错了服务端直接回 UNKOWN_ERROR；
    ③ 全程只读，绝不出现写入类端点（提交请假/选课要回教务点）。 */
-state.sid = 'jw-test'; state.username = '2025290058'; calls = []; opened = []; notices = [];
+state.sid = 'jw-test'; state.username = '2025000001'; calls = []; opened = []; notices = [];
 const jeJson = (rows) => ({ status: 200, finalUrl: 'https://jw.cppu.edu.cn/je/load', location: '', cookies: [], body: JSON.stringify({ total: rows.length, rows }) });
 /* 教务侧真实形状（2026-09-22 真机抓的）：视图型功能只要 funcCode 就能查；
    funcType=sql 的功能必须把它自己的 SELECT 原样回传（queryType/dbSql/queryParamsStr）。 */
@@ -1076,7 +1081,7 @@ jwState.courseScope = 'term';
 const leaveTerm = jwLeaveHtml();
 assert.ok(leaveTerm.includes('C语言程序设计A') && leaveTerm.includes('class="jw-row"'), '「本学期」是 200+ 节，必须走紧凑行而不是卡片');
 jwState.data.xkResult = [
-  { KCH: '1zb1X004K', KCMC: '多旋翼无人机组装与调试', KCSX: '02', XKBMC: '选_1', XF: 1, SKDD: '消训楼410', KKXNXQ: '20262027-1', KKXNXQNAME: '2026年秋季学期', OPERATERCODE: '2025290058' },
+  { KCH: '1zb1X004K', KCMC: '多旋翼无人机组装与调试', KCSX: '02', XKBMC: '选_1', XF: 1, SKDD: '消训楼410', KKXNXQ: '20262027-1', KKXNXQNAME: '2026年秋季学期', OPERATERCODE: '2025000001' },
   { KCH: '1zc1X011K', KCMC: '反邪教研究', KCSX: '02', XKBMC: '选_2', XF: 1, SKDD: 'A204', KKXNXQ: '20262027-1', KKXNXQNAME: '2026年秋季学期', OPERATERCODE: '8712c0c67d92ff2fe5da1e36591bb80d' },
 ];
 const resultHtml = jwResultHtml();
@@ -1288,7 +1293,7 @@ for (const k of Object.keys(jwState.data)) jwState.data[k] = null;
    过去只写在通知视图的 render() 里 —— 从侧栏直接点进教务视图永远拿不到登录态，
    只能甩一句「请先在警大通知里完成登录」。现在登录代码只有一份，教务取数自带引导。 */
 assert.ok(!source.includes('请先在「警大通知」里完成登录'), '教务取数不得再把用户支回警大通知手工登录');
-const jwFlow = (rows = [{ XH: '2025290058' }]) => (sid, method, url, opts = {}) => {
+const jwFlow = (rows = [{ XH: '2025000001' }]) => (sid, method, url, opts = {}) => {
   if (url.startsWith('https://sso-jw.cppu.edu.cn/tpass/login')) return { status: 302, body: '', finalUrl: url, location: 'https://jw.cppu.edu.cn/cas_callback?ticket=ST-boot', cookies: [] };
   if (url.startsWith('https://jw.cppu.edu.cn/cas_callback')) return { status: 200, body: '<html>智慧教务</html>', finalUrl: 'https://jw.cppu.edu.cn/index.html', location: '', cookies: [] };
   if (url.endsWith('/je/develop/funcInfo/getStaticFuncByCode')) return jeMetaJson(jeMeta(opts));
@@ -1304,7 +1309,7 @@ calls = []; response = jwFlow();
 assert.equal(await ensureJwLogin(), true, '只恢复门户 Cookie 也要把教务登录态建起来');
 assert.equal(jwLive(), true, '引导成功后教务会话必须落在当前会话上');
 assert.equal(calls[0][0], 'restore', '引导的第一步是恢复密钥库里的 Cookie');
-assert.equal((await jeLoad('cxCredit'))[0].XH, '2025290058', '登录态建好后取数不该再要求先打开警大通知');
+assert.equal((await jeLoad('cxCredit'))[0].XH, '2025000001', '登录态建好后取数不该再要求先打开警大通知');
 
 // ② 单飞：两个教务视图同时挂载只引导一次（否则会并排跑两套验证码登录）
 await clearSavedLogin();
@@ -1324,7 +1329,7 @@ const jwDead = (sid, method, url, opts = {}) => {
 // ③ 票据彻底失效但存过密码：自己去走「验证码自动识别」，认不出来就如实报未登录
 await clearSavedLogin();
 state.sid = null; state.token = '';
-storageData.username = '2025290058'; vaultData.secret = JSON.stringify({ password: 'pw' });
+storageData.username = '2025000001'; vaultData.secret = JSON.stringify({ password: 'pw' });
 calls = []; response = jwDead;
 assert.equal(await ensureJwLogin(), false, '验证码一张都没认出来时不能谎报已登录');
 assert.equal(calls.filter((c) => String(c[2]).includes('/tpass/captcha.jpg')).length, state.loginRetries + 2, '按设置准备首次及重试验证码，耗尽后另准备一张人工表单验证码（不额外提交）');
@@ -1405,7 +1410,7 @@ const waitFor = async (cond, why) => {
 // ① 登录态坏了但缓存还在（就是截图那一眼）：挂载后应挂出可点的横幅，点它必须再打一轮接口
 await clearSavedLogin();
 state.sid = null; state.token = '';
-storageData.username = '2025290058';
+storageData.username = '2025000001';
 vaultData.secret = JSON.stringify({ password: 'pw' });
 vaultData.cookies = JSON.stringify([{ url: 'https://portal-jw.cppu.edu.cn', cookie: 'tp_up=expired-ticket' }]);
 storageData.jwCache = {

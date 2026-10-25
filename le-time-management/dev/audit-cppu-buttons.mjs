@@ -13,12 +13,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
 
 const ROOT = new URL("..", import.meta.url).pathname.replace(/^\//, "");
 const PLUGIN = new URL("../public/plugins/cppu-notify/main.js", import.meta.url);
 const STYLES = new URL("../src/styles.css", import.meta.url);
-const EXAM_FIXTURE = process.env.EXAM_FIXTURE || "C:/Users/yile/AppData/Local/Temp/jwprobe/jw_exam_fixture.json";
-const CREDIT_FIXTURE = process.env.CREDIT_FIXTURE || "C:/Users/yile/AppData/Local/Temp/jwprobe/jw_credit_raw.json";
+const EXAM_FIXTURE = process.env.EXAM_FIXTURE || path.join(tmpdir(), "jwprobe", "jw_exam_fixture.json");
+const CREDIT_FIXTURE = process.env.CREDIT_FIXTURE || path.join(tmpdir(), "jwprobe", "jw_credit_raw.json");
 const OUT = new URL("../.workbuddy/audit/", import.meta.url);
 const CHROME = process.env.CHROME || "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 

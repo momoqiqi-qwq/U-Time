@@ -741,7 +741,7 @@ export function createProfileView(tide, bridge) {
   }
 
   /* v0.279.0 隐私模式：姓名与头像必须自己打标 —— 宿主的一条规则只认数字和校名，
-     姓名「梁逸乐」既不是数字也不含「警大」，两条都碰不到；头像不打 data-private-face
+     姓名「张三」既不是数字也不含「警大」，两条都碰不到；头像不打 data-private-face
      就不会糊（CSS 规则①只认这个属性，不猜元素长得像不像脸）。 */
   const heroHtml = () => {
     const p = state.profile || {};

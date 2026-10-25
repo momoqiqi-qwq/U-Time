@@ -1,4 +1,4 @@
-// 作者署名（v0.232.0，用户要求「在必要的地方添加作者署名。By 梁逸乐」）。
+// 作者署名（v0.232.0，用户要求「在必要的地方添加作者署名。By lyl」）。
 //
 // 署名散落在**九个不同层的文件**里（产品内关于页、HTML head、npm / Cargo / Tauri 三份打包元数据、
 // 小程序元数据与设置页、三份 README、开源说明、五个文档页脚）。这类「同一件事写很多遍」的改动
@@ -9,11 +9,12 @@ import { readFileSync } from "node:fs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 
-const CN = "梁逸乐";
-const EN = "Yile Liang";
-// v0.245.1：作者账号 / 昵称并入署名（用户原话「by momoni lele liangyile 添加到作者上面去」）。
-const ALIASES = ["momoni", "lele", "liangyile"];
-const FULL = `${CN} (${EN} / ${ALIASES.join(" / ")})`;
+// v0.285.0：署名统一为 lyl（用户要求去掉真实姓名与拉丁名），不再分中/拉丁两列，
+// 所以这里只留一个名字常量；别名照旧并入署名。
+const CN = "lyl";
+// v0.245.1：作者账号 / 昵称并入署名（用户原话「把 momoni / lele 两个昵称添加到作者上面去」）。
+const ALIASES = ["momoni", "lele"];
+const FULL = `${CN} (${ALIASES.join(" / ")})`;
 
 const aboutData = read("../src/aboutData.js");
 const aboutCard = read("../src/views/aboutCard.js");
@@ -33,7 +34,7 @@ const docPages = ["index.html", "features.html", "plugins.html", "tech-stack.htm
 
 // 1) 产品内「关于」页：常量 → 渲染 → 样式，三段必须都在，否则页面上什么都不显示。
 assert.match(aboutData, /export const AUTHOR = \{/, "aboutData.js 必须导出 AUTHOR 常量");
-assert.ok(aboutData.includes(CN) && aboutData.includes(EN), `AUTHOR 常量里要有「${CN}」与「${EN}」`);
+assert.ok(aboutData.includes(CN), `AUTHOR 常量里要有「${CN}」`);
 for (const field of ["name", "latin", "role"]) {
   assert.match(aboutData, new RegExp(`${field}:\\s*"`), `AUTHOR 缺少 ${field} 字段`);
 }
@@ -59,7 +60,7 @@ assert.ok(!/rgb\(|hsl\(/.test(authorBlock), "作者行样式里不许写死 rgb(
 // 2) 桌面壳与三份打包元数据。
 assert.ok(indexHtml.includes(`<meta name="author" content="${FULL}"`), "index.html 缺少 meta author");
 assert.equal(pkg.author, FULL, "package.json 的 author 与署名写法不一致");
-assert.match(cargo, new RegExp(`^authors = \\["${CN} \\(${EN} / ${ALIASES.join(" / ")}\\)"\\]$`, "m"), "Cargo.toml 的 authors 与署名写法不一致");
+assert.ok(cargo.includes(`authors = ["${FULL}"]`), "Cargo.toml 的 authors 与署名写法不一致");
 assert.equal(tauriConf.bundle.publisher, FULL, "tauri.conf.json 缺少 bundle.publisher");
 assert.ok(tauriConf.bundle.copyright.includes(CN), "tauri.conf.json 的 bundle.copyright 必须带作者名");
 assert.ok(tauriConf.bundle.copyright.includes(ALIASES[0]), "tauri.conf.json 的 bundle.copyright 必须带别名");
@@ -71,11 +72,12 @@ assert.match(mpSettings, /\{\{about\.author\}\}/, "小程序设置页关于区�
 // 4) 文档与说明：三份 README、开源说明、五个文档页脚。
 for (const [label, text] of [["根 README", rootReadme], ["le-time-management/README", appReadme], ["miniprogram/README", mpReadme], ["OPEN_SOURCE_NOTICES", notices]]) {
   assert.ok(text.includes(CN), `${label} 缺少作者署名`);
-  assert.ok(text.includes(ALIASES[0]) && text.includes(ALIASES[2]), `${label} 的署名缺少作者别名`);
+  // v0.286.0：别名从三个减到两个，这里改成「每个别名都得在」，别再写死下标。
+  assert.ok(ALIASES.every((alias) => text.includes(alias)), `${label} 的署名缺少作者别名`);
 }
 for (const [name, html] of docPages) {
   assert.ok(html.includes(CN), `docs/${name} 页脚缺少作者署名`);
-  assert.ok(html.includes(ALIASES[0]), `docs/${name} 页脚缺少作者别名`);
+  assert.ok(ALIASES.every((alias) => html.includes(alias)), `docs/${name} 页脚缺少作者别名`);
 }
 
 console.log("PASS: 作者署名（关于页含别名胶囊 / 三份打包元数据 / 小程序 / 三份 README / 开源说明 / 五个文档页脚）");

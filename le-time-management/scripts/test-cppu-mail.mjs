@@ -142,6 +142,9 @@ const MAIL_DOOR = '<html><head><META HTTP-EQUIV=REFRESH CONTENT="0; URL=x"></hea
   + '%3Fsid%3Dmail-sid%26show_window%3D0&sid=mail-sid");</script></body></html>';
 
 vaultData.secret = JSON.stringify({ password: 'mail-pass' });
+// 邮箱账号由本机登录学号推导（源码里不写死某个人的邮箱），先喂一份给 state。
+storageData.username = '2025000001';
+state.username = '2025000001';
 state.autoLogin = true; state.savedPassword = '';
 let response = () => ({ status: 404, finalUrl: '', body: '' });
 response = (sid, method, url) => {

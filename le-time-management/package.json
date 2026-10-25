@@ -1,8 +1,8 @@
 {
   "name": "le-time-management",
   "private": true,
-  "author": "梁逸乐 (Yile Liang / momoni / lele / liangyile)",
-  "version": "0.283.2",
+  "author": "lyl (momoni / lele)",
+  "version": "0.286.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

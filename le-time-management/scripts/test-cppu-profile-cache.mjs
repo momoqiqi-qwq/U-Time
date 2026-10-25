@@ -42,7 +42,7 @@ function fakeCache(seed = null, seedKey = SNAPSHOT_KEY) {
 
 /* 8 个接口的应答；mode 决定全部成功还是后半截失败（验「半页不落盘」）。 */
 const OK = (p) => {
-  if (p.includes('/personInfo')) return { ok: true, data: { personInfo: { USERNAME: '张三', USERID: '2025290058' }, column: [] } };
+  if (p.includes('/personInfo')) return { ok: true, data: { personInfo: { USERNAME: '张三', USERID: '2025000001' }, column: [] } };
   if (p.includes('/learnSituation')) return { ok: true, data: { GOTTENUNIT: 218, TOTALUNIT: 59.6 } };
   if (p.includes('/getKpiList')) return { ok: true, data: [{ FORMNAME: '图书借阅数', KPICONFIG: 12, KPI_COLOR: '#118AB2', WID: 'w1' }] };
   if (p.includes('/cardConsume')) return { ok: true, data: { placeRanking: [{ MERCHANT: '食堂', SPENDGMONEY: 12 }], balance: { BALANCE: 88.5, TOTALAMOUNT: 300 } } };

@@ -52,7 +52,7 @@ function harness() {
 const PROFILE = {
   ok: true,
   data: {
-    personInfo: { USERNAME: '梁逸乐', USERID: '2025290058', SEX: '1' },
+    personInfo: { USERNAME: '张三', USERID: '2025000001', SEX: '1' },
     column: [{ dataField: 'RXNF', dataFieldName: '入学年份' }],
   },
 };
@@ -99,7 +99,7 @@ const resolveTail = (h, dirs) => {
   h.one('/getKpiList').d.resolve(KPI);
   await flush();
 
-  assert.match(h.host.innerHTML, /梁逸乐/, '首屏到了先把身份卡与字段画出来');
+  assert.match(h.host.innerHTML, /张三/, '首屏到了先把身份卡与字段画出来');
   assert.doesNotMatch(h.host.innerHTML, /数据报告目录/, '目录还没回来时不许先摆一个空壳');
   assert.doesNotMatch(h.host.innerHTML, /暂无/, '第二批没回来时也不许说「暂无」');
   assert.match(h.host.innerHTML, /正在读取…/, '第二批的位置要说「正在读取…」');
@@ -135,7 +135,7 @@ const resolveTail = (h, dirs) => {
   resolveTail(h, { ok: false, message: '个人成长中心返回 502' });
   await flush();
 
-  assert.match(h.host.innerHTML, /梁逸乐/, '目录挂了不影响档案');
+  assert.match(h.host.innerHTML, /张三/, '目录挂了不影响档案');
   assert.match(h.host.innerHTML, /入学年份/, '字段照样要能看能复制');
   assert.doesNotMatch(h.host.innerHTML, /数据报告目录/, '没数据就不摆空卡');
   assert.doesNotMatch(h.host.innerHTML, /502/, '目录失败不弹错 —— 它不是本页主体');

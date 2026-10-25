@@ -119,3 +119,6 @@ cloudflare-pages/plugin-guide/.wrangler/
 
 # 根目录临时产物（截图 / 抓包 / 调试脚本 / headless chrome profile），不入库
 /tmp/
+
+# 小程序端 AI 工作目录（本机环境快照，不入库）
+/miniprogram/.workbuddy/

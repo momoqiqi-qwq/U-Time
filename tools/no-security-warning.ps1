@@ -1,4 +1,4 @@
-﻿<#
+<#
   no-security-warning.ps1 —— 关掉 Windows 的「打开文件 - 安全警告」弹窗
   （正文：无法验证发布者。你确定要运行此软件吗？）
 
@@ -20,7 +20,7 @@
   用法
   ----
     powershell -NoProfile -ExecutionPolicy Bypass -File tools\no-security-warning.ps1
-    powershell -NoProfile -ExecutionPolicy Bypass -File tools\no-security-warning.ps1 -UnblockPath "E:\E-Develop-Project\时间管理软件\releases"
+    powershell -NoProfile -ExecutionPolicy Bypass -File tools\no-security-warning.ps1 -UnblockPath ".\releases"
     powershell -NoProfile -ExecutionPolicy Bypass -File tools\no-security-warning.ps1 -Revert
 
   还原

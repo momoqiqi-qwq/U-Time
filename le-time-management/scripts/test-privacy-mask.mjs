@@ -211,17 +211,17 @@ const faceImg = dom.el("img", { parent: face });
    CSS 整块糊。扫描器必须把它当跳过区 —— 已经把字糊掉了再去做 9 化，
    关掉模式时还原出来的就是 9 化后的值，等于把数据改坏。 */
 const idTextBox = dom.el("span", { parent: body, "data-private-text": "" });
-const idTextNode = dom.text(idTextBox, "梁逸乐");
+const idTextNode = dom.text(idTextBox, "张三");
 const idTextMixed = dom.el("div", { parent: body, "data-private-text": "" });
-const idTextMixedNode = dom.text(idTextMixed, "防火工程学院 电子信息工程");
+const idTextMixedNode = dom.text(idTextMixed, "示例学院 示例专业");
 
 /* ⑤ 的属性面（v0.280.0）：CSS 糊不到属性 —— title 悬浮提示、aria-label 读屏、alt 替代文本
    照样能把真名写出来。这三个要跟文字走同一套保存 / 还原纪律。 */
 const attrBox = dom.el("button", {
-  parent: body, "data-private-text": "", "aria-label": "给 梁逸乐 改名", title: "点击名字以改名",
+  parent: body, "data-private-text": "", "aria-label": "给 张三 改名", title: "点击名字以改名",
 });
-const attrBoxText = dom.text(attrBox, "梁逸乐");
-const attrImg = dom.el("img", { parent: body, "data-private-face": "", alt: "梁逸乐的照片" });
+const attrBoxText = dom.text(attrBox, "张三");
+const attrImg = dom.el("img", { parent: body, "data-private-face": "", alt: "张三的照片" });
 
 /* 校名相关的四个夹具：带数字的、不带数字的、跳过区里的、全称的。 */
 const wordBox = dom.el("div", { parent: body });
@@ -326,15 +326,15 @@ assert.equal(face.classList.contains("privacy-blur"), true, "人脸要被标上�
 assert.ok(faceImg, "人脸里的 img 不是 JS 的目标（CSS 统一处理）");
 
 // ⑤ 身份文字：整块交给 CSS，扫描器一律跳过
-assert.equal(idTextNode.nodeValue, "梁逸乐", "⑤ data-private-text 子树里的文字一个字符都不改（模糊是 CSS 的事）");
-assert.equal(idTextMixedNode.nodeValue, "防火工程学院 电子信息工程",
+assert.equal(idTextNode.nodeValue, "张三", "⑤ data-private-text 子树里的文字一个字符都不改（模糊是 CSS 的事）");
+assert.equal(idTextMixedNode.nodeValue, "示例学院 示例专业",
   "⑤ 跳过区里的数字与校名都不处理 —— 整块已糊，改字只会让还原失真");
 
 // ⑤ 属性面：提示文本同样不许露真名
 assert.equal(attrBox.getAttribute("aria-label"), "已隐藏", "aria-label 里的真名要换成占位串（读屏会念出来）");
 assert.equal(attrBox.getAttribute("title"), "已隐藏", "title 的悬浮提示也要换（鼠标一停就现原形）");
 assert.equal(attrImg.getAttribute("alt"), "已隐藏", "人脸元素的 alt 同样处理");
-assert.equal(attrBoxText.nodeValue, "梁逸乐", "属性被换掉不影响子树文字（文字交给 CSS 糊）");
+assert.equal(attrBoxText.nodeValue, "张三", "属性被换掉不影响子树文字（文字交给 CSS 糊）");
 
 // ④ 校名：只糊命中的那一段，其余文本照常 9 化，结构不散
 assert.equal(wordText.parentNode, null, "原文本节点要被整段换掉（纯文本节点糊不了两个字符）");
@@ -382,9 +382,9 @@ assert.equal(plain.classList.contains("privacy-masked"), false, "关掉后要摘
 assert.equal(face.classList.contains("privacy-blur"), false, "关掉后要摘掉模糊");
 
 assert.equal(wordBox.textContent, "警大成绩 87.5 分", "关掉后校名与数字都要还原成原文");
-assert.equal(attrBox.getAttribute("aria-label"), "给 梁逸乐 改名", "关掉后 aria-label 要还原");
+assert.equal(attrBox.getAttribute("aria-label"), "给 张三 改名", "关掉后 aria-label 要还原");
 assert.equal(attrBox.getAttribute("title"), "点击名字以改名", "关掉后 title 要还原");
-assert.equal(attrImg.getAttribute("alt"), "梁逸乐的照片", "关掉后 alt 要还原");
+assert.equal(attrImg.getAttribute("alt"), "张三的照片", "关掉后 alt 要还原");
 assert.equal(wordBox.childNodes.length, 1, "包裹层必须消失，不许留空壳");
 assert.equal(wordBox.childNodes[0].nodeType, 3, "还原成一个纯文本节点（与包裹前严格互逆）");
 assert.equal(wordBox.children.length, 0, "不许留 span");

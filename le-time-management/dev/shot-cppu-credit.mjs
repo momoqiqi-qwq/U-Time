@@ -10,10 +10,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import { tmpdir } from "node:os";
 
 const PLUGIN = new URL("../public/plugins/cppu-notify/main.js", import.meta.url);
 const STYLES = new URL("../src/styles.css", import.meta.url);
-const CREDIT = process.env.CREDIT_FIXTURE || "C:/Users/yile/AppData/Local/Temp/jwprobe/jw_credit_raw.json";
+const CREDIT = process.env.CREDIT_FIXTURE || path.join(tmpdir(), "jwprobe", "jw_credit_raw.json");
 const OUT = new URL("../.workbuddy/shots/", import.meta.url);
 fs.mkdirSync(OUT, { recursive: true });
 

@@ -1,6 +1,6 @@
 # U-Time
 
-**By 梁逸乐（Yile Liang） · momoni · lele · liangyile** · 设计与开发 · [项目仓库](https://github.com/momoqiqi-qwq/U-Time)
+**By lyl · momoni · lele** · 设计与开发 · [项目仓库](https://github.com/momoqiqi-qwq/U-Time)
 
 > 🤖 **AI / 协作者必读：[`AGENTS.md`](./AGENTS.md)** —— 项目铁律，含「每次更新必须升版本号」的完整操作步骤、不可回退的标识符清单、构建与合并禁忌。动手前先读。（中文别名 `AI必读.md` 指向同一份）
 

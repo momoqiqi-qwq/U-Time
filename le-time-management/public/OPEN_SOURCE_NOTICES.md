@@ -1,6 +1,6 @@
 # U-Time · 开源项目与第三方来源说明
 
-> **作者：梁逸乐（Yile Liang · momoni · lele · liangyile）** · 设计与开发 · 版权所有 © 梁逸乐（Yile Liang）。
+> **作者：lyl（momoni · lele）** · 设计与开发 · 版权所有 © lyl。
 > 本文件用于产品内“关于”页面的可读说明，不替代各依赖自身的 LICENSE / NOTICE，也不是完整的传递依赖 SBOM。发布二进制时，应继续保留项目中随附的许可证与归属文件。
 
 ## 核心框架与直接依赖

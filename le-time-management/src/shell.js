@@ -1875,7 +1875,7 @@ export function renderShell(root) {
     // 头部条既是面板抬头，也是拖动把手（v0.206.1）：拖动可移动面板、双击恢复跟随触发按钮。
     const head = el("div", { class: "quick-dock-head", title: "拖动可移动面板 · 双击恢复跟随按钮" },
       el("span", { class: "quick-menu-avatar", "aria-hidden": "true", "data-private-face": "" }, "YL"),
-      el("div", { class: "quick-dock-title" }, el("b", {}, "Yile Liang"), el("small", {}, "Plus")),
+      el("div", { class: "quick-dock-title" }, el("b", {}, "lyl"), el("small", {}, "Plus")),
     );
     const dock = el("div", { class: "quick-dock collapsed", role: "menu", "aria-label": "快捷入口" },
       head,

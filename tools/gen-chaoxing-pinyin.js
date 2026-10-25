@@ -5,7 +5,7 @@
 // 范围：U+4E00–U+9FA5 基本区；表外字符在搜索里退化为分隔符，不影响原文包含匹配。
 //
 // 用法：
-//   NODE_PATH=C:/Users/yile/.workbuddy/binaries/node/workspace/node_modules node tools/gen-chaoxing-pinyin.js
+//   NODE_PATH=$USERPROFILE/.workbuddy/binaries/node/workspace/node_modules node tools/gen-chaoxing-pinyin.js
 //   （或先在任意位置 npm i pinyin-pro，再让 NODE_PATH 指向其 node_modules）
 // 生成的片段落在每个文件的
 //   /* ══ CX_PY_DATA BEGIN（本脚本生成，勿手改） ══ */
@@ -27,7 +27,8 @@ const END = "/* ══ CX_PY_DATA END ══ */";
 function loadPinyinPro() {
   const candidates = [
     process.env.PINYIN_PRO_PATH,
-    "C:/Users/yile/.workbuddy/binaries/node/workspace/node_modules/pinyin-pro/dist/index.js",
+    process.env.USERPROFILE
+      && `${process.env.USERPROFILE}/.workbuddy/binaries/node/workspace/node_modules/pinyin-pro/dist/index.js`,
   ].filter(Boolean);
   for (const p of candidates) {
     if (fs.existsSync(p)) return import(url.pathToFileURL(p).href);

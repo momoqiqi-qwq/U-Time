@@ -15,7 +15,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 NDKBIN="D:/Environment/android-sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/windows-x86_64/bin"
-export JAVA_HOME="C:/Users/yile/AppData/Local/Programs/Eclipse Adoptium/jdk-21.0.10.7-hotspot"
+# JDK 路径交给环境变量（各人安装位置不同，不把某台机器的用户目录写进仓库）。
+export JAVA_HOME="${JAVA_HOME:-${LOCALAPPDATA:-$HOME/AppData/Local}/Programs/Eclipse Adoptium/jdk-21.0.10.7-hotspot}"
 export ANDROID_HOME="D:/Environment/android-sdk"
 export NDK_HOME="D:/Environment/android-sdk/ndk/27.0.12077973"
 export ANDROID_NDK_ROOT="$NDK_HOME"   # cc-rs（ring 等 C 依赖）认这个

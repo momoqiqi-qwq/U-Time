@@ -23,7 +23,12 @@
   // `version` 是官方静态资源指纹（取用户给的那串写死，避免 CDN 把新旧资源串起来）。
   // 它认的是 mail 域的 sid Cookie —— 插件 native 会话登一次后把 Cookie 注入内置窗口即可免登。
   const MAIL_WEB = "https://mail.cppu.edu.cn/static/sirius-web/?version=1791461395966#mailbox";
-  const MAIL_ACCOUNT = "2025290058@cppu.edu.cn";
+  // 邮箱账号不写死在源码里：本仓库公开，学号属于个人身份信息。用本机记住的登录学号
+  // 拼校邮箱域名即可 —— 换账号时自动跟着换，也不会拿着上一个用户的学号去登邮箱。
+  const mailAccount = () => {
+    const name = String(state.username || "").split("@")[0].trim();
+    return name ? `${name}@${MAIL_DOMAIN}` : "";
+  };
   // 邮箱登录不在邮件站上：mail.cppu.edu.cn 是网易企业邮的定制登录页，真正的校验走学校
   // 中间件（网页里也是这条路：RSA 加密密码 → POST /cppu/api/login → 拿 entryhz 的
   // location → 再跳回 mail.cppu.edu.cn/js6/main.jsp?sid=…）。mbox 接口只认 URL 里的 sid，
@@ -2661,7 +2666,9 @@
   /* 中间件登录：成功给 entryhz 的 location，失败给 message（如 input.password.xxx）。
      走 form 编码而不是 JSON —— 网页端就是 $.ajax 的默认表单编码。 */
   async function mailMiddlewareLogin(httpSid, password) {
-    const parts = String(MAIL_ACCOUNT).split("@");
+    const account = mailAccount();
+    if (!account) throw new Error("没读到登录学号，请先在「警大通知」里登录一次再打开邮箱");
+    const parts = account.split("@");
     const key = await mailPublicKey(httpSid);
     const body = tide.util.web.formEncode({
       accountName: parts[0],
@@ -3314,7 +3321,7 @@
         const mails = mailSortNewest(mailItems(list.data));
         const out = {
           ok: true,
-          account: MAIL_ACCOUNT,
+          account: mailAccount(),
           start,
           limit,
           mails,

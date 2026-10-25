@@ -24,7 +24,7 @@ pdata 服务端是**按 `Authentication` 头里的身份认人**的；URL 上再
 它就拿这个值当筛选条件去查，命中空集。用同一个 token、同一批接口逐条对照（脚本
 `.tmp-probe/pdata_probe_should_user.py`，2026-10）：
 
-| 接口 | 带 `_USER=2025290058` | 不带 `_USER` |
+| 接口 | 带 `_USER=2025000001` | 不带 `_USER` |
 |---|---|---|
 | `/tsa/shc/learnInfo/gradePointRanking` | `code:2000 data:[]` | **`data:[专业145, 全校6519, 学院622, 班级30]`** |
 | `/tsa/shc/learnInfo/learningGap` | `code:2000 data:[]` | **`data:[专业 86.4/457.3, 全校 86.4/572.2, 学院 86.4/457.3, 班级 86.4/213.8]`** |

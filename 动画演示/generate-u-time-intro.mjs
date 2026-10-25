@@ -1,10 +1,13 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
-const skill = 'C:/Users/yile/.codex/skills/video-shot-demos';
+// video-shot-demos 技能包的位置按本机用户目录推导，不写死某台机器的用户名。
+const skill = process.env.VIDEO_SHOT_DEMOS_SKILL
+  || path.join(os.homedir(), '.codex/skills/video-shot-demos');
 const templatePath = path.join(skill, 'assets/template.html');
 const out = path.join(here, '三分钟介绍-22镜头-含角色');
 const template = fs.readFileSync(templatePath, 'utf8').replace(/\r\n/g, '\n');

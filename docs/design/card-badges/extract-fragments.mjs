@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const LM = "E:/E-Develop-Project/时间管理软件/le-time-management";
+const LM = path.resolve(HERE, "../../../le-time-management");
 const OUT = path.join(HERE, "probe");
 mkdirSync(OUT, { recursive: true });
 
@@ -55,7 +55,7 @@ api.cardState.rows = [...inRows, ...outRows];
 api.cardState.balance = 315.7;
 api.cardState.balanceAt = Date.parse("2026-10-17T20:50:31");
 api.cardState.syncedAt = Date.parse("2026-10-17T20:50:31");
-api.cardState.username = "2025290058";
+api.cardState.username = "2025000001";
 
 const rec = (name, zt) => ({ KCMC: name, SKRQ: "2026-10-14", JC: "3-4", JSXMS: "张三", JSMC: "已请假", SQZT: zt, SQYY: "因身体不适需前往校医院就诊" });
 api.jwState.data.qjRecord = [

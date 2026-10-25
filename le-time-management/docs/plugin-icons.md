@@ -98,7 +98,7 @@ https://img.icons8.com/color/96/tomato.png
 ```bash
 # 编辑 tools/gen-plugin-icons.py 的 ICONS：
 #   "my-plugin": ("color", "tomato", "番茄专注 / 番茄"),
-"C:/Users/yile/.workbuddy/binaries/python/envs/default/Scripts/python.exe" tools/gen-plugin-icons.py
+"$USERPROFILE/.workbuddy/binaries/python/envs/default/Scripts/python.exe" tools/gen-plugin-icons.py
 ```
 
 脚本会一次写完四处：`le-time-management/public/icons/plugins/<id>.png`、同名台账 `ATTRIBUTION.md`、`miniprogram/images/plugins/<id>.png`，外加主导航 `public/icons/nav/*.png` 与其台账（由脚本里的 `NAV_ICONS` 清单驱动）。

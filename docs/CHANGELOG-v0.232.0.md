@@ -1,4 +1,4 @@
-# v0.232.0 · 首屏刷新蒙版；全项目补作者署名（By 梁逸乐）
+# v0.232.0 · 首屏刷新蒙版；全项目补作者署名（By lyl）
 
 > 归属说明：改动进 `le-time-management/src/`、`le-time-management/public/`、
 > `le-time-management/src-tauri/`、`miniprogram/`（均属「必须升版本」的目录），
@@ -13,7 +13,7 @@
 用户两条要求：
 
 1. **刷新时加一个蒙版**，蒙版上要有文字，文字形式参考左上角的标题，刷新完成后取消蒙版。
-2. **在必要的地方添加作者署名** —— By 梁逸乐。
+2. **在必要的地方添加作者署名** —— By lyl。
 
 ## 改了什么
 
@@ -41,13 +41,13 @@
   装饰线形状（`viewBox` / `preserveAspectRatio` / 四档渐变）看本文件 ——
   所以 `shell.js` 里那句调用与 `brandRule()` 这个名字都不能改名。
 
-### 3. 作者署名（By 梁逸乐）
+### 3. 作者署名（By lyl）
 
-署名统一写法 **梁逸乐（Yile Liang）**，按「产品内可见」与「打包 / 文档元数据」两条线铺开：
+署名统一写法 **lyl**，按「产品内可见」与「打包 / 文档元数据」两条线铺开：
 
 | 位置 | 落点 |
 |---|---|
-| 产品内「关于」页 | `src/aboutData.js` 新增 `AUTHOR` 常量（`name` / `latin` / `role`），`src/views/aboutCard.js` 在标题下渲染 `By 梁逸乐 Yile Liang · 设计与开发`；样式 `.about-author*` 只消费既有主题令牌，不新增色值 |
+| 产品内「关于」页 | `src/aboutData.js` 新增 `AUTHOR` 常量（`name` / `latin` / `role`），`src/views/aboutCard.js` 在标题下渲染 `By lyl · 设计与开发`；样式 `.about-author*` 只消费既有主题令牌，不新增色值 |
 | 桌面壳 | `index.html` 加 `<meta name="author">` 与 `<meta name="description">` |
 | 打包元数据 | `package.json` `author`；`src-tauri/Cargo.toml` `authors`（原为 `["yile"]`）；`src-tauri/tauri.conf.json` `bundle.publisher` / `bundle.copyright` / `bundle.homepage` |
 | 小程序 | `miniprogram/core/appMeta.js` 新增 `author`；`pages/settings/index.wxml` 关于区显示 `By {{about.author}}` |
@@ -59,7 +59,7 @@
 
 **没有改的地方**（有意为之）：`public/plugins/*/manifest.json` 的 `author` 字段是**各插件自己的来源署名**
 （`U-Time内置`、`基于 XingHeYuZhuan/shiguangschedule · U-Time适配` 等），不是应用作者的落点，
-保持原样；`src/shell.js` 快捷面板里原有的 `Yile Liang` 与 `YL` 头像照旧。
+保持原样；`src/shell.js` 快捷面板里原有的 `lyl` 与 `YL` 头像照旧。
 
 ### 4. 版本与镜像
 

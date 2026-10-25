@@ -16,7 +16,7 @@
 | 线索 | 实测 | 结论 |
 |---|---|---|
 | 框内文字 | WinRT OCR → `http://127.0.0.1:8788/v1` | 是「URL 输入框」，不是模型 / 密钥框 |
-| 8788 端口 | `127.0.0.1:8788` 由 `E:\E-Apps\AI Manger\wb-proxy\python\python.exe` 监听 | 用户的本地 OpenAI 兼容 AI 代理 ⇒ **Base URL** |
+| 8788 端口 | `127.0.0.1:8788` 由 `%TOOLS_DIR% Manger\wb-proxy\python\python.exe` 监听 | 用户的本地 OpenAI 兼容 AI 代理 ⇒ **Base URL** |
 | 字高与字宽 | 文字行高 ~13px、整串宽 ~182px；`Microsoft YaHei UI 16px` = 180px/13px（唯一同时命中，13px 只有 154px/10px） | 该框实际字号 ≈16.25px ⇒ 「文字大小」被调到 125% |
 | 框本身 | 约 308×28，圆角小、有 1px 描边 | 真渲染几何：1280 窗口下 Base URL 是 **373×26**；1085 窗口下只剩 **180×26**（撞栅格 `minmax(180px, .75fr)` 的下限） |
 | 对照排除项 | 设置 › 可选同步 › 网盘根地址 `input:url` 是 858×26 | 太宽，排除 |

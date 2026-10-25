@@ -1,6 +1,6 @@
 # U-Time
 
-> **By 梁逸乐（Yile Liang） · momoni · lele · liangyile** · 设计与开发
+> **By lyl · momoni · lele** · 设计与开发
 
 > v0.11.4：插件启停改为滑块；主 UI 采用 Icons8 / iGoutu iOS Filled 图标；警大通知正文展开/收起加入平滑动画。
 
@@ -77,7 +77,7 @@ npm run tauri android build -- --apk --target aarch64  # 产出 APK
 
 本机构建环境备忘（2026-09 搭建，产物 APK 约 9.5MB）：
 
-- SDK/NDK：`D:\Environment\android-sdk`（platform 34/35/36、build-tools 34/35、NDK r27、cmdline-tools）；JDK 21（Adoptium）
+- SDK/NDK：`%ANDROID_SDK%`（platform 34/35/36、build-tools 34/35、NDK r27、cmdline-tools）；JDK 21（Adoptium）
 - 环境变量：`JAVA_HOME` / `ANDROID_HOME` / `NDK_HOME` 指向上述路径
 - gen/android 是 gitignore 的生成目录，重新 init 后需要补几处：
   - **原生 Kotlin + 清单声明**：跑 `node ../tools/sync-android-native.js` 一次即可（事实源是版本化的 `android/README.md` 里说明的镜像目录；它同时会幂等补上 `REQUEST_INSTALL_PACKAGES`、去掉 MainActivity 的 label、补 `file_paths.xml` 的 cache-path）。`scripts/build-android-apk.sh` 也会自动跑，正常不用手工记。

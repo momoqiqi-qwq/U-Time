@@ -3,7 +3,8 @@ const automator = require(path.resolve(__dirname, "../../output/miniprogram-auto
 
 (async () => {
   const miniProgram = await automator.launch({
-    cliPath: "E:/E-Develop-Project/微信web开发者工具/cli.bat",
+    // 微信开发者工具的 CLI 路径按本机安装位置传环境变量，别把个人目录写进仓库。
+    cliPath: process.env.WX_DEVTOOLS_CLI || "C:/Program Files (x86)/Tencent/微信web开发者工具/cli.bat",
     projectPath: path.resolve(__dirname, "../../miniprogram"),
     port: 32552,
     trustProject: true,

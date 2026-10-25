@@ -48,7 +48,7 @@
 > 去掉 `_USER` 后同一个 token 立刻拿到真数据（全校 6519 / 学院 622 / 专业 145 / 班级 30）。
 > 详见 `docs/CHANGELOG-v0.229.1.md`。
 
-**（以下为 v0.220.1 当时的记录，勿再引用）** 2025 级新生在成长中心侧「没有排行数据」：实测（学号 `2025290058`）`gradePointRanking`、`learningGap`、`getFormListByCatalogId(catalogId=studyInfo)` 全部 `{"code":2000,"message":"请求成功","data":[]}`，`learnSituation` 返回 `{TOTALUNIT:0,GOTTENUNIT:0,THISTERMGOTTENUNIT:0,GRADEPOINT:0.0}`。
+**（以下为 v0.220.1 当时的记录，勿再引用）** 2025 级新生在成长中心侧「没有排行数据」：实测（学号 `2025000001`）`gradePointRanking`、`learningGap`、`getFormListByCatalogId(catalogId=studyInfo)` 全部 `{"code":2000,"message":"请求成功","data":[]}`，`learnSituation` 返回 `{TOTALUNIT:0,GOTTENUNIT:0,THISTERMGOTTENUNIT:0,GRADEPOINT:0.0}`。
 
 ## 验证
 

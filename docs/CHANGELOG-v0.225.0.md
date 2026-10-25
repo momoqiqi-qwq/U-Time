@@ -33,8 +33,8 @@
 
 - **① 折叠栏**：复制前 `foldExistsBeforeCopy = false` → 点第一格后 `foldExistsAfterCopy = true`、
   按钮文案 `▸复制记录（1）`、`histRows = 2`（连点两处后 2 条）。修前是 `false` 恒假。
-- **② 复制内容**：`copyAfterCell = ["汉族"]`、`copyAfterTag = ["汉族","2025290058"]`；
-  `复制全部` → `copyAllHead = ["学号：2025290058","性别：男","民族：汉族","电话：13800000000"]`、
+- **② 复制内容**：`copyAfterCell = ["汉族"]`、`copyAfterTag = ["汉族","2025000001"]`；
+  `复制全部` → `copyAllHead = ["学号：2025000001","性别：男","民族：汉族","电话：13800000000"]`、
   22 行。修前首行是「性别：1」。
 - **③ 标签配色**：六套主题（classic 浅/深、night 深、sakura 深、frost 浅、dunhuang 浅）实测
   标签正文 **11.08–13.53**、标签名 **5.24–7.31**（修前最低 3.96）。用 canvas `fillStyle` + `getImageData`

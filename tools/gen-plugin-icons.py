@@ -34,7 +34,7 @@ v0.250.0 起的首选来源：tools/icon-masters/
 
 依赖
     Pillow。用项目专用 venv 跑：
-    "C:/Users/yile/.workbuddy/binaries/python/envs/default/Scripts/python.exe" tools/gen-plugin-icons.py
+    "%USERPROFILE%\.workbuddy/binaries/python/envs/default/Scripts/python.exe" tools/gen-plugin-icons.py
     参数 --offline 表示只用缓存（.workbuddy/icon-cache/）不联网。
 """
 

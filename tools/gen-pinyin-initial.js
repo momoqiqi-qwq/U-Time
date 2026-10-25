@@ -8,7 +8,7 @@
 // 表外汉字（生僻字）解析不出首字母，插件退回「插件 ID 首字母」兜底，不会没有快捷键。
 //
 // 用法：
-//   NODE_PATH=C:/Users/yile/.workbuddy/binaries/node/workspace/node_modules node tools/gen-pinyin-initial.js
+//   NODE_PATH=$USERPROFILE/.workbuddy/binaries/node/workspace/node_modules node tools/gen-pinyin-initial.js
 //   node tools/gen-pinyin-initial.js --check   # 只校验生成物与事实源是否一致（不写盘）
 // 生成的片段落在 src/pinyinInitial.js 的
 //   /* ══ PY_INITIAL_DATA BEGIN（本脚本生成，勿手改） ══ */
@@ -28,7 +28,8 @@ const CHECK = process.argv.includes("--check");
 function loadPinyinPro() {
   const candidates = [
     process.env.PINYIN_PRO_PATH,
-    "C:/Users/yile/.workbuddy/binaries/node/workspace/node_modules/pinyin-pro/dist/index.js",
+    process.env.USERPROFILE
+      && `${process.env.USERPROFILE}/.workbuddy/binaries/node/workspace/node_modules/pinyin-pro/dist/index.js`,
   ].filter(Boolean);
   for (const p of candidates) {
     if (fs.existsSync(p)) return import(url.pathToFileURL(p).href);

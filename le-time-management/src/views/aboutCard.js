@@ -55,10 +55,11 @@ export function createAboutCard(info, registry = []) {
       el("div", {},
         el("h2", {}, "关于 U-Time"),
         // 作者署名（v0.232.0）：产品内唯一展示位，与打包元数据、文档三处同源。
+        // v0.285.0：署名统一为 lyl，latin 为空时不渲染空 span（否则 .about-author 的间距会多一格）。
         el("p", { class: "about-author" },
           el("span", { class: "about-author-label" }, "By"),
           el("b", {}, AUTHOR.name),
-          el("span", { class: "about-author-latin" }, AUTHOR.latin),
+          AUTHOR.latin ? el("span", { class: "about-author-latin" }, AUTHOR.latin) : null,
           (AUTHOR.aliases || []).map((alias) => el("span", { class: "about-author-alias" }, alias)),
           el("span", { class: "about-author-role" }, AUTHOR.role),
         ),

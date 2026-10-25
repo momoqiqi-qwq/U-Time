@@ -46,7 +46,7 @@
 
 ## 验证
 
-- 真机（学号 2025290058，会话由用户在浏览器登录后用 bsk 接管抓包）：
+- 真机（学号 2025000001，会话由用户在浏览器登录后用 bsk 接管抓包）：
   `POST https://jw.cppu.edu.cn/je/zxcx/load` + `queryParamsStr=FUNCINFO_QUERYPARAM` + `limit=-1` → **HTTP 200，630 行**，
   字段 `JC / YW_ID / ID / SFZY / YWMC / RQ`；`limit=30` 时 30 行、`queryParamsStr=[]` 时报占位符数量错误 —— 三条对照均复现。
 - `node scripts/test-cppu.mjs` 新增用例：配了 `FUNCINFO_FUNCACTION` 的功能必须打自己的 `/load`、必须回传

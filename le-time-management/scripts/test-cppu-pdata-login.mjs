@@ -67,7 +67,7 @@ await api.dropPdataAuth();
 vaultData.cookies = JSON.stringify([{ url: 'https://sso.cppu.edu.cn/', cookie: 'CASTGC=abc' }]);
 response = (sid, method, url) => {
   if (PDATA_TICKET_RE.test(url)) return { status: 302, location: 'https://pdata.cppu.edu.cn/stu/home/?ticket=ST-1' };
-  if (/\/tsa\/validateLogin\?ticket=ST-1/.test(url)) return { status: 200, body: JSON.stringify({ code: 2000, data: { token: 'TK-1', userId: '2025290058' } }) };
+  if (/\/tsa\/validateLogin\?ticket=ST-1/.test(url)) return { status: 200, body: JSON.stringify({ code: 2000, data: { token: 'TK-1', userId: '2025000001' } }) };
   if (/\/tsa\/pdp\/consume\/cardInfo/.test(url)) return { status: 200, body: JSON.stringify({ code: 2000, data: { yktye: '88.50' } }) };
   return { status: 404, body: '' };
 };
@@ -90,7 +90,7 @@ await api.dropPdataAuth();
 delete vaultData.cookies;
 delete vaultData.pdataToken;
 vaultData.secret = JSON.stringify({ password: 'pw-shared' });
-storageData.username = '2025290058';
+storageData.username = '2025000001';
 storageData.autoLogin = true;
 storageData.loginRetries = 0; // 不跑退避等待，测试只关心链路走到哪一步
 log.length = 0;
@@ -105,7 +105,7 @@ response = (sid, method, url, opts) => {
 const dead = await api.pdataApi('/tsa/pdp/consume/cardInfo');
 assert.equal(dead.ok, false);
 assert.match(dead.message, /先在「警大通知」里登录一次/, '整条链都失败时才提示人工登录，且要指向通知插件');
-assert.equal(context.testApi.state.username, '2025290058', '账号必须取自通知保存的那一份（storage: username）');
+assert.equal(context.testApi.state.username, '2025000001', '账号必须取自通知保存的那一份（storage: username）');
 assert.equal(context.testApi.state.savedPassword, 'pw-shared', '密码必须取自通知保存的那一份（vault: secret）');
 assert.ok(
   log.some((l) => /\/tpass\/captcha\.jpg/.test(l)),
@@ -130,7 +130,7 @@ assert.deepEqual(opened[1], ['pdata', 'https://pdata.cppu.edu.cn/stu/home/', 's1
        invalid args `sid` for command `http_fetch`: invalid type: null, expected a string */
 log.length = 0;
 context.testApi.state.sid = null; // 模拟「本次进程还没建过会话」
-vaultData.pdataToken = JSON.stringify({ token: 'TK-2', userId: '2025290058', at: Date.now() });
+vaultData.pdataToken = JSON.stringify({ token: 'TK-2', userId: '2025000001', at: Date.now() });
 response = (sid, method, url) => {
   if (url.startsWith('https://pdata.cppu.edu.cn/tsa/shc/')) return { status: 200, body: JSON.stringify({ code: 2000, data: { yktye: '12.00' } }) };
   return { status: 404, body: '' };
@@ -145,7 +145,7 @@ assert.equal(context.testApi.state.sid, 's1', '取数前必须自己建一个会
 assert.equal(log.filter((l) => l === 'session').length, 1, '成长页首屏 8 个接口并发，会话只能建一个');
 
 /* ── ⑤ 重新登录 / 清除凭据后，旧 token 不能留在密钥库里 ── */
-vaultData.pdataToken = JSON.stringify({ token: 'TK-STALE', userId: '2025290058', at: 1 });
+vaultData.pdataToken = JSON.stringify({ token: 'TK-STALE', userId: '2025000001', at: 1 });
 await api.clearSavedLogin();
 await flush();
 assert.equal(vaultData.pdataToken, undefined, '清除凭据必须连 pdata 的 token 一起清，否则下个人接着用上个人的数据');

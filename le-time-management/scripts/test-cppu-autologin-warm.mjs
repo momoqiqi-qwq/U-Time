@@ -89,7 +89,7 @@ function captchaHarness(results, { extraCaptchas = 0 } = {}) {
 }
 
 /* ── ② 启动预热：闸门、频控、落盘 ── */
-function warmHarness({ withWindow = true, stored = {}, vaultOk = true, renew = true, restore = true, username = '2025290058' } = {}) {
+function warmHarness({ withWindow = true, stored = {}, vaultOk = true, renew = true, restore = true, username = '2025000001' } = {}) {
   const calls = { restore: 0, renew: 0, save: 0, notify: 0, loadPrefs: 0 };
   const store = { autoLogin: true, username, ...stored };
   const box = {
