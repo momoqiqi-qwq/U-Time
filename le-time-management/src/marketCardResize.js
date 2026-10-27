@@ -28,7 +28,14 @@ import { getUiScaleFactor } from "./uiScale.js";
       过渡 200ms；高度取的是确定像素（拖动值原样保留），所以缩小时不会在松手那一帧弹回内容高度。
    位移除以界面缩放系数：`clientX` 与 `rect` 同为屏幕视觉 px，而 CSS 变量是布局 px。 */
 
+/* v0.287.0：悬停在卡片**边缘**那一圈（EDGE_RING = 10 视觉 px）时，光标提前变成调整尺寸的
+   双箭头 —— 用户实测「不知道卡片能拉大拉小」的根因就是拖动前没有任何提示，
+   而中间区域仍要保持「点一下打开插件」的手感，所以只在边缘换光标（见 edgeResizeCursor）。 */
+
 const DRAG_THRESHOLD = 4; // 小于这个位移算点击 —— 卡片点击是打开插件，不能被拖动抢走
+const EDGE_RING = 10; // 边缘多少「视觉 px」算可拖拽区（v0.287.0：悬停时给调整尺寸光标）
+const EDGE_CLASS = "market-edge-resize";
+const EDGE_VAR = "--market-card-edge-cursor";
 const HINT_CLASS = "market-size-hint";
 const RESIZING_CLASS = "market-resizing";
 const PAGE_CLASS = "market-resizing-page"; // 挂 <html>：拖动中整页统一成调整尺寸光标
@@ -45,6 +52,21 @@ export function resizeCursor(dw, dh) {
   if (useX) return "ew-resize";
   if (useY) return "ns-resize";
   return "default";
+}
+
+/** 纯换算：指针落在卡片的哪条边 → 悬停时的调整尺寸光标（"" = 中间区域，保持原样）。
+ *  边缘这一圈才是「拖得动」的地方，所以悬停到边上就该给出双箭头；中间仍留给「点开插件」。
+ *  角上按对角判向：左上 / 右下 = nwse，右上 / 左下 = nesw（与 resizeCursor 的命名一致）。 */
+export function edgeResizeCursor(rect, x, y, ring = EDGE_RING) {
+  if (!rect) return "";
+  const dxLeft = x - rect.left, dxRight = rect.right - x;
+  const dyTop = y - rect.top, dyBottom = rect.bottom - y;
+  const onX = Math.min(dxLeft, dxRight) <= ring;
+  const onY = Math.min(dyTop, dyBottom) <= ring;
+  if (onX && onY) return (dxLeft <= dxRight) === (dyTop <= dyBottom) ? "nwse-resize" : "nesw-resize";
+  if (onX) return "ew-resize";
+  if (onY) return "ns-resize";
+  return "";
 }
 
 /** 纯换算：起始尺寸 + 指针位移 → 新尺寸（已 clamp 到合法区间，1px 位移 = 1px 变化）。 */
@@ -112,6 +134,34 @@ export function attachMarketCardResize(grid, { onCommit, onCancel } = {}) {
   };
   const hideHint = () => { hint?.remove(); hint = null; };
 
+  /* ── 悬停提示（v0.287.0）──
+     指针落在卡片边缘那一圈时把光标换成调整尺寸的双箭头：那一圈正是能拖大拖小的地方，
+     中间区域仍是「点开插件」，所以只在边缘换光标，避免整张卡片看起来像调节柄。
+     只认鼠标：触屏没有 hover 语义，而且触屏拖动本身不介入改尺寸（见 onDown）。 */
+  let hover = null;
+  const paintHover = (card, cursor) => {
+    if (hover && hover.card === card && hover.cursor === cursor) return;
+    if (hover) {
+      hover.card.classList.remove(EDGE_CLASS);
+      hover.card.style.removeProperty(EDGE_VAR);
+    }
+    hover = null;
+    if (!card || !cursor) return;
+    card.classList.add(EDGE_CLASS);
+    card.style.setProperty(EDGE_VAR, cursor);
+    hover = { card, cursor };
+  };
+
+  function onHoverMove(event) {
+    if (session) return; // 拖动中由整页光标接管（那条规则带 !important）
+    if (event.pointerType && event.pointerType !== "mouse") return;
+    const target = event.target;
+    const card = target?.closest?.(".mcard");
+    if (!card || !grid.contains(card)) return paintHover(null, "");
+    const rect = typeof card.getBoundingClientRect === "function" ? card.getBoundingClientRect() : null;
+    paintHover(card, edgeResizeCursor(rect, event.clientX, event.clientY));
+  }
+
   const release = () => {
     document.removeEventListener("pointermove", onMove, true);
     document.removeEventListener("pointerup", onUp, true);
@@ -127,6 +177,7 @@ export function attachMarketCardResize(grid, { onCommit, onCancel } = {}) {
     if (st.frame !== null) cancelAnimationFrame(st.frame);
     release();
     hideHint();
+    paintHover(null, "");
     grid.classList.remove(RESIZING_CLASS);
     // 光标是全局态：无论落盘还是取消，都必须在这里收干净，否则整页指针会一直停在 resize。
     document.documentElement.classList.remove(PAGE_CLASS);
@@ -218,6 +269,7 @@ export function attachMarketCardResize(grid, { onCommit, onCancel } = {}) {
       st.active = true;
       grid.classList.add(RESIZING_CLASS);
       document.documentElement.classList.add(PAGE_CLASS);
+      paintHover(null, ""); // 边缘悬停光标让位给整页拖动光标
       paint(st, event.clientX, event.clientY);
       return;
     }
@@ -243,10 +295,17 @@ export function attachMarketCardResize(grid, { onCommit, onCancel } = {}) {
     finish(false);
   }
 
+  const onHoverLeave = () => paintHover(null, "");
+
   grid.addEventListener("pointerdown", onDown);
+  grid.addEventListener("pointermove", onHoverMove, { passive: true });
+  grid.addEventListener("pointerleave", onHoverLeave);
   return () => {
     finish(false);
     stopSettling();
+    paintHover(null, "");
     grid.removeEventListener("pointerdown", onDown);
+    grid.removeEventListener("pointermove", onHoverMove);
+    grid.removeEventListener("pointerleave", onHoverLeave);
   };
 }

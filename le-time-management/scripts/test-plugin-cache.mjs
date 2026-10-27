@@ -23,9 +23,27 @@ function fakeBackend({ failGet = false, failSet = false, delay = 0 } = {}) {
 }
 function harness(backend, legacy = {}) {
   const ns = { ...legacy };
+  const pending = Object.create(null);
   let persisted = 0;
-  const cache = createPluginCache({ pid: "demo", storage: () => ns, persist: () => { persisted++; }, backend });
-  return { ns, cache, persisted: () => persisted };
+  const cache = createPluginCache({ pid: "demo", storage: () => ns, pending: () => pending, persist: () => { persisted++; }, backend });
+  return { ns, pending, cache, persisted: () => persisted };
+}
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+function gatedBackend() {
+  const files = new Map(), reads = [], writes = [];
+  const be = {
+    files, reads, writes, started: deferred(), reply: deferred(),
+    get(pid, key) { reads.push(key); be.started.resolve(); return be.reply.promise; },
+    async set(pid, key, value) {
+      writes.push(value);
+      if (value == null) files.delete(`${pid}/${key}`); else files.set(`${pid}/${key}`, value);
+    },
+  };
+  return be;
 }
 
 // 1) 透明迁移：storage 里的旧值搬进缓存文件，搬完从 storage 删掉并安排保存
@@ -53,14 +71,64 @@ function harness(backend, legacy = {}) {
   await assert.rejects(() => h.cache.get(""), /缓存键无效/);
   await assert.rejects(() => h.cache.get("x".repeat(201)), /缓存键无效/);
 }
-// 3) 读盘期间插件已 set 新值：读回来的旧盘值不能盖掉它
+// 3) 同键冷读只发一次 IPC；fallback 属于每次调用，不能串给其他调用者。
 {
-  const be = fakeBackend({ delay: 5 });
-  be.files.set("demo/k", "old");
+  const be = gatedBackend();
   const h = harness(be);
+  const pending = Array.from({ length: 8 }, (_, i) => h.cache.get("k", `fallback-${i}`));
+  await be.started.promise;
+  be.reply.resolve(null);
+  assert.deepEqual(await Promise.all(pending), pending.map((_, i) => `fallback-${i}`));
+  assert.equal(be.reads.length, 1, "并发冷读共享进行中的读请求");
+  assert.equal(await h.cache.get("k", "later"), "later");
+  assert.equal(be.reads.length, 1, "成功的空结果也缓存");
+}
+// 读盘开始前发生 set：无需再读旧文件。
+{
+  const be = gatedBackend();
+  const h = harness(be, { k: "legacy" });
   const pending = h.cache.get("k");
-  await h.cache.set("k", "new");
+  const writing = h.cache.set("k", "new");
   assert.equal(await pending, "new");
+  await writing;
+  assert.equal(be.reads.length, 0);
+  assert.deepEqual(be.writes, ["new"]);
+}
+// 读盘期间发生 set/remove：不能把 legacy 再排进写队列覆盖新值或复活删除值。
+for (const value of ["new", null]) {
+  const be = gatedBackend();
+  const h = harness(be, { k: "legacy" });
+  const pending = [h.cache.get("k", "first"), h.cache.get("k", "second")];
+  await be.started.promise;
+  const writing = value == null ? h.cache.remove("k") : h.cache.set("k", value);
+  be.reply.resolve(null);
+  await writing;
+  assert.deepEqual(await Promise.all(pending), value == null ? ["first", "second"] : [value, value]);
+  assert.deepEqual(be.writes, [value], "冷读不可迁移旧值覆盖新写入");
+  assert.equal(be.files.get("demo/k") ?? null, value);
+  assert.ok(!("k" in h.ns));
+}
+// 多个冷读只迁移一次；迁移尚未落盘时发生 set，写队列仍以新值收尾。
+{
+  const be = gatedBackend();
+  const migrationStarted = deferred(), migrationDone = deferred();
+  const write = be.set;
+  be.set = async (pid, key, value) => {
+    if (value === "legacy") { migrationStarted.resolve(); await migrationDone.promise; }
+    await write(pid, key, value);
+  };
+  const h = harness(be, { k: "legacy" });
+  const pending = [h.cache.get("k"), h.cache.get("k")];
+  await be.started.promise;
+  be.reply.resolve(null);
+  await migrationStarted.promise;
+  const writing = h.cache.set("k", "new");
+  migrationDone.resolve();
+  await writing;
+  assert.deepEqual(await Promise.all(pending), ["new", "new"]);
+  assert.equal(be.reads.length, 1);
+  assert.deepEqual(be.writes, ["legacy", "new"]);
+  assert.equal(be.files.get("demo/k"), "new");
   assert.equal(await h.cache.get("k"), "new");
 }
 // 4) 没有 Tauri（浏览器调试）或后端出错：退回 storage，数据不丢
@@ -83,6 +151,44 @@ function harness(backend, legacy = {}) {
 {
   const cache = createPluginCache({ pid: "p", storage: () => ({}), persist() {}, backend: fakeBackend(), guard: () => { throw new Error("插件未声明 storage 权限"); } });
   await assert.rejects(() => cache.get("k"), /storage 权限/);
+}
+// 失败的共享读不能留在内存里；下一次 get 要重新读盘并允许各调用方使用自己的 fallback。
+{
+  const warn = console.warn; console.warn = () => {};
+  try {
+    const be = gatedBackend();
+    const h = harness(be);
+    const pending = [h.cache.get("k", "first"), h.cache.get("k", "second")];
+    await be.started.promise;
+    be.reply.reject(new Error("io"));
+    assert.deepEqual(await Promise.all(pending), ["first", "second"]);
+    assert.equal(be.reads.length, 1);
+    be.started = deferred(); be.reply = deferred();
+    const retry = h.cache.get("k");
+    await be.started.promise;
+    be.reply.resolve("recovered");
+    assert.equal(await retry, "recovered");
+    assert.equal(be.reads.length, 2, "读盘失败后可以重试");
+
+    const migrating = gatedBackend();
+    const write = migrating.set;
+    let attempts = 0;
+    migrating.set = async (...args) => {
+      if (++attempts === 1) throw new Error("disk full");
+      await write(...args);
+    };
+    const old = harness(migrating, { k: "legacy" });
+    const initial = [old.cache.get("k"), old.cache.get("k")];
+    await migrating.started.promise;
+    migrating.reply.resolve(null);
+    assert.deepEqual(await Promise.all(initial), ["legacy", "legacy"]);
+    assert.equal(old.ns.k, "legacy", "迁移失败继续保留旧值");
+    assert.equal(attempts, 1);
+    assert.equal(await old.cache.get("k"), "legacy");
+    assert.equal(attempts, 2, "迁移失败不能被缓存，下一次会重试迁移");
+    assert.ok(!("k" in old.ns));
+    assert.equal(old.persisted(), 1);
+  } finally { console.warn = warn; }
 }
 
 // 6) 图标缩小：小图原样；大图按最长边缩到 144；缩完更大或解码失败都保留原图

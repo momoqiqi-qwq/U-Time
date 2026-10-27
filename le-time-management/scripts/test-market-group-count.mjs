@@ -13,7 +13,6 @@ const code = shell.slice(shell.indexOf("  function renderMarket(container)"), sh
 
 assert.match(shell, /groupFoldButton\("plug-group", color, views\.length/, "侧栏组头按视图条数计数");
 assert.match(shell, /groupFoldButton\("market-group", color, colorCount\.get\(color\) \|\| 0/, "插件中心组头必须与侧栏同口径");
-assert.match(code, /Math\.max\(1, pluginViews\.filter\(\(v\) => v\.pluginId === id\)\.length\)/, "条目数 = 该插件的视图数（至少 1）");
 assert.ok(!code.includes("isAndroidRuntime"), "🔴 视图入口与组计数不许按平台分叉：桌面端也要列全");
 assert.match(code, /headRefreshers\.set\(color, \(\) => \{/, "组头计数要登记刷新器");
 assert.match(code, /cardRefreshers\.forEach\(\(refresh\) => refresh\(\)\);\s*headRefreshers\.forEach\(\(refresh\) => refresh\(\)\)/,
@@ -43,6 +42,10 @@ class N {
 const root = new N('main');
 /* 绿色组：一个插件 3 个视图 + 一个插件 2 个视图（正是 cppu-notify 那种形态）；另有一个未分组插件。 */
 const regs = ['green-a', 'green-b', 'plain'].map((id, i) => ({ id, source: 'builtin', manifest: { name: id, order: i + 1 } }));
+const colors = new Map([['green-a', 'green'], ['green-b', 'green']]);
+let viewReads = 0, colorReads = 0;
+// 对真实视图对象的归属字段计数，避免依赖机器速度的耗时阈值；建卡和刷新都只能扫一遍 V。
+const measuredView = ({ pluginId, ...fields }) => ({ ...fields, get pluginId() { viewReads++; return pluginId; } });
 const views = [
   { id: 'green-a-1', pluginId: 'green-a', title: '警大成绩' },
   { id: 'green-a-2', pluginId: 'green-a', title: '警大选课' },
@@ -50,7 +53,7 @@ const views = [
   { id: 'green-b-1', pluginId: 'green-b', title: 'B1' },
   { id: 'green-b-2', pluginId: 'green-b', title: 'B2' },
   { id: 'plain-1', pluginId: 'plain', title: 'P1' },
-];
+].map(measuredView);
 const routes = [];
 const env = {
   document: { get activeElement() { return active; } },
@@ -63,7 +66,7 @@ const env = {
   pluginAccent: () => '',
   pluginOrderState: () => [],
   normalizePluginOrder: (ids) => ids,
-  pluginColor: (id) => (id === 'green-a' || id === 'green-b' ? 'green' : null),
+  pluginColor: (id) => { colorReads++; return colors.get(id) || null; },
   isAndroidRuntime: () => false, // 桌面端：改动前这里 viewLinks 恒为 null
   reducedMotion: () => false,
   isSelfActivationKey: () => true,
@@ -91,6 +94,7 @@ const env = {
 };
 const module = new Function(...Object.keys(env), `let marketQuery='',marketFilter='all',marketSearchOpen=false,repaintMarket,refreshMarketState; const marketTogglePending=new Set(); ${code}; return { renderMarket, refresh: () => refreshMarketState() };`)(...Object.values(env));
 module.renderMarket(root);
+assert.equal(viewReads, views.length, '建卡、入口与组头计数共用一次视图扫描');
 
 const grid = root.querySelector('.market-grid');
 const heads = grid.querySelectorAll('.market-group-head');
@@ -118,12 +122,70 @@ assert.deepEqual(routes, ['plug:green-a-1', 'plug:green-a-2', 'plug:green-a-3'],
 /* 真机现场：插件 main.js 是启动后异步逐个 registerView 的，首帧可能只到位一部分视图。
    onNavChanged → refreshMarketState 在「插件成员没变」时只刷新卡片、不重排网格，
    所以组头计数必须自己也能被推着更新 —— 线上实测就是这个：卡片补成了 7 枚入口、组头仍写 1。 */
-views.push({ id: 'green-a-4', pluginId: 'green-a', title: '警大通知' }, { id: 'green-a-5', pluginId: 'green-a', title: '警大请假' });
+views.push(...[
+  { id: 'green-a-4', pluginId: 'green-a', title: '警大通知' },
+  { id: 'green-a-5', pluginId: 'green-a', title: '警大请假' },
+].map(measuredView));
+viewReads = 0;
 module.refresh();
+assert.equal(viewReads, views.length, '异步注册后的增量刷新也只扫描一次视图');
 assert.equal(heads[0].querySelector('.market-group-count').textContent, '7',
   '🔴 视图陆续注册后组头计数必须跟着涨（5 + 2），不能冻在首帧那个数字上');
 assert.equal(linksOf('green-a').children.length, 5, '卡片入口随注册补齐');
 assert.deepEqual(linksOf('green-a').children.map((b) => b.attrs['data-plugin-view']).slice(-2), ['green-a-4', 'green-a-5']);
+
+// 原数组就地修改、删除视图同样要被下一轮索引看见，且保留卡片与首入口顺序。
+views[0].title = '更新后的成绩';
+views[0].icon = 'updated';
+viewReads = 0;
+module.refresh();
+assert.equal(viewReads, views.length);
+assert.equal(linksOf('green-a').children[0].children[1].textContent, '更新后的成绩');
+assert.equal(card('green-a'), grid.querySelectorAll('.mcard')[0], '元数据更新不替换卡片');
+views.splice(0, views.length, ...views.filter((view) => !view.id.startsWith('green-a-')));
+viewReads = 0;
+module.refresh();
+assert.equal(viewReads, views.length, '移除视图后重建索引，不保留过期的入口');
+assert.equal(heads[0].querySelector('.market-group-count').textContent, '3', '没有视图的插件仍计 1，另一个插件计 2');
+assert.equal(linksOf('green-a'), null);
+assert.equal(card('green-a').attrs.role, undefined, '失去全部视图的卡片不再是打开入口');
+assert.ok(!card('green-a').classList.contains('has-views'));
+
+// 大样本守住线性关联成本：160 个插件、8 个组、480 个视图，扫描次数只随 V 增长。
+regs.splice(0);
+views.splice(0);
+colors.clear();
+for (let i = 0; i < 160; i++) {
+  const id = `scale-${i}`;
+  regs.push({ id, source: 'builtin', manifest: { name: id, order: i + 1 } });
+  colors.set(id, `color-${Math.floor(i / 20)}`);
+  for (let j = 0; j < 3; j++) views.push(measuredView({ id: `${id}-${j}`, pluginId: id, title: `${id} / ${j}` }));
+}
+root.replaceChildren();
+viewReads = colorReads = 0;
+module.renderMarket(root);
+assert.equal(viewReads, 480, '160 张卡和 8 个组头共用 480 次归属读取，不能退回逐卡遍历视图');
+assert.equal(colorReads, 320, '分组统计一次、建卡一次，不能让每个组头重新扫描全部插件');
+const scaleGrid = root.querySelector('.market-grid');
+const scaleCards = scaleGrid.querySelectorAll('.mcard');
+assert.equal(scaleCards.length, 160);
+assert.deepEqual(scaleGrid.querySelectorAll('.market-group-count').map((badge) => badge.textContent), Array(8).fill('60'));
+viewReads = colorReads = 0;
+module.refresh();
+assert.equal(viewReads, 480, '规模增长后增量刷新仍只扫一次全部视图');
+assert.equal(colorReads, 160, '增量刷新只遍历一次插件来聚合全部组头计数');
+assert.equal(scaleGrid.querySelectorAll('.mcard')[0], scaleCards[0]);
+const scaleSearch = root.querySelector('.market-search');
+scaleSearch.value = 'scale-159';
+viewReads = 0;
+scaleSearch.attrs.oninput();
+assert.equal(viewReads, 480);
+assert.deepEqual(scaleGrid.querySelectorAll('.mcard').map((node) => node.dataset.cardId), ['scale-159']);
+assert.equal(scaleGrid.querySelector('.market-group-count').textContent, '3', '搜索后的组头只统计当前匹配成员');
+scaleSearch.value = 'missing-plugin';
+scaleSearch.attrs.oninput();
+assert.equal(scaleGrid.querySelectorAll('.market-group-head').length, 0);
+assert.ok(scaleGrid.querySelector('.market-empty').textContent.includes('missing-plugin'));
 
 const css = readProductSource(new URL("../src/styles/feature-layouts.css", import.meta.url), "utf8");
 assert.match(css, /\.market-view-links \.btn \{ min-height: 44px/, '触屏那套 44px 基础样式要留着');
@@ -136,4 +198,4 @@ assert.match(css, /@media \(min-width: 901px\) \{[\s\S]*\.market-grid \.mcard\.h
 assert.match(code, /\$\{cardViews\.length > 1 \? " has-views" : ""\}/, '多视图卡片建卡时就带 has-views');
 assert.match(code, /card\.classList\.toggle\("has-views", views\.length > 1\)/, '视图数量变化时同步 has-views');
 
-console.log('PASS: the market group header counts entries exactly like the sidebar (a plugin counts every view), keeps up as views register late, every platform lists every view entry, and the desktop entry row stays compact');
+console.log('PASS: market view indexing scans V once per render/refresh, aggregates groups in O(P), preserves late registration/removal/metadata/search behavior and every platform view entry');

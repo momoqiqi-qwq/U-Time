@@ -105,13 +105,12 @@ export function renderTimeline(container) {
   // 「回到今天」：sticky 小胶囊，长时间线滚远了能一键跳回
   const jump = el("button", { class: "tlv-jump", type: "button", title: "回到今天", onclick: () => scrollToToday(true) }, "◎ 今天");
 
-  function cardBodyInner(e, g) {
+  function cardBodyInner(e, g, task) {
     const parts = [];
     if (e.kind === "block") {
       const end = S.hhmmOf(S.mmOf(e.time) + e.durMin);
       parts.push(el("p", { class: "tlv-when" },
         highlightedText(`${g.fullLabel} · ${e.time} – ${end} · ${S.durLabel(e.durMin)}`, highlightCfg)));
-      const task = e.taskId ? S.taskById(e.taskId) : null;
       parts.push(el("div", { class: "tlv-note" },
         el("b", {}, `${CAT_NAME[e.cat] || e.cat} · 时间块`),
         task ? el("span", {}, highlightedText(`来自任务「${task.title}」的排程`, highlightCfg)) : el("span", { class: "dim" }, "独立安排，没有正文备注"),
@@ -137,7 +136,7 @@ export function renderTimeline(container) {
     return parts;
   }
 
-  function cardEl(e, g) {
+  function cardEl(e, g, task) {
     const open = expanded.has(e.id);
     const card = el("article", {
       class: `tlv-card kind-${e.kind}${e.done ? " is-done" : ""}${open ? " open" : ""}${g.isPast ? " is-past" : ""}`,
@@ -155,7 +154,7 @@ export function renderTimeline(container) {
       el("h3", { class: "tlv-title" }, el("span", {}, highlightedText(e.title, highlightCfg)), newBadge(e.isNew === true)),
       e.kind === "block" && e.durMin ? el("span", { class: "tlv-brief" }, S.durLabel(e.durMin)) : null,
       el("div", { class: "tlv-card-body" },
-        el("div", { class: "tlv-card-body-inner" }, cardBodyInner(e, g))),
+        el("div", { class: "tlv-card-body-inner" }, cardBodyInner(e, g, task))),
     );
     const toggle = () => {
       if (expanded.has(e.id)) expanded.delete(e.id);
@@ -181,7 +180,12 @@ export function renderTimeline(container) {
     highlightCfg = getKeywordHighlights(state.settings);
     const model = buildTimelineModel(state, today);
     const rows = [];
-    const taskTitles = new Map(state.tasks.map((task) => [task.id, task.title]));
+    // 一轮渲染只遍历任务一次，避免每个时间块再线性查找；重复 ID 保留 taskById 的首项语义。
+    const tasksById = new Map();
+    for (const task of state.tasks) {
+      const id = task.id;
+      if (!tasksById.has(id)) tasksById.set(id, task);
+    }
     if (!model.groups.length) {
       rows.push({ key: "empty", signature: "empty", create: () => el("div", { class: "tlv-empty" },
         el("div", { class: "tlv-empty-icon", "aria-hidden": "true" }, "⌁"),
@@ -199,10 +203,12 @@ export function renderTimeline(container) {
       }
       g.items.forEach((e, i) => {
         const side = rowIndex % 2 === 0 ? "left" : "right";
+        const task = e.taskId ? tasksById.get(e.taskId) : null;
         rowIndex++;
-        rows.push({ key: e.id, signature: JSON.stringify([e, g.fullLabel, g.isToday, g.isPast, g.hasOverdue, i === 0, side, highlightCfg, taskTitles.get(e.taskId)]),
+        // 空标题任务仍有「任务详情」入口，必须与关联任务不存在的状态区分。
+        rows.push({ key: e.id, signature: JSON.stringify([e, g.fullLabel, g.isToday, g.isPast, g.hasOverdue, i === 0, side, highlightCfg, Boolean(task), task?.title]),
           create: () => el("div", { class: `tlv-row side-${side}${g.isToday ? " is-today" : ""}` },
-          el("div", { class: "tlv-cards" }, cardEl(e, g)),
+          el("div", { class: "tlv-cards" }, cardEl(e, g, task)),
           i === 0
             ? el("div", { class: "tlv-badge", "aria-label": g.fullLabel },
               el("b", {}, g.monthDay),

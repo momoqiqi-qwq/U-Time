@@ -72,7 +72,7 @@ for(const error of [{fatal:'wrong password'},{fatal:'locked'},{retry:'rate limit
 // Real submit classification: 5xx/captcha can retry, locked/429/403 cannot.
 const submit = portal.slice(portal.indexOf('  async function submitLogin(code)'),portal.indexOf('  // 静默续期：'));
 for(const [status,body,expected] of [[500,'服务异常',true],[200,'验证码不正确',true],[429,'请求过频',false],[200,'账号已锁定',false],[403,'禁止访问',false],[200,'账号或密码错误',false]]){
- const sandbox={state:{pending:{username:'x',password:'x',execution:'e'},sid:'s'},LOGIN_URL:'https://example.invalid',rsaEncrypt:x=>x,cleanText:x=>x,finishPortalLogin:async()=>false,tide:{http:{fetch:async()=>({status,body})}}};
+ const sandbox={authEpoch:0,authCurrent:()=>true,state:{pending:{username:'x',password:'x',execution:'e'},sid:'s'},LOGIN_URL:'https://example.invalid',rsaEncrypt:x=>x,cleanText:x=>x,finishPortalLogin:async()=>false,tide:{http:{fetch:async()=>({status,body})}}};
  vm.runInNewContext(submit+';globalThis.submit=submitLogin;',sandbox);
  await assert.rejects(sandbox.submit('1234'),error=>expected?error.retryable===true:!!error.fatal||error.retryable===false);
 }

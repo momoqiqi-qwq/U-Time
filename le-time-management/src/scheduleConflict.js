@@ -30,6 +30,33 @@ export function conflictsFor(blocks, proposal, ignoreId = null) {
   });
 }
 
+// 一轮候选搜索只解析一次占用区间，合并后按结束时间二分定位。
+// 排满的一天会尝试几十个候选；逐次 conflictsFor 会反复解析全表并分配无用的冲突数组。
+function createConflictChecker(blocks, ignoreId) {
+  const ranges = [];
+  for (const block of blocks || []) {
+    if (ignoreId && block.id === ignoreId) continue;
+    const range = blockRange(block);
+    if (range.start < range.end) ranges.push(range);
+  }
+  ranges.sort((a, b) => a.start - b.start);
+  const occupied = [];
+  for (const range of ranges) {
+    const last = occupied.at(-1);
+    if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+    else occupied.push(range);
+  }
+  return (start, end) => {
+    let lo = 0, hi = occupied.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (occupied[mid].end <= start) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo < occupied.length && start < occupied[lo].end && end > occupied[lo].start;
+  };
+}
+
 export function findAlternatives(blocks, proposal, options = {}) {
   const dayStart = Number(options.dayStart ?? 7 * 60);
   const dayEnd = Number(options.dayEnd ?? 24 * 60);
@@ -40,6 +67,7 @@ export function findAlternatives(blocks, proposal, options = {}) {
   const maxStart = dayEnd - p.durMin;
   if (maxStart < dayStart) return [];
 
+  const hasConflict = createConflictChecker(blocks, ignoreId);
   const candidates = [];
   const seen = new Set();
   const desired = clamp(p.start, dayStart, maxStart);
@@ -47,8 +75,7 @@ export function findAlternatives(blocks, proposal, options = {}) {
     start = Math.round(start / step) * step;
     if (start < dayStart || start > maxStart || seen.has(start)) return;
     seen.add(start);
-    const hit = conflictsFor(blocks, { startMin: start, durMin: p.durMin }, ignoreId);
-    if (!hit.length) candidates.push({ startMin: start, start: hhmmOf(start), durMin: p.durMin });
+    if (!hasConflict(start, start + p.durMin)) candidates.push({ startMin: start, start: hhmmOf(start), durMin: p.durMin });
   };
 
   // 优先找原时间之后，再找之前；距离相同则更早的排后面，减少“往回挪”造成错过。

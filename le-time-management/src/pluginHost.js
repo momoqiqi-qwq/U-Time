@@ -261,6 +261,13 @@ function makeApi(man, source) {
     cache: createPluginCache({
       pid,
       storage: ns,
+      pending: () => {
+        const plugin = S.pluginState(pid);
+        if (!plugin.cachePending || typeof plugin.cachePending !== "object" || Array.isArray(plugin.cachePending)) {
+          plugin.cachePending = Object.create(null);
+        }
+        return plugin.cachePending;
+      },
       persist: () => S.persistSoon(),
       backend: api.isTauri ? { get: (id, key) => api.pluginCacheGet(id, key), set: (id, key, value) => api.pluginCacheSet(id, key, value) } : null,
       guard: () => requirePermission(man, pid, "storage"),

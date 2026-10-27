@@ -1,10 +1,10 @@
 {
   "id": "shiguang-schedule",
   "name": "课程表",
-  "version": "3.16.1",
+  "version": "3.17.0",
   "author": "基于 XingHeYuZhuan/shiguangschedule · U-Time适配",
   "icon": "calendar-days",
-  "description": "把课表嵌入 U-Time：周视图一屏看全周，支持教务一键导入、文件导入与多课表；彩色课程块可与时间块联动。",
+  "description": "把课表嵌入 U-Time：周视图一屏看全周，支持教务一键导入、文件导入与多课表；彩色课程块支持柔和背景、柔和边框和原有彩色实色卡三档样式，并可与时间块联动。",
   "permissions": [
     "ui",
     "storage",

@@ -1919,6 +1919,20 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, te
   border-radius: var(--radius);
   box-shadow: none;
 }
+/* v0.286.1 多入口卡片的高度按内容自适应。一个插件能注册任意多个入口
+   （cppu-notify 就注册了 13 个：通知 / 一卡通 / 上网记录 / 邮箱 / 获奖名单 / 成绩 …），
+   入口胶囊按视图数换行、行数不固定，而卡片高度是**用户拖出来的一个像素值**（全体共用）。
+   于是「高度写死 + overflow:hidden」必然裁内容：v0.286.0 实测那张 13 入口的卡片
+   第二行胶囊被切掉半截，看起来像"框太小装不下"。
+   这里只对 has-views（入口 > 1）把 height 交回内容，拖动值降为**下限**：
+   往大拖照样变高、往下拖不裁内容。普通卡片的 `height: var(--market-card-h)`
+   一个字不动 —— 「往下拖时卡片跟手缩小」的手感（v0.214.3 修的那条）不能丢。 */
+@media (min-width: 901px) {
+  .market-grid .mcard.has-views {
+    height: auto;
+    min-height: var(--market-card-h, auto);
+  }
+}
 .mcard:hover { transform: none; background: var(--control-bg); border-color: color-mix(in srgb, var(--deep) 24%, var(--line)); }
 .mcard .mi {
   width: 38px; height: 38px; border-radius: 9px;
@@ -4241,6 +4255,11 @@ input, select, textarea { font-size: calc(13px * var(--ui-text-scale)); }
 .market-grid.market-settling .mcard {
   transition: width .2s cubic-bezier(.22,.8,.22,1), height .2s cubic-bezier(.22,.8,.22,1);
 }
+
+/* 悬停在卡片边缘那一圈（能拖大拖小的入口）时给双箭头（v0.287.0）：
+   方向由 src/marketCardResize.js 按指针所在边写进 --market-card-edge-cursor
+   （左右 ew / 上下 ns / 角上 nwse·nesw）；中间区域不动光标 —— 那里是「点一下打开插件」。 */
+.mcard.market-edge-resize { cursor: var(--market-card-edge-cursor, nwse-resize); }
 
 /* 拖动中的指针：随方向实时变化（--market-resize-cursor 由 JS 写），且挂在 <html> 上 ——
    cursor 只作用于指针下的元素，单靠 .market-resizing 上的 cursor，指针一出卡片就变回箭头。 */

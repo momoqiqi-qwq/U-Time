@@ -85,6 +85,8 @@ async function settleMicrotasks() { await new Promise((resolve) => setTimeout(re
 // ② 变异测试：把统一登录闸门和本轮失败记忆拿掉，断言必须变红 —— 证明 ① 真的在测这件事
 {
   const unfixed = source
+    // 通用密码恢复现在还有失败冷却；一并去掉，才能隔离验证本轮闸门的保护。
+    .replace('const PASSWORD_LOGIN_COOLDOWN_MS = 30 * 60 * 1000;', 'const PASSWORD_LOGIN_COOLDOWN_MS = 0;')
     .replace('if (!await ensureJwLogin(force)) {', 'if (false) {')
     .replace('if (jwRoundLoginFailed === jwRound) return Promise.resolve(false);', '')
     .replace('jwRound++;', '');

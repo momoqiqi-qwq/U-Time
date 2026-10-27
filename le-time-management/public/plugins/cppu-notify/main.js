@@ -938,19 +938,41 @@
     document.head.append(st);
   }
 
+  // 清除凭据是一个代际边界：旧请求可结束，但不能再恢复身份或写回密钥库。
+  let authEpoch = 0, authClearing = 0;
+  const authCurrent = (epoch, username) => epoch === authEpoch && (username === undefined || username === state.username);
+  let authStorageTail = Promise.resolve();
+  function authStorage(operation) {
+    const next = authStorageTail.then(operation);
+    authStorageTail = next.catch(() => {});
+    return next;
+  }
+  function savedPasswordFor(secret, username) {
+    // 兼容旧版无账号字段的记录；下次成功登录会补齐账号绑定。
+    return secret && (!secret.username || secret.username === username) && typeof secret.password === "string" ? secret.password : "";
+  }
+
   async function loadPrefs() {
+    if (authClearing) return;
+    const epoch = authEpoch;
     const f = await tide.storage.get("filter", null);
     if (f) state.filter = { ...state.filter, ...f };
-    state.username = (await tide.storage.get("username", "")) || "";
-    state.rememberUsername = await tide.storage.get("rememberUsername", true) !== false;
-    state.autoLogin = await tide.storage.get("autoLogin", true) !== false;
-    state.autoRefresh = await tide.storage.get("autoRefresh", true) !== false;
-    state.loginRetries = cleanLoginRetries(await tide.storage.get("loginRetries", 2));
-    state.seen = new Set(await tide.storage.get("seen", []));
-    state.loginAt = Number(await tide.storage.get("autoLoginAt", 0)) || 0;
-    if (state.autoLogin && typeof tide.vault?.get === "function") {
-      try { state.savedPassword = JSON.parse((await tide.vault.get("secret")) || "null")?.password || ""; } catch { state.savedPassword = ""; }
+    const username = (await tide.storage.get("username", "")) || "";
+    const rememberUsername = await tide.storage.get("rememberUsername", true) !== false;
+    const autoLogin = await tide.storage.get("autoLogin", true) !== false;
+    if (!authCurrent(epoch)) return;
+    state.username = username;
+    state.rememberUsername = rememberUsername;
+    state.autoLogin = autoLogin;
+    const autoRefresh = await tide.storage.get("autoRefresh", true) !== false;
+    const loginRetries = cleanLoginRetries(await tide.storage.get("loginRetries", 2));
+    const seen = new Set(await tide.storage.get("seen", []));
+    const loginAt = Number(await tide.storage.get("autoLoginAt", 0)) || 0;
+    let password = "";
+    if (autoLogin && typeof tide.vault?.get === "function") {
+      try { password = savedPasswordFor(JSON.parse((await tide.vault.get("secret")) || "null"), username); } catch { /* 保留磁盘记录，稍后可重试读取 */ }
     }
+    if (authCurrent(epoch, username)) Object.assign(state, { autoRefresh, loginRetries, seen, loginAt, savedPassword: state.autoLogin ? password : "" });
   }
   const saveFilter = () => tide.storage.set("filter", state.filter);
   // 恢复默认筛选：关键词也在 filter 里存着，只点面板里的「全部」分类/月份清不掉它 —— 必须整体重置
@@ -964,6 +986,7 @@
 
   // 缓存数据而非登录页面，恢复时重新渲染，凭据仍只存密钥库。
   async function saveNoticeCache() {
+    const epoch = authEpoch, username = state.username;
     try {
       const details = {};
       const notices = state.notices.slice(0, PAGE_SIZE * PAGES_MAX);
@@ -971,12 +994,16 @@
         const key = itemKey(item), detail = state.details[key];
         if (detail && !detail.loading && !detail.error) details[key] = detail;
       }
-      await cacheStore.set("noticeCache", { username: state.username, notices, details, at: state.fetchedAt });
+      const snapshot = { username, notices, details, at: state.fetchedAt };
+      // 同一条队列保持写入顺序，旧账号的慢写入不能覆盖新账号的缓存。
+      await authStorage(() => authCurrent(epoch, username) ? cacheStore.set("noticeCache", snapshot) : undefined);
     } catch { /* 写失败不影响已加载页面 */ }
   }
   async function restoreNoticeCache() {
+    const epoch = authEpoch, username = state.username;
     try {
       const cache = await cacheStore.get("noticeCache", null);
+      if (!authCurrent(epoch, username)) return false;
       if (!cache || cache.username !== state.username || !Array.isArray(cache.notices)) return false;
       state.notices = cache.notices;
       state.details = cache.details && typeof cache.details === "object" ? cache.details : {};
@@ -1002,20 +1029,39 @@
 
   /* ── 登录态持久化：Cookie 存密钥库，重启后恢复会话免验证码 ── */
   async function saveCookies() {
-    if (typeof tide.vault?.set !== "function" || !state.sid) return;
+    if (authClearing || !state.autoLogin || typeof tide.vault?.set !== "function" || !state.sid) return;
+    const epoch = authEpoch, sid = state.sid, username = state.username;
     try {
-      const dump = await tide.http.exportCookies(state.sid, [SSO, JW, PORTAL, JWAPP, PDATA]);
-      if (dump.length) await tide.vault.set("cookies", JSON.stringify(dump));
+      const dump = await tide.http.exportCookies(sid, [SSO, JW, PORTAL, JWAPP, PDATA]);
+      await authStorage(async () => {
+        if (authCurrent(epoch, username) && state.autoLogin && state.sid === sid && dump.length) {
+          await tide.vault.set("cookies", JSON.stringify({ username, cookies: dump }));
+        }
+      });
     } catch { /* 密钥库不可用（浏览器调试）时静默跳过 */ }
   }
 
+  let restorePending = null, cookieSessionSid = null;
   async function restoreCookies() {
-    if (typeof tide.vault?.get !== "function") return false;
-    try {
+    if (authClearing || state.autoLogin === false || typeof tide.vault?.get !== "function") return false;
+    // HTTP 运输会话也可能是空的（先开个人信息就会建立它），只有已恢复/认证的会话能短路。
+    if (state.sid && (state.token || jwSid === state.sid || cookieSessionSid === state.sid || loginBusy)) return true;
+    if (restorePending) return restorePending;
+    const epoch = authEpoch, initialSid = state.sid;
+    const pending = (async () => { try {
+      // render 会与 loadPrefs 并行，不能依赖尚未水合的默认 autoLogin=true。
+      if (await tide.storage.get("autoLogin", true) === false || !authCurrent(epoch)) return false;
       const raw = await tide.vault.get("cookies");
-      const dump = raw ? JSON.parse(raw) : null;
+      const record = raw ? JSON.parse(raw) : null;
+      const dump = Array.isArray(record) ? record : record?.cookies;
+      const username = state.username || (await tide.storage.get("username", "")) || "";
+      if (!authCurrent(epoch) || !state.autoLogin || (record?.username && username && record.username !== username)) return false;
       if (Array.isArray(dump) && dump.length) {
-        state.sid = await tide.http.restoreCookies(dump);
+        const sid = await tide.http.restoreCookies(dump);
+        if (!authCurrent(epoch) || !state.autoLogin || (state.username && state.username !== username)) return false;
+        if (state.sid && state.sid !== initialSid) return true; // 另一条前台链已建立会话，迟到的恢复不能覆盖它。
+        state.sid = sid;
+        cookieSessionSid = sid;
         // tp_up 本身也保存在门户 Cookie 中。先恢复它可直接复用仍有效的门户会话，
         // 即使主 SSO 的 CASTGC 已失效，也不必立刻退回验证码登录。
         state.token = tokenFromText(...dump.map((row) => row?.cookie));
@@ -1026,22 +1072,41 @@
       }
     } catch { /* 票据损坏按无票据处理 */ }
     return false;
+    })();
+    restorePending = pending;
+    try { return await pending; }
+    finally { if (restorePending === pending) restorePending = null; }
   }
 
   async function clearSavedLogin() {
+    authClearing++;
+    authEpoch++;
+    cookieSessionSid = null;
+    restorePending = null;
+    sidPending = null;
+    loginPrefsReady = null;
+    passwordLoginPending = null;
+    passwordLoginFailure = null;
+    state.sid = null;
+    state.token = "";
+    state.pending = null;
+    state.captcha = "";
     state.savedPassword = "";
     state.loginAt = 0;
+    state.notices = []; state.details = {}; state.fetchedAt = 0;
+    awState.sessionOk = false;
     forgetPdataAuth();
     jwSid = null;
-    jwState.data = { xkTask: null, xkResult: null, qjRecord: null, qjCourse: null, creditPlan: null, creditModule: null, grade: null, cxCredit: null, cxDetail: null, room: null };
-    try {
-      await tide.vault?.del?.("secret");
-      await tide.vault?.del?.("cookies");
+    jwBootPromise = null; jwRound++; jwRoundLoginFailed = -1;
+    for (const key of Object.keys(jwState.data)) jwState.data[key] = null;
+    jwState.at = {}; jwState.error = {}; jwState.term = null;
+    return authStorage(async () => {
+      // 每个删除独立完成，一个键失败不能阻止其它凭据的清理。
+      const deleted = await Promise.allSettled(["secret", "cookies", PDATA_VAULT_KEY].map(key => Promise.resolve().then(() => tide.vault?.del?.(key))));
       // 预热/登录时间戳一起清掉：留着会让下一个人（或清号后的自己）在登录页看到上一个人的登录时间。
-      await Promise.resolve(tide.storage.set("autoWarmAt", 0));
-      await Promise.resolve(tide.storage.set("autoWarmFailAt", 0));
-      await Promise.resolve(tide.storage.set("autoLoginAt", 0));
-    } catch { /* ignore */ }
+      await Promise.allSettled(["autoWarmAt", "autoWarmFailAt", "autoLoginAt"].map(key => Promise.resolve().then(() => tide.storage.set(key, 0))));
+      return deleted.every(result => result.status === "fulfilled");
+    }).finally(() => { authClearing--; });
   }
 
   /* ── 会话通道：取数之前必须已经有一个会话 ──
@@ -1058,12 +1123,15 @@
   function ensureSid() {
     if (state.sid) return Promise.resolve(state.sid);
     if (!sidPending) {
-      sidPending = Promise.resolve(tide.http.session())
+      const epoch = authEpoch;
+      const pending = Promise.resolve(tide.http.session())
         .then((sid) => {
+          if (!authCurrent(epoch)) return null;
           if (!state.sid && sid) state.sid = sid;
           return state.sid;
         })
-        .finally(() => { sidPending = null; });
+        .finally(() => { if (sidPending === pending) sidPending = null; });
+      sidPending = pending;
     }
     return sidPending;
   }
@@ -1073,10 +1141,14 @@
   const referer = () => PORTAL + "/tp_up/view;tp_up=" + state.token + "?m=up";
 
   async function getPage(url, useBinary = false, opts = {}) {
+    const epoch = authEpoch;
     try {
       const sid = await ensureSid();
       if (!sid) throw new Error("本机取数会话没建起来，请重启应用后再试一次");
-      return await tide.http.fetch(sid, "GET", url, { ...opts, binary: useBinary });
+      if (!authCurrent(epoch)) throw new Error("登录状态已改变，请重新操作");
+      const result = await tide.http.fetch(sid, "GET", url, { ...opts, binary: useBinary });
+      if (!authCurrent(epoch) || state.sid !== sid) throw new Error("登录状态已改变，请重新操作");
+      return result;
     } catch (e) {
       throw new Error(explainHttpError(e));
     }
@@ -1422,8 +1494,9 @@
 
   /* 「上次自动登录」只给登录页做解释用；写盘失败不影响登录本身。 */
   function markLoginAt(at = Date.now()) {
+    const epoch = authEpoch;
     state.loginAt = at;
-    return Promise.resolve(tide.storage.set("autoLoginAt", at)).catch(() => {});
+    return authStorage(() => authCurrent(epoch) ? tide.storage.set("autoLoginAt", at) : undefined).catch(() => {});
   }
 
   /* ── 启动预热（v0.246.0）──
@@ -1437,6 +1510,7 @@
      按 12 小时压着就等于一整天都不再续，第 6 天回来照样弹验证码。 */
   const WARM_RETRY_MS = 30 * 60 * 1000;
   let warmBusy = false, warmPromise = null;
+  let warmDisposed = false, warmCleanup = null;
 
   /* 续期一次。返回 true = 这次真的把票据推后了，false = 试过但没成，
      "skip" = 压根不该做（没授权 / 没票据），不计入失败退避。
@@ -1449,41 +1523,58 @@
         有视图时 scheduleWarm 的入口闸门（viewOpen）本来就不放行。 */
   async function warmSession() {
     // 测试沙箱用 vm 造了 document 却没有 window：不排程、不发请求。
-    if (typeof window === "undefined") return false;
-    if (warmBusy || loginBusy || state.viewOpen) return false;
+    if (typeof window === "undefined" || warmDisposed) return false;
+    if (warmBusy) return warmPromise || false;
+    if (loginBusy || state.viewOpen) return false;
     if (typeof tide.vault?.get !== "function") return false;
-    const now = Date.now();
-    const okAt = Number(await tide.storage.get("autoWarmAt", 0)) || 0;
-    if (now - okAt < WARM_EVERY_MS) return false;
-    const failAt = Number(await tide.storage.get("autoWarmFailAt", 0)) || 0;
-    if (now - failAt < WARM_RETRY_MS) return false;
+    const online = () => typeof navigator === "undefined" || navigator.onLine !== false;
+    if (!online()) return false;
+    // focus、visibilitychange、定时器可以在同一帧到达，必须先占用再读取异步存储。
     warmBusy = true;
+    const epoch = authEpoch;
+    const current = () => !warmDisposed && authCurrent(epoch);
     warmPromise = (async () => {
+      let result = "skip";
       try {
+        const now = Date.now();
+        const recent = (at, limit) => Number.isFinite(Number(at)) && Number(at) > 0 && now >= Number(at) && now - Number(at) < limit;
+        const okAt = await tide.storage.get("autoWarmAt", 0);
+        if (!current() || recent(okAt, WARM_EVERY_MS)) return false;
+        const failAt = await tide.storage.get("autoWarmFailAt", 0);
+        if (!current() || recent(failAt, WARM_RETRY_MS)) return false;
         await loadPrefs();
-        // 用户关掉自动登录、或没记住账号时不做后台登录 —— 后台登录只能在用户不知情时用账号密码，
-        // 这两项就是「他授权过」的全部凭据。
-        if (state.autoLogin === false || !state.username) return "skip";
+        if (!current() || !online() || loginBusy || state.viewOpen || state.autoLogin === false || !state.username) return false;
         if (!state.sid && !(await restoreCookies())) return false;
-        if (!(await silentRenew())) return false;
+        if (!current() || !online() || loginBusy || state.viewOpen) return false;
+        result = false;
+        if (!(await silentRenew()) || !current() || !online()) return false;
         await saveCookies();
-        await markLoginAt();
+        if (!current() || !online()) return false;
+        result = true;
         return true;
       } catch { return false; }
-      finally { warmBusy = false; }
-    })();
-    let result = false;
-    try { result = await warmPromise; } catch { result = false; }
-    // 频控无论成败都记：网络抖动不该让下一次启动又立刻重试一遍。
-    try {
-      if (result === true) {
-        await Promise.resolve(tide.storage.set("autoWarmAt", Date.now())).catch(() => {});
-        await Promise.resolve(tide.storage.set("autoWarmFailAt", 0)).catch(() => {});
-      } else if (result === false) {
-        await Promise.resolve(tide.storage.set("autoWarmFailAt", Date.now())).catch(() => {});
+      finally {
+        try {
+          // 与清除凭据串行，并在真正写入前检查代际；旧续期不能把清除后的时间重新写回来。
+          if (result !== "skip" && current() && online()) await authStorage(async () => {
+            if (!current() || !online()) return;
+            const at = Date.now();
+            if (result === true) {
+              await Promise.resolve(tide.storage.set("autoWarmAt", at)).catch(() => {});
+              if (!current()) return;
+              await Promise.resolve(tide.storage.set("autoWarmFailAt", 0)).catch(() => {});
+              if (!current()) return;
+              await Promise.resolve(tide.storage.set("autoLoginAt", at)).catch(() => {});
+              if (current()) state.loginAt = at;
+            } else {
+              await Promise.resolve(tide.storage.set("autoWarmFailAt", at)).catch(() => {});
+            }
+          });
+        } catch { /* 写入失败不影响本次会话 */ }
+        finally { warmBusy = false; warmPromise = null; }
       }
-    } catch { /* ignore */ }
-    return result === true;
+    })().then(ok => ok === true && current());
+    return warmPromise;
   }
 
   /* ── 前台可见即续期（v0.272.7，APK 的关键一条）──
@@ -1492,52 +1583,91 @@
      的那一刻是切回应用 —— 那就把续期挂在可见性/焦点上，闸门（授权/频控/退避）全在
      warmSession 里，这里只负责叫，叫了不等于会做。
 
-     重复加载插件（开关插件会把 main.js 再执行一遍）不叠监听：第一次绑真监听，
-     之后只把回调换成本实例的，旧闭包不会再被叫到。 */
+     网络恢复时也走同一个闸门；停用插件时移除监听，不让旧实例继续续期。 */
   function bindWarmOnForeground() {
-    if (typeof document === "undefined" || typeof document.addEventListener !== "function") return;
-    const kick = () => {
+    if (typeof document === "undefined" || typeof document.addEventListener !== "function") return () => {};
+    const relay = () => {
       if (typeof document.visibilityState === "string" && document.visibilityState === "hidden") return;
       warmSession().catch(() => {});
     };
     try {
-      if (document.__cppuWarmKick) { document.__cppuWarmKick = kick; return; }
-      document.__cppuWarmKick = kick;
-      const relay = () => { try { document.__cppuWarmKick?.(); } catch { /* ignore */ } };
       document.addEventListener("visibilitychange", relay);
       if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
         window.addEventListener("focus", relay);
+        window.addEventListener("online", relay);
       }
     } catch { /* 老宿主没有 addEventListener 就只能靠定时器 */ }
+    return () => {
+      document.removeEventListener?.("visibilitychange", relay);
+      window.removeEventListener?.("focus", relay);
+      window.removeEventListener?.("online", relay);
+    };
   }
 
   function scheduleWarm() {
     if (typeof window === "undefined" || typeof window.setTimeout !== "function") return;
+    // 重载时把旧实例的计时器、事件与在途结果一起停掉；宿主停用走同一个清理函数。
+    try { window.__cppuWarmDispose?.(); } catch { /* ignore */ }
+    warmCleanup?.();
+    warmDisposed = false;
+    let delayTimer = null, retryTimer = null, stopped = false;
     const run = () => { warmSession().catch(() => {}); };
+    const unbind = bindWarmOnForeground();
+    const dispose = () => {
+      if (stopped) return;
+      stopped = true;
+      warmDisposed = true;
+      authEpoch++;
+      window.clearTimeout?.(delayTimer);
+      window.clearInterval?.(retryTimer);
+      unbind();
+      if (window.__cppuWarmDispose === dispose) delete window.__cppuWarmDispose;
+      if (warmCleanup === dispose) warmCleanup = null;
+    };
+    warmCleanup = dispose;
+    window.__cppuWarmDispose = dispose;
     try {
-      window.setTimeout(run, WARM_DELAY_MS);
-      // 长期开着的应用（挂几天不关）也要一直把票据推着走：每 12 小时再叫一次，
-      // 闸门（前台会话/开关/频控）在 warmSession 里各自生效，叫了不等于会做。
-      if (typeof window.setInterval === "function") window.setInterval(run, WARM_EVERY_MS);
+      delayTimer = window.setTimeout(run, WARM_DELAY_MS);
+      // 每 30 分钟检查失败重试，成功仍由 12 小时闸门控制，休眠恢复由前台事件补齐。
+      if (typeof window.setInterval === "function") retryTimer = window.setInterval(run, WARM_RETRY_MS);
     } catch { /* ignore */ }
-    bindWarmOnForeground();
+    tide.ui?.onDispose?.(dispose);
   }
 
   /* 密码兜底与人工按钮共享重试边界、退避和全新会话流程。 */
+  let passwordLoginPending = null, passwordLoginFailure = null;
+  const PASSWORD_LOGIN_COOLDOWN_MS = 30 * 60 * 1000;
   async function passwordAutoLogin() {
+    if (authClearing || !state.autoLogin || !state.username || !state.savedPassword) return false;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return false;
+    if (passwordLoginPending) return passwordLoginPending;
+    const epoch = authEpoch, username = state.username, password = state.savedPassword;
+    const elapsed = Date.now() - (passwordLoginFailure?.at || 0);
+    if (passwordLoginFailure?.username === username && elapsed >= 0 && elapsed < PASSWORD_LOGIN_COOLDOWN_MS) {
+      loginHint = { msg: "自动登录暂时未成功，已暂停重复尝试；请手动登录或稍后重试", code: "" };
+      return false;
+    }
+    if (loginBusy) return false;
     loginHint = null;
-    if (!state.autoLogin || !state.username || !state.savedPassword) return false;
-    try {
-      await runLoginAttempts({ username: state.username, password: state.savedPassword });
-      await persistCredentials(state.savedPassword);
+    const pending = (async () => { try {
+      await runLoginAttempts({ username, password, isActive: () => authCurrent(epoch, username) && state.autoLogin });
+      if (!authCurrent(epoch, username) || !state.autoLogin) return false;
+      passwordLoginFailure = null;
+      await persistCredentials(password);
+      if (!authCurrent(epoch, username) || !state.autoLogin) return false;
       saveCookies().catch(() => {});   // 票据落盘不挡首屏：晚几百毫秒写进密钥库不影响这次使用
       markLoginAt();
       tide.notify("已自动完成登录（含验证码识别）");
       return true;
     } catch (error) {
+      if (!authCurrent(epoch, username)) return false;
+      passwordLoginFailure = { username, at: Date.now() };
       loginHint = { msg: `${loginErrorText(error)}；请核对账号和验证码后重试`, code: "" };
       return false;
-    }
+    } })();
+    passwordLoginPending = pending;
+    try { return await pending; }
+    finally { if (passwordLoginPending === pending) passwordLoginPending = null; }
   }
 
   function loginSettingsHtml() {
@@ -1558,19 +1688,23 @@
   }
 
   async function autoLogin(el, restored) {
+    const epoch = authEpoch;
     // 启动预热正拿着会话找续期时先等它 —— 它做的正是第 ① 步，并行只会互相踩 state.sid。
     if (warmBusy && warmPromise) { try { await warmPromise; } catch { /* 预热失败按无票据处理 */ } }
     // ① 恢复上次会话票据（CASTGC 有效期内直达，不碰验证码）；render 已并发读好时直接用
     const hasCookies = restored === undefined ? await restoreCookies() : await restored;
+    if (!authCurrent(epoch)) return false;
     if (!hasCookies) await newSession();
     if (state.token) {
       // Cookie 中的 tp_up 可能已过期：先用列表接口做真实校验，失败后继续走
       // 主 SSO/密码兜底，不能把用户留在只有“会话过期”的空列表页。
-      if (await loadPage(1)) { markLoginAt(); paintAfterLoad(el); return true; }
+      if (await loadPage(1)) { if (!authCurrent(epoch)) return false; markLoginAt(); paintAfterLoad(el); return true; }
+      if (!authCurrent(epoch)) return false;
       state.token = "";
       state.error = null;
     }
     if (await silentRenew()) {
+      if (!authCurrent(epoch)) return false;
       saveCookies().catch(() => {});   // 同上：先让列表页走起来，票据稍后落盘
       markLoginAt();
       tide.notify("已自动恢复门户登录，正在打开通知");
@@ -1579,7 +1713,9 @@
       return true;
     }
     // ② 票据失效：有保存的密码就走「验证码识别 + 换图重试」全自动登录
+    if (!authCurrent(epoch)) return false;
     if (await passwordAutoLogin()) {
+      if (!authCurrent(epoch)) return false;
       paintAfterLoad(el);
       loadPage(1);
       return true;
@@ -1594,10 +1730,14 @@
   }
 
   async function persistCredentials(password) {
-    if (!state.autoLogin || typeof tide.vault?.set !== "function") return;
+    if (authClearing || !state.autoLogin || typeof tide.vault?.set !== "function") return;
+    const epoch = authEpoch, username = state.username;
     try {
-      await tide.vault.set("secret", JSON.stringify({ password }));
-      state.savedPassword = password;
+      await authStorage(async () => {
+        if (!authCurrent(epoch, username) || !state.autoLogin) return;
+        await tide.vault.set("secret", JSON.stringify({ username, password }));
+        if (authCurrent(epoch, username) && state.autoLogin) state.savedPassword = password;
+      });
     } catch { /* 密钥库不可用时跳过 */ }
   }
 
@@ -1628,6 +1768,7 @@
   }
 
   async function submitLogin(code) {
+    const epoch = authEpoch;
     const p = state.pending;
     if (!p || !p.username || !p.password) {
       // 缺凭据时绝不提交（否则 POST 体是 username=undefined，服务端会 500）
@@ -1648,7 +1789,11 @@
     } catch (e) {
       throw { retry: explainHttpError(e), retryable: true };
     }
-    if (await finishPortalLogin(res)) { state.pending = null; return; }
+    if (!authCurrent(epoch)) throw { fatal: "登录状态已改变，请重新操作" };
+    if (await finishPortalLogin(res)) {
+      if (!authCurrent(epoch)) throw { fatal: "登录状态已改变，请重新操作" };
+      state.pending = null; return;
+    }
     const body = res.body || "";
     let msg = null;
     if (/密码错误|账号或密码/.test(body)) throw { fatal: "账号或密码错误" };
@@ -1671,11 +1816,14 @@
 
   // 静默续期：先试桥接端；若只剩主 SSO 的 CASTGC，则补走一次主 SSO → bridge 后再换门户票据。
   async function silentRenew() {
+    const epoch = authEpoch;
     // 先试 sso-jw 自己的 CASTGC；若只有主 SSO 的 CASTGC，再由 finishPortalLogin
     // 显式完成主 SSO → bridge → sso-jw → portal，所有一次性 ticket 均只消费一次。
     const renew = await getPage(SILENT_LOGIN, false, { followRedirects: false }).catch(() => null);
+    if (!authCurrent(epoch)) return false;
     if (await finishPortalTicket(renew)) return true;
     const primary = await getPage(LOGIN_URL, false, { followRedirects: false }).catch(() => null);
+    if (!authCurrent(epoch)) return false;
     return finishPortalLogin(primary);
   }
 
@@ -1698,11 +1846,13 @@
      那个只在点开详情/转提醒时才写，拿它差分等于每次刷新都把没点开的旧通知重推一遍。
      没有快照键（首次抓取）只记不广播，否则一登录成功就把整页历史通知推到微信。 */
   async function broadcastNew(items) {
+    const epoch = authEpoch, username = state.username;
     const stored = await tide.storage.get("knownIds", null);
+    if (!authCurrent(epoch, username)) return;
     const known = new Set(Array.isArray(stored) ? stored : []);
     const fresh = stored === null ? [] : items.filter((it) => itemKey(it) && !known.has(itemKey(it)));
-    await tide.storage.set("knownIds", items.map(itemKey).filter(Boolean));
-    if (!fresh.length) return;
+    await authStorage(() => authCurrent(epoch, username) ? tide.storage.set("knownIds", items.map(itemKey).filter(Boolean)) : undefined);
+    if (!authCurrent(epoch, username) || !fresh.length) return;
     try {
       tide.events.emit("notice:new", {
         source: "cppu-notify", sourceName: "警大门户", total: fresh.length,
@@ -1728,7 +1878,12 @@
 
   /* ── 通知数据 ── */
   async function loadPage(page = 1, renewed = false) {
-    if (state.fetching) return;
+    const epoch = authEpoch, username = state.username;
+    if (state.fetching && state.noticeFetch?.epoch === epoch && state.noticeFetch?.username === username) return;
+    // 清号后无需等旧网络请求结束；只有拥有本次请求标记的收尾能撤销 fetching。
+    const request = { epoch, username };
+    state.noticeFetch = request;
+    const current = () => authCurrent(epoch, username) && state.noticeFetch === request;
     state.fetching = true;
     paintStatus();
     try {
@@ -1745,6 +1900,7 @@
       } catch (e) {
         throw new Error(explainHttpError(e));
       }
+      if (!current()) return false;
       if (res.status !== 200) throw new Error(`列表接口 HTTP ${res.status}，会话可能已过期`);
       let d;
       try { d = JSON.parse(res.body); } catch { throw new Error("会话已过期，请重新登录"); }
@@ -1761,6 +1917,7 @@
       state.fetchedAt = Date.now();
       state.error = null;
       await saveNoticeCache();
+      if (!current()) return false;
       // v0.11.0：新通知先进入统一收件箱，用户确认后再转任务，避免自动化误建日程。
       if (page === 1 && tide.inbox && typeof tide.inbox.create === "function") {
         for (const it of items.slice(0, 12)) {
@@ -1770,19 +1927,31 @@
         }
       }
       if (page === 1) await broadcastNew(items);
+      return current();
     } catch (e) {
+      if (!current()) return false;
       // 会话过期先尝试静默续期一次
-      if (!renewed && await silentRenew()) {
-        state.fetching = false;
-        return loadPage(page, true);
+      if (!renewed) {
+        const renewedSession = await silentRenew();
+        if (!current()) return false;
+        if (renewedSession) {
+          state.fetching = false;
+          state.noticeFetch = null;
+          return await loadPage(page, true);
+        }
       }
       const error = String(e.message || e);
       const cached = await restoreNoticeCache();
+      if (!current()) return false;
       state.error = cached ? `连接失败，正在显示缓存（${state.fetchedAt ? new Date(state.fetchedAt).toLocaleString("zh-CN") : "更新时间未知"}）。${error}` : error;
+      return false;
+    } finally {
+      if (state.noticeFetch === request) {
+        state.fetching = false;
+        state.noticeFetch = null;
+        if (authCurrent(epoch, username)) paintAll();
+      }
     }
-    state.fetching = false;
-    paintAll();
-    return !state.error;
   }
 
   // 筛选结果为 0 时旧的「加载更早」按钮不会出现（空态分支提前 return），老数据永远够不着；
@@ -2367,6 +2536,7 @@
   const PDATA_VAULT_KEY = "pdataToken";
   let pdataAuth = { token: "", userId: "", at: 0 };
   let pdataAuthPending = null;
+  let pdataAuthGeneration = 0;
 
   /* ── pdata 取数缓存（v0.236.0：把「切走再切回」这条最常走的路变成 0 次网络） ────
      「学生成长」一次进页面并发打 8 个接口，而它和个人信息在侧栏里是来回切的常客 ——
@@ -2412,27 +2582,43 @@
 
   async function loadPdataAuth() {
     if (pdataAuth.token) return pdataAuth;
+    const epoch = authEpoch, generation = pdataAuthGeneration;
+    const current = () => authCurrent(epoch) && generation === pdataAuthGeneration;
     try {
-      const raw = await tide.vault?.get?.(PDATA_VAULT_KEY);
-      const saved = raw ? JSON.parse(raw) : null;
-      if (saved && saved.token) pdataAuth = { token: String(saved.token), userId: String(saved.userId || ""), at: Number(saved.at) || 0 };
+      await authStorage(async () => {
+        if (!current() || state.autoLogin === false) return;
+        if (pdataAuth.token) return; // 并发读取合流后保留首份对象，避免重建对象使取数方误判身份已变。
+        // 此入口可能早于偏好水合；关闭自动登录后不能用默认 true 恢复磁盘票据。
+        if (await tide.storage.get("autoLogin", true) === false || !current()) return;
+        const username = state.username || (await tide.storage.get("username", "")) || "";
+        const raw = await tide.vault?.get?.(PDATA_VAULT_KEY);
+        const saved = raw ? JSON.parse(raw) : null;
+        if (!current() || !state.autoLogin || (state.username && state.username !== username)) return;
+        if (saved?.username && username && saved.username !== username) return;
+        // 旧记录没有 username，沿用现有凭据；下一次换票成功时补齐账号绑定。
+        if (saved?.token) pdataAuth = { token: String(saved.token), userId: String(saved.userId || ""), at: Number(saved.at) || 0 };
+      });
     } catch { /* 密钥库不可用（浏览器调试）时按无票据处理 */ }
     return pdataAuth;
   }
 
   /** 丢掉手上的 pdata 票。门户换了人（重新登录）或用户清了凭据时都要走一遍。 */
   async function dropPdataAuth() {
+    pdataAuthGeneration++;
+    pdataAuthPending = null;
     pdataAuth = { token: "", userId: "", at: 0 };
     dropPdataCache();
-    try { await tide.vault?.del?.(PDATA_VAULT_KEY); } catch { /* ignore */ }
+    try { await authStorage(() => tide.vault?.del?.(PDATA_VAULT_KEY)); } catch { /* ignore */ }
   }
 
   /** 门户会话刚被（重新）建立：手上的 pdata 票不再可信，下次取数重新换。
       同步、不 await —— 它挂在 finishPortalTicket 的热路径上，不能拖慢登录。 */
   function forgetPdataAuth() {
+    pdataAuthGeneration++;
+    pdataAuthPending = null;
     pdataAuth = { token: "", userId: "", at: 0 };
     dropPdataCache();
-    Promise.resolve(tide.vault?.del?.(PDATA_VAULT_KEY)).catch(() => {});
+    authStorage(() => tide.vault?.del?.(PDATA_VAULT_KEY)).catch(() => {});
   }
 
   /* 凭据只在 loadPrefs 里读一次，而成长中心/一卡通可能比通知界面先被打开
@@ -2440,13 +2626,20 @@
      不碰筛选、已读等界面状态 —— 那些由 loadPrefs 在通知界面里负责。 */
   let loginPrefsReady = null;
   function ensureLoginPrefs() {
+    if (authClearing) return Promise.resolve();
     if (loginPrefsReady) return loginPrefsReady;
     loginPrefsReady = (async () => {
+      const epoch = authEpoch;
       try {
-        if (!state.username) state.username = (await tide.storage.get("username", "")) || "";
-        state.autoLogin = await tide.storage.get("autoLogin", true) !== false;
+        const username = state.username || (await tide.storage.get("username", "")) || "";
+        const autoLogin = await tide.storage.get("autoLogin", true) !== false;
+        if (!authCurrent(epoch)) return;
+        state.username = username;
+        state.autoLogin = autoLogin;
+        if (!autoLogin) state.savedPassword = "";
         if (state.autoLogin && !state.savedPassword && typeof tide.vault?.get === "function") {
-          state.savedPassword = JSON.parse((await tide.vault.get("secret")) || "null")?.password || "";
+          const secret = JSON.parse((await tide.vault.get("secret")) || "null");
+          if (authCurrent(epoch, username) && state.autoLogin) state.savedPassword = savedPasswordFor(secret, username);
         }
       } catch { /* 读不到就按「没存过凭据」处理，退回人工登录 */ }
       // 没读到凭据就不缓存：用户很可能先去通知里登一次再回来，那时必须重新读一遍。
@@ -2457,57 +2650,84 @@
 
   /** ①② 共用的那一步：换票 → 消费票 → 落库。成功返回 true。 */
   async function exchangePdataToken() {
+    const epoch = authEpoch, generation = pdataAuthGeneration, username = state.username;
+    const current = () => authCurrent(epoch, username) && generation === pdataAuthGeneration;
     const service = PDATA + PDATA_HOME;
     const ticket = await mintPdataTicket({ service, origin: PDATA, path: PDATA_HOME });
     // 换不到票 ⇒ 本插件的统一身份认证会话不在（没勾「5天内自动登录」，或已过期）。
-    if (!ticket) return false;
+    if (!ticket || !current()) return false;
     let raw = "";
     try { raw = new URL(ticket).searchParams.get("ticket") || ""; } catch { raw = ""; }
     if (!raw) return false;
     const res = await getPage(PDATA + "/tsa/validateLogin?ticket=" + encodeURIComponent(raw) + "&service=" + encodeURIComponent(service));
+    if (!current()) return false;
     const body = JSON.parse(String(res?.body || ""));
     if (Number(body?.code) !== 2000 || !body?.data?.token) return false;
     pdataAuth = { token: String(body.data.token), userId: String(body.data.userId || ""), at: Date.now() };
-    try { await tide.vault?.set?.(PDATA_VAULT_KEY, JSON.stringify(pdataAuth)); } catch { /* ignore */ }
-    saveCookies();
+    const auth = pdataAuth;
+    try {
+      await authStorage(async () => {
+        if (current() && state.autoLogin && pdataAuth === auth) {
+          await tide.vault?.set?.(PDATA_VAULT_KEY, JSON.stringify({ username, ...auth }));
+        }
+      });
+    } catch { /* 密钥库不可用时仍可使用本次内存会话 */ }
+    if (!current()) return false;
+    saveCookies().catch(() => {});
     return true;
   }
 
   /** force=true：丢掉手上的 token 重新走一遍（用户点「重新登录」/ 服务端说 token 过期）。 */
   async function ensurePdataAuth(force = false) {
+    const epoch = authEpoch;
+    const empty = () => ({ token: "", userId: "", at: 0 });
     if (force) await dropPdataAuth();
     else await loadPdataAuth();
+    if (!authCurrent(epoch)) return empty();
     // 手上有票也要有会话 —— token 是从密钥库读出来的，可这条通道之外没人建过 session：
     // 少了这一步，下面的 getPage / openPdataLink 都会拿着 sid=null 出门。
-    if (pdataAuth.token) { await ensureSid(); return pdataAuth; }
+    if (pdataAuth.token) {
+      const auth = pdataAuth;
+      await ensureSid();
+      return authCurrent(epoch) && pdataAuth === auth ? auth : empty();
+    }
     // 同一时刻只允许有一次换票在飞：七个接口并发拉的时候不能各换一次。
     if (pdataAuthPending) return pdataAuthPending;
-    pdataAuthPending = (async () => {
+    const pending = (async () => {
       try {
         await ensureLoginPrefs();
+        if (!authCurrent(epoch)) return empty();
         // ⓪ 复用「警大通知」留下的登录态：CASTGC / tp_up 都在密钥库里，先灌回本会话。
         await restoreCookies();
+        if (!authCurrent(epoch)) return empty();
         await newSession();
+        if (!authCurrent(epoch)) return empty();
         if (await exchangePdataToken()) return pdataAuth;
+        if (!authCurrent(epoch)) return empty();
         // ① CASTGC 还在、门户票据过期：静默续期一次，不碰验证码。
         if (await silentRenew()) {
+          if (!authCurrent(epoch)) return empty();
           await saveCookies();
+          if (!authCurrent(epoch)) return empty();
           if (await exchangePdataToken()) return pdataAuth;
         }
+        if (!authCurrent(epoch)) return empty();
         // ② 主 SSO 也没了：用通知里存的那份账号密码自动登一次（含验证码识别），
         //    成功后主 SSO 的 CASTGC 就有了，再换 pdata 的票。
         if (await passwordAutoLogin()) {
+          if (!authCurrent(epoch)) return empty();
           await saveCookies();
+          if (!authCurrent(epoch)) return empty();
           if (await exchangePdataToken()) return pdataAuth;
         }
-        return pdataAuth;
+        return authCurrent(epoch) ? pdataAuth : empty();
       } catch {
-        return pdataAuth;
-      } finally {
-        pdataAuthPending = null;
+        return authCurrent(epoch) ? pdataAuth : empty();
       }
     })();
-    return pdataAuthPending;
+    pdataAuthPending = pending;
+    try { return await pending; }
+    finally { if (pdataAuthPending === pending) pdataAuthPending = null; }
   }
 
   /* pdata 统一取数。学生端【绝不能带 _USER】—— 实测（2026-10）服务端按 Authentication
@@ -3512,7 +3732,7 @@
     // 只记忆「失败」不记忆「成功」：记住成功会把 jeLoad 里 ensureJwSession(true) 之后的
     // 兜底登录短路掉，登录态中途失效时错误会退化成「教务数据解析失败」而不是让人去重新登录
     if (jwRoundLoginFailed === jwRound) return Promise.resolve(false);
-    if (!force && jwBootPromise) return jwBootPromise;
+    if (jwBootPromise) return jwBootPromise;
     const round = jwRound;
     const p = (async () => {
       await loadPrefs();
@@ -5811,7 +6031,10 @@
      untilYear：翻到「这一页最后一条的年份 ≤ untilYear」就停。门户通知一年几百条，
      固定页数会把更早的获奖通知挡在候选集之外 —— 表现就是「怎么只识别到今年的」。 */
   async function awFetchList(maxPages, untilYear = 0) {
+    const epoch = authEpoch, username = state.username;
+    const checkCurrent = () => { if (!authCurrent(epoch, username)) throw new Error("登录状态已改变，请重新操作"); };
     for (let page = 1; page <= maxPages; page++) {
+      checkCurrent();
       let res;
       try {
         res = await tide.http.fetch(state.sid, "POST", PORTAL + "/tp_up/up/pim/allpim/getAllPimList", {
@@ -5825,6 +6048,7 @@
       } catch (e) {
         throw new Error(explainHttpError(e));
       }
+      checkCurrent();
       if (res.status !== 200) throw new Error(`列表接口 HTTP ${res.status}，登录可能已过期`);
       let d;
       try { d = JSON.parse(res.body); } catch { throw new Error("会话已过期，请重新登录"); }
@@ -5840,8 +6064,10 @@
         if (y && y <= untilYear) break;
       }
     }
+    checkCurrent();
     state.fetchedAt = Date.now();
     await saveNoticeCache();
+    checkCurrent();
   }
 
   /* 覆盖区间：让用户一眼看出这次翻到了哪一年，而不是疑惑「怎么只有今年的」。
@@ -6826,26 +7052,37 @@
       tide.storage.set("rememberUsername", state.rememberUsername);
       if (!state.rememberUsername) tide.storage.set("username", "");
     });
-    if (autoEl) autoEl.addEventListener("click", () => {
+    if (autoEl) autoEl.addEventListener("click", async () => {
       if (loggingIn || loginBusy) return;
       state.autoLogin = !state.autoLogin;
       autoEl.classList.toggle("on", state.autoLogin);
       tide.storage.set("autoLogin", state.autoLogin);
-      if (!state.autoLogin) clearSavedLogin();
+      if (!state.autoLogin) {
+        await clearSavedLogin();
+        passEl.value = ""; codeEl.value = "";
+        await prepareLoginForm();
+        if (capImg) capImg.src = state.captcha || "";
+      }
       tide.notify(state.autoLogin ? "已开启记住密码并自动登录" : "已关闭自动登录，并清除保存的密码");
     });
-    el.querySelector("[data-switchuser]").addEventListener("click", () => {
+    el.querySelector("[data-switchuser]").addEventListener("click", async () => {
       if (loggingIn || loginBusy) return;
+      await clearSavedLogin();
       state.username = "";
       tide.storage.set("username", "");
-      userEl.value = "";
+      userEl.value = ""; passEl.value = ""; codeEl.value = "";
+      await prepareLoginForm();
+      if (capImg) capImg.src = state.captcha || "";
       userEl.focus();
     });
     el.querySelector("[data-clearauth]")?.addEventListener("click", async () => {
       if (loggingIn || loginBusy) return;
-      await clearSavedLogin();
+      const cleared = await clearSavedLogin();
       passEl.value = "";
-      tide.notify("已清除保存的密码与会话票据");
+      codeEl.value = "";
+      await prepareLoginForm();
+      if (capImg) capImg.src = state.captcha || "";
+      tide.notify(cleared ? "已清除保存的密码与会话票据" : "内存登录已清除，但本机密钥库删除失败，请重试");
     });
 
     let loggingIn = false;
@@ -6856,20 +7093,24 @@
       const code = codeEl.value.trim();
       if (!username || !password || !code) { errEl.textContent = "请填写学号、密码和验证码"; return; }
       if (!state.pending?.execution) { errEl.textContent = "登录页尚未准备好，请稍候再试"; return; }
+      // 人工选择的账号优先：尚未完成的恢复/偏好读取不得再覆盖这次登录。
+      const loginEpoch = ++authEpoch;
+      restorePending = null; sidPending = null;
       loggingIn = true; el.querySelector("[data-go]").disabled = true;
       for (const input of [userEl, passEl, codeEl]) input.disabled = true;
       errEl.textContent = "正在走 SSO 链路（登录 → bridge → 门户）…";
       try {
         const loginResult = await runLoginAttempts({ username, password, code,
           onRetry: message => { errEl.textContent = message; },
-          isActive: () => el.isConnected !== false && el.querySelector("[data-err]") === errEl });
-        if (el.isConnected === false || el.querySelector("[data-err]") !== errEl) return;
+          isActive: () => authCurrent(loginEpoch) && el.isConnected !== false && el.querySelector("[data-err]") === errEl });
+        if (!authCurrent(loginEpoch) || el.isConnected === false || el.querySelector("[data-err]") !== errEl) return;
         if (state.username !== username) {
           state.notices = []; state.details = {}; state.fetchedAt = 0;
           for (const key of Object.keys(jwState.data)) jwState.data[key] = null;
           jwState.at = {}; jwState.error = {}; jwState.term = null;
         }
         state.username = username;
+        passwordLoginFailure = null;
         if (state.rememberUsername) tide.storage.set("username", username);
         else tide.storage.set("username", "");
         await persistCredentials(password);

@@ -120,6 +120,17 @@
   let backgroundBusy = false;
   const probeTimes = new Map();
   let reloginAt = 0;   // 上次「课程域过期 → 自动重登」的毫秒时间戳，见 RELOGIN_COOLDOWN_MS
+  let authEpoch = 0, authPaused = false, authBlocked = false, authError = "", autoRetryAt = 0;
+  let authWrite = Promise.resolve(), authWarningShown = false;
+  const authFailure = (message, kind) => Object.assign(new Error(message), { authKind: kind });
+  function checkAuth(epoch) {
+    if (!active || epoch !== authEpoch) throw authFailure("登录操作已取消", "cancelled");
+  }
+  function queueAuthWrite(fn) {
+    const next = authWrite.catch(() => {}).then(fn);
+    authWrite = next.catch(() => {});
+    return next;
+  }
   let prefsReady = null;
   const ensurePrefs = () => prefsReady || (prefsReady = loadPrefs());
 
@@ -419,16 +430,63 @@ const CX_PY_DATA = {
   }
   function authHeaders(extra = {}) { return state.cookie ? { ...extra, Cookie: state.cookie } : extra; }
   function assertJsonResponse(res, label) {
+    if (Number(res?.status) === 401) throw authFailure(`${label}失败：登录会话已失效，请重新登录`, "expired");
+    if (Number(res?.status) !== 200) throw authFailure(`${label}失败：HTTP ${res?.status ?? "无响应"}，稍后再试`, "temporary");
     const head = String(res.body || "").slice(0, 500);
     if (/用户登录|passport2\.chaoxing\.com|登录学习通/.test(head) || /passport2\.chaoxing\.com/.test(res.finalUrl || "")) {
-      throw new Error(`${label}失败：登录会话已失效，请重新登录`);
+      throw authFailure(`${label}失败：登录会话已失效，请重新登录`, "expired");
     }
     try { return JSON.parse(res.body || "{}"); }
     catch { throw new Error(`${label}失败：接口返回了非 JSON 内容，可能是会话失效或平台风控`); }
   }
-  async function saveAuth() {
-    await tide.storage.set("sessionCookie", state.remember ? state.cookie : null);
-    await tide.storage.set("creds", state.remember ? state.creds : null);
+  function warnAuthStorage() {
+    if (authWarningShown) return;
+    authWarningShown = true;
+    tide.notify("登录信息未能加密保存，本次登录仍可使用；请检查本机密钥库后重新登录。");
+  }
+  async function saveAuth(epoch = authEpoch) {
+    const value = state.remember ? JSON.stringify({ version: 1, cookie: state.cookie, creds: state.creds }) : null;
+    try {
+      return await queueAuthWrite(async () => {
+        checkAuth(epoch);
+        if (value !== null) {
+          if (typeof tide.vault?.set !== "function") { warnAuthStorage(); return false; }
+          await tide.vault.set("loginAuth", value);
+        } else if (typeof tide.vault?.del === "function") await tide.vault.del("loginAuth");
+        checkAuth(epoch);
+        // 必须先确认加密写入完成，再删除旧 storage；写入失败绝不能吞掉唯一一份凭据。
+        await tide.storage.set("sessionCookie", null);
+        await tide.storage.set("creds", null);
+        return true;
+      });
+    } catch (error) {
+      if (error?.authKind === "cancelled") throw error;
+      warnAuthStorage(); return false;
+    }
+  }
+  async function readSavedAuth(epoch) {
+    authPaused = (await tide.storage.get("autoLoginPaused", false)) === true;
+    checkAuth(epoch);
+    if (authPaused) return;
+    const attempt = Number(await tide.storage.get("autoLoginAttemptAt", 0));
+    reloginAt = Number.isFinite(attempt) && attempt > 0 && attempt <= Date.now() ? attempt : 0;
+    const failedAt = Number(await tide.storage.get("autoLoginFailureAt", 0));
+    autoRetryAt = Number.isFinite(failedAt) && failedAt > 0 && failedAt <= Date.now() ? failedAt : 0;
+    authBlocked = (await tide.storage.get("autoLoginBlocked", false)) === true;
+    if (authBlocked) authError = "上次登录未获通过，已暂停自动尝试，请手动登录。";
+    const legacy = { creds: await tide.storage.get("creds", null), cookie: await tide.storage.get("sessionCookie", "") || "" };
+    checkAuth(epoch);
+    let saved = null;
+    if (typeof tide.vault?.get === "function") {
+      try {
+        saved = JSON.parse(await tide.vault.get("loginAuth") || "null");
+        if (saved && (saved.version !== 1 || typeof saved.cookie !== "string")) saved = null;
+      } catch { warnAuthStorage(); }
+    }
+    checkAuth(epoch);
+    state.creds = (saved || legacy).creds;
+    state.cookie = (saved || legacy).cookie;
+    if (legacy.creds || legacy.cookie) await saveAuth(epoch);
   }
   async function saveKnown() { await tide.storage.set("knownIds", [...state.knownIds].slice(-MAX_KEEP)); }
   async function saveIgnored() { await tide.storage.set("ignoredIds", [...state.ignoredIds].slice(-MAX_KEEP)); }
@@ -709,8 +767,8 @@ const CX_PY_DATA = {
   }
 
   async function loadPrefs() {
-    state.creds = await tide.storage.get("creds", null);
-    state.cookie = await tide.storage.get("sessionCookie", "") || "";
+    const epoch = authEpoch;
+    await readSavedAuth(epoch);
     state.knownIds = new Set(await tide.storage.get("knownIds", []));
     state.ignoredIds = new Set(await tide.storage.get("ignoredIds", []));
     state.readOverrides = new Map(await tide.storage.get("readOverrides", []));
@@ -733,42 +791,63 @@ const CX_PY_DATA = {
     state.lastSyncAt = Number(await tide.storage.get("lastSyncAt", 0)) || 0;
     state.refreshMode = (await tide.storage.get("refreshMode", "auto")) === "throttle" ? "throttle" : "auto";
     const cached = await cacheStore.get("inboxCache", []);
+    checkAuth(epoch);
     if (Array.isArray(cached) && cached.length) { state.inbox = cached.map((x) => (x?.raw ? { ...x, raw: slimRaw(x.raw) } : x)); state.cacheLoaded = true; }
     state.taskbarBadge = (await tide.storage.get("taskbarBadge", true)) !== false;
     publishInbox();
     syncTaskbarBadge();
   }
 
-  async function cxLogin(uname, password) {
-    state.sid = await tide.http.session();
-    let res = await tide.http.fetch(state.sid, "GET", LOGIN_PAGE, { headers: authHeaders() });
-    state.cookie = mergeCookies(state.cookie, res.cookies);
+  async function cxLogin(uname, password, epoch = authEpoch) {
+    checkAuth(epoch);
+    // 登录使用局部会话，只有成功且仍属于本次账号时才发布到共享状态。
+    const sid = await tide.http.session(); checkAuth(epoch);
+    let cookie = "";
+    let res = await tide.http.fetch(sid, "GET", LOGIN_PAGE, {}); checkAuth(epoch);
+    if (Number(res?.status) !== 200) throw authFailure(`登录页面暂时不可用（HTTP ${res?.status ?? "无响应"}）`, "temporary");
+    cookie = mergeCookies(cookie, res.cookies);
     const pwd = await tide.util.desEncryptHex(password, DES_KEY);
-    res = await tide.http.fetch(state.sid, "POST", LOGIN_URL, {
-      headers: authHeaders({
+    checkAuth(epoch);
+    res = await tide.http.fetch(sid, "POST", LOGIN_URL, {
+      headers: {
+        ...(cookie ? { Cookie: cookie } : {}),
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
         "X-Requested-With": "XMLHttpRequest",
         "Origin": "https://passport2.chaoxing.com",
         "Referer": LOGIN_PAGE,
-      }),
+      },
       body: `fid=-1&uname=${encodeURIComponent(uname)}&password=${encodeURIComponent(pwd)}&refer=https%3A%2F%2Fi.chaoxing.com&t=true&forbidotherlogin=0&validate=`,
     });
-    state.cookie = mergeCookies(state.cookie, res.cookies);
+    checkAuth(epoch);
+    if (Number(res?.status) !== 200) throw authFailure(`登录接口暂时不可用（HTTP ${res?.status ?? "无响应"}）`, "temporary");
+    cookie = mergeCookies(cookie, res.cookies);
     let j; try { j = JSON.parse(res.body); } catch { throw new Error("登录接口返回异常，请稍后重试"); }
-    if (!j.status) throw new Error(j.msg2 || j.msg || "登录失败，请检查账号密码；若频繁登录触发风控，可改用 Cookie 登录");
+    if (!j.status) throw authFailure(j.msg2 || j.msg || "登录失败，请检查账号密码或完成平台验证", "denied");
+    state.sid = sid; state.cookie = cookie;
     state.loggedIn = true;
-    await saveAuth();
+    authError = ""; authBlocked = false; autoRetryAt = 0;
+    await saveAuth(epoch); checkAuth(epoch);
     return cookieObject(state.cookie)._uid || "";
   }
 
-  async function startCookieSession(cookie) {
-    state.cookie = String(cookie || "").trim();
-    if (!state.cookie) throw new Error("Cookie 不能为空");
+  async function startCookieSession(cookie, epoch = authEpoch) {
+    checkAuth(epoch);
+    cookie = String(cookie || "").trim();
+    if (!cookie) throw authFailure("Cookie 不能为空", "expired");
     const cookieUrls = [LOGIN_PAGE, "https://i.chaoxing.com/", INBOX_URL, COURSES_URL,
       "https://notice.chaoxing.com/", "https://mooc2-ans.chaoxing.com/", "https://mooc1.chaoxing.com/"];
-    state.sid = await tide.http.restoreCookies(cookieUrls.map((url) => ({ url, cookie: state.cookie })));
-    await fetchInbox(1, false);
-    state.loggedIn = true; await saveAuth();
+    const sid = await tide.http.restoreCookies(cookieUrls.map((url) => ({ url, cookie })));
+    checkAuth(epoch);
+    const res = await tide.http.fetch(sid, "POST", INBOX_URL, {
+      headers: { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "Origin": "https://notice.chaoxing.com", "Referer": "https://notice.chaoxing.com/pc/notice/index", "X-Requested-With": "XMLHttpRequest" },
+      body: `type=2&year=${new Date().getFullYear()}&lastValue=`,
+    });
+    checkAuth(epoch);
+    const root = assertJsonResponse(res, "登录验证");
+    if (!root.notices || !Array.isArray(root.notices.list)) throw authFailure("登录验证未返回收件箱，请稍后重试", "temporary");
+    state.sid = sid; state.cookie = mergeCookies(cookie, res.cookies);
+    state.loggedIn = true; authError = ""; autoRetryAt = 0;
+    await saveAuth(epoch); checkAuth(epoch);
   }
 
   // 收件箱缓存只留最近 INBOX_CACHE_MAX 条，原始字段只留正文（详情页与「转为提醒」只读 rtf_content / content）。
@@ -787,8 +866,9 @@ const CX_PY_DATA = {
     };
   }
 
-  async function fetchInbox(limit = 0, commit = true, incremental = false) {
-    if (!state.sid) state.sid = await tide.http.session();
+  async function fetchInbox(limit = 0, commit = true, incremental = false, recover = true) {
+    const epoch = authEpoch;
+    if (!state.sid) { const sid = await tide.http.session(); checkAuth(epoch); state.sid = sid; }
     const items = []; let last = ""; let pages = 0;
     while (pages < 50) {
       const res = await tide.http.fetch(state.sid, "POST", INBOX_URL, {
@@ -800,8 +880,18 @@ const CX_PY_DATA = {
         }),
         body: `type=2&year=${new Date().getFullYear()}&lastValue=${encodeURIComponent(last)}`,
       });
+      checkAuth(epoch);
       state.cookie = mergeCookies(state.cookie, res.cookies);
-      const root = assertJsonResponse(res, "收件箱加载");
+      let root;
+      try { root = assertJsonResponse(res, "收件箱加载"); }
+      catch (error) {
+        if (recover && error?.authKind === "expired" && await autoLogin(true)) {
+          checkAuth(epoch);
+          return fetchInbox(limit, commit, incremental, false);
+        }
+        throw error;
+      }
+      if (!root.notices || !Array.isArray(root.notices.list)) throw new Error("收件箱未返回有效列表，请稍后重试");
       const notices = root.notices || {};
       const list = Array.isArray(notices.list) ? notices.list : [];
       items.push(...list); pages += 1;
@@ -822,7 +912,8 @@ const CX_PY_DATA = {
       state.inbox = normalized;
       publishInbox();
       await cacheStore.set("inboxCache", state.inbox.slice(0, INBOX_CACHE_MAX));
-      await saveKnown(); await saveAuth();
+      checkAuth(epoch);
+      await saveKnown(); await saveAuth(epoch);
       // 插件联动：把新通知广播给订阅方（微信推送的「插件消息」通道订阅 notice:new）。
       // 只带前 5 条，避免一次大批量把推送频次额度打爆；广播失败绝不影响抓取本身。
       if (state.newIds.size) {
@@ -865,36 +956,39 @@ const CX_PY_DATA = {
   }
 
   async function fetchCoursesRes() {
+    const epoch = authEpoch;
     const res = await withDeadline(
       tide.http.fetch(state.sid, "GET", `${COURSES_URL}?v=${Date.now()}`, {
         headers: authHeaders({ "Accept": "text/html, */*; q=0.01", "Referer": "https://mooc2-ans.chaoxing.com/visit/interaction" }),
       }),
       COURSE_TIMEOUT_MS, "课程列表",
     );
+    checkAuth(epoch);
     state.cookie = mergeCookies(state.cookie, res?.cookies);
     return res;
   }
-  const coursesExpired = (res) => Number(res?.status) !== 200
-    || /passport2\.chaoxing\.com/.test(String(res?.finalUrl || ""));
+  const coursesExpired = (res) => Number(res?.status) === 401
+    || /passport2\.chaoxing\.com/.test(String(res?.finalUrl || ""))
+    || /用户登录|登录学习通/.test(String(res?.body || "").slice(0, 500));
 
   async function loadCourses() {
-    if (!state.sid) state.sid = await tide.http.session();
+    const epoch = authEpoch;
+    if (!state.sid) { const sid = await tide.http.session(); checkAuth(epoch); state.sid = sid; }
     let res = await fetchCoursesRes();
     /* 自动登录过去只在打开插件时跑一次，而那次只验证收件箱（notice 域）。学习通给各子域
        签的会话不是同一个生命周期，mooc2-ans 先过期时就会出现「通知都能看、课程列表一片红」。
        这里做定点自愈：用保存的账号重登一次，再把这一次请求重放 —— 用户不必手点切换登录。 */
-    if (coursesExpired(res) && state.creds?.uname && state.creds?.password
-      && Date.now() - reloginAt > RELOGIN_COOLDOWN_MS) {
-      reloginAt = Date.now();
+    if (coursesExpired(res) && state.creds?.uname && state.creds?.password) {
       try {
-        await cxLogin(state.creds.uname, state.creds.password);
+        if (!await autoLogin(true)) throw new Error(authError || "自动登录正在冷却，请稍后刷新");
+        checkAuth(epoch);
         entryCache.clear();   // 旧会话签发的 enc 不能复用
         res = await fetchCoursesRes();
       } catch (err) {
         throw new Error(`课程列表加载失败：自动重登没有成功（${(err && err.message) || err}），请点「更多 → 切换登录」重新登录。`);
       }
     }
-    if (coursesExpired(res)) throw new Error(courseErrorText(res));
+    if (coursesExpired(res) || Number(res?.status) !== 200) throw new Error(courseErrorText(res));
     const courses = [], pick = (s, re) => (s.match(re) || [])[1] || "";
     for (const li of String(res.body || "").split('<li class="course ').slice(1)) {
       const cid = pick(li, /class="courseId"\s+name="courseId"\s+value="(\d+)"/);
@@ -917,15 +1011,18 @@ const CX_PY_DATA = {
     if (!courses.length && cardCount) {
       throw new Error(`课程列表加载失败：页面里有 ${cardCount} 张课程卡片，但 courseId / clazzId / 课程名一个都没解析出来，平台可能改了卡片结构。`);
     }
-    state.courses = courses; await saveAuth(); return courses;
+    checkAuth(epoch);
+    state.courses = courses; await saveAuth(epoch); return courses;
   }
 
   async function loadNotice(code) {
+    const epoch = authEpoch;
     const clean = String(code || "").trim().match(/[0-9a-fA-F]{32}/)?.[0] || String(code || "").trim();
     if (!/^[0-9a-fA-F]{32}$/.test(clean)) throw new Error("通知分享码应为 32 位 idCode，也可以直接粘贴包含 idCode 的分享链接");
     const res = await tide.http.fetch(state.sid || await tide.http.session(), "GET", NOTICE_URL(clean), {
       headers: { "Accept": "application/json, text/javascript, */*; q=0.01", "Referer": SHARE_PAGE(clean), "X-Requested-With": "XMLHttpRequest" },
     });
+    checkAuth(epoch);
     const j = assertJsonResponse(res, "通知详情查询");
     if (String(j.result) !== "1") throw new Error(j.msg || "通知详情查询失败");
     const d = j.data || {};
@@ -1393,6 +1490,7 @@ const CX_PY_DATA = {
     ? `<span class="cx2-grading" title="已提交：作业页打开是查看页而非作答页；批改完成后以平台通知为准">正在批改</span>`
     : "";
   async function probeWorkStatus(n) {
+    const epoch = authEpoch;
     const ref = parseWorkRef(n);
     if (!ref || state.workStatus[ref.id] === "grading") return;
     probeTimes.set(ref.id, Date.now());
@@ -1400,6 +1498,7 @@ const CX_PY_DATA = {
       const res = await tide.http.fetch(state.sid || await tide.http.session(), "GET", ref.url, {
         headers: authHeaders({ "Accept": "text/html,*/*; q=0.9", "Referer": "https://i.chaoxing.com/" }),
       });
+      checkAuth(epoch);
       state.cookie = mergeCookies(state.cookie, res.cookies);
       const title = (String(res.body || "").match(/<title>([^<]*)<\/title>/) || [])[1] || "";
       state.workStatus[ref.id] = /作业作答/.test(title) ? "unsent" : /详情/.test(title) ? "grading" : "";
@@ -1562,12 +1661,14 @@ const CX_PY_DATA = {
   const safeFileName = (name) => String(name || "课件").replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+/, "_").slice(0, 120);
 
   async function courseEntry(c) {
+    const epoch = authEpoch;
     const key = `${c.courseid}_${c.clazzid}`;
     if (entryCache.has(key)) return entryCache.get(key);
     if (!c.url) throw new Error("这张课程卡片没解析出课程地址（多半是平台改了卡片结构）");
     const res = await withDeadline(tide.http.fetch(state.sid, "GET", c.url, {
       headers: authHeaders({ "Accept": "text/html, */*; q=0.01" }),
     }), COURSE_TIMEOUT_MS, "课程页");
+    checkAuth(epoch);
     const finalUrl = res.finalUrl || "";
     if (/passport2\.chaoxing\.com/.test(finalUrl)) throw new Error("登录会话已失效，请重新登录学习通后再进课件");
     let sp = new URLSearchParams();
@@ -1652,13 +1753,16 @@ const CX_PY_DATA = {
   }
 
   async function refreshCourseFiles() {
+    const epoch = authEpoch;
     const f = state.files, c = f.course;
     if (!c) return;
     f.loading = true; f.err = ""; f.chapters = []; f.progress = "正在读取章节目录…";
     paintMain();
     try {
       const entry = await courseEntry(c);
+      checkAuth(epoch);
       const chapters = await loadChapters(entry);
+      checkAuth(epoch);
       f.chapters = chapters;
       f.open = new Set(chapters.map((_, i) => String(i)));
       if (!chapters.length) {
@@ -1675,6 +1779,7 @@ const CX_PY_DATA = {
         const queue = ch.points.slice();
         const worker = async () => {
           while (queue.length) {
+            checkAuth(epoch);
             const p = queue.shift();
             p.loading = true;
             try { p.files = await loadPointFiles(entry, p); }
@@ -1683,6 +1788,7 @@ const CX_PY_DATA = {
           }
         };
         await Promise.all(Array.from({ length: Math.min(3, queue.length) }, worker));
+        checkAuth(epoch);
         f.progress = `已读取 ${done}/${total} 节`;
         paintMain();
       }
@@ -1692,7 +1798,7 @@ const CX_PY_DATA = {
       f.progress = "";
     } finally {
       f.loading = false;
-      paintMain();
+      if (epoch === authEpoch) paintMain();
     }
   }
 
@@ -1873,7 +1979,7 @@ const CX_PY_DATA = {
 
   function paintMain() {
     syncTaskbarBadge();
-    if (!active || !host || host.isConnected === false) return;
+    if (!active || authPaused || !host || host.isConnected === false) return;
     const modeBtns = `<span class="cx2-mode" role="group" aria-label="打开插件时的刷新策略">${["auto", "throttle"].map((m) => `<button class="${state.refreshMode === m ? "on" : ""}" data-mode="${m}" title="${esc(REFRESH_MODES[m].why)}" aria-pressed="${state.refreshMode === m}">${REFRESH_MODES[m].label}</button>`).join("")}</span>`;
     const tools = `<details class="cx2-tools" data-tools><summary aria-label="更多学习通操作">更多</summary><div class="cx2-tools-panel"><div><div class="cx2-tools-label">打开页面时</div>${modeBtns}</div><label class="cx2-check" title="Windows 任务栏显示未提交作业数（含逾期、近期无截止作业）；已提交、考试与已移除通知不计。每 5 分钟同步，0 条自动隐藏。"><input class="switch" role="switch" type="checkbox" data-taskbar-badge ${state.taskbarBadge ? "checked" : ""}>任务栏作业角标（${unfinishedHomework().length}）</label><button data-full-sync ${state.loading?'disabled':''} title="重新拉取全部通知，可能需要更长时间">完整同步</button>${state.ignoredIds.size?`<button data-ignore-reset title="把被移除的通知重新放回列表，不需要重新同步">恢复已移除（${state.ignoredIds.size}）</button>`:''}${(state.cardColors.size||state.colorRules.length)?`<button data-color-clear-all title="清除全部单卡颜色标记与整组颜色规则">清除全部颜色标记（${state.cardColors.size} 条单卡 + ${state.colorRules.length} 条规则）</button>`:''}<button data-switch>切换登录</button></div></details>`;
     const status = state.error || (state.busy === "open" ? "正在打开学习通网页…" : "");
@@ -1915,22 +2021,105 @@ const CX_PY_DATA = {
   }
 
   function loginHtml(message = "") {
-    host.innerHTML = `<div class="cx2"><div class="cx2-login"><h3>登录学习通</h3><label class="cx2-check" title="Windows 任务栏显示未提交作业数，0 条隐藏，每 5 分钟同步"><input class="switch" role="switch" type="checkbox" data-taskbar-badge ${state.taskbarBadge ? "checked" : ""}>任务栏作业角标</label><p class="cx2-sub">推荐账号密码登录；若频繁登录触发风控，可粘贴浏览器/App 已登录 Cookie 直接复用会话。</p><div class="cx2-tabs"><button class="on" data-login-tab="password">账号密码</button><button data-login-tab="cookie">Cookie</button></div><div data-login-password><div class="cx2-fields"><label><span>账号（手机号 / 学号）</span><input data-u autocomplete="username"></label><label><span>密码</span><input data-p type="password" autocomplete="current-password"></label></div><div class="cx2-actions" style="margin-top:12px"><button class="primary" data-login>登录</button></div></div><div data-login-cookie hidden><label><span>Cookie</span><textarea data-cookie placeholder="例如：_uid=...; route=...; ..."></textarea></label><div class="cx2-actions" style="margin-top:12px"><button class="primary" data-cookie-login>使用 Cookie</button></div></div><label class="cx2-check" style="margin-top:12px"><input class="switch" role="switch" type="checkbox" data-remember checked> 保存登录信息到本机，便于下次直接复用</label><div class="cx2-status ${message?'err':''}" data-login-status>${esc(message)}</div><div class="cx2-note">账号密码登录使用 fanyalogin + DES-ECB/PKCS5；密码加密在本机 Tauri 后端完成。收件箱改用 v2 包确认的 getNoticeList 接口，不再依赖 specie.chaoxing.com 的来源 IP 白名单。</div></div></div>`;
+    if (!active || !host || host.isConnected === false) return;
+    host.innerHTML = `<div class="cx2"><div class="cx2-login"><h3>登录学习通</h3><label class="cx2-check" title="Windows 任务栏显示未提交作业数，0 条隐藏，每 5 分钟同步"><input class="switch" role="switch" type="checkbox" data-taskbar-badge ${state.taskbarBadge ? "checked" : ""}>任务栏作业角标</label><p class="cx2-sub">推荐账号密码登录；若频繁登录触发风控，可粘贴浏览器/App 已登录 Cookie 直接复用会话。</p><div class="cx2-tabs"><button class="on" data-login-tab="password">账号密码</button><button data-login-tab="cookie">Cookie</button></div><div data-login-password><div class="cx2-fields"><label><span>账号（手机号 / 学号）</span><input data-u autocomplete="username"></label><label><span>密码</span><input data-p type="password" autocomplete="current-password"></label></div><div class="cx2-actions" style="margin-top:12px"><button class="primary" data-login>登录</button></div></div><div data-login-cookie hidden><label><span>Cookie</span><textarea data-cookie placeholder="例如：_uid=...; route=...; ..."></textarea></label><div class="cx2-actions" style="margin-top:12px"><button class="primary" data-cookie-login>使用 Cookie</button></div></div><label class="cx2-check" style="margin-top:12px"><input class="switch" role="switch" type="checkbox" data-remember checked> 加密保存登录信息到本机，便于下次自动登录</label><div class="cx2-status ${message?'err':''}" data-login-status>${esc(message)}</div><div class="cx2-note">密码与 Cookie 仅加密保存在本机密钥库，不进入备份或同步。网络暂时失败会保留登录信息；账号错误或需要平台验证时会暂停自动尝试。</div></div></div>`;
   }
 
   let loginPromise = null;
-  function autoLogin() {
-    if (state.loggedIn) return Promise.resolve(true);
-    return loginPromise || (loginPromise = restoreLogin().finally(() => { loginPromise = null; }));
-  }
-  async function restoreLogin() {
-    if (state.cookie) {
-      try { state.remember = true; await startCookieSession(state.cookie); return true; } catch { state.cookie = ""; await tide.storage.set("sessionCookie", null); }
+  function autoLogin(passwordOnly = false) {
+    if (loginPromise) return loginPromise;
+    if (authPaused || !active || authBlocked) return Promise.resolve(false);
+    if (state.loggedIn && !passwordOnly) return Promise.resolve(true);
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      authError = "当前离线，保存的登录信息仍保留；网络恢复后再试。";
+      return Promise.resolve(false);
     }
-    if (state.creds?.uname && state.creds?.password) {
-      try { state.remember = true; await cxLogin(state.creds.uname, state.creds.password); return true; } catch { state.creds = null; await tide.storage.set("creds", null); }
+    const elapsed = Date.now() - autoRetryAt;
+    if (autoRetryAt && elapsed >= 0 && elapsed < RELOGIN_COOLDOWN_MS) return Promise.resolve(false);
+    const epoch = authEpoch;
+    const pending = restoreLogin(passwordOnly, epoch).finally(() => { if (loginPromise === pending) loginPromise = null; });
+    loginPromise = pending;
+    return pending;
+  }
+  async function restoreLogin(passwordOnly, epoch) {
+    try {
+      checkAuth(epoch);
+      if (state.cookie && !passwordOnly) {
+        try { await startCookieSession(state.cookie, epoch); return true; }
+        catch (error) { if (error?.authKind !== "expired") throw error; }
+      }
+      checkAuth(epoch);
+      if (state.creds?.uname && state.creds?.password) {
+        const elapsed = Date.now() - reloginAt;
+        if (reloginAt && elapsed >= 0 && elapsed < RELOGIN_COOLDOWN_MS) {
+          authError = "自动登录正在冷却，请稍后刷新或手动登录。";
+          return false;
+        }
+        reloginAt = Date.now();
+        await recordAuthAttempt(epoch);
+        checkAuth(epoch);
+        await cxLogin(state.creds.uname, state.creds.password, epoch);
+        return true;
+      }
+      authError = state.cookie ? "保存的会话已过期，请重新登录。" : "";
+    } catch (error) {
+      if (epoch !== authEpoch || error?.authKind === "cancelled") return false;
+      autoRetryAt = Date.now();
+      authBlocked = error?.authKind === "denied";
+      authError = authBlocked ? `${error.message}。已暂停自动尝试，请手动登录。`
+        : `${error.message || error}。登录信息仍保留，稍后自动重试，也可手动登录。`;
+      await recordAuthAttempt(epoch);
     }
     return false;
+  }
+
+  function recordAuthAttempt(epoch) {
+    const at = reloginAt, blocked = authBlocked, failedAt = autoRetryAt;
+    return queueAuthWrite(async () => {
+      checkAuth(epoch);
+      await tide.storage.set("autoLoginAttemptAt", at);
+      await tide.storage.set("autoLoginBlocked", blocked);
+      await tide.storage.set("autoLoginFailureAt", failedAt);
+    }).catch(() => {});
+  }
+
+  async function clearAccount() {
+    // 先撤销本代的异步任务，再排队删盘；迟到的登录与 Cookie 写入不能复活上一个账号。
+    const epoch = ++authEpoch;
+    authPaused = true; authBlocked = false; authError = ""; loginPromise = null; reloginAt = 0; autoRetryAt = 0;
+    state.loggedIn = false; state.sid = null; state.cookie = ""; state.creds = null;
+    state.inbox = []; state.courses = []; state.notice = null; state.workStatus = {};
+    state.newIds = new Set(); state.knownIds = new Set(); state.ignoredIds = new Set();
+    state.readOverrides = new Map(); state.cardColors = new Map(); state.colorRules = [];
+    state.course.year = null;
+    state.files = { course: null, loading: false, chapters: [], open: new Set(), saved: new Set(), progress: "", err: "" };
+    state.lastSync = ""; state.lastSyncAt = 0; state.cacheLoaded = false; state.error = "";
+    entryCache.clear(); probeTimes.clear(); closeCardMenu(); publishInbox(); syncTaskbarBadge();
+    let cleanupFailed = false;
+    await queueAuthWrite(async () => {
+      await tide.storage.set("autoLoginPaused", true);
+      const results = await Promise.allSettled([
+        Promise.resolve().then(() => tide.vault?.del?.("loginAuth")),
+        tide.storage.set("sessionCookie", null), tide.storage.set("creds", null),
+        tide.storage.set("autoLoginAttemptAt", 0), tide.storage.set("autoLoginBlocked", false), tide.storage.set("autoLoginFailureAt", 0),
+      ]);
+      cleanupFailed = results.some((result) => result.status === "rejected");
+    });
+    checkAuth(epoch);
+    await cacheStore.set("inboxCache", []);
+    for (const [key, value] of Object.entries({ knownIds: [], ignoredIds: [], readOverrides: [], cardColors: [], colorRules: [], workStatus: {}, lastSyncAt: 0, inboxCache: [] })) {
+      await tide.storage.set(key, value);
+    }
+    if (cleanupFailed) throw new Error("保存的登录信息未完全清除，请重试");
+  }
+
+  let manualLoginBusy = false;
+  async function beginManualLogin() {
+    if (loginPromise) throw new Error("正在恢复登录，请稍候再试");
+    await clearAccount();
+    authPaused = false; authBlocked = false; authError = ""; reloginAt = 0;
+    await tide.storage.set("autoLoginPaused", false);
+    return authEpoch;
   }
 
   function wire() {
@@ -1948,8 +2137,24 @@ const CX_PY_DATA = {
         if (!menuEl || !menuEl.contains(e.target)) { closeCardMenu(); paintMain(); }
       }
       const loginTab=e.target.closest('[data-login-tab]');if(loginTab){const cookie=loginTab.dataset.loginTab==='cookie';host.querySelectorAll('[data-login-tab]').forEach(b=>b.classList.toggle('on',b===loginTab));host.querySelector('[data-login-password]').hidden=cookie;host.querySelector('[data-login-cookie]').hidden=!cookie;return;}
-      if(e.target.closest('[data-login]')){const u=host.querySelector('[data-u]').value.trim(),p=host.querySelector('[data-p]').value,status=host.querySelector('[data-login-status]');if(!u||!p){status.textContent='请填写账号和密码';return;}state.remember=host.querySelector('[data-remember]').checked;state.creds={uname:u,password:p};status.textContent='正在登录…';try{await cxLogin(u,p);paintMain();await refreshAll();}catch(err){status.textContent=err.message||err;}return;}
-      if(e.target.closest('[data-cookie-login]')){const c=host.querySelector('[data-cookie]').value.trim(),status=host.querySelector('[data-login-status]');state.remember=host.querySelector('[data-remember]').checked;state.creds=null;status.textContent='正在验证 Cookie…';try{await startCookieSession(c);paintMain();await refreshAll();}catch(err){status.textContent=err.message||err;}return;}
+      if (e.target.closest('[data-login], [data-cookie-login]')) {
+        if (manualLoginBusy || loginPromise) { tide.notify("已有登录正在进行，请稍候"); return; }
+        const passwordMode = !!e.target.closest('[data-login]');
+        const u = host.querySelector('[data-u]').value.trim(), p = host.querySelector('[data-p]').value;
+        const cookie = host.querySelector('[data-cookie]').value.trim();
+        const status = host.querySelector('[data-login-status]');
+        if (passwordMode ? (!u || !p) : !cookie) { status.textContent = passwordMode ? '请填写账号和密码' : '请填写 Cookie'; return; }
+        const remember = host.querySelector('[data-remember]').checked;
+        manualLoginBusy = true; status.textContent = passwordMode ? '正在登录…' : '正在验证 Cookie…';
+        try {
+          const epoch = await beginManualLogin();
+          state.remember = remember; state.creds = passwordMode ? { uname: u, password: p } : null;
+          if (passwordMode) await cxLogin(u, p, epoch); else await startCookieSession(cookie, epoch);
+          checkAuth(epoch); paintMain(); await refreshAll();
+        } catch (err) { if (err?.authKind !== "cancelled") status.textContent = err.message || String(err); }
+        finally { manualLoginBusy = false; }
+        return;
+      }
       const tab=e.target.closest('[data-tab]');if(tab){state.tab=tab.dataset.tab;state.files.course=null;state.files.chapters=[];state.files.progress='';state.files.err='';paintMain();return;}
       const catChip=e.target.closest('[data-cat-type]');if(catChip){state.filter.catType=catChip.dataset.catType;savePrefs();paintMain();return;}
       const todoChip=e.target.closest('[data-todo-sec]');if(todoChip){const k=todoChip.dataset.todoSec;state.filter.todoSec=state.filter.todoSec===k?"":k;savePrefs();paintMain();return;}
@@ -1968,7 +2173,12 @@ const CX_PY_DATA = {
       if(e.target.closest('[data-refresh]')){await refreshAll();return;}
       if(e.target.closest('[data-full-sync]')){await fullSync();return;}
       if(e.target.closest('[data-clear-late]')){await ignoreNotices(overdueTodos(),'逾期作业');return;}
-      if(e.target.closest('[data-switch]')){if(state.loading||probing||backgroundBusy){tide.notify('正在同步作业，请完成后再切换登录');return;}state.loggedIn=false;state.sid=null;state.cookie='';state.creds=null;state.inbox=[];state.workStatus={};state.ignoredIds=new Set();state.knownIds=new Set();state.lastSyncAt=0;await tide.storage.set('inboxCache',[]);await saveWorkStatus();await saveIgnored();await saveKnown();await tide.storage.set('lastSyncAt',0);syncTaskbarBadge();await tide.storage.set('sessionCookie',null);await tide.storage.set('creds',null);loginHtml();return;}
+      if (e.target.closest('[data-switch]')) {
+        if (state.loading || probing || backgroundBusy || manualLoginBusy) { tide.notify('正在同步或登录，请完成后再切换'); return; }
+        try { await clearAccount(); loginHtml(); }
+        catch { loginHtml("已停止自动登录，但清除本机保存信息失败，请再次切换登录重试。"); }
+        return;
+      }
       const lookup=e.target.closest('[data-lookup]');if(lookup){const input=host.querySelector('[data-code]');try{state.error='';await loadNotice(input.value);paintMain();}catch(err){state.error=err.message||String(err);paintMain();}return;}
       if(e.target.closest('[data-ignore-reset]')){await restoreIgnored();return;}
       if(e.target.closest('[data-notice-remind]')&&state.notice){await toReminder(state.notice);return;}
@@ -2022,7 +2232,7 @@ const CX_PY_DATA = {
       wire(); await ensurePrefs();
       if (state.inbox.length) paintMain();
       const ok = await autoLogin();
-      if (!ok) { loginHtml(); return; }
+      if (!ok) { loginHtml(authError); return; }
       paintMain();
     } finally { releaseWait(); }
     // 刷新策略（用户在按钮里选）：auto=每次打开都刷新（默认）；
@@ -2031,8 +2241,10 @@ const CX_PY_DATA = {
     if (state.refreshMode === "auto" || stale) await refreshAll();
   }
 
+  if (tide.ui.onDispose) {
+    tide.ui.onDispose(() => { active = false; ++authEpoch; clearInterval(badgeTimer); });
+  }
   if (tide.ui.setTaskbarBadge && tide.ui.onDispose) {
-    tide.ui.onDispose(() => { active = false; clearInterval(badgeTimer); });
     tide.ui.taskbarBadgeSupported().then((supported) => supported ? ensurePrefs() : null).then((prefs) => {
       if (prefs === null) return;
       if (!active) return;

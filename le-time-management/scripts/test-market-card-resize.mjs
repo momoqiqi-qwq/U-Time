@@ -93,7 +93,7 @@ const env = {
 };
 const api = new Function(
   ...Object.keys(env),
-  `${code}\nreturn { resizeCursor, cardSizeFrom, applyCardSizeVars, resetMarketCardSize, attachMarketCardResize };`,
+  `${code}\nreturn { resizeCursor, edgeResizeCursor, cardSizeFrom, applyCardSizeVars, resetMarketCardSize, attachMarketCardResize };`,
 )(...Object.values(env));
 
 /* ── 1. 纯换算：1px 位移 = 1px 变化，且始终落在合法区间 ── */
@@ -112,6 +112,20 @@ assert.equal(api.resizeCursor(30, -25), "nesw-resize", "两轴反向（右上）
 assert.equal(api.resizeCursor(-30, 25), "nesw-resize", "两轴反向（左下）→ 同一个对角光标");
 assert.equal(api.resizeCursor(0, 0), "default", "两轴都没变（已顶到上下限）→ 交给调用方保持上一个光标，不跳回箭头");
 
+/* ── 1.6 悬停边缘（v0.287.0）：指针一落到卡片边缘那一圈，光标就得是双箭头 ── */
+const HOVER_RECT = { left: 0, top: 0, right: 190, bottom: 100 };
+assert.equal(api.edgeResizeCursor(HOVER_RECT, 4, 50), "ew-resize", "左边缘 → 左右双箭头");
+assert.equal(api.edgeResizeCursor(HOVER_RECT, 186, 50), "ew-resize", "右边缘 → 左右双箭头");
+assert.equal(api.edgeResizeCursor(HOVER_RECT, 95, 3), "ns-resize", "上边缘 → 上下双箭头");
+assert.equal(api.edgeResizeCursor(HOVER_RECT, 95, 97), "ns-resize", "下边缘 → 上下双箭头");
+assert.equal(api.edgeResizeCursor(HOVER_RECT, 3, 3), "nwse-resize", "左上角 → 西北-东南对角");
+assert.equal(api.edgeResizeCursor(HOVER_RECT, 187, 97), "nwse-resize", "右下角 → 同一个对角");
+assert.equal(api.edgeResizeCursor(HOVER_RECT, 187, 3), "nesw-resize", "右上角 → 东北-西南对角");
+assert.equal(api.edgeResizeCursor(HOVER_RECT, 3, 97), "nesw-resize", "左下角 → 同一个对角");
+assert.equal(api.edgeResizeCursor(HOVER_RECT, 95, 50), "", "中间区域不动光标 —— 那里是「点一下打开插件」");
+assert.equal(api.edgeResizeCursor(HOVER_RECT, 95, 12), "", "离边缘超过 10px 就算中间（EDGE_RING 默认值）");
+assert.equal(api.edgeResizeCursor(null, 1, 1), "", "拿不到 rect 时什么都不做");
+
 /* ── 2. CSS 变量：拖动只写这两个变量，全部卡片跟着变 ── */
 const varTarget = { style: makeStyle() };
 api.applyCardSizeVars(240, 200, varTarget);
@@ -128,6 +142,18 @@ const grid = makeGrid();
 const detach = api.attachMarketCardResize(grid, {});
 const down = gridListeners.get("pointerdown");
 assert.ok(down, "必须监听网格上的 pointerdown（事件委托到卡片）");
+
+/* 悬停边缘：挂类 + 写方向变量；回到中间或触屏都要收干净（v0.287.0） */
+const hoverMove = gridListeners.get("pointermove");
+assert.ok(hoverMove, "网格上要挂悬停 pointermove（只换光标，不改尺寸）");
+hoverMove({ pointerType: "mouse", target: card, clientX: 4, clientY: 50 });
+assert.equal(card.classList.contains("market-edge-resize"), true, "悬停卡片边缘 → 挂上双箭头态");
+assert.equal(card.style.props["--market-card-edge-cursor"], "ew-resize", "方向写进 --market-card-edge-cursor（CSS 读它）");
+hoverMove({ pointerType: "mouse", target: card, clientX: 95, clientY: 50 });
+assert.equal(card.classList.contains("market-edge-resize"), false, "移回中间要收掉 —— 不能整张卡片都像调节柄");
+assert.equal(card.style.props["--market-card-edge-cursor"], undefined, "同时清掉方向变量");
+hoverMove({ pointerType: "touch", target: card, clientX: 4, clientY: 50 });
+assert.equal(card.classList.contains("market-edge-resize"), false, "触屏没有 hover 语义，不介入");
 
 down({ pointerType: "touch", button: 0, pointerId: 1, clientX: 10, clientY: 10, target: card });
 assert.equal(docListeners.size, 0, "触屏拖动 = 滚动，必须完全不介入");
@@ -219,6 +245,7 @@ assert.equal(documentStub.documentElement.style.props["--market-card-h"], "auto"
 
 detach();
 assert.equal(gridListeners.has("pointerdown"), false, "卸载后不再监听 pointerdown");
+assert.equal(gridListeners.has("pointermove"), false, "卸载后也不许留下悬停监听（边缘光标会粘住）");
 assert.equal(grid.classList.contains("market-settling"), false, "卸载要连落位过渡的定时器一起收掉");
 
-console.log("PASS: plugin market card resize —— 水平改宽 / 垂直改高（起点取卡片实际尺寸）、拖动中整页 resize 光标按实际尺寸变化随方向变（含斜向）、阈值区分点击与拖动、触屏与控件不介入、松手落盘与落位过渡、Esc 取消、缩放换算、高度 0 → auto、恢复默认");
+console.log("PASS: plugin market card resize —— 水平改宽 / 垂直改高（起点取卡片实际尺寸）、拖动中整页 resize 光标按实际尺寸变化随方向变（含斜向）、阈值区分点击与拖动、触屏与控件不介入、松手落盘与落位过渡、Esc 取消、缩放换算、高度 0 → auto、恢复默认、悬停边缘出双箭头（中间与触屏不动光标）");

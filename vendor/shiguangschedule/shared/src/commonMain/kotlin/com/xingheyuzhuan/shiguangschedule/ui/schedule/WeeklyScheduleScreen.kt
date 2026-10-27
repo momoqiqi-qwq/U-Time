@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -195,6 +196,7 @@ fun WeeklyScheduleScreen(
     val navHideFraction = if (floatingCourse != null) 1f else collapseFraction
 
     val systemNavigationBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val systemStatusBarInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     AdaptiveNavigationScaffold(
         currentDestination = Destination.CourseSchedule,
@@ -291,17 +293,32 @@ fun WeeklyScheduleScreen(
             ) { scaffoldInnerPadding ->
 
                 val dynamicBottomPadding = scaffoldInnerPadding.calculateBottomPadding() + totalBottomOffset
+                /*
+                 * The activity is edge-to-edge, so the schedule pager must own an
+                 * explicit viewport between the top app bar/status bar and the
+                 * bottom navigation bar.  Scaffold normally supplies these values,
+                 * but the nested scaffold and the animated navigation bar can make
+                 * one side temporarily report zero during a transition.  Clamp the
+                 * two edges before laying out the pager so the grid never paints
+                 * under either system surface.  The grid itself keeps its configured
+                 * sectionHeight, therefore one lesson still occupies exactly one
+                 * section after the viewport is bounded.
+                 */
+                val scheduleTopPadding = scaffoldInnerPadding.calculateTopPadding()
+                    .coerceAtLeast(systemStatusBarInset)
+                val scheduleBottomPadding = dynamicBottomPadding
+                    .coerceAtLeast(systemNavigationBarInset)
 
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier
+                        .fillMaxSize()
                         .padding(
                             start = scaffoldInnerPadding.calculateStartPadding(LayoutDirection.Ltr),
-                            top = scaffoldInnerPadding.calculateTopPadding(),
+                            top = scheduleTopPadding,
                             end = scaffoldInnerPadding.calculateEndPadding(LayoutDirection.Ltr),
-                            bottom = dynamicBottomPadding
+                            bottom = scheduleBottomPadding
                         )
-                        .fillMaxSize(),
                     beyondViewportPageCount = 1,
                     userScrollEnabled = !isGridHolding
                 ) { pageIndex ->

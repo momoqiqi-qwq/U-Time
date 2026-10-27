@@ -38,9 +38,14 @@ const rustSource=readProductSource(new URL('../src-tauri/src/lib.rs',import.meta
 for(const command of ['school_import_open','school_import_bridge'])assert.ok(rustSource.includes(command),`missing native school import command: ${command}`);
 assert.ok(rustSource.includes('bridgeQueue'),'school import bridge must serialize concurrent adapter callbacks');
 const nativeGridSource=readProductSource(new URL('../../vendor/shiguangschedule/shared/src/commonMain/kotlin/com/xingheyuzhuan/shiguangschedule/ui/schedule/components/ScheduleGrid.kt',import.meta.url),'utf8');
+const nativeWeeklySource=readProductSource(new URL('../../vendor/shiguangschedule/shared/src/commonMain/kotlin/com/xingheyuzhuan/shiguangschedule/ui/schedule/WeeklyScheduleScreen.kt',import.meta.url),'utf8');
 assert.match(nativeGridSource,/PointerEventPass\.Initial/,'native schedule must intercept touchpad scrolling before the horizontal pager');
 assert.match(nativeGridSource,/abs\(delta\.y\) <= abs\(delta\.x\)/,'vertical touchpad scroll must not steal horizontal week swipes');
 assert.match(nativeGridSource,/gridScrollState\.dispatchRawDelta/,'touchpad deltas must drive the native schedule scroll state');
+assert.match(nativeWeeklySource,/WindowInsets\.statusBars\.asPaddingValues\(\)\.calculateTopPadding\(\)/,'native schedule must read the real status-bar inset');
+assert.match(nativeWeeklySource,/val scheduleTopPadding = scaffoldInnerPadding\.calculateTopPadding\(\)\s*\.coerceAtLeast\(systemStatusBarInset\)/,'native schedule top bound must never enter the status bar');
+assert.match(nativeWeeklySource,/val scheduleBottomPadding = dynamicBottomPadding\s*\.coerceAtLeast\(systemNavigationBarInset\)/,'native schedule bottom bound must never enter the navigation bar');
+assert.match(nativeWeeklySource,/modifier = Modifier\s*\.fillMaxSize\(\)\s*\.padding\(/,'native schedule pager must bound its content before applying edge padding');
 const nativeHostSource=readProductSource(new URL('../../vendor/shiguangschedule/desktopApp/src/main/kotlin/com/xingheyuzhuan/shiguangschedule/LeHost.kt',import.meta.url),'utf8');
 assert.match(nativeHostSource,/requestFocusInWindow\(\)/,'embedded Compose panel must acquire focus for precision touchpad input');
 assert.match(pluginHost,/renderNativeSchedule/,'Tauri plugin host must retain the original native Shiguang interface');
@@ -215,14 +220,15 @@ assert.match(nativeSchoolRepository,/id = "CPPU"/);
 assert.match(nativeResourceInitializer,/schools\/resources\/CPPU\/cppu\.js/,'existing native installations must receive the bundled CPPU adapter');
 console.log('PASS: CPPU is built in and its real JE course rows convert dates, block sections and duplicate occurrences correctly');
 
-/* ── v0.33.0 一、彩色课程块开关（「我的 → 个性化配置」里的滑块） ── */
+/* ── v0.33.0 / v0.291.0 课程块配色模式（「我的 → 个性化配置」） ── */
 const styleDefaults = ui.match(/const defaultStyle=\{([^}]*)\}/)?.[1] || '';
 assert.match(styleDefaults, /colorful:true/, '彩色开关默认必须开（v0.59.0 需求：默认彩色课程表）');
+assert.match(styleDefaults, /colorMode:'solid'/, '默认配色模式必须保留原来的彩色实色卡');
 assert.match(styleDefaults, /opacity:75/, '默认透明度必须是 75（v0.59.0 需求，滑杆下限仍是 35）');
-assert.match(ui, /switchRow\('彩色课程块'/, '个性化配置里缺少彩色滑块');
-assert.match(ui, /name="\$\{name\}"/, '滑块必须真的渲染出带 name 的 checkbox，否则保存时读不到值');
-assert.match(ui, /style\.colorful\?'colorful':''/, '彩色开关必须落到 .sg 的类名上，否则 CSS 不生效');
-assert.match(ui, /colorful:!!f\.colorful\?\.checked/, '即时生效时必须一并写入 colorful，否则滑块点了白点');
+assert.match(ui, /name="colorMode"/, '个性化配置里缺少课程块配色选择');
+for (const mode of ['soft-bg', 'soft-border', 'solid']) assert.match(ui, new RegExp(`value="${mode}"`), `缺少配色模式 ${mode}`);
+assert.match(ui, /color-mode-\$\{style\.colorMode\}/, '当前配色模式必须落到 .sg 的类名上');
+assert.match(ui, /colorMode:f\.colorMode\?\.value/, '即时生效时必须读取配色模式');
 assert.match(ui, /switch-row/, '个性化配置的开关要用滑块样式，不能退回原生 checkbox');
 
 /* ── v0.42.0 个性化配置即时生效：删除「保存样式」按钮 ──
@@ -231,6 +237,7 @@ assert.match(ui, /switch-row/, '个性化配置的开关要用滑块样式，不
 assert.ok(!ui.includes('保存样式'), '「保存样式」按钮必须删除（改动即时生效，无需手动保存）');
 assert.match(ui, /function liveStyle\(form,saveNow\)/, '必须有 liveStyle：读表单 → 改 CSS 变量/类名 → 持久化');
 assert.match(ui, /sg\.classList\.toggle\('colorful',!!style\.colorful\)/, '即时生效必须连 .sg 的类名一起改，否则彩色/隐藏开关要等重绘才生效');
+assert.match(ui, /for\(const name of COLOR_MODES\)sg\.classList\.toggle/, '切换配色模式时必须清理旧模式类名');
 assert.match(ui, /if\(sf\)liveStyle\(sf,false\);/, '拖动滑块（input 事件）必须实时应用并走 400ms 防抖落库');
 assert.match(ui, /if\(sf\)\{liveStyle\(sf,true\);return;\}/, '开关切换（change 事件）必须立即落库');
 assert.match(ui, /styleSaveTimer=setTimeout\(\(\)=>tide\.storage\.set\('style',style\)\.catch\(\(\)=>\{\}\),400\)/, '滑块拖动期间持久化要防抖，不能每个 tick 写一次存储');
@@ -249,6 +256,8 @@ for (const line of paletteLines) {
   assert.ok(ratio >= 4.5, `彩色色调 ${m[1]} 上的文字只有 ${ratio.toFixed(2)}:1，未达 WCAG AA 4.5:1`);
   assert.ok(['#fff', '#ffffff'].includes(m[2].toLowerCase()), '彩色模式的文字色应统一为白色，混用会让对比度不受控');
 }
+assert.match(ui, /\.sg\.color-mode-soft-bg[^}]*background:var\(--course-bg\)/, '柔和背景模式必须使用课程浅色底');
+assert.match(ui, /\.sg\.color-mode-soft-border[^}]*background:var\(--sg-card\)/, '柔和边框模式必须保留面板底色');
 
 const fx = uiContext.fixture;
 assert.equal(typeof fx.tone, 'function', 'fixture 没拿到 tone，说明 ui.js 的结构变了');
@@ -294,10 +303,13 @@ uiContext.fetch = prevFetch;
 console.log('PASS: 教务导入直达学校选择，文件 / 表格导入收进学校列表页的次级入口且返回栈正确');
 console.log('PASS: 课表更多菜单直接显示「导入教务」并复用现有流程');
 
-fx.setStyle({ colorful: false });
-assert.equal(fx.tone({ name: '数字电子技术', color: 0 }), 0, '非彩色模式下未调色的课仍是 tone-0，保持 v0.32 的观感');
+fx.setStyle({ colorMode: 'soft-bg', colorful: false });
+const softBgTone = fx.tone({ name: '数字电子技术', color: 0 });
+assert.ok(Number.isInteger(softBgTone) && softBgTone >= 0 && softBgTone < 8, '柔和背景模式下未调色的课也必须分配稳定色调');
 assert.equal(fx.tone({ name: '数字电子技术', color: 3 }), 3, '手动选过的颜色任何模式下都不该被覆盖');
-fx.setStyle({ colorful: true });
+fx.setStyle({ colorMode: 'soft-border', colorful: false });
+assert.equal(fx.tone({ name: '数字电子技术', color: 0 }), softBgTone, '柔和边框与柔和背景对同一课程使用同一稳定色调');
+fx.setStyle({ colorMode: 'solid', colorful: true });
 const toneNames = ['数字电子技术', '模拟电子技术', '线性代数A', '马克思主义基本原理', 'C语言程序设计A', '复变函数与积分变换', '智慧消防专业英语', '多旋翼无人机组装与调试', '反邪教研究', '机器人操控基础'];
 const tones = toneNames.map((n) => fx.tone({ name: n, color: 0 }));
 assert.ok(new Set(tones).size >= 5, `彩色模式下导入的课表应散到多个色调，实际只有 ${new Set(tones).size} 种`);

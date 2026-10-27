@@ -54,7 +54,7 @@ const context = vm.createContext({
   },
 });
 
-const exported = 'state,pdataApi,ensurePdataAuth,dropPdataAuth,loadPdataAuth,openPdataLink,clearSavedLogin,newSession,restoreCookies,silentRenew,passwordAutoLogin';
+const exported = 'state,pdataApi,ensurePdataAuth,dropPdataAuth,loadPdataAuth,exchangePdataToken,forgetPdataAuth,openPdataLink,clearSavedLogin,newSession,restoreCookies,silentRenew,passwordAutoLogin,getPdataAuth:()=>pdataAuth,getPdataPending:()=>pdataAuthPending';
 vm.runInContext(
   source.replace('  tide.ui.registerView({', `  globalThis.testApi = {${exported}};\n  tide.ui.registerView({`),
   context,
@@ -150,11 +150,89 @@ await api.clearSavedLogin();
 await flush();
 assert.equal(vaultData.pdataToken, undefined, '清除凭据必须连 pdata 的 token 一起清，否则下个人接着用上个人的数据');
 
+/* ── ⑤b 读取/写入跨过清除动作：晚到结果不得恢复或重新落盘 ── */
+{
+  const originalGet = context.tide.vault.get;
+  let release;
+  context.tide.vault.get = async key => key === 'pdataToken'
+    ? new Promise(resolve => { release = resolve; }) : originalGet(key);
+  const loading = api.loadPdataAuth();
+  while (!release) await flush();
+  const clearing = api.clearSavedLogin();
+  release(JSON.stringify({ token: 'LATE-READ', userId: '2025000001', at: 1 }));
+  await Promise.all([loading, clearing]);
+  assert.equal(api.getPdataAuth().token, '', '清除之后晚到的密钥库读取不能恢复身份');
+  assert.equal(vaultData.pdataToken, undefined);
+  context.tide.vault.get = originalGet;
+}
+const successResponse = (sid, method, url) => {
+  if (PDATA_TICKET_RE.test(url)) return { status: 302, location: 'https://pdata.cppu.edu.cn/stu/home/?ticket=ST-RACE' };
+  if (url.includes('/tsa/validateLogin')) return { status: 200, body: JSON.stringify({ code: 2000, data: { token: 'NEW-PDATA', userId: '2025000001' } }) };
+  return { status: 404, body: '' };
+};
+{
+  const originalSet = context.tide.vault.set;
+  let release;
+  context.tide.vault.set = async (key, value) => {
+    if (key === 'pdataToken') await new Promise(resolve => { release = resolve; });
+    return originalSet(key, value);
+  };
+  api.state.autoLogin = true;
+  api.state.username = '2025000001';
+  response = successResponse;
+  const exchanging = api.exchangePdataToken();
+  while (!release) await flush();
+  const clearing = api.clearSavedLogin();
+  release();
+  assert.equal(await exchanging, false, '落盘期间清除身份，旧换票不能回报有效登录');
+  await clearing;
+  assert.equal(api.getPdataAuth().token, '');
+  assert.equal(vaultData.pdataToken, undefined, '旧写入先结束再删除，不能在删除之后写回票据');
+  context.tide.vault.set = originalSet;
+}
+{
+  // 清除后立即开始新换票：旧 finally 不能把新任务的合流引用清掉。
+  const releases = [];
+  response = (sid, method, url) => url.includes('/tsa/validateLogin')
+    ? new Promise(resolve => releases.push(resolve)) : successResponse(sid, method, url);
+  const old = api.ensurePdataAuth();
+  while (releases.length < 1) await flush();
+  await api.clearSavedLogin();
+  const fresh = api.ensurePdataAuth();
+  while (releases.length < 2) await flush();
+  const flight = api.getPdataPending();
+  releases[0]({ status: 200, body: JSON.stringify({ code: 2000, data: { token: 'OLD-PDATA' } }) });
+  assert.equal((await old).token, '');
+  assert.equal(api.getPdataPending(), flight, '旧任务的 finally 不得覆盖新 flight');
+  releases[1]({ status: 200, body: JSON.stringify({ code: 2000, data: { token: 'FRESH-PDATA' } }) });
+  assert.equal((await fresh).token, 'FRESH-PDATA');
+  assert.equal(api.getPdataPending(), null);
+}
+{
+  await api.dropPdataAuth();
+  storageData.autoLogin = false;
+  api.state.autoLogin = true; // 模拟冷启动尚未水合偏好
+  vaultData.pdataToken = JSON.stringify({ token: 'SAVED-BUT-DISABLED', userId: '2025000001', at: 1 });
+  assert.equal((await api.loadPdataAuth()).token, '', '自动登录关闭时不得按内存默认值恢复票据');
+  await api.dropPdataAuth();
+  api.state.autoLogin = false;
+  response = successResponse;
+  assert.equal(await api.exchangePdataToken(), true, '本次已登录会话仍可获取内存票据');
+  assert.equal(vaultData.pdataToken, undefined, '关闭自动登录后不得把新 token 落盘');
+  assert.equal(api.getPdataAuth().token, 'NEW-PDATA');
+  await api.dropPdataAuth();
+  storageData.autoLogin = true;
+  api.state.autoLogin = true;
+  vaultData.pdataToken = JSON.stringify({ username: 'different-user', token: 'OTHER-ACCOUNT', at: 1 });
+  assert.equal((await api.loadPdataAuth()).token, '', '绑定其他账号的 pdata token 不得恢复');
+  await api.dropPdataAuth();
+}
+
 /* ── ⑥ 源码级接线：链路的每一步都必须在文件里，而不是只在这份测试里 ── */
 assert.match(source, /function forgetPdataAuth\(\)/, 'finishPortalTicket / clearSavedLogin 共用的失效钩子不能丢');
 assert.match(source, /if \(direct\) \{ state\.token = direct; forgetPdataAuth\(\); return true; \}/, '门户会话重建时必须让 pdata 的票失效');
 assert.match(source, /async function exchangePdataToken\(\)/, '换票 + 消费票 + 落库必须是同一步，供三条回落路径复用');
-assert.match(source, /await restoreCookies\(\);\s*\n\s*await newSession\(\);/, '换票前必须先恢复通知留下的会话票据');
+assert.match(source, /await restoreCookies\(\);\s*if \(!authCurrent\(epoch\)\) return empty\(\);\s*await newSession\(\);/, '换票前必须先恢复通知会话票据，期间身份失效则立即停止');
 assert.match(source, /const sid = await ensureSid\(\);\s*\n\s*if \(!sid\)/, '取数入口要自己兜会话：sid 为空时宁可直接报错，也不能把 null 交给 http_fetch');
 assert.match(source, /if \(await silentRenew\(\)\) \{/, '票据过期但 CASTGC 还在时要走静默续期');
 assert.match(source, /if \(await passwordAutoLogin\(\)\) \{/, '主 SSO 也没了时要用通知那份账号密码自动登一次');

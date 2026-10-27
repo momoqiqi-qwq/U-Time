@@ -2141,6 +2141,25 @@ export function renderShell(root) {
     // 首帧建好的组头必须能被后面的注册推着更新，否则计数冻在首帧那个数字上。
     const headRefreshers = new Map();
     let registrySnapshot = [], visibleIds = new Set();
+    let viewsByPlugin = new Map(), groupEntryCounts = new Map();
+    function indexMarketViews(rows) {
+      // 卡片、入口与组头共用本轮索引，避免每张卡片/每个组头重复扫描全部视图。
+      // 每次重绘或增量刷新都重建：异步注册、停用与重命名的结果不能沿用旧快照。
+      viewsByPlugin = new Map();
+      for (const view of pluginViews) {
+        const id = view.pluginId;
+        let views = viewsByPlugin.get(id);
+        if (!views) viewsByPlugin.set(id, views = []);
+        views.push(view);
+      }
+      groupEntryCounts = new Map();
+      for (const rec of rows) {
+        const color = pluginColor(rec.id);
+        if (!color) continue;
+        const count = Math.max(1, viewsByPlugin.get(rec.id)?.length || 0);
+        groupEntryCounts.set(color, (groupEntryCounts.get(color) || 0) + count);
+      }
+    }
     // 启停只同步现有节点；导入/删除或筛选成员变化才执行 FLIP 重排。
     refreshMarketState = () => {
       if (!grid.isConnected) return;
@@ -2157,6 +2176,7 @@ export function renderShell(root) {
           (remaining?.querySelector(".market-plugin-switch") || search).focus({ preventScroll: true });
         }
       } else {
+        indexMarketViews(matched);
         cardRefreshers.forEach((refresh) => refresh());
         headRefreshers.forEach((refresh) => refresh());
       }
@@ -2247,6 +2267,7 @@ export function renderShell(root) {
       // 不会在列表末尾再冒出一个同名组头。
       const slot = new Map(normalizePluginOrder(sorted.map((rec) => rec.id), pluginColor).map((id, index) => [id, index]));
       const rows = sorted.sort((a, b) => slot.get(a.id) - slot.get(b.id));
+      indexMarketViews(rows);
       grid.replaceChildren();
       if (!rows.length) {
         grid.append(el("div", { class: "market-empty" }, query ? `没有找到“${query}”相关插件` : "当前筛选下没有插件"));
@@ -2258,13 +2279,8 @@ export function renderShell(root) {
          插件中心原本数的是「插件数」，于是同一个组两处会给出两个数：cppu-notify 注册了 7 个视图，
          侧栏「绿色组 7」而插件中心「绿色组 1」，用户就成了「组里有许多插件，但插件组页面只显示一个」。
          这里改成数条目（视图数）：卡片自己算首视图那一条，所以一个插件至少计 1。 */
-      const entryCount = (id) => Math.max(1, pluginViews.filter((v) => v.pluginId === id).length);
-      const countOf = (color) => rows.reduce((sum, rec) => (pluginColor(rec.id) === color ? sum + entryCount(rec.id) : sum), 0);
-      const colorCount = new Map();
-      for (const rec of rows) {
-        const color = pluginColor(rec.id);
-        if (color && !colorCount.has(color)) colorCount.set(color, countOf(color));
-      }
+      const countOf = (color) => groupEntryCounts.get(color) || 0;
+      const colorCount = new Map(groupEntryCounts);
       const groupHead = (color) => {
         const collapsed = isGroupCollapsed(color);
         const node = el("div", {
@@ -2307,7 +2323,7 @@ export function renderShell(root) {
         const man = rec.manifest || {};
         const pluginName = pluginDisplayName(rec.id, man.name || rec.id);
         let enabled = S.pluginState(rec.id).enabled !== false;
-        const cardViews = pluginViews.filter((v) => v.pluginId === rec.id);
+        const cardViews = viewsByPlugin.get(rec.id) || [];
         let pv = cardViews[0];
         // v0.214.1：多视图插件的全部入口在任何端都露出来（原先只有 APK 有，理由是「APK 没有桌面侧栏」）。
         // 但一张卡 = 一个插件、侧栏一个视图一条行，只列首视图时「绿色组」在侧栏是 7 条、在插件中心只剩
@@ -2392,7 +2408,7 @@ export function renderShell(root) {
           const before = enabled;
           enabled = S.pluginState(rec.id).enabled !== false;
           const busy = marketTogglePending.has(rec.id);
-          const views = pluginViews.filter((item) => item.pluginId === rec.id);
+          const views = viewsByPlugin.get(rec.id) || [];
           pv = views[0];
           const signature = views.map((item) => `${item.id}:${item.title}:${item.icon}`).join("|");
           if (signature !== viewSignature) {

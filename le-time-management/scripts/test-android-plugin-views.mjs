@@ -12,7 +12,13 @@ for (const id of ids) assert.ok(plugin.includes(`"${id}"`), `${id} must be regis
 const block = shell.slice(shell.indexOf("        const cardViews ="), shell.indexOf("        const toggle = el(\"button\", {", shell.indexOf("        const cardViews =")));
 assert.ok(block, "plugin card view links are required");
 assert.ok(!block.includes("isAndroidRuntime"), "🔴 视图入口不许再按平台分叉：两端的组计数与条目必须一致");
-const render = new Function("pluginViews", "rec", "enabled", "el", "faIcon", "switchTo", "pluginName", `${block}\nreturn viewLinks;`);
+// 卡片改为读取本轮索引后，夹具也执行真实索引构建，避免凭空注入与生产口径不同的 Map。
+const indexStart = shell.indexOf("    let viewsByPlugin = new Map()");
+const indexEnd = shell.indexOf("    // 启停只同步现有节点", indexStart);
+assert.ok(indexStart >= 0 && indexEnd > indexStart, "plugin view indexing source must be present");
+const indexBlock = shell.slice(indexStart, indexEnd);
+const render = new Function("pluginViews", "rec", "enabled", "el", "faIcon", "switchTo", "pluginName",
+  `${indexBlock}\nconst pluginColor = () => "green";\nindexMarketViews([rec]);\n${block}\nreturn viewLinks;`);
 const views = ids.map((id) => ({ id, title: id, pluginId: "cppu-notify" }));
 views.push({ id: "unrelated", title: "Other", pluginId: "other" });
 const el = (tag, attrs, ...children) => ({ tag, attrs, children: children.flat() });
@@ -22,7 +28,7 @@ const links = draw(true);
 assert.deepEqual(links.children.map((button) => button.attrs["data-plugin-view"]), ids);
 for (const button of links.children) button.attrs.onclick({ stopPropagation() {} });
 assert.deepEqual(routes, ids.map((id) => `plug:${id}`));
-assert.ok(!draw(true).children.every((button) => button.attrs.disabled === true));
+assert.ok(draw(true).children.every((button) => button.attrs.disabled !== true));
 assert.ok(draw(false).children.every((button) => button.attrs.disabled === true));
 assert.equal(render([], { id: "cppu-notify" }, false, el, () => "", () => {}, "警大门户"), null);
 console.log("PASS: every platform exposes every registered plugin view with correct navigation and enable state");

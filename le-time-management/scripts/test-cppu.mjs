@@ -246,8 +246,10 @@ assert.ok(source.includes('验证码自动识别 ✓'), '登录界面自动登�
    五条行为断言（真跑 warmSession）守闸门与退避。 */
 assert.match(source, /\bscheduleMailWatch\(\);\s*(?:\r?\n[^\n]*){0,4}?scheduleWarm\(\);/,
   '启动预热必须有调用点（warmSession 之前是纯死代码）');
-assert.ok(source.includes('visibilitychange') && source.includes('__cppuWarmKick'),
+assert.ok(source.includes('document.addEventListener("visibilitychange", relay)') && source.includes('window.addEventListener("focus", relay)'),
   'APK 后台会冻结定时器，回到前台必须补一次续期（可见性监听）');
+assert.ok(source.includes('window.addEventListener("online", relay)') && source.includes('tide.ui?.onDispose?.(dispose)'),
+  '网络恢复也要续期，停用插件必须清理后台计时器与监听');
 assert.ok(source.includes('WARM_RETRY_MS') && source.includes('autoWarmFailAt'),
   '预热失败必须短退避（30 分钟）而不是按 12 小时压着，否则白天断一次网就整天不续期');
 assert.ok(!/warmBusy \|\| loginBusy \|\| state\.sid \|\| state\.viewOpen/.test(source),

@@ -95,6 +95,10 @@ function warmHarness({ withWindow = true, stored = {}, vaultOk = true, renew = t
   const box = {
     state: { sid: null, viewOpen: 0, autoLogin: true, username: '', savedPassword: '', loginAt: 0, loginRetries: 2, seen: new Set(), filter: {} },
     loginBusy: false,
+    authEpoch: 0,
+    authCurrent: epoch => epoch === box.authEpoch,
+    authStorage: job => Promise.resolve().then(job),
+    navigator: { onLine: true },
     tide: {
       storage: {
         get: async (key, fallback) => (key in store ? store[key] : fallback),
@@ -108,11 +112,11 @@ function warmHarness({ withWindow = true, stored = {}, vaultOk = true, renew = t
       box.state.autoLogin = store.autoLogin !== false;
     },
     restoreCookies: async () => { calls.restore++; return restore; },
-    silentRenew: async () => { calls.renew++; return renew; },
+    silentRenew: async () => { calls.renew++; return typeof renew === 'function' ? renew() : renew; },
     saveCookies: async () => { calls.save++; },
   };
   if (withWindow) box.window = { setTimeout: () => 0 };
-  vm.runInNewContext(WARM_CODE + ';globalThis.warmSession = warmSession;globalThis.WARM_EVERY_MS = WARM_EVERY_MS;', box);
+  vm.runInNewContext(WARM_CODE + ';globalThis.warmSession = warmSession;globalThis.scheduleWarm = scheduleWarm;globalThis.WARM_EVERY_MS = WARM_EVERY_MS;', box);
   box.calls = calls;
   box.store = store;
   return box;
@@ -191,6 +195,114 @@ function warmHarness({ withWindow = true, stored = {}, vaultOk = true, renew = t
   assert.equal(h.store.autoWarmFailAt, 0, '成功必须把退避清零');
 }
 
+{
+  // 三种唤醒可以在同一帧触发，异步读取设置之前就必须拿到唯一预热所有权。
+  const h = warmHarness();
+  const outcomes = await Promise.all([h.warmSession(), h.warmSession(), h.warmSession()]);
+  assert.deepEqual(outcomes, [true, true, true]);
+  assert.equal(h.calls.restore, 1, '并发唤醒只恢复一份 Cookie');
+  assert.equal(h.calls.renew, 1, '并发唤醒只能发起一次静默续期');
+  assert.equal(h.calls.save, 1, '并发唤醒只落盘一次');
+}
+{
+  // 调整系统时钟、旧数据异常都不能把频控卡到未来；有效的过去时间仍由上面测试守住。
+  for (const at of [Date.now() + 86400000, Infinity, -100, 'not-a-date']) {
+    const h = warmHarness({ stored: { autoWarmAt: at, autoWarmFailAt: at } });
+    assert.equal(await h.warmSession(), true, `无效/未来时间不能阻止恢复：${at}`);
+    assert.equal(h.calls.renew, 1);
+  }
+}
+{
+  const h = warmHarness();
+  h.navigator.onLine = false;
+  assert.equal(await h.warmSession(), false);
+  assert.equal(h.calls.restore, 0, '明确离线时不恢复会话、不发请求');
+  assert.equal(h.store.autoWarmFailAt, undefined, '离线跳过不能占用失败退避');
+  h.navigator.onLine = true;
+  assert.equal(await h.warmSession(), true, '网络回来后可以立即恢复');
+}
+{
+  // 等异步频控读取时，用户已打开登录表单；后台必须让位，不触碰其会话。
+  const h = warmHarness();
+  const pending = h.warmSession();
+  h.state.viewOpen = 1;
+  assert.equal(await pending, false);
+  assert.equal(h.calls.renew, 0);
+  assert.equal(h.store.autoWarmFailAt, undefined);
+}
+{
+  let settle;
+  const h = warmHarness({ renew: () => new Promise(resolve => { settle = resolve; }) });
+  const pending = h.warmSession();
+  while (!settle) await Promise.resolve();
+  h.authEpoch++;
+  settle(true);
+  assert.equal(await pending, false, '清除凭据后，旧续期结果已作废');
+  assert.equal(h.calls.save, 0, '作废的续期不能重新保存 Cookie');
+  assert.equal(h.store.autoWarmAt, undefined);
+  assert.equal(h.store.autoWarmFailAt, undefined);
+  assert.equal(h.store.autoLoginAt, undefined, '旧续期不能写回已清除的登录时间');
+}
+
+function warmLifecycle(h) {
+  const target = () => {
+    const events = new Map();
+    return { events,
+      addEventListener(name, fn) { if (!events.has(name)) events.set(name, new Set()); events.get(name).add(fn); },
+      removeEventListener(name, fn) { events.get(name)?.delete(fn); },
+      dispatch(name) { for (const fn of [...(events.get(name) || [])]) fn(); },
+    };
+  };
+  const timers = new Map(), disposers = [];
+  let id = 0;
+  h.document = { ...target(), visibilityState: 'visible' };
+  h.window = { ...target(),
+    setTimeout(fn, ms) { timers.set(++id, { fn, ms, interval: false }); return id; },
+    setInterval(fn, ms) { timers.set(++id, { fn, ms, interval: true }); return id; },
+    clearTimeout(key) { timers.delete(key); }, clearInterval(key) { timers.delete(key); },
+  };
+  h.tide.ui = { onDispose: fn => disposers.push(fn) };
+  return { timers, disposers };
+}
+{
+  const h = warmHarness();
+  const life = warmLifecycle(h);
+  h.scheduleWarm();
+  assert.equal(life.timers.size, 2);
+  assert.equal([...life.timers.values()].find(t => t.interval).ms, 30 * 60 * 1000, '失败后应在 30 分钟重试检查，不能再等 12 小时');
+  h.scheduleWarm();
+  assert.equal(life.timers.size, 2, '重复排程先清旧定时器');
+  for (const name of ['focus', 'online']) assert.equal(h.window.events.get(name).size, 1);
+  assert.equal(h.document.events.get('visibilitychange').size, 1);
+  h.navigator.onLine = false;
+  h.window.dispatch('focus');
+  await Promise.resolve();
+  assert.equal(h.calls.renew, 0);
+  h.navigator.onLine = true;
+  h.window.dispatch('online');
+  await h.warmSession();
+  assert.equal(h.calls.renew, 1, 'online 事件应立即触发统一恢复入口');
+  life.disposers.at(-1)();
+  assert.equal(life.timers.size, 0, '停用插件清掉所有预热计时器');
+  for (const name of ['focus', 'online']) assert.equal(h.window.events.get(name).size, 0);
+  assert.equal(h.document.events.get('visibilitychange').size, 0);
+  assert.equal(await h.warmSession(), false, '停用后遗留回调不得继续续期');
+}
+{
+  let settle;
+  const h = warmHarness({ renew: () => new Promise(resolve => { settle = resolve; }) });
+  const life = warmLifecycle(h);
+  h.scheduleWarm();
+  const pending = h.warmSession();
+  while (!settle) await Promise.resolve();
+  life.disposers.at(-1)();
+  settle(true);
+  assert.equal(await pending, false);
+  assert.equal(h.calls.save, 0, '停用插件后不得保存在途续期结果');
+  assert.equal(h.store.autoWarmAt, undefined);
+  assert.equal(h.store.autoWarmFailAt, undefined);
+}
+
 /* ── ③ autoLogin：吃读好的票据，且不被落盘拖住 ── */
 function autoLoginHarness({ renewed = true, pageOk = false, restored } = {}) {
   const calls = { restore: 0, newSession: 0, page: 0, renew: 0, save: 0, mark: 0, build: 0, password: 0 };
@@ -198,6 +310,8 @@ function autoLoginHarness({ renewed = true, pageOk = false, restored } = {}) {
     state: { sid: null, token: '', username: 'u', savedPassword: 'p', autoLogin: true, error: null },
     warmBusy: false,
     warmPromise: null,
+    authEpoch: 0,
+    authCurrent: epoch => epoch === box.authEpoch,
     loginHint: null,
     tide: { notify: () => {} },
     restoreCookies: async () => { calls.restore++; return restored; },
