@@ -306,6 +306,21 @@ export function createPluginSettingsCard({ rerender = () => {} } = {}) {
         },
       }),
     );
+    // rec.error 只有「重新执行插件」才会被清空，而卡片本身没有重新加载的入口——
+    // 用户看一眼红字就只能重启应用。这里给一个就地重试。
+    if (rec.error) {
+      actions.prepend(el("button", {
+        class: "btn ghost sm",
+        title: "重新拉取并执行这个插件",
+        onclick: async () => {
+          try {
+            await setEnabled(rec.id, true);
+            toast(`已重新加载「${pluginName}」`);
+            rerender();
+          } catch (err) { toast(`重试失败：${err.message || err}`); }
+        },
+      }, "重试"));
+    }
     if (deletable) {
       actions.append(el("button", {
         class: "btn danger sm",

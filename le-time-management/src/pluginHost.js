@@ -204,6 +204,22 @@ async function loadManifest(id, source) {
   return JSON.parse(raw);
 }
 
+// WebView / 反向代理在资源缺失或命中兜底页时会返回 200 + 一整段 HTML，
+// 直接把它喂给 new Function，插件侧只剩 "Unexpected token '<'" 这一句英文，
+// 分不清是缓存、路径错还是资源丢了。这里先认出标记，再换一次性参数重取。
+function looksLikeMarkup(text) {
+  const head = String(text || "").trimStart().slice(0, 200).toLowerCase();
+  return head.startsWith("<!doctype") || head.startsWith("<html") || head.startsWith("<?xml") || head.startsWith("<head");
+}
+
+async function fetchBuiltinScript(url) {
+  const res = await fetch(url, { cache: "no-cache" });
+  if (!res.ok) throw new Error(`入口拉取失败 (${res.status})`);
+  const text = await res.text();
+  if (looksLikeMarkup(text)) throw new Error("__markup__");
+  return text;
+}
+
 async function loadCode(man, source) {
   const entry = man.entry || "main.js";
   const version = String(man.version || "0");
@@ -214,9 +230,14 @@ async function loadCode(man, source) {
       // 内置插件会独立升版本。入口 URL 必须带版本，否则 WebView/浏览器会长期命中
       // 旧的 main.js 强缓存，出现“清单已升级、实际仍运行旧插件”的错位。
       const url = `/plugins/${man.id}/${entry}?v=${encodeURIComponent(version)}`;
-      const res = await fetch(url, { cache: "no-cache" });
-      if (!res.ok) throw new Error(`入口拉取失败 (${res.status})`);
-      return res.text();
+      try {
+        return await fetchBuiltinScript(url);
+      } catch (e) {
+        if (String(e && e.message) !== "__markup__") throw e;
+        // 同一个 URL 被缓存 / 被兜底成页面时，换一个一次性参数再要一次
+        try { return await fetchBuiltinScript(`${url}&_r=${Date.now()}`); }
+        catch { throw new Error("插件入口返回的是页面而不是脚本（可能是界面缓存或资源缺失），已尝试重新拉取"); }
+      }
     }
     return api.readPluginFile(`${man.id}/${entry}`);
   })();

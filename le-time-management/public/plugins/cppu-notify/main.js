@@ -2692,7 +2692,10 @@
     if (!raw) return false;
     const res = await getPage(PDATA + "/tsa/validateLogin?ticket=" + encodeURIComponent(raw) + "&service=" + encodeURIComponent(service));
     if (!current()) return false;
-    const body = JSON.parse(String(res?.body || ""));
+    // 统一身份认证吐回登录页（HTML）时，裸 JSON.parse 会把 "Unexpected token '<'"
+    // 一路冒到设置卡片和 conn 状态上；换票失败本身只是「这次没换到」，静默降级即可。
+    let body = null;
+    try { body = JSON.parse(String(res?.body || "")); } catch { return false; }
     if (Number(body?.code) !== 2000 || !body?.data?.token) return false;
     pdataAuth = { token: String(body.data.token), userId: String(body.data.userId || ""), at: Date.now() };
     const auth = pdataAuth;
