@@ -22,7 +22,9 @@ ROOT="$(pwd)"
 LM="$ROOT/le-time-management"
 REL="$ROOT/releases"
 
-VER="${1:-$(grep -oP '"version"\s*:\s*"\K[0-9.]+' "$LM/package.json" | head -1)}"
+# 用 node 读版本：Git Bash 在中文 locale 下 grep -P 会直接报
+# "supports only unibyte and UTF-8 locales"，-P 不能依赖。
+VER="${1:-$(node -p "require('./le-time-management/package.json').version")}"
 echo "==== 目标版本：v$VER ===="
 
 # ---------- 0. 前置校验 ----------
