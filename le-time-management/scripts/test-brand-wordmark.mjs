@@ -7,20 +7,21 @@ import { readProductSource } from "./lib/read-product-source.mjs";
  * —— 图标（`.mark` 那枚四色圆环）与重复一行的副标题 `<small>U-TIME</small>` 一起删掉，
  * 只剩一颗写着 U-Time 的 `<b>`，字体换成 Nephele Workshop 那套哥特黑体 + 粉紫→珊瑚橙横向渐变。
  *
- * 用户需求原文（v0.300.0）：「把红框的位置的原来的 U Time WorkSpace 改成只显示 U-Time，
- * 并且是一般字形。」—— 文案回到 U-Time（brandWordmark.js 的 BRAND_NAME 是唯一事实源），
- * 字体从哥特体 UnifrakturCook 换成系统无衬线栈 + 700，随包字体目录整个删除。
- * 字号按新文案重新量过：Segoe UI Bold 24px 下「U-Time」= 93.4px（System.Drawing 实测），
- * 默认 compact 侧栏可用 166px、过渡带 146px，两档都放得下 → 过渡带那档 18px 覆盖一并删掉。
+ * v0.300.0 曾把字标整体改成「U-Time + 一般字形」并删掉随包字体；v0.301.0 按用户要求
+ * 改成**两种形态并存、设置里切换**（原文：「我叫你在设置里面弄开关，不是删除」）：
+ *   gothic（默认）= 哥特体 UnifrakturCook + 文案 `U Time WorkSpace` + 20px + 160px 装饰线
+ *   plain         = 系统无衬线粗体 + 文案 `U-Time` + 24px + 128px 装饰线
+ * 事实源：brandWordmark.js 的 BRAND_NAME_GOTHIC / BRAND_NAME_PLAIN / BRAND_STYLES，
+ * 偏好字段 brandStyle（uiPreferences.js），CSS 靠 :root[data-brand-style="plain"] 分叉。
  *
- * 这条测试守的是「下次谁顺手改回去」的六类事故：
+ * 这条测试守的是「下次谁顺手改回去」的七类事故：
  *   ① 图标 / 副标题又长回来（DOM 与死 CSS 两头查）；
- *   ② 哥特体 / @font-face / 字体文件又悄悄回来（v0.300.0 起字标必须是一般字形、不随包字体）；
+ *   ② 只剩一种形态（删字体 / 删开关 / 两态文案写在两处各说各的）；
  *   ③ 渐变字的实现被写坏 —— 少一条透明字色、改用 `text-shadow` 发光（阴影画在背景之上会把
  *      渐变整个盖住）、或某条媒体查询里又给 `.brand b` 写回 `color: var(--ink)`；
  *   ④ 浅色模式直接沿用参考图那组粉紫→珊瑚橙 —— 那组颜色压在浅色面板上只有 2.1~2.5:1，
  *      等于糊在白纸上。所以浅色必须另有一套「色相相同、压暗到 ≥4:1」的四档；
- *   ⑤ 字号被改回 20/28px 或又给过渡带加覆盖 —— 24px 是按 U-Time 量出来的唯一尺寸；
+ *   ⑤ 字号被改回 28px 或又给过渡带加覆盖 —— 20px / 24px 是两态各自按文案量出来的；
  *   ⑥ 装饰线：四档渐变跟字标脱钩、`gradientUnits` 退回 objectBoundingBox（左右两条主线各拿
  *      一份完整渐变，画面从中间断开）、柔光在浅色下也开着（浅底上只会发灰）、
  *      或者宽度写法让 160 宽的 viewBox 被横拉变形。
@@ -51,10 +52,19 @@ assert.ok(brandBody, "在 shell.js 里找不到 rail 内的 .brand 品牌区（�
 /* v0.300.0（用户需求「把红框里的 U Time WorkSpace 改成只显示 U-Time，并且是一般字形」）：
    文案改为 U-Time，唯一事实源仍是 brandWordmark.js 的 BRAND_NAME —— shell.js 只引用不写死，
    否则侧栏与刷新蒙版会各说各的。 */
-const brandName = /export const BRAND_NAME = "([^"]+)";/.exec(wordmarkSrc)?.[1];
-assert.equal(brandName, "U-Time", "BRAND_NAME 必须是 U-Time（v0.300.0 的用户需求）");
-assert.match(brandBody, /el\("b",\s*\{\s*\}\s*,\s*BRAND_NAME\)/, "品牌区的 <b> 必须引用 BRAND_NAME，不许再手写文案");
-assert.doesNotMatch(brandBody, /"U Time WorkSpace"/, "旧文案 U Time WorkSpace 不许留在品牌区（v0.300.0 改回 U-Time）");
+/* v0.301.0：两种形态并存 —— 两套文案都在 brandWordmark.js 里，DOM 只调 brandName()，不许写死。 */
+const nameGothic = /export const BRAND_NAME_GOTHIC = "([^"]+)";/.exec(wordmarkSrc)?.[1];
+const namePlain = /export const BRAND_NAME_PLAIN = "([^"]+)";/.exec(wordmarkSrc)?.[1];
+assert.equal(nameGothic, "U Time WorkSpace", "哥特形态的文案必须是 U Time WorkSpace（原样）");
+assert.equal(namePlain, "U-Time", "一般字形态的文案必须是 U-Time");
+assert.match(wordmarkSrc, /export function brandName\(/, "brandWordmark.js 必须提供 brandName(style) 统一取文案");
+assert.match(wordmarkSrc, /export function syncBrandName\(/, "brandWordmark.js 必须提供 syncBrandName() 给切换开关用");
+/* 只改带 .brand-name 的那颗：等待蒙版会把自定义文案（「正在刷新课表…」）塞进同一个 .brand b。 */
+assert.match(wordmarkSrc, /querySelectorAll\("\.brand b\.brand-name"\)/,
+  "syncBrandName 只能改 .brand b.brand-name —— 无差别改写会把蒙版的自定义文案冲掉");
+assert.match(brandBody, /el\("b",\s*\{\s*class:\s*"brand-name"\s*\}\s*,\s*brandName\(\)\)/,
+  "品牌区的 <b> 必须带 .brand-name 并调用 brandName()，不许写死文案");
+assert.doesNotMatch(brandBody, /"U Time WorkSpace"|"U-Time"/, "品牌区不许再手写文案（两套都在 brandWordmark.js）");
 assert.match(brandBody, /\bbrandRule\(\)/, "字标下方必须有那条哥特装饰线（shell.js 的 brandRule()）");
 assert.doesNotMatch(brandBody, /class:\s*"mark"/, "品牌区的图标 .mark 已按需求删除，不许再长回来");
 assert.doesNotMatch(brandBody, /el\("small"/, "品牌区的副标题 <small>U-TIME</small> 已删除（名称已经写在字标里）");
@@ -63,28 +73,35 @@ assert.doesNotMatch(brandBody, /el\("small"/, "品牌区的副标题 <small>U-TI
 assert.doesNotMatch(stylesCss, /\.brand\s+\.mark/, "styles.css 还留着 .brand .mark 规则（图标已删，这是死代码）");
 assert.doesNotMatch(stylesCss, /\.brand\s+small/, "styles.css 还留着 .brand small 规则（副标题已删，这是死代码）");
 
-/* ── 3. 字体：一般字形（v0.300.0）—— 不再随包任何字体 ── */
-/* 只匹配真正的规则 / 引用，不匹配注释里那句「@font-face 一起删了」的说明文字。 */
-assert.doesNotMatch(stylesCss, /@font-face\s*\{/, "styles.css 不许再声明 @font-face：字标已改系统无衬线，留下的字体规则是死代码");
-assert.doesNotMatch(stylesCss, /url\([^)]*UnifrakturCook/, "styles.css 不许再引用 UnifrakturCook 字体文件（v0.300.0 起字标走系统字体）");
-assert.doesNotMatch(stylesCss, /font-family:[^;]*UnifrakturCook/, "styles.css 的 font-family 不许再点名 UnifrakturCook");
+/* ── 3. 字体：哥特态要真的带字体（v0.301.0 恢复）── */
+assert.match(stylesCss, /@font-face\s*\{/, "styles.css 必须有 @font-face：哥特形态靠随包的 UnifrakturCook");
+assert.match(stylesCss, /url\("\/fonts\/UnifrakturCook-Bold\.woff2"\)\s*format\("woff2"\)/,
+  "@font-face 必须指向 /fonts/UnifrakturCook-Bold.woff2（public/fonts 随包）");
+assert.match(stylesCss, /font-family:[^;]*UnifrakturCook/, "哥特形态的字标规则要点名 UnifrakturCook");
 const fontDir = path.join(appRoot, "public", "fonts");
-assert.equal(fs.existsSync(fontDir), false, "public/fonts 已随哥特体一并删除，别再把字体文件放回来");
+assert.equal(fs.existsSync(fontDir), true, "public/fonts 必须存在：哥特形态（默认）依赖随包字体");
+for (const f of ["UnifrakturCook-Bold.woff2", "OFL.txt"]) {
+  assert.ok(fs.existsSync(path.join(fontDir, f)), `public/fonts/${f} 缺失（字体或 SIL OFL 许可文本）`);
+}
 const notices = read("public/OPEN_SOURCE_NOTICES.md");
-/* 名字可以留在「已移除」的说明里（比抹掉更诚实），但不能再声称分发它、也不能再列字体文件路径。 */
-assert.doesNotMatch(notices, /fonts\/UnifrakturCook-Bold\.woff2/, "OPEN_SOURCE_NOTICES 不许再把哥特体 woff2 列为随包文件（已删除）");
-assert.match(notices, /不再包含该字体的任何副本/, "OPEN_SOURCE_NOTICES 要写明已不再随包分发该字体");
-assert.match(notices, /不随包分发任何字体文件/, "OPEN_SOURCE_NOTICES 的字体节要写明「不再随包分发字体」");
+assert.match(notices, /fonts\/UnifrakturCook-Bold\.woff2/, "OPEN_SOURCE_NOTICES 要列出随包的哥特体 woff2（OFL 要求署名）");
+assert.doesNotMatch(notices, /不再包含该字体的任何副本/, "字体仍在随包分发，NOTICES 不许再写「已移除」");
 
 /* ── 4. 渐变字的写法 ── */
 const rules = [...stylesCss.matchAll(/\.brand b\s*\{([^}]*)\}/g)].map((m) => m[1]);
 assert.ok(rules.length >= 2, "应至少有两处 .brand b 规则（浅色基础 + 深色覆盖）");
 const lightRule = rules[0];
-/* v0.300.0：一般字形 = 系统无衬线栈 + 粗体。不许回退到哥特/衬线（花体是 v0.178~0.299 的旧样式）。 */
-assert.match(lightRule, /font-family:[^;]*"Segoe UI"[^;]*sans-serif/, "字标必须走系统无衬线栈（v0.300.0 的一般字形）");
-assert.doesNotMatch(lightRule, /UnifrakturCook|Georgia|Times/, "字标不许再回哥特 / 衬线（用户要的是一般字形）");
-assert.match(lightRule, /sans-serif;/, "字体栈必须以 sans-serif 收尾（否则某些平台会落到衬线默认字体）");
-assert.match(lightRule, /font-weight:\s*700/, "一般字形 ≠ 细体：字标保持 700");
+/* v0.301.0：基础规则 = 哥特形态（默认）。一般字形是它后面那条
+   `:root[data-brand-style="plain"] .brand b` 覆盖，两套都得在。 */
+assert.match(lightRule, /font-family:[^;]*"UnifrakturCook"[^;]*serif/, "基础（哥特）形态必须首选 UnifrakturCook，并以 serif 收尾做降级");
+assert.match(lightRule, /font-weight:\s*700/, "字标保持 700");
+const plainRule = /:root\[data-brand-style="plain"\]\s*\.brand b\s*\{([^}]*)\}/.exec(stylesCss)?.[1];
+assert.ok(plainRule, '缺少 :root[data-brand-style="plain"] .brand b 覆盖（一般字形那条）');
+assert.match(plainRule, /font-family:[^;]*"Segoe UI"[^;]*sans-serif/, "一般字形必须走系统无衬线栈");
+assert.doesNotMatch(plainRule, /UnifrakturCook|Georgia|Times/, "一般字形不许再回哥特 / 衬线");
+assert.match(plainRule, /sans-serif\s*;/, "无衬线栈必须以 sans-serif 收尾（否则某些平台会落到衬线默认字体）");
+/* 渐变「绘制区止于盒子」的写法只写一次，gen 通用性由基础规则承担；覆盖里不再重复。 */
+assert.doesNotMatch(plainRule, /background-image:/, "四档渐变只写在基础规则里（两态同色），覆盖层不要重复一遍");
 assert.match(lightRule, /-webkit-background-clip:\s*text/, "渐变字要 -webkit-background-clip: text");
 assert.match(lightRule, /(?:^|;|\s)background-clip:\s*text/, "渐变字要 background-clip: text（标准属性）");
 assert.match(lightRule, /-webkit-text-fill-color:\s*transparent/, "少这条时字会被填成实心色，渐变只剩描边");
@@ -96,8 +113,13 @@ assert.match(lightRule, /display:\s*inline-block/, "字标要 inline-block：盒
    v0.300.0 起过渡带不再单独降字号 —— 名字只有 5 个字符，146px 里放 93px 绰绰有余。 */
 assert.match(
   lightRule,
+  /font-size:\s*calc\(20px \* var\(--ui-text-scale\)\)/,
+  "哥特形态字号必须是 calc(20px * var(--ui-text-scale))（16 字符文案在 166px 侧栏里的实测值）",
+);
+assert.match(
+  plainRule,
   /font-size:\s*calc\(24px \* var\(--ui-text-scale\)\)/,
-  "桌面字号必须是 calc(24px * var(--ui-text-scale))（v0.300.0 按 U-Time 重新量过），跟界面文字缩放走",
+  "一般字形字号必须是 calc(24px * var(--ui-text-scale))（U-Time 93.4px 的实测值）",
 );
 const narrowRules = rules.filter((body) => /font-size:\s*calc\(18px \* var\(--ui-text-scale\)\)/.test(body));
 assert.equal(narrowRules.length, 0, "过渡带不许再给字标单独降字号（18px 是 15 字符旧名字时代的补丁）");
@@ -174,10 +196,14 @@ assert.doesNotMatch(brandBase, /align-items:\s*flex-start/, "别退回 flex-star
 
 const ruleCss = /^\.brand-rule\s*\{([^}]*)\}/m.exec(stylesCss)?.[1];
 assert.ok(ruleCss, "styles.css 缺少 .brand-rule 的基础规则");
-/* v0.300.0：名字从 15 字符缩到 5 字符，装饰线跟着收窄。128 = 160 × 0.8，等比缩放（meet 保证
-   不拉伸）；100% 兜住窄侧栏 —— 若某天侧栏可用宽 < 128px，线先缩、不溢出。 */
-assert.match(ruleCss, /width:\s*min\(100%,\s*128px\)/,
-  "线宽必须是 min(100%, 128px)：viewBox 仍是 160 宽，按 0.8 等比缩到字标新宽（不做横向拉伸）");
+/* v0.301.0：线宽随形态走 —— 哥特态 min(100%, 160px) 与 viewBox 等宽（缩放比恒为 1）；
+   一般字形收到 min(100%, 128px)（160 × 0.8，meet 等比缩）；100% 兜住窄侧栏，线先缩、不溢出。 */
+assert.match(ruleCss, /width:\s*min\(100%,\s*160px\)/,
+  "哥特态的线宽必须是 min(100%, 160px)（与 viewBox 等宽，不做横向拉伸）");
+const plainRuleCss = /:root\[data-brand-style="plain"\]\s*\.brand-rule\s*\{([^}]*)\}/.exec(stylesCss)?.[1];
+assert.ok(plainRuleCss, "缺少 :root[data-brand-style=\"plain\"] .brand-rule 覆盖（一般字形收窄那条）");
+assert.match(plainRuleCss, /width:\s*min\(100%,\s*128px\)/,
+  "一般字形的线宽必须是 min(100%, 128px)（160 × 0.8 等比缩到 5 字符的宽度）");
 assert.match(ruleCss, /height:\s*14px/, "线高必须是 14px（viewBox 的高度）");
 assert.match(ruleCss, /--brand-rule-glow-opacity:\s*0/, "浅色下柔光必须关掉（浅底上叠同色光只会发灰）");
 
@@ -243,8 +269,23 @@ for (const theme of THEMES) {
 }
 assert.deepEqual(failures, [], `品牌字标渐变对比度不达标（字与背景不能像）：\n  ${failures.join("\n  ")}`);
 
+/* ── 7. 设置开关（v0.301.0）：两种形态必须能在 设置 → 界面 里切 ── */
+const prefsSrc = read("src/uiPreferences.js");
+assert.match(prefsSrc, /brandStyle:\s*DEFAULT_BRAND_STYLE/, "uiPreferences 默认值要带 brandStyle（默认哥特态）");
+assert.match(prefsSrc, /BRAND_STYLES\.includes\(next\.brandStyle\)/, "归一化必须校验 brandStyle（脏值落回默认）");
+assert.match(prefsSrc, /root\.dataset\.brandStyle = cfg\.brandStyle/, "apply 必须写 data-brand-style（CSS 的分叉开关）");
+assert.match(prefsSrc, /syncBrandName\(cfg\.brandStyle\)/, "apply 必须同步字标文案（否则切完只换字体不换字）");
+const appearanceSrc = read("src/views/settings/appearance.js");
+assert.match(appearanceSrc, /"aria-label":\s*"品牌字标"/, "设置页缺少「品牌字标」这组选项");
+assert.match(appearanceSrc, /\[\["gothic",\s*"哥特体"\],\s*\["plain",\s*"一般字形"\]\]/,
+  "选项必须正好是 哥特体 / 一般字形 两档");
+assert.match(appearanceSrc, /setUiPreferences\(\{ brandStyle: id \}\)/, "选项点击必须写 brandStyle 偏好");
+assert.match(appearanceSrc, /attachSelectionGlow/,
+  "新增的单选组要走滑动选中光（AGENTS.md 铁律六）");
+assert.match(appearanceSrc, /brandStyleBox/, "选项组要进 attachSelectionGlow 的循环（brandStyleBox）");
+
 console.log(
-  `PASS: 品牌字标（U-Time + 系统无衬线粗体 + 渐变 + 下方 128×14 哥特装饰线；` +
+  `PASS: 品牌字标两态（哥特体 U Time WorkSpace / 一般字形 U-Time，设置里切换）+ 渐变 + 装饰线 160×14 / 128×14；` +
   `浅色 ${lightChecked} 套 / 深色 ${darkChecked} 套主题，` +
   `白面板 ≥${LIGHT_MIN_PANEL}:1、Nephele 毛玻璃 ≥${LIGHT_MIN_GLASS}:1、深色 ≥${DARK_MIN}:1）`,
 );

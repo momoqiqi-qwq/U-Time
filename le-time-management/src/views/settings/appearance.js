@@ -41,6 +41,17 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
       onclick: () => { setUiPreferences({ fontMode: id }); rerender(); },
     }, label));
   }
+  // 左上角品牌字标（v0.301.0）：哥特体 = 随包 UnifrakturCook 的「U Time WorkSpace」（默认原样）；
+  // 一般字形 = 系统无衬线粗体的「U-Time」。切换后在 applyUiPreferences 里同时改
+  // data-brand-style（CSS 消费）与已有字标的文案，不重建侧栏。
+  const brandStyleBox = el("div", { class: "pref-choice", role: "group", "aria-label": "品牌字标" });
+  for (const [id, label] of [["gothic", "哥特体"], ["plain", "一般字形"]]) {
+    brandStyleBox.append(el("button", {
+      class: `pref-choice-btn${prefs.brandStyle === id ? " on" : ""}`,
+      "aria-pressed": String(prefs.brandStyle === id),
+      onclick: () => { setUiPreferences({ brandStyle: id }); rerender(); },
+    }, label));
+  }
   const densityBox = el("div", { class: "pref-choice", role: "group", "aria-label": "界面密度" });
   for (const [id, label] of [["comfortable", "舒适"], ["compact", "紧凑"]]) {
     densityBox.append(el("button", {
@@ -93,7 +104,7 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
       onclick: () => { setUiPreferences({ fabHeight: id }); rerender(); },
     }, label));
   }
-  for (const group of [fontModeBox, densityBox, navBarBox, navDockBox, navGlassBox, fabHeightBox]) {
+  for (const group of [fontModeBox, brandStyleBox, densityBox, navBarBox, navDockBox, navGlassBox, fabHeightBox]) {
     attachSelectionGlow(group, { selector: ".pref-choice-btn.on", persistKey: group.getAttribute("aria-label") });
   }
 
@@ -488,6 +499,7 @@ export function createInterfaceCard({ rerender = () => {} } = {}) {
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "悬浮键高度")), fabHeightBox),
     toggleRow("悬浮键左右互换（‹ 在右 · ⋮ 在左）", prefs.fabSwap, (value) => setUiPreferences({ fabSwap: value })),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "字体模式")), fontModeBox),
+    el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "品牌字标"), el("small", {}, "左上角名称：哥特体 或 一般字形")), brandStyleBox),
     el("div", { class: "setting-row" }, el("span", { class: "setting-copy" }, el("b", {}, "文字大小")), el("span", { class: "pref-range" }, textScale, textScaleOut)),
     el("div", { class: "setting-row setting-col" },
       el("div", { class: "setting-row-head" },

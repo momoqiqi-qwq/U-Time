@@ -2,6 +2,7 @@ import * as S from "./store.js";
 import { CUSTOM_SIZE_LIMITS } from "./windowSize.js";
 import { isDesktopRuntime } from "./windowSize.js";
 import { DEFAULT_UI_SCALE, applyUiScale, normalizeUiScale } from "./uiScale.js";
+import { BRAND_STYLES, DEFAULT_BRAND_STYLE, syncBrandName } from "./brandWordmark.js";
 
 /* ── 核心视图的平台清单（v0.52.0）──
    APK（移动运行时）用「时间线」替代「时间块 / 收件箱」：手机上没有拖拽排程的交互价值，
@@ -30,6 +31,9 @@ export const DEFAULT_UI_PREFERENCES = Object.freeze({
   density: "compact",
   textScale: 100,
   fontMode: "nephele",
+  // 左上角品牌字标形态：gothic = 随包哥特黑体「U Time WorkSpace」（默认，恢复原样）；
+  // plain = 系统无衬线粗体 24px「U-Time」。色值/字号全在 styles.css 的 .brand b 两态里。
+  brandStyle: DEFAULT_BRAND_STYLE,
   // 界面整体缩放（80~150）：与只动字号的 textScale 分工不同，这里连控件、间距、图标一起缩放。
   // 实现与三个坑见 src/uiScale.js 头部注释 —— 改这个字段前先读那一页。
   uiScale: DEFAULT_UI_SCALE,
@@ -139,6 +143,7 @@ export function normalizeUiPreferences(raw = {}) {
   const next = { ...DEFAULT_UI_PREFERENCES, ...(raw || {}) };
   if (!DENSITIES.has(next.density)) next.density = DEFAULT_UI_PREFERENCES.density;
   if (!["nephele", "system"].includes(next.fontMode)) next.fontMode = DEFAULT_UI_PREFERENCES.fontMode;
+  if (!BRAND_STYLES.includes(next.brandStyle)) next.brandStyle = DEFAULT_UI_PREFERENCES.brandStyle;
   if (!MOTIONS.has(next.motion)) next.motion = DEFAULT_UI_PREFERENCES.motion;
   if (!NAVBAR_SIZES.has(next.navBarSize)) next.navBarSize = DEFAULT_UI_PREFERENCES.navBarSize;
   if (!NAV_DOCKS.has(next.navDock)) next.navDock = DEFAULT_UI_PREFERENCES.navDock;
@@ -206,6 +211,10 @@ export function applyUiPreferences(raw = null, { animate = false } = {}) {
   const root = document.documentElement;
   root.dataset.uiDensity = cfg.density;
   root.dataset.fontMode = cfg.fontMode;
+  // dataset.brandStyle → data-brand-style（styles.css 的 :root[data-brand-style="plain"] 消费）。
+  // 文案跟着切：只改已存在的那颗字标，不重建侧栏。
+  root.dataset.brandStyle = cfg.brandStyle;
+  syncBrandName(cfg.brandStyle);
   root.dataset.uiMotion = cfg.motion;
   root.dataset.nepheleBackground = cfg.nepheleBackground ? "on" : "off";
   root.dataset.nepheleSettings = cfg.nepheleSettings ? "on" : "off";

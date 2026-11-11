@@ -2,7 +2,7 @@
   "name": "le-time-management",
   "private": true,
   "author": "lyl (momoni / lele)",
-  "version": "0.300.1",
+  "version": "0.301.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

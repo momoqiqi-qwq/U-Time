@@ -15,6 +15,10 @@ import { readProductSource } from "./lib/read-product-source.mjs";
  */
 
 const source = readProductSource(new URL("../src/waitMask.js", import.meta.url), "utf8");
+/* 不传文案时蒙版显示左上角那句字标。v0.301.0 起有两种形态（默认哥特态），从事实源取值。 */
+const brandSrc = readProductSource(new URL("../src/brandWordmark.js", import.meta.url), "utf8");
+const defaultBrandText = /export const BRAND_NAME_GOTHIC = "([^"]+)";/.exec(brandSrc)?.[1];
+assert.equal(defaultBrandText, "U Time WorkSpace", "brandWordmark.js 的默认（哥特态）文案变了？");
 
 /* ── 最小 DOM 替身（与 test-refresh-mask.mjs 同一套，加了 dataset / textContent 语义） ── */
 
@@ -279,7 +283,7 @@ return { SHOW_DELAY_MS, MIN_VISIBLE_MS, FADE_MS, MAX_HOLD_MS, showWaitMask, with
   const h = makeHarness();
   const r1 = h.mod.showWaitMask();
   h.fireTimers(h.mod.SHOW_DELAY_MS);
-  assert.equal(h.brandText(), "U-Time", "不传文案时蒙版上就是左上角那句品牌字标（唯一事实源 brandWordmark.js）");
+  assert.equal(h.brandText(), defaultBrandText, "不传文案时蒙版上就是左上角那句品牌字标（唯一事实源 brandWordmark.js，默认哥特态）");
   assert.equal(h.maskEl().dataset.size, "brand", "空文案走 brand 档（与启动蒙版同字号）");
   r1();
   h.mod.resetWaitMask();

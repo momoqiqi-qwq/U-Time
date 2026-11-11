@@ -11,9 +11,36 @@
 // 所以 shell.js 里那句调用与 `brandRule()` 这个名字都**不能改名**，本文件也别再长出第二份
 // 装饰线实现（测试会直接拦下来）。
 
-/** 字标文案。v0.300.0 起是 `U-Time`（用户需求「只显示 U-Time」）。
- *  改名要连带动字号：见 styles.css `.brand b` 那条「24px 是量出来的」注释。 */
-export const BRAND_NAME = "U-Time";
+/** 字标文案的两种形态（v0.301.0）：设置 → 界面 → 品牌字标 里切换，默认保持原样。
+ *  - `gothic`：随包哥特黑体 UnifrakturCook，文案 `U Time WorkSpace`
+ *  - `plain`：系统无衬线粗体 24px，文案 `U-Time`
+ *  切换只动 documentElement 的 data-brand-style（CSS 消费）与已存在字标的 textContent，
+ *  不重建侧栏。字号是两套（20px / 24px），见 styles.css `.brand b` 那两条「量出来的」注释。 */
+export const BRAND_NAME_GOTHIC = "U Time WorkSpace";
+export const BRAND_NAME_PLAIN = "U-Time";
+export const DEFAULT_BRAND_STYLE = "gothic";
+export const BRAND_STYLES = Object.freeze([DEFAULT_BRAND_STYLE, "plain"]);
+
+/** 当前形态对应的文案。不传 style 时读 documentElement 的 data-brand-style ——
+ *  蒙版（loadingMask / waitMask）在设置写入之前就要建字标，读属性比再传一遍参数稳。 */
+export function brandName(style) {
+  const s = style
+    || (typeof document !== "undefined" ? document.documentElement?.dataset?.brandStyle : "")
+    || DEFAULT_BRAND_STYLE;
+  return s === "plain" ? BRAND_NAME_PLAIN : BRAND_NAME_GOTHIC;
+}
+
+/** 把当前形态的文案写到已存在的字标上（切换开关时由 applyUiPreferences 调用）。
+ *  只认带 .brand-name 的那颗 —— 等待蒙版会把**自定义文案**（如「正在刷新课表…」）
+ *  塞进同一个 `.brand b`，无差别改写会把那句提示冲掉。 */
+export function syncBrandName(style) {
+  if (typeof document === "undefined") return;
+  const text = brandName(style);
+  for (const b of document.querySelectorAll(".brand b.brand-name")) b.textContent = text;
+}
+
+/** 默认形态的文案（旧调用点兼容）。 */
+export const BRAND_NAME = BRAND_NAME_GOTHIC;
 
 /**
  * 字标下方那条哥特装饰线（v0.183.0 用户需求「在下面添加一根像上面代码那样画出来的线」）。
@@ -97,6 +124,8 @@ export function replayBrandRule(svg, reduced = false) {
  */
 export function brandMark(gradientId, text) {
   const b = document.createElement("b");
-  b.textContent = text || BRAND_NAME;
+  b.textContent = text || brandName();
+  // 用品牌文案（没传 text）的这颗要跟着「品牌字标」开关变；自定义文案不标记，免得被改写。
+  if (!text) b.classList.add("brand-name");
   return [b, brandRule(gradientId)];
 }

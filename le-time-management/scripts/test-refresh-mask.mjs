@@ -19,6 +19,10 @@ import { readProductSource } from "./lib/read-product-source.mjs";
  */
 
 const source = readProductSource(new URL("../src/loadingMask.js", import.meta.url), "utf8");
+/* 蒙版上的文案与左上角同源（v0.301.0 起有两种形态，默认哥特态）。从事实源取值，不写死字面量。 */
+const brandSrc = readProductSource(new URL("../src/brandWordmark.js", import.meta.url), "utf8");
+const defaultBrandText = /export const BRAND_NAME_GOTHIC = "([^"]+)";/.exec(brandSrc)?.[1];
+assert.equal(defaultBrandText, "U Time WorkSpace", "brandWordmark.js 的默认（哥特态）文案变了？");
 
 /* ── 最小 DOM 替身 ── */
 function makeElement(tag = "div") {
@@ -162,8 +166,8 @@ function makeHarness({ reducedMotion = false } = {}) {
   assert.equal(host, h.shell);
   const brand = h.shell.querySelector(".brand");
   assert.ok(brand, "revealRefreshMask() 必须把 .brand 放进蒙版");
-  assert.equal(brand.children[0].textContent, "U-Time",
-    "蒙版上的字必须就是左上角那句品牌文案（唯一事实源是 brandWordmark.js 的 BRAND_NAME）");
+  assert.equal(brand.children[0].textContent, defaultBrandText,
+    "蒙版上的字必须就是左上角那句品牌文案（唯一事实源是 brandWordmark.js，默认哥特态 BRAND_NAME_GOTHIC）");
   assert.ok(brand.children[1] && brand.children[1].classes.has("brand-rule"),
     "蒙版上也要有那条哥特装饰线（与左上角同一份 brandRule()）");
   const gradId = brand.children[1].children.find((c) => c.matches?.("defs"))?.children[0]?.getAttribute("id");

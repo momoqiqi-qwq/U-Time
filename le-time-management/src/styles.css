@@ -235,9 +235,21 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
-/* v0.300.0：品牌字标改「一般字形」后，随包的哥特黑体 UnifrakturCook 连同 @font-face 一起删了
-   （用户需求「只显示 U-Time，并且是一般字形」）。字体文件 `public/fonts/` 与许可证文本、
-   OPEN_SOURCE_NOTICES 里的那节字体署名同步移除 —— 别把 @font-face 加回来，字标已不引用它。 */
+/* 品牌字标用的哥特黑体（v0.178.0，v0.301.0 恢复）。**只给左上角 `.brand b` 用**，
+   不进 body 的字体栈 —— 全应用正文换成黑体是灾难。随包分发：
+   `public/fonts/UnifrakturCook-Bold.woff2`（17 KB，latin 子集），许可 SIL OFL-1.1，
+   原始许可文本在同目录 `public/fonts/OFL.txt`，署名见 `public/OPEN_SOURCE_NOTICES.md`。
+   `font-display: swap`：字体在本地磁盘上，首帧几乎不可能缺席；真缺了就先显示系统黑体再换，
+   比 block（先隐形）体面。
+   v0.301.0 起这不是唯一形态：设置 → 界面 → 品牌字标 可切到「一般字形」（见下方
+   `:root[data-brand-style="plain"] .brand b`），所以字体与 @font-face 必须留在包里。 */
+@font-face {
+  font-family: "UnifrakturCook";
+  src: url("/fonts/UnifrakturCook-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
 button { font-family: inherit; border: none; background: none; cursor: pointer; color: inherit; }
 :root[data-font-mode="system"] body {
   font-family: system-ui, sans-serif;
@@ -307,19 +319,17 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
 .brand { display: flex; flex-direction: column; align-items: center; padding: 2px 10px 20px; }
 .brand b {
   display: inline-block;
-  /* v0.300.0：不再用随包的哥特黑体，走与正文同一套系统无衬线栈（粗体）。
-     字标只有 `U-Time` 五个字符，无衬线栈下字形稳定、跨端一致；花体在这个文案上只剩
-     「窄得看不见」。刻意显式写 "Segoe UI" 而不是 system-ui：两者在个别 Windows 版本上
-     度量不一致，品牌区不赌系统的解析结果。 */
-  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  /* 默认形态（data-brand-style="gothic"）：随包哥特黑体，文案 `U Time WorkSpace`。
+     后面那串是字体缺失时的降级链（Old English Text MT / UnifrakturMaguntia …）。 */
+  font-family: "UnifrakturCook", "Old English Text MT", "UnifrakturMaguntia", "Lucida Blackletter", "Blackadder ITC", Georgia, serif;
   font-weight: 700;
-  /* v0.300.0：文案缩到 `U-Time`（5 字符）后字号从 20px 提到 24px —— 24px 粗体实测
-     93.4px（Segoe UI Bold），默认 compact 侧栏（--rail-w: 204px）里 .brand 可用宽度 166px，
-     余量充足。⚠️ 这一行是**量出来的定值**，别改成变量：scripts/test-brand-wordmark.mjs
-     直接比对它。 */
-  font-size: calc(24px * var(--ui-text-scale));
+  /* v0.183.0：28px → 20px。名字换成 U Time WorkSpace 后实测宽 222.64px（28px 下），
+     而默认 compact 侧栏（--rail-w: 204px）里 .brand 可用宽度只有 166px；20px 下实测
+     159.03px，留 7px 余量。别照抄 28px —— 那是 U-Time Work 时代的尺寸。
+     ⚠️ 这一行是**量出来的定值**，别改成变量：scripts/test-brand-wordmark.mjs 直接比对它。 */
+  font-size: calc(20px * var(--ui-text-scale));
   line-height: 1.34;
-  letter-spacing: .01em;
+  letter-spacing: .015em;
   padding: 0 .1em .06em;
   white-space: nowrap;
   background-image: linear-gradient(90deg, #B62394 0%, #C61557 32%, #C32A10 67%, #9C5211 100%);
@@ -327,6 +337,17 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
+}
+/* 「一般字形」形态（设置 → 界面 → 品牌字标）：与正文同一套系统无衬线栈（粗体），
+   文案 `U-Time`。刻意显式写 "Segoe UI" 而不是 system-ui：两者在个别 Windows 版本上
+   度量不一致，品牌区不赌系统的解析结果。
+   字号 24px 是**按 5 字符文案量出来的**：24px 粗体实测 93.4px（Segoe UI Bold），
+   默认 compact 侧栏可用宽度 166px，余量充足。⚠️ 别改成变量，测试直接比对。 */
+:root[data-brand-style="plain"] .brand b {
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  font-weight: 700;
+  font-size: calc(24px * var(--ui-text-scale));
+  letter-spacing: .01em;
 }
 /* 深色：参考图原色四档 + 一层同色系柔光。按 `data-theme-mode` 而不是 `data-theme="night"`
    —— 「跟随系统变深」与「浅色主题 + 深色模式」都必须命中（写 night 会两条全漏）。 */
@@ -338,7 +359,9 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
 /* ── 字标下方那条哥特装饰线（v0.183.0）──
    用户需求：「在下面添加一根像上面代码那样画出来的线」。DOM 由 shell.js 的 brandRule() 建，
    这里只管尺寸与颜色。四个要点：
-   ① v0.300.0：宽度由 160px 收到 128px —— 字标只剩 93px 宽，线再 160px 会明显比名字长一截。
+   ① 宽度随字标形态走（v0.301.0）：哥特体下 `min(100%, 160px)` 与 viewBox 等宽，meet 缩放比
+     恒为 1；一般字形下文案只有 93px 宽，收到 `min(100%, 128px)`（等比缩到 0.8），线不会明显
+     比名字长一截。
       viewBox 仍是 160，meet 等比缩到 0.8，形状不变形也不被裁（等价于原来「与 viewBox 等宽」）。
    ② 渐变色走 CSS 变量四档，浅色/深色两套 —— 与字标同一色相、同一套对比度预算
       （非文字图形 ≥3:1），由 scripts/test-brand-wordmark.mjs 连带实算，别在这里写死色值。
@@ -347,9 +370,10 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
    ④ 柔光（.br-glow）只在深色下开（浅色侧栏是浅底，叠上去只会发灰）。 */
 .brand-rule {
   display: block;
-  width: min(100%, 128px);
+  width: min(100%, 160px);
   height: 14px;
   margin-top: 2px;
+  /* 宽度默认 160px（哥特态，与 viewBox 等宽）；一般字形在下面那条覆盖成 128px。 */
   --brand-rule-1: #B62394;
   --brand-rule-2: #C61557;
   --brand-rule-3: #C32A10;
@@ -359,6 +383,7 @@ input, select, textarea { font-family: inherit; font-size: calc(13px * var(--ui-
   --brand-rule-glow: #E781CF;
   --brand-rule-glow-opacity: 0;
 }
+:root[data-brand-style="plain"] .brand-rule { width: min(100%, 128px); }
 :root[data-theme-mode="dark"] .brand-rule {
   --brand-rule-1: #E781CF;
   --brand-rule-2: #F17EA9;

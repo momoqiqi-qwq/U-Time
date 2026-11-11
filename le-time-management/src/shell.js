@@ -40,7 +40,7 @@ import { openUpdateHistory } from "./updateHistory.js";
 // 字标（U-Time + 下方装饰线）的唯一创建口：刷新蒙版要「参考左上角标题」，
 // 两处共用同一份 DOM 构造与同一句文案（BRAND_NAME），视觉仍由 styles.css 的
 // `.brand b` / `.brand-rule` 决定。
-import { BRAND_NAME, brandRule, replayBrandRule } from "./brandWordmark.js";
+import { brandName, brandRule, replayBrandRule } from "./brandWordmark.js";
 import { withWaitMask } from "./waitMask.js";
 import { shrinkIconDataUrl } from "./iconShrink.js";
 import { createViewScrollMemory } from "./viewScroll.js";
@@ -351,7 +351,8 @@ export function renderShell(root) {
       历史推导只为解释「20px / 18px 这两个数的来历」，新的 24px 是按新文案重新量过的。 */
   const rail = el("aside", { class: "rail" },
       el("div", { class: "brand" },
-      el("b", {}, BRAND_NAME),
+      // .brand-name 是「跟着品牌字标开关走文案」的标记（brandWordmark.syncBrandName 只改带这个类的）。
+      el("b", { class: "brand-name" }, brandName()),
       brandRule(),
     ),
     nav,
