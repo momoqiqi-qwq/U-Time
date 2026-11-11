@@ -110,6 +110,41 @@ export const api = {
     return invoke("export_plugins_zip", { ids });
   },
 
+  /* ── 本地 HTML 目录（「HTML 目录」插件）─────────────────────────────────
+     缩略图必须是真渲染，而 iframe 加载 file:// 会被 WebView2 拦掉（页面来源是
+     http://tauri.localhost，跨到 file: 属于禁止的导航）。所以由原生起一个只绑
+     127.0.0.1 的静态服务，把选中的目录挂出去 —— iframe 拿到的是普通 http 地址，
+     相对路径的 css / js / 图片全都按原样工作。见 src-tauri/src/html_gallery.rs。 */
+  async htmlDirRoots() {
+    if (!isTauri) return { roots: [], home: "" };
+    return invoke("html_dir_roots");
+  },
+
+  async htmlDirList(path) {
+    if (!isTauri) throw new Error("目录浏览仅在桌面端可用");
+    return invoke("html_dir_list", { path });
+  },
+
+  async htmlDirScan(path, depth = 2) {
+    if (!isTauri) throw new Error("目录扫描仅在桌面端可用");
+    return invoke("html_dir_scan", { path, depth });
+  },
+
+  async htmlServeStart(path) {
+    if (!isTauri) throw new Error("本地预览仅在桌面端可用");
+    return invoke("html_serve_start", { path });
+  },
+
+  async htmlServeStop() {
+    if (!isTauri) return { stopped: false };
+    return invoke("html_serve_stop");
+  },
+
+  async htmlServeStatus() {
+    if (!isTauri) return { running: false };
+    return invoke("html_serve_status");
+  },
+
   // 文本真正落盘到系统下载目录（<a download> 在 WebView 里对 blob: 不可靠）
   async saveDownload(name, contents) {
     if (!isTauri) throw new Error("保存文件仅在 Tauri 环境可用");

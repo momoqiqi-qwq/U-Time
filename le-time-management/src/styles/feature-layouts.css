@@ -221,6 +221,9 @@
    现在这套样式服务的是"没配过、只想把数据带到手机上"的人，
    所以步骤编号、完成态、失败原因回显都要看得见，而不是靠 toast 一闪而过。 */
 .sync-card { overflow: hidden; }
+.github-backup-card { margin-top: 16px; padding-top: 4px; border-top: 1px solid var(--line); }
+.github-backup-card .sync-result { margin: 8px 0; }
+.github-backup-card .setting-row { margin-top: 8px; }
 .sync-step { margin-top: 14px; padding-top: 13px; border-top: 1px dashed var(--line); }
 .sync-step-head { display: flex; align-items: center; gap: 9px; font-size: calc(13.5px * var(--ui-text-scale)); }
 .sync-step-badge {

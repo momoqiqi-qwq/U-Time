@@ -1,0 +1,21 @@
+{
+  "id": "html-gallery",
+  "name": "HTML 目录",
+  "version": "1.0.0",
+  "author": "U-Time内置",
+  "icon": "file-code",
+  "faIcon": "file-code",
+  "description": "指定一个文件夹，自动认出里面所有 .html，铺成卡片直接预览首页画面；拖卡片边框就能改大小，点一下看整页。",
+  "permissions": [
+    "ui",
+    "storage",
+    "localFiles"
+  ],
+  "entry": "main.js",
+  "order": 17,
+  "platforms": {
+    "windows": "full",
+    "android": "conditional",
+    "miniprogram": "unavailable"
+  }
+}

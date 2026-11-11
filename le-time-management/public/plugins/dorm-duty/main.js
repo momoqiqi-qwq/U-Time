@@ -20,6 +20,7 @@
 //   groups   : [{ id, name, startDate, periodDays, perRound, remindEnabled, remindTime, sound,
 //                 members, removed, overrides, lastNotified }]
 //   activeId : 界面当前选中的那套轮换
+//   panelView: 总面板 / 单组详情（overview / group），与编辑组独立，不占用轮换 ID
 //   gen      : 实例代号（防双份提醒）
 // 旧版（单套轮换）把数据平铺在 members / config / overrides / removed / lastNotified 上，
 // 这里首次加载时自动迁移成一组。**旧键留着不删**：删了就没法回退到旧版本。
@@ -36,6 +37,8 @@
   const LOCATION_MAX = 12;
   const LOCATION_NAME_MAX = 24;
   const DEFAULT_GROUP_NAME = "值日";
+  const DORM_BACKUP_FORMAT = "u-time-dorm-duty";
+  const DORM_BACKUP_SCHEMA = 1;
   const PERIOD_CHIPS = [1, 3, 7, 14];
   const PERIOD_LABEL = { 1: "每天", 3: "每 3 天", 7: "每周", 14: "每两周" };
   const PERROUND_CHIPS = [1, 2, 3, 4]; // 「每轮人数」快捷档；更多用旁边的自定义输入
@@ -123,6 +126,7 @@
   const state = {
     groups: [],       // 多套轮换；顺序即界面上标签的顺序
     activeId: "",     // 当前选中的那套
+    panelView: "overview",
     soundPresets: [], // 宿主音效目录（只取一次，供下拉用）
     timer: null,
     gen: 0,
@@ -134,6 +138,7 @@
   };
   let root = null;
   let MY_GEN = 0;
+  let groupGlow = null;
 
   /* ── 标签右键菜单 ──
      菜单是 position:fixed 浮层，落在宿主 .view 之外，四边得自己让开 Android 的状态栏 /
@@ -310,6 +315,88 @@
     }
     return out;
   }
+
+  /** 可跨 Windows / Android / 微信小程序往返的值日备份。只导出排班数据，不带星图观察角度。 */
+  function dormDutyBackup() {
+    return {
+      format: DORM_BACKUP_FORMAT,
+      schema: DORM_BACKUP_SCHEMA,
+      exportedAt: new Date().toISOString(),
+      activeId: state.activeId,
+      groups: JSON.parse(JSON.stringify(state.groups)),
+    };
+  }
+
+  /** 解析并归一化备份；所有校验完成前不碰 state，坏文件不会覆盖现有排班。 */
+  function parseDormDutyBackup(raw, today) {
+    let doc;
+    try { doc = typeof raw === "string" ? JSON.parse(raw) : raw; }
+    catch { throw new Error("备份不是有效的 JSON 文件"); }
+    if (!doc || typeof doc !== "object" || Array.isArray(doc)
+      || doc.format !== DORM_BACKUP_FORMAT || Number(doc.schema) !== DORM_BACKUP_SCHEMA
+      || !Array.isArray(doc.groups) || !doc.groups.length || doc.groups.length > GROUP_MAX) {
+      throw new Error("不是有效的轮换值日备份");
+    }
+    const seen = new Set();
+    for (const item of doc.groups) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("备份中的轮换数据损坏");
+      const id = String(item.id || "").trim();
+      if (!id || seen.has(id)) throw new Error("备份中的轮换 ID 重复或缺失");
+      seen.add(id);
+    }
+    const groups = normalizeGroups(doc.groups, today || tide.util.today());
+    if (groups.length !== doc.groups.length) throw new Error("备份中的轮换数据无法恢复");
+    const activeId = groups.some((g) => g.id === String(doc.activeId || ""))
+      ? String(doc.activeId) : groups[0].id;
+    return { groups, activeId };
+  }
+
+  function readTextFile(file) {
+    if (file && typeof file.text === "function") return file.text();
+    return new Promise((resolve, reject) => {
+      if (typeof FileReader !== "function") { reject(new Error("当前环境不支持读取文件")); return; }
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("读取备份文件失败"));
+      reader.readAsText(file);
+    });
+  }
+
+  async function saveBackupText(filename, text) {
+    if (tide.assets && typeof tide.assets.saveText === "function") {
+      try { return await tide.assets.saveText(filename, text); }
+      catch (e) {
+        // 浏览器预览没有 Tauri 下载命令时，继续走 Blob；原生环境的其它落盘错误照常抛出。
+        if (!/Tauri|原生|仅在/.test(String(e?.message || e))) throw e;
+      }
+    }
+    if (typeof document === "undefined" || typeof URL === "undefined" || typeof Blob === "undefined") {
+      throw new Error("当前环境不支持导出文件");
+    }
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1200);
+    return "";
+  }
+
+  async function exportDormDutyBackup() {
+    const filename = `U-Time-轮换值日-${tide.util.today()}.json`;
+    const path = await saveBackupText(filename, JSON.stringify(dormDutyBackup(), null, 2));
+    tide.notify(path ? `备份已保存：${path}` : "备份已导出");
+    return path;
+  }
+
+  async function importDormDutyBackup(raw) {
+    const next = parseDormDutyBackup(raw, tide.util.today());
+    if (!confirmFn("导入后会覆盖当前全部轮换与成员名单，确定继续吗？")) return false;
+    state.groups = next.groups;
+    state.activeId = next.activeId;
+    await save();
+    await paint();
+    tide.notify(`已导入 ${next.groups.length} 套轮换`);
+    return true;
+  }
   /** 旧版单套轮换 → 一组。没有任何旧数据时返回空数组（由 load() 决定要不要建默认组）。 */
   function migrateLegacy(legacy, today) {
     const L = legacy && typeof legacy === "object" ? legacy : {};
@@ -347,7 +434,7 @@
   }
   async function load() {
     const today = tide.util.today();
-    const [groups, activeId, legacyMembers, legacyConfig, legacyOverrides, legacyRemoved, legacyLast, gen, roomView] = await Promise.all([
+    const [groups, activeId, legacyMembers, legacyConfig, legacyOverrides, legacyRemoved, legacyLast, gen, roomView, panelView] = await Promise.all([
       tide.storage.get("groups", null),
       tide.storage.get("activeId", ""),
       tide.storage.get("members", null),
@@ -357,6 +444,7 @@
       tide.storage.get("lastNotified", null),
       tide.storage.get("gen", 0),
       tide.storage.get("roomView", null),
+      tide.storage.get("panelView", "overview"),
     ]);
     // 星图视角是「看的人的习惯」，不是某一套轮换的属性 —— 共用一份，缺字段由 roomView() 兜。
     state.roomView = roomView && typeof roomView === "object" && !Array.isArray(roomView)
@@ -372,6 +460,7 @@
     if (!list.length) { list = [defaultGroup(today, null)]; needPersist = true; }
     state.groups = list;
     state.activeId = list.some((g) => g.id === activeId) ? String(activeId) : list[0].id;
+    state.panelView = panelView === "group" ? "group" : "overview";
     state.gen = Number(gen) || 0;
     // 迁移 / 兜底建组要立刻落盘：不写的话「已迁移」和「未迁移」在存储上分不出来，
     // 每次 load 都会重新生成一个随机 id 的默认组，用户在那上面做的设置下一次就没了。
@@ -384,6 +473,7 @@
       tide.storage.set("groups", state.groups),
       tide.storage.set("activeId", state.activeId),
       tide.storage.set("roomView", state.roomView),
+      tide.storage.set("panelView", state.panelView),
     ]);
   }
 
@@ -476,6 +566,9 @@
     return g.members.slice();
   }
   const membersOrderKey = (g, date) => `${g.id}:${date}:${assigneesFor(g, date).map((m) => m.id).join(",")}:${locationAt(g, date)}`;
+  // 总面板看的是所有组；不能只用 activeId 判刷新，否则另一组改名单或周期后会留着旧值。
+  const viewDataKey = (date) => JSON.stringify([state.panelView, state.activeId, date,
+    (state.panelView === "overview" ? state.groups : [activeGroup()]).map(({ lastNotified, ...g }) => g)]);
   /** 单人视角（第一个当班人）：提醒判据、「有没有人当班」这类布尔判断用；
       展示一律用 assigneesFor() 的数组，别丢人。 */
   const assigneeFor = (g, date) => assigneesFor(g, date)[0] || null;
@@ -530,7 +623,7 @@
       const nowMinutes = now.getHours() * 60 + now.getMinutes();
       const today = tide.util.today();
       const visibleGroup = activeGroup();
-      if (root && visibleGroup && state.membersOrderKey !== membersOrderKey(visibleGroup, today)) await paint();
+      if (root && visibleGroup && state.membersOrderKey !== viewDataKey(today)) await paint();
       // 逐组判断：每套轮换有各自的周期、提醒时刻与「已提醒」记录，互不干扰。
       const due = state.groups.filter((g) => reminderDue(g, today, nowMinutes) && assigneesFor(g, today).length);
       if (!due.length) return;
@@ -563,13 +656,47 @@
     const st = document.createElement("style");
     st.id = "dorm-duty-style";
     st.textContent = `
-      .dd-wrap{max-width:900px;margin:0 auto;padding-bottom:28px;color:var(--ink,#22303A)}
-      .dd-groups{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:12px 0 4px}
+      .dd-wrap{width:100%;margin:0 auto;padding-bottom:28px;color:var(--ink,#22303A)}
+      .dd-wrap:not(.dd-overview){max-width:900px}
+      .dd-wrap>[data-duty-panel]{max-width:900px;margin:0 auto}
+      .dd-groups{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:0 0 4px}
       .dd-glist{display:flex;gap:7px;flex-wrap:wrap;min-width:0}
+      .dd-groups>.dd-actions{margin-top:0}
+      .dd-glist.has-selection-glow{position:relative;isolation:isolate}
+      .dd-glist .selection-glow{position:absolute;pointer-events:none;z-index:0;border-radius:999px;border:1px solid var(--deep,#0F4C5C);background:var(--deep,#0F4C5C);opacity:0}
+      .dd-glist .selection-glow.on{opacity:1}
+      .dd-glist.has-selection-glow .dd-gchip{position:relative;z-index:1;background:transparent}
+      .dd-glist.has-selection-glow .dd-gchip.on{background:transparent;border-color:transparent}
       .dd-gchip{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:999px;border:1px solid var(--line,#DCD6CB);background:var(--panel,#fff);cursor:pointer;font-family:inherit;font-size:calc(12.5px * var(--ui-text-scale));color:var(--ink-2,#59656D);max-width:100%}
       .dd-gchip:hover{border-color:color-mix(in srgb,var(--deep,#0F4C5C) 42%,var(--line,#DCD6CB))}
       .dd-gchip.on{background:var(--deep,#0F4C5C);border-color:var(--deep,#0F4C5C);color:var(--on-deep,#fff)}
       .dd-gchip .dd-gwho{font-style:normal;font-size:calc(11px * var(--ui-text-scale));opacity:.72}
+      .dd-gchip:focus-visible,.dd-overview-card .dd-btn:focus-visible{outline:2px solid var(--deep,#0F4C5C);outline-offset:3px}
+      /* 总面板填满宿主内容区；单组与双组都分配整块剩余高度，更多组再按网格展开。 */
+      .dd-wrap.dd-overview{max-width:none;width:100%;min-height:100%;padding-bottom:0;display:flex;flex-direction:column;gap:16px;container-type:inline-size;container-name:duty-panel}
+      .dd-overview>.dd-groups{margin:0}
+      .dd-overview>[data-duty-panel]{max-width:none;width:100%;flex:1;display:flex;flex-direction:column;gap:16px;min-width:0}
+      .dd-overview-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+      .dd-overview-head h2{margin:0;font-size:calc(20px * var(--ui-text-scale));font-weight:750}
+      .dd-overview-date{font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2,#59656D)}
+      .dd-overview-grid{flex:1;display:grid;grid-template-columns:repeat(var(--dd-columns,2),minmax(0,1fr));grid-auto-rows:minmax(240px,1fr);gap:16px}
+      .dd-overview-card{display:flex;flex-direction:column;min-width:0;padding:24px;gap:20px;overflow-wrap:anywhere}
+      .dd-overview-card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+      .dd-overview-card-head h3{margin:0;font-size:calc(18px * var(--ui-text-scale));font-weight:750}
+      .dd-overview-current{flex:1;display:flex;flex-direction:column;justify-content:center;gap:14px;padding:18px 0}
+      .dd-overview-label{font-size:calc(13px * var(--ui-text-scale));color:var(--ink-2,#59656D)}
+      .dd-overview-names{display:flex;align-items:baseline;gap:8px 24px;flex-wrap:wrap;font-size:calc(clamp(28px,4.5cqi,64px) * var(--ui-text-scale));font-weight:800;line-height:1.3}
+      .dd-overview-grid[data-count="1"] .dd-overview-names{font-size:calc(clamp(36px,7cqi,88px) * var(--ui-text-scale))}
+      .dd-overview-names.dd-overview-status{font-size:calc(clamp(24px,3.5cqi,42px) * var(--ui-text-scale))}
+      .dd-overview-card .dd-range{margin:0}
+      .dd-overview-next{border-top:1px solid var(--line,#DCD6CB);padding-top:16px;display:flex;flex-direction:column;gap:5px;font-size:calc(12px * var(--ui-text-scale));line-height:1.7;color:var(--ink-2,#59656D)}
+      .dd-overview-next b{color:var(--ink,#22303A);font-weight:700}
+      @container duty-panel (max-width:620px){
+        .dd-overview-grid{grid-template-columns:minmax(0,1fr);gap:12px;grid-auto-rows:minmax(220px,1fr)}
+        .dd-overview-card{padding:20px;gap:12px}
+        .dd-overview-current{padding:12px 0;gap:10px}
+        .dd-overview-names{font-size:calc(clamp(28px,8cqi,42px) * var(--ui-text-scale));gap:6px 16px}
+      }
       /* 右键菜单。刻意不钉 top/left/right/bottom —— 坐标由 JS 按视口算好写进 style，
          这样夹取时能把宿主注入的安全区减掉（CSS 里那条边钉死了就没法让了）。 */
       .dd-tabmenu{position:fixed;z-index:60;min-width:180px;max-width:260px;max-height:320px;overflow:auto;display:grid;gap:2px;padding:6px;background:var(--panel,#fff);border:1px solid var(--line,#DCD6CB);border-radius:12px;box-shadow:0 12px 30px rgba(20,30,36,.18)}
@@ -939,13 +1066,41 @@
 
   /** 顶部轮换切换条：每套轮换一个标签，顺手带上它今天当班的人（一眼看全所有轮换）。 */
   function groupChipsHtml() {
-    return state.groups.map((g) => {
+    const overview = state.panelView === "overview";
+    return `<button class="dd-gchip${overview ? " on" : ""}" data-panel-overview type="button" role="tab" tabindex="${overview ? "0" : "-1"}" aria-controls="dd-panel" aria-selected="${overview}" aria-pressed="${overview}">总面板</button>` + state.groups.map((g) => {
       const names = assigneesFor(g, tide.util.today()).map((m) => m.name).join("、");
-      const on = g.id === state.activeId;
-      return `<button class="dd-gchip${on ? " on" : ""}" data-group="${esc(g.id)}" type="button" aria-pressed="${on ? "true" : "false"}" title="切到「${esc(g.name)}」（右键或长按可重命名 / 复制到后面 / 删除）">
+      const on = !overview && g.id === state.activeId;
+      return `<button class="dd-gchip${on ? " on" : ""}" data-group="${esc(g.id)}" type="button" role="tab" tabindex="${on ? "0" : "-1"}" aria-controls="dd-panel" aria-selected="${on}" aria-pressed="${on ? "true" : "false"}" title="切到「${esc(g.name)}」（右键或长按可重命名 / 复制到后面 / 删除）">
         <span>${esc(g.name)}</span><em class="dd-gwho" data-private-text>${esc(pausedAt(g, tide.util.today()) ? "暂停中" : names || "未排班")}</em>
       </button>`;
     }).join("");
+  }
+
+  function overviewHtml() {
+    const today = tide.util.today();
+    const columns = state.groups.length === 1 ? 1 : state.groups.length <= 4 ? 2 : 3;
+    return `<div class="dd-overview-head"><h2>今天谁值日</h2><span class="dd-overview-date">${fmt(today)} ${weekday(today)} · ${state.groups.length} 套轮换</span></div>
+      <div class="dd-overview-grid" data-count="${state.groups.length}" style="--dd-columns:${columns}" aria-label="全部轮换今日值日">
+      ${state.groups.map((g) => {
+        const s = snapshot(g);
+        const label = !g.members.length ? "还没有成员，无法排班" : s.paused ? "今天暂停值日" : !s.started ? "轮换还没开始" : "今天值日";
+        const names = s.currentAll.length
+          ? s.currentAll.map((m) => `<span data-private-text>${esc(m.name)}</span>`).join("")
+          : !g.members.length ? "先添加成员" : s.paused ? "假期 / 节日暂停中" : "等待开始";
+        const range = s.current ? `本轮 ${fmt(s.cycle)}${s.period > 1 ? ` — ${fmt(cycleEndOf(g, s.cycle, s.period))}` : ""} · 第 ${cycleIndexAt(g, s.cycle) + 1} 轮` : "";
+        const replaced = overrideHits(g, s.cycle).length > 0;
+        return `<section class="dd-card dd-overview-card" data-overview-group="${esc(g.id)}" aria-label="${esc(g.name)}今日值日">
+          <div class="dd-overview-card-head"><h3>${esc(g.name)}</h3><button class="dd-btn" data-open-group="${esc(g.id)}" type="button">${g.members.length ? "管理轮换" : "添加成员"}</button></div>
+          <div class="dd-overview-current"><span class="dd-overview-label">${label}</span>
+            <div class="dd-overview-names${s.currentAll.length ? "" : " dd-overview-status"}">${names}</div>
+            ${range ? `<div class="dd-range">${range}${replaced ? ' · <span class="dd-badge warn">临时换人</span>' : ""}</div>` : ""}
+            ${s.currentLocation ? `<div class="dd-range">今日地点：<b>${esc(s.currentLocation)}</b></div>` : ""}
+          </div>
+          <div class="dd-overview-next">${g.members.length && s.nextStart
+            ? `<span>${s.paused ? "恢复值日" : s.started ? "下次值日" : "开始值日"} · ${fmt(s.nextStart)} ${weekday(s.nextStart)}</span><b data-private-text>${esc(s.nextWhoAll.map((m) => m.name).join("、") || "—")}</b>`
+            : "添加成员后会自动排班，可在轮换详情中设置周期与提醒。"}</div>
+        </section>`;
+      }).join("")}</div>`;
   }
 
   function heroHtml(s) {
@@ -2078,13 +2233,22 @@
     const g = activeGroup();
     if (!g) return;
     const s = snapshot(g);
-    state.membersOrderKey = membersOrderKey(g, s.today);
-    root.innerHTML = `<div class="dd-wrap">
+    state.membersOrderKey = viewDataKey(s.today);
+    groupGlow?.dispose();
+    groupGlow = null;
+    root.innerHTML = `<div class="dd-wrap${state.panelView === "overview" ? " dd-overview" : ""}">
       <div class="dd-groups">
         <div class="dd-glist" role="tablist" aria-label="轮换列表">${groupChipsHtml()}</div>
-        <button class="dd-btn" data-group-new type="button">${faIcon("circle-plus")}新建轮换</button>
+        <div class="dd-actions">
+          <button class="dd-btn" data-group-new type="button">${faIcon("circle-plus")}新建轮换</button>
+          <button class="dd-btn" data-duty-export type="button">${faIcon("download")}导出备份</button>
+          <button class="dd-btn" data-duty-import type="button">${faIcon("upload")}导入备份</button>
+          <input type="file" data-duty-file accept=".json,application/json" hidden>
+        </div>
       </div>
       ${tabMenu ? tabMenuHtml() : ""}
+      <div id="dd-panel" data-duty-panel role="tabpanel" aria-label="${state.panelView === "overview" ? "总面板" : esc(g.name)}">
+      ${state.panelView === "overview" ? overviewHtml() : `
       <div class="dd-hero">
         <section class="dd-card">${heroHtml(s)}
           <div class="dd-actions">
@@ -2131,17 +2295,30 @@
         <div class="dd-title">${faIcon("location-dot")}地点轮换</div>
         ${locationsHtml(s)}
       </section>
+      `}
+      </div>
     </div>`;
     bind();
     placeTabMenu();   // 菜单刚进 DOM：按实测尺寸 + 实测残差把落点收准（见 placeTabMenu 注释）
+    const list = root.querySelector(".dd-glist");
+    if (list && typeof tide.ui.selectionGlow === "function") {
+      groupGlow = tide.ui.selectionGlow(list, { selector: '.dd-gchip[aria-selected="true"]', persistKey: "dorm-duty-panels" });
+    }
   }
 
   /* ── 轮换组的增删改（抽成具名函数：绑定时只负责调用，逻辑才能在 Node 里真跑） ── */
   /** 切换当前轮换。返回是否真的切了。 */
   async function setActiveGroup(id) {
-    if (!id || id === state.activeId) return false;
+    if (!id || (id === state.activeId && state.panelView === "group")) return false;
     if (!state.groups.some((x) => x.id === id)) return false;
     state.activeId = id;
+    state.panelView = "group";
+    await save();
+    return true;
+  }
+  async function showOverview() {
+    if (state.panelView === "overview") return false;
+    state.panelView = "overview";
     await save();
     return true;
   }
@@ -2151,6 +2328,7 @@
     const created = defaultGroup(tide.util.today(), `轮换 ${state.groups.length + 1}`);
     state.groups.push(created);
     state.activeId = created.id;
+    state.panelView = "group";
     await save();
     return created;
   }
@@ -2216,6 +2394,7 @@
     // 紧跟源组插入，而不是甩到列表末尾
     state.groups.splice(state.groups.indexOf(src) + 1, 0, copy);
     state.activeId = copy.id;
+    state.panelView = "group";
     await save();
     return copy;
   }
@@ -2474,14 +2653,33 @@
       await commit(() => { g.pauseRanges.splice(Number(btn.dataset.pauseDel), 1); });
     }));
     // 切换 / 新建 / 改名 / 删除轮换
-    root.querySelectorAll("[data-group]").forEach((btn) => btn.addEventListener("click", async () => {
+    q(".dd-glist")?.addEventListener("keydown", (event) => {
+      const tabs = [...root.querySelectorAll(".dd-gchip")];
+      const index = tabs.indexOf(event.target?.closest?.(".dd-gchip"));
+      if (index < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[next].focus();
+      tabs[next].click();
+    });
+    q("[data-panel-overview]")?.addEventListener("click", async () => {
+      const focused = document.activeElement === q("[data-panel-overview]");
+      const closing = !!tabMenu;
+      tabMenu = null;
+      if (await showOverview() || closing) await paint();
+      if (focused) q('[aria-selected="true"]')?.focus({ preventScroll: true });
+    });
+    root.querySelectorAll("[data-group], [data-open-group]").forEach((btn) => btn.addEventListener("click", async () => {
       if (longPressed) { longPressed = false; return; }   // 长按弹过菜单，这个 click 是它的尾巴
       // 菜单开着时点标签 = 切组 + 收掉浮层。document 上的收起监听刻意放过标签点击，
       // 所以这里不收就没人收 —— 屏幕上会留下一个指着旧组的菜单。
       const closing = !!tabMenu;
+      const focused = document.activeElement === btn;
       tabMenu = null;
-      const switched = await setActiveGroup(btn.dataset.group);
+      const switched = await setActiveGroup(btn.dataset.group || btn.dataset.openGroup);
       if (switched || closing) await paint();
+      if (focused) q('[aria-selected="true"]')?.focus({ preventScroll: true });
     }));
     bindTabMenu();
     q("[data-group-new]")?.addEventListener("click", async () => {
@@ -2489,6 +2687,18 @@
       if (!created) { tide.notify(`最多 ${GROUP_MAX} 套轮换，先删掉不用的`); return; }
       await paint();
       tide.notify(`已新建「${created.name}」——在「轮换规则」里改名，再加成员`);
+    });
+    q("[data-duty-export]")?.addEventListener("click", () => {
+      exportDormDutyBackup().catch((e) => tide.notify(`导出失败：${e?.message || e}`));
+    });
+    q("[data-duty-import]")?.addEventListener("click", () => q("[data-duty-file]")?.click());
+    q("[data-duty-file]")?.addEventListener("change", async (e) => {
+      const file = e.currentTarget.files?.[0];
+      e.currentTarget.value = "";
+      if (!file) return;
+      if (file.size > 4 * 1024 * 1024) { tide.notify("备份文件不能超过 4 MB"); return; }
+      try { await importDormDutyBackup(await readTextFile(file)); }
+      catch (err) { tide.notify(`导入失败：${err?.message || err}`); }
     });
     q("[data-group-name]")?.addEventListener("change", async () => {
       const input = q("[data-group-name]");
@@ -2879,6 +3089,8 @@
       if (root !== el) return;
       // 视图被换掉时把星图的自动旋转一起停掉 —— 不然 rAF 会一直对着一个已摘掉的节点跑
       roomStopSpin();
+      groupGlow?.dispose();
+      groupGlow = null;
       try { if (roomResize) window.removeEventListener("resize", roomResize); } catch { /* 忽略 */ }
       roomResize = null;
       roomLive = null;

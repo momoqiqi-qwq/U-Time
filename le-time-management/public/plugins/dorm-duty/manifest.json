@@ -1,11 +1,11 @@
 {
   "id": "dorm-duty",
   "name": "轮换值日",
-  "version": "1.13.1",
+  "version": "1.15.0",
   "author": "U-Time内置",
   "icon": "broom",
   "faIcon": "broom",
-  "description": "宿舍值日等公共事务排班：多套轮换、成员与地点周期、假期暂停、临时换人，另有 3D 床位星图与到点提醒。",
+  "description": "总面板汇总全部轮换的今日值日人，按组数铺满界面；支持多套轮换、地点周期、假期暂停、临时换人、JSON 备份、3D 床位星图与到点提醒。",
   "permissions": [
     "ui",
     "tasks",

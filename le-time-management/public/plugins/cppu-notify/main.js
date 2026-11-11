@@ -113,6 +113,7 @@
     { url: "https://jw.cppu.edu.cn/index.html", label: "教务", icon: "school", children: [
       { view: "cppu-xk", label: "学生选课", icon: "list-check" },
       { view: "cppu-qj", label: "学生请假", icon: "calendar-xmark" },
+      { view: "cppu-risk", label: "考勤风险", icon: "shield-halved" },
       { view: "cppu-exam", label: "我的考试", icon: "clock" },
       { view: "cppu-credit-ledger", label: "我的学分", icon: "graduation-cap" },
       { view: "cppu-credit", label: "警大成绩", icon: "chart-line" },
@@ -639,6 +640,17 @@
       .jw-card-act .pp-btn{min-height:34px;padding:5px 10px;font-size:calc(11.5px * var(--ui-text-scale))}
       .jw-leave-draft{margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
       .jw-leave-draft textarea{width:100%;min-height:82px;resize:vertical;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);padding:9px 10px;font:inherit;font-size:calc(12px * var(--ui-text-scale));line-height:1.7}
+      /* 考勤风险（v0.299.0）：额度条两段 —— 已批（实心）＋ 审批中（斜纹淡色），
+         剩下的空位就是「还能缺几次」。色相沿用 .jw-tag 的 ok/warn/bad 语义。 */
+      .jw-risk-row{margin-top:9px}
+      .jw-risk-num{display:flex;align-items:baseline;gap:6px;font-variant-numeric:tabular-nums}
+      .jw-risk-num b{font-size:calc(17px * var(--ui-text-scale));color:var(--ink)}
+      .jw-risk-num small{color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale))}
+      .jw-risk-bar{position:relative;height:6px;margin:7px 0 5px;border-radius:999px;background:var(--line-soft);overflow:hidden}
+      .jw-risk-bar i{position:absolute;inset:0 auto 0 0;background:var(--campus-green);border-radius:999px}
+      .jw-risk-bar u{position:absolute;inset:0 auto 0 0;background:repeating-linear-gradient(135deg,rgba(217,138,15,.55) 0 3px,transparent 3px 6px)}
+      .jw-risk-note{color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));line-height:1.55}
+      .jw-risk-note b{color:var(--ink-2);font-weight:600}
       /* 自习室（v0.270.0）：一栋楼一张卡，卡里一间教室一行、五个节次各一个格子。
          过滤只切 [hidden]：卡片、行、组头都要真的消失 —— .jw-card 没设 display，默认就吃
          hidden 属性，这几条是兜底（将来谁给 .jw-card 加了 display 也不会漏）。 */
@@ -672,6 +684,25 @@
       .jw-room-slot.off{opacity:.4}
       [data-theme-mode="dark"] .jw-room-slot.ok{background:color-mix(in srgb,var(--mint) 18%,var(--panel));border-color:color-mix(in srgb,var(--mint) 42%,transparent);color:color-mix(in srgb,var(--mint) 55%,var(--ink))}
       [data-theme-mode="dark"] .jw-room-slot.bad{background:color-mix(in srgb,var(--danger) 18%,var(--panel));border-color:color-mix(in srgb,var(--danger) 42%,transparent);color:color-mix(in srgb,var(--danger) 55%,var(--ink))}
+      /* 首页「今天去哪」（v1.90.0）：一张窄卡先答「哪栋哪层、这层哪些教室空着」，
+         下面仍是原来的全楼清单。卡片不参与过滤（过滤只切 .jw-room-line / .jw-room-row），
+         搜教室时它一直留在顶上当定位。 */
+      .jw-room-plan{margin-bottom:12px;border-color:color-mix(in srgb,var(--mint) 30%,var(--line));background:linear-gradient(180deg,color-mix(in srgb,var(--mint) 8%,var(--panel)),var(--panel))}
+      /* 深色下 30% mint 的边压在近黑底上看不出来，抬到 42% 才算有轮廓 */
+      [data-theme-mode="dark"] .jw-room-plan{border-color:color-mix(in srgb,var(--mint) 42%,var(--line))}
+      .jw-room-plan-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+      .jw-room-plan-kicker{font-size:calc(10.5px * var(--ui-text-scale));font-weight:700;letter-spacing:.08em;color:var(--ink-2)}
+      .jw-room-plan-where{font-size:calc(15px * var(--ui-text-scale));font-weight:700;color:var(--deep);letter-spacing:.02em}
+      .jw-room-plan-sub{margin-top:4px;font-size:calc(11.5px * var(--ui-text-scale));color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .jw-room-plan-sum{margin-top:8px;font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2);font-variant-numeric:tabular-nums}
+      .jw-room-plan-sum b{color:var(--deep);font-size:calc(14px * var(--ui-text-scale));font-weight:700}
+      .jw-room-plan-rooms{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+      .jw-room-plan-room{padding:2px 7px;border-radius:7px;font-size:calc(10.5px * var(--ui-text-scale));font-variant-numeric:tabular-nums;border:1px solid rgba(46,196,182,.45);background:rgba(46,196,182,.14);color:#0B6B60}
+      [data-theme-mode="dark"] .jw-room-plan-room{background:color-mix(in srgb,var(--mint) 18%,var(--panel));border-color:color-mix(in srgb,var(--mint) 42%,transparent);color:color-mix(in srgb,var(--mint) 55%,var(--ink))}
+      .jw-room-plan-act{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+      /* 提示 / 免责用 ink-2（AA 4.5:1），ink-3 只保证 3:1，小字读不动 */
+      .jw-room-plan-act small{font-size:calc(10px * var(--ui-text-scale));color:var(--ink-2)}
+      .jw-room-plan-empty{margin-top:6px;font-size:calc(12px * var(--ui-text-scale));color:var(--ink-2);line-height:1.7}
       .jw-room-row .jw-detail-grid{margin-top:8px;padding-top:8px}
       .jw-leave-draft small,.jw-detail-grid small{display:block;color:var(--ink-3);font-size:calc(10.5px * var(--ui-text-scale));line-height:1.7;margin-top:6px}
       /* ── 请假页：状态四档沿用「警大成绩」的分数四档色相 ──
@@ -3763,6 +3794,9 @@
     // 就能查任意一天（实测 2026-10-25 空闲 614/630，今天 332/630，服务端按天换数）。
     roomDate: "",
     roomFilter: "",                 // 自习室关键词过滤（只改 DOM 显隐，不触发重绘 —— 重绘会夺走输入焦点）
+    // 只看空（v0.299.0）：选了某个节次后，把被占的教室整行藏掉，直接读「这节还有哪几间能进」。
+    // 与关键词过滤同一套 DOM 显隐（不重绘），两个条件同时生效。
+    roomOnlyFree: false,
     examFilter: "",                 // 考试关键词过滤（同上，只切 [hidden]）
     examOpen: new Set(),            // 手动摊开的考试卡（按考试 ID 记，切学期再切回来还开着）
     leaveCourseId: "",
@@ -3982,8 +4016,20 @@
     return rows;
   }
 
+  /* 学期缓存的可信期：term 会跟着 jwCache 一起落盘，下次打开先拿它当"现在这个学期"。
+     放假/新学期最容易被它骗到 —— 旧 term 还在，loadJwTerm 就不去问教务，课表与考勤
+     会把上学期的课次和请假单当成这学期的算（「刷新」走 force 才纠正，可用户不知道要按）。
+     判据取教务自己给的学期结束日：结束日过了 7 天就不再作数；老缓存没日期的按写入时间兜 30 天。 */
+  function jwTermFresh(t) {
+    if (!t || typeof t !== "object") return false;
+    const end = Date.parse(String(t.termEnd || "") + "T23:59:59");
+    if (Number.isFinite(end) && Date.now() > end + 7 * 86400000) return false;
+    const at = Number(t.at) || 0;
+    return !at || Date.now() - at < 30 * 86400000;
+  }
+
   async function loadJwTerm(force = false) {
-    if (!force && jwState.term) return jwState.term;
+    if (!force && jwState.term && jwTermFresh(jwState.term)) return jwState.term;
     if (!await ensureJwLogin()) return jwState.term;
     try {
       const res = await tide.http.fetch(state.sid, "POST", JW_NOW_TERM, {
@@ -3997,7 +4043,8 @@
       // 校历的学期起止是官方值，不再只有「起始日 + 周数」推算。
       // 周数用 JXZS（教学周）而不是 XQZS（学期周，含军训/假期）—— 后者会把教学周次算偏。
       if (v.DM) jwState.term = { code: v.DM, name: String(v.MC || v.DM), jxStart: String(v.JXZQSRQ || ""),
-        weeks: Number(v.JXZS) || Number(v.XQZS) || 0, termStart: String(v.KSRQ || ""), termEnd: String(v.JSRQ || "") };
+        weeks: Number(v.JXZS) || Number(v.XQZS) || 0, termStart: String(v.KSRQ || ""), termEnd: String(v.JSRQ || ""),
+        at: Date.now() };
     } catch { /* 学期拿不到不阻塞列表：课次视图退化成「不过滤学期」 */ }
     return jwState.term;
   }
@@ -4028,7 +4075,8 @@
     try {
       const c = await tide.storage.get("jwCache", null);
       if (!c || typeof c !== "object" || (c.username != null && c.username !== state.username)) return;
-      if (c.term && !jwState.term) jwState.term = c.term;
+      // 缓存里的学期只在还作数时采用：否则旧学期的课次/请假会被算成这学期（见 jwTermFresh）
+      if (c.term && !jwState.term && jwTermFresh(c.term)) jwState.term = c.term;
       jwState.creditHideDone = c.prefs?.creditHideDone === true;
       // 自习室缓存的是「那一天」的行，日期偏好必须一起恢复，否则重开应用会拿别天的数据
       // 顶着今天的日期显示（RQ 就在行里，渲染层据它写日期）。
@@ -4574,6 +4622,131 @@
     }
     return { slots, date: jwRoomText(rows[0]?.RQ), blds, total: order.length, free, seats };
   }
+  /* ── 首页定位（v1.90.0）：「这会儿该去哪层，这层哪些教室空着」──
+     课表取本插件自己的教务课次（JW_FUNC.qjCourse = 学生课表综合查询），不跨插件读
+     tide.storage —— 那是 per-plugin 命名空间（src/pluginHost.js 的 pluginState(pid).storage），
+     课表插件的事件也只发计数、刻意不带地点。课次的 SKRQ + JC + DDMC 正好是
+     「哪天 / 第几节 / 哪间」，教室名与自习室的 YWMC 同一套写法（A102 / 主楼302 / 7S-101），两边能直接对上。 */
+  /* 节次码 → 起止分钟。**只**用来把「现在」落到某个节次上：自习室接口只有日期 + 节次码、
+     没有钟点，这一条只能按作息推算 —— 所以卡片上写「按作息推算」，不冒充教务给的时刻。
+     数值与课表插件的默认节次时间一致（1 节 08:00-08:45、课间 10 分钟），
+     两个视图对「现在第几节」才不会各说一套。 */
+  const JW_ROOM_CLOCK = [
+    ["01", 480, 580],   // 1-2 节 08:00-09:40
+    ["02", 600, 700],   // 3-4 节 10:00-11:40
+    ["03", 840, 940],   // 5-6 节 14:00-15:40
+    ["04", 960, 1060],  // 7-8 节 16:00-17:40
+    ["05", 1140, 1240], // 9-10 节 19:00-20:40
+    ["06", 1250, 1350], // 11-12 节 20:50-22:30
+  ];
+  function jwRoomClockSlot(now = new Date()) {
+    const m = now.getHours() * 60 + now.getMinutes();
+    for (const [code, from, to] of JW_ROOM_CLOCK) {
+      if (m < from) return { code, phase: "before" };
+      if (m < to) return { code, phase: "in" };
+    }
+    return { code: "", phase: "after" };
+  }
+  /* 楼层从教室名读：最后一个数字串是房号，去掉末两位就是层（A102→1、538→5、7S-101→1、
+     A1201→12）；只有一两位数字的（穗7-3 的 3）本身就是层。读不出来的（讲堂 / 阶梯教室 /
+     实训室）返回 0 = 不按层收窄、看整栋 —— 宁可给多了，也不猜一个不存在的楼层。 */
+  function jwRoomFloorOf(raw) {
+    const m = /(\d+)(?!.*\d)/.exec(jwRoomText(raw));
+    if (!m) return 0;
+    const d = m[1];
+    const n = d.length >= 3 ? Number(d.slice(0, d.length - 2)) : Number(d);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function jwRoomPlusDays(iso, n) {
+    const d = new Date(`${iso}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return iso;
+    d.setDate(d.getDate() + Number(n || 0));
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  const jwRoomCourseRowsOn = (iso) => (Array.isArray(jwState.data.qjCourse) ? jwState.data.qjCourse : [])
+    .filter((r) => String(r.SKRQ || "") === iso && jwRoomText(r.DDMC))
+    .sort((a, b) => String(a.JC || "").localeCompare(String(b.JC || "")));
+  /* 「最近的一节课」= 这一天还没上完的第一节；今天的课全上完了就取最后一节（人就在那栋楼附近）；
+     这天没课就往后找 7 天内的第一节，并把「那是哪天」说清楚。 */
+  function jwRoomFocus(day, isToday, clock) {
+    const list = jwRoomCourseRowsOn(day);
+    if (list.length) {
+      if (!isToday) return { course: list[0], note: "第一节课" };
+      const after = clock.code ? list.filter((r) => String(r.JC || "") >= clock.code) : [];
+      if (clock.phase === "after" || !after.length) return { course: list[list.length - 1], note: "今天的课已结束" };
+      const now = clock.phase === "in" && String(after[0].JC || "") === clock.code;
+      return { course: after[0], note: now ? "现在这节课" : "下一节课" };
+    }
+    for (let i = 1; i <= 7; i++) {
+      const iso = jwRoomPlusDays(day, i);
+      const next = jwRoomCourseRowsOn(iso);
+      if (next.length) return { course: next[0], away: iso, note: isToday ? "今天没课" : "这天没课" };
+    }
+    return { course: null, note: isToday ? "今天没课" : "这天没课" };
+  }
+  /* 楼名 / 教室名进属性选择器要转义引号反斜杠；楼名实测只有「A 栋 / 主楼 / 7S 楼」这种，这里只是兜底。 */
+  const jwRoomAttr = (v) => String(v || "").replace(/["\\]/g, "\\$&");
+  function jwRoomPlanHtml({ slots, blds, day }) {
+    const kicker = day === jwDayISO(0) ? "今天去哪" : jwRoomDateLabel(day);
+    const rows = Array.isArray(jwState.data.qjCourse) ? jwState.data.qjCourse : null;
+    if (!rows) {
+      // 课表还没到 / 出错 / 没拉过：三种话不同，都不编数据
+      const txt = jwState.loading.qjCourse ? "正在读取课表…"
+        : jwState.error.qjCourse ? `课表没拉到：${jwState.error.qjCourse}`
+          : "还没拉取课表，点上方「刷新」后可自动定位";
+      return `<div class="jw-card jw-room-plan"><div class="jw-room-plan-top"><span class="jw-room-plan-kicker">${esc(kicker)}</span></div><div class="jw-room-plan-empty">${esc(txt)}</div></div>`;
+    }
+    const isToday = day === jwDayISO(0);
+    const clock = jwRoomClockSlot();
+    const { course, note, away } = jwRoomFocus(day, isToday, clock);
+    if (!course) {
+      return `<div class="jw-card jw-room-plan"><div class="jw-room-plan-top"><span class="jw-room-plan-kicker">${esc(kicker)}</span></div><div class="jw-room-plan-empty">${esc(`${note}，接下来一周也没排课`)}</div></div>`;
+    }
+    const place = jwRoomText(course.DDMC);
+    const bld = jwRoomBuilding(place);
+    const floor = jwRoomFloorOf(place);
+    const where = `${bld}${floor > 0 ? ` ${floor} 层` : ""}`;
+    const pool = ((blds.find(([b]) => b === bld) || [])[1] || [])
+      .filter((r) => !floor || jwRoomFloorOf(r.name) === floor);
+    /* 看哪一节：今天按作息落到当前节次（课全上完了就落到最后一节）；看别的日子按那节课自己的节次。
+       选中的节次不在这次返回的节次里（比如课在第 11-12 节、自习室只到 9-10 节）就退成「全天空闲」。 */
+    const slot = isToday
+      ? (clock.code && slots.includes(clock.code) ? clock.code : slots[slots.length - 1] || "")
+      : String(course.JC || "");
+    const useSlot = slots.includes(slot) ? slot : "";
+    // 「全天空闲」要求每个节次都明确是空（2）；缺行不当作空 —— 宁可少报，不可多报
+    const freeList = pool.filter((r) => (useSlot
+      ? r.slots.get(useSlot) === "2"
+      : slots.length > 0 && slots.every((s) => r.slots.get(s) === "2")));
+    const slotWord = useSlot
+      ? (isToday && clock.phase !== "after" ? `现在（${jwRoomSlotLabel(useSlot)} 节）` : `${jwRoomSlotLabel(useSlot)} 节`)
+      : "全天";
+    const sum = !pool.length
+      ? `这次没返回${where}的教室`
+      : `${slotWord}这层空闲 <b>${freeList.length}</b> / ${pool.length} 间`;
+    const rooms = freeList.slice(0, 12).map((r) => `<span class="jw-room-plan-room">${esc(r.name)}</span>`).join("")
+      + (freeList.length > 12 ? `<span class="jw-room-plan-room">+${freeList.length - 12}</span>` : "");
+    /* 一间不剩时别只留一个「0 / N」：这层有教室但这节都占了，得给下一步（换节次还是换楼）。
+       pool 为空（这次根本没返回这层）由 sum 已经说清楚，不再叠一句。 */
+    /* 这层有教室但这节都占着：别只丢一个「0 / N」，给下一步（换节次还是换楼）。
+       pool 为空（这次根本没返回这层）已在 sum 里说清，不再叠一句。 */
+    const hint = rooms || !pool.length ? ""
+      : `<div class="jw-room-plan-empty">${esc(useSlot
+        ? `${jwRoomSlotLabel(useSlot)} 节这层没空教室，换个节次或往下看别的楼`
+        : "这层没有整天都空着的教室，换个节次看")}</div>`;
+    /* 看的是「今天没课、下一次在别天」时要写清下一次是哪天，否则第一行「这天没课」
+       和下面那节课（另一个日期）并排出现，读起来像自相矛盾。 */
+    const headline = away
+      ? `${note} · 下一次 ${jwRoomDateLabel(away)}`
+      : (isToday ? `${note} · ${jwRoomSlotLabel(course.JC)} 节` : `${kicker} · ${note}`);
+    return `<div class="jw-card jw-room-plan">
+      <div class="jw-room-plan-top"><span class="jw-room-plan-kicker">${esc(headline)}</span><span class="jw-room-plan-where">${esc(where)}</span></div>
+      <div class="jw-room-plan-sub" title="${esc(`${course.KCMC || "课程未给出"} · ${jwRoomSlotLabel(course.JC)} 节 · ${place}`)}">${esc(`${course.KCMC || "课程未给出"} · ${jwRoomSlotLabel(course.JC)} 节 · ${place}`)}</div>
+      <div class="jw-room-plan-sum">${sum}</div>
+      ${rooms ? `<div class="jw-room-plan-rooms">${rooms}</div>` : ""}${hint}
+      <div class="jw-room-plan-act"><button type="button" class="pp-btn" data-room-plan-go data-room-plan-bld="${esc(bld)}" data-room-plan-slot="${esc(useSlot || "all")}">看这层全部教室</button>${isToday ? `<small>节次按作息推算</small>` : ""}</div>
+    </div>`;
+  }
   function jwRoomRowHtml(r, idx, cols, mode) {
     const take = (role) => {
       const c = cols.find((x) => x.role === role && jwRoomText(r[x.code]));
@@ -4683,10 +4856,11 @@
       + `<div class="pp-toolbar jw-room-bar"><span class="pp-lab">节次</span><div class="pp-chips" data-room-slots>`
       + [["all", "全部"], ...slots.map((s) => [s, jwRoomSlotLabel(s)])].map(([id, label]) =>
         `<button type="button" class="pp-chip${sel === id ? " on" : ""}" data-room-slot="${esc(id)}">${esc(label)}</button>`).join("")
-      + `</div></div><div class="pp-toolbar"><span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>`
+      + `</div></div><div class="pp-toolbar jw-room-bar"><button type="button" class="pp-chip${jwState.roomOnlyFree && sel !== "all" ? " on" : ""}" data-room-onlyfree${sel === "all" ? " disabled" : ""} aria-pressed="${jwState.roomOnlyFree && sel !== "all" ? "true" : "false"}" title="${esc(sel === "all" ? "先选一个节次，再只看这一节还空着的教室" : "只列这一节还空着的教室")}">只看空</button><span class="pp-lab">筛选</span><span class="pp-kwbox"><span class="pp-kw-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg></span>`
       + `<input class="pp-kw" data-room-filter type="text" value="${esc(jwState.roomFilter || "")}" aria-label="筛选楼、教室、节次、状态（支持拼音首字母与简写）" placeholder="搜楼 / 教室，可打拼音首字母…"></span></div>`
       + `<div class="pp-meta" data-room-count>${esc(roomCountIdle)}</div>`;
-    return jwSection("自习室", jwAt("room"), bar + blds.map(([bld, rooms]) => jwRoomCardHtml(bld, rooms, slots, sel, !bldSel || bldSel === bld)).join(""));
+    const plan = jwRoomPlanHtml({ slots, blds, day: theDay });
+    return jwSection("自习室", jwAt("room"), plan + bar + blds.map(([bld, rooms]) => jwRoomCardHtml(bld, rooms, slots, sel, !bldSel || bldSel === bld)).join(""));
   }
   /* 过滤在 DOM 上就地做（不重绘）：重绘会把 input 换掉，用户打两个字就丢焦点。
      组头下一条都没剩就一起藏起来，避免一屏空标题。
@@ -4704,6 +4878,17 @@
        楼不在这次数据里（换日期后那栋没返回）就自动退回全部，与渲染层的 bldSel 同一条口径。 */
     const wantBld = String(jwState.roomBld || "");
     const bldSel = wantBld && [...el.querySelectorAll("[data-room-bld]")].some((c) => c.dataset.roomBld === wantBld) ? wantBld : "";
+    /* 「只看空」（v0.299.0）：节次顺序从胶囊读 —— 与渲染同源，不另存一份 slots。
+       没有格子行（flat 形状 / 占用明细）时这条不生效：那种行混着不同节次，藏掉等于丢信息。 */
+    const slotOn = el.querySelector("[data-room-slots] .pp-chip.on")?.dataset.roomSlot || "all";
+    const slotOrder = [...el.querySelectorAll("[data-room-slots] [data-room-slot]")].map((b) => b.dataset.roomSlot).filter((s) => s !== "all");
+    const slotIdx = jwState.roomOnlyFree && slotOn !== "all" ? slotOrder.indexOf(slotOn) : -1;
+    const freeOk = (row) => {
+      if (slotIdx < 0) return true;
+      const cell = row.querySelectorAll(".jw-room-slot")[slotIdx];
+      // 缺格子 = 这节没数据，也不当空 —— 与「全天空闲」同一条口径：宁可少报，不可多报
+      return !!cell && cell.classList.contains("ok");
+    };
     let shown = 0, scope = 0;
     for (const row of rows) {
       const card = row.closest("[data-room-bld]");
@@ -4712,9 +4897,9 @@
       const hit = !q || (Array.isArray(fields)
         ? fields.some((f) => roomFieldHits(f, q))
         : String(row.dataset.kw || "").includes(q));
-      row.hidden = !hit || !inScope;
+      row.hidden = !hit || !inScope || !freeOk(row);
       if (inScope) scope++;
-      if (inScope && hit) shown++;
+      if (inScope && hit && freeOk(row)) shown++;
     }
     // 楼卡片：一间都没剩就整张收起来，剩几间就更新卡片右上角的计数（清空搜索时整页重绘复原）。
     for (const card of el.querySelectorAll("[data-room-bld]")) {
@@ -4722,7 +4907,9 @@
       const left = card.querySelectorAll(".jw-room-line:not([hidden])").length;
       card.hidden = !left || (!!bldSel && card.dataset.roomBld !== bldSel);
       const sum = card.querySelector("[data-room-sum]");
-      if (sum && q) sum.textContent = `${left} / ${all} 间匹配`;
+      if (sum && (q || slotIdx >= 0)) {
+        sum.textContent = slotIdx >= 0 ? `空闲 ${left} / ${all} 间` : `${left} / ${all} 间匹配`;
+      }
     }
     for (const head of el.querySelectorAll("[data-room-group-head]")) {
       let n = 0, node = head.nextElementSibling;
@@ -4734,9 +4921,12 @@
     }
     const count = el.querySelector("[data-room-count]");
     if (count) {
-      count.textContent = !q ? roomCountIdle || count.textContent
-        : shown ? `匹配 ${shown} / ${bldSel ? `${bldSel} ` : "全部 "}${scope} 间教室`
-          : `没有匹配「${raw}」的记录 —— 能搜楼（如 zl 找主楼、jtjs 找阶梯教室）、教室号、节次与占用状态；空格无所谓，也能打拼音首字母和跳字简写`;
+      const slotWord = slotIdx >= 0 ? [...el.querySelectorAll("[data-room-slots] .pp-chip.on")].map((b) => b.textContent.trim())[0] || "本节" : "";
+      count.textContent = !q && slotIdx >= 0
+        ? `${slotWord} 空闲 ${shown} / ${bldSel ? `${bldSel} ` : "全部 "}${scope} 间教室`
+        : !q ? roomCountIdle || count.textContent
+          : shown ? `匹配 ${shown} / ${bldSel ? `${bldSel} ` : "全部 "}${scope} 间教室`
+            : `没有匹配「${raw}」的记录 —— 能搜楼（如 zl 找主楼、jtjs 找阶梯教室）、教室号、节次与占用状态；空格无所谓，也能打拼音首字母和跳字简写`;
     }
   }
 
@@ -5111,6 +5301,179 @@
       + jwSection("可提请假的课次", jwAt("qjCourse"), jwCourseScopeBar() + jwCourseList())
       + `</div>`;
   }
+  /* ── 考勤风险（v0.299.0）─────────────────────────────────────────────
+     口径照搬 cppu_helper 的 AttendanceRisk.compute，只换数据来源：
+     课次来自 qjCourse（V_JWBZK_PK_XSKBZHCX 本学期全部课次），请假状态来自 qjRecord（SQZT）。
+     与原版逐字一致的三个数：
+       sessions  = 这门课本学期排了几次
+       allowed   = trunc(trunc(sessions * 2 / 3) / 2)   ← 1 次课 = 2 学时，允许缺总学时的 1/3，再折回课次
+       remaining = max(allowed - approved, 0)
+     外加原版的「旷课红线」：未通过 / 已撤销按旷课计，超过 3 次同样锁死。
+     排序与原版一致：已锁死 → 可缺次数少 → 学时多。
+     只读：不提交任何申请，也不回写教务。 */
+  const JW_RISK_LEVEL = [
+    { text: "安全", tone: "ok" },
+    { text: "仅剩 1 次", tone: "warn" },
+    { text: "额度用完", tone: "bad" },
+    { text: "已超红线", tone: "live" },
+  ];
+  /* SQZT 只认 2 = 已同意，1 = 审批中；0（已撤销）与 3（未同意）一律按未通过 / 旷课计。
+     原版 RiskFragment 把 3 也算通过，会和本插件「学生请假」页的汇总（count(2)/count(1)）互相矛盾，不跟。 */
+  const jwRiskApproved = (s) => String(s ?? "").trim() === "2";
+  const jwRiskPending = (s) => String(s ?? "").trim() === "1";
+  /* 课程名归一：同一门课在课表与请假单上会差在全角空格、不间断空格、大小写，
+     只用 trim 会让记录静默落进「课表外课程」被丢掉（原版用 normalize 就为这个）。 */
+  const jwRiskKey = (v) => String(v ?? "").normalize("NFKC").replace(/[\s\u3000]+/g, "").toLowerCase();
+  const jwRiskIsDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const jwRiskShiftDay = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
+  /* 学期边界：优先校历 KSRQ/JSRQ。只有一端时按一个学期（约 200 天）向另一侧铺；两端都缺才退到课次日期，
+     且必须在跨度够宽（≥28 天）时才敢用 —— 课次只覆盖上课那几天，单次课 / 隔周课的跨度只有几天，
+     拿它当学期边界会把别的日期的请假单当成「上学期」误排掉（实测 1 节课 → 范围只有 1 天，记录全丢）。 */
+  function jwRiskTerm() {
+    const t = jwState.term || {};
+    let from = String(t.termStart || "").slice(0, 10), to = String(t.termEnd || "").slice(0, 10);
+    const hasFrom = jwRiskIsDate(from), hasTo = jwRiskIsDate(to);
+    if (hasFrom && !hasTo) to = jwRiskShiftDay(from, 200);
+    else if (!hasFrom && hasTo) from = jwRiskShiftDay(to, -200);
+    else if (!hasFrom && !hasTo) {
+      const ds = (Array.isArray(jwState.data.qjCourse) ? jwState.data.qjCourse : [])
+        .map((r) => String(r.SKRQ || "").slice(0, 10)).filter(jwRiskIsDate).sort();
+      const span = ds.length > 1 ? (Date.parse(ds[ds.length - 1]) - Date.parse(ds[0])) / 86400000 : 0;
+      if (span >= 28) { from = ds[0]; to = ds[ds.length - 1]; }
+    }
+    return jwRiskIsDate(from) && jwRiskIsDate(to) ? { from, to } : null;
+  }
+  const jwRiskTruancy = (n) => {
+    const h = n * 2;
+    if (h >= 30) return `已按旷课计 ${n} 次（${h} 学时，≥30）：按校规可记过或留校察看`;
+    if (h >= 10) return `已按旷课计 ${n} 次（${h} 学时，10–29）：按校规可警告或严重警告`;
+    return `已按旷课计 ${n} 次（${h} 学时），距警告线（10 学时）还差 ${10 - h} 学时`;
+  };
+  function jwRiskRows() {
+    const courses = Array.isArray(jwState.data.qjCourse) ? jwState.data.qjCourse : null;
+    if (!courses || !courses.length) return null;
+    const rec = Array.isArray(jwState.data.qjRecord) ? jwState.data.qjRecord : [];
+    const map = new Map();
+    for (const r of courses) {
+      const name = String(r.KCMC || "").trim();
+      const key = jwRiskKey(name);
+      if (!key) continue;
+      const it = map.get(key) || { name, sessions: 0, approved: 0, pending: 0, rejected: 0 };
+      it.sessions++;
+      map.set(key, it);
+    }
+    /* 请假单按「本学期」筛一道：记录接口拿回的是全部历史，同名课上学期的请假单
+       会累加成假红线（课次 9 次只有 3 次额度，混进 3 条旧记录就直接判「已超红线」）。
+       学期外的计入 stale、课表里没有的计入 unmatched，都写进 diag 供页脚提示，不静默吞掉。 */
+    const term = jwRiskTerm();
+    const seen = new Map();   // 同一节课只留一条：撤销后重提不该算成「一次已批 + 一次旷课」
+    let stale = 0, unmatched = 0, unknown = 0, merged = 0;
+    const rank = (st) => (st === "2" ? 3 : st === "1" ? 2 : st === "3" ? 1 : 0);
+    const tally = (ck, st) => {
+      const it = map.get(ck);
+      if (!it) return;
+      if (jwRiskApproved(st)) it.approved++;
+      else if (jwRiskPending(st)) it.pending++;
+      else it.rejected++;
+    };
+    for (const r of rec) {
+      const day = String(r.SKRQ || "").slice(0, 10);
+      if (term && jwRiskIsDate(day) && (day < term.from || day > term.to)) { stale++; continue; }
+      const ck = jwRiskKey(r.KCMC);
+      if (!ck || !map.has(ck)) { unmatched++; continue; }
+      const st = String(r.SQZT ?? "").trim();
+      /* 状态缺失时不敢猜：既不能当已批，也不能凭空算旷课 —— 4 条没带 SQZT 的记录会直接把人推到「已超红线」。 */
+      if (!st) { unknown++; continue; }
+      if (!jwRiskIsDate(day)) { tally(ck, st); continue; }   // 上课日缺失就没法判重，各自计一条
+      const dk = ck + "\u0000" + day;
+      const prev = seen.get(dk);
+      if (!prev) { seen.set(dk, { ck, st }); continue; }
+      merged++;
+      if (rank(st) > rank(prev.st)) prev.st = st;
+    }
+    for (const v of seen.values()) tally(v.ck, v.st);
+    const rows = [...map.values()].map((it) => {
+      const totalHours = it.sessions * 2;
+      const allowed = Math.trunc(Math.trunc(totalHours / 3) / 2);
+      const remaining = Math.max(allowed - it.approved, 0);
+      const blockedA = it.approved > allowed;
+      const remainingTruancy = Math.max(3 - it.rejected, 0);
+      const blockedB = it.rejected > 3;
+      const lost = blockedA || blockedB;
+      return {
+        ...it, totalHours, allowed, remaining, blockedA, remainingTruancy, blockedB, lost,
+        level: lost ? 3 : remaining <= 0 ? 2 : remaining <= 1 ? 1 : 0,
+        pendingAfter: allowed - it.approved - it.pending,
+        // allowed 折不出 1 次（只排 1–2 次课）时不能再返回 0：已批 1 次是「用满到顶」，条形得填满，
+        // 否则会出现「条是空的、标签写着已超红线」的自相矛盾（原版 getUsedRatio 同口径）。
+        usedRatio: allowed > 0 ? Math.min(it.approved / allowed, 1) : (it.approved > 0 ? 1 : 0),
+        pendingRatio: allowed > 0 ? Math.min(it.pending / allowed, 1) : (it.pending > 0 ? 1 : 0),
+      };
+    }).sort((a, b) => (Number(b.lost) - Number(a.lost)) || (a.remaining - b.remaining) || (b.totalHours - a.totalHours));
+    rows.diag = { stale, unmatched, unknown, merged, term };
+    return rows;
+  }
+  function jwRiskCardHtml(it) {
+    const lv = JW_RISK_LEVEL[it.level];
+    const used = (it.usedRatio * 100).toFixed(1), pend = (it.pendingRatio * 100).toFixed(1);
+    return `<div class="jw-card">
+      <div class="jw-card-t">${esc(it.name)} ${jwTag(lv.text, lv.tone)}</div>
+      ${jwMetaLine([
+        jwTag(`${it.sessions} 次课 · ${it.totalHours} 学时`),
+        it.approved ? jwTag(`已批 ${it.approved}`, "ok") : "",
+        it.pending ? jwTag(`审批中 ${it.pending}`, "warn") : "",
+        it.rejected ? jwTag(`未通过 ${it.rejected}`, "bad") : "",
+      ])}
+      <div class="jw-risk-row">
+        <div class="jw-risk-num"><b>${it.remaining}</b><small>次还能缺 · 本学期可缺 ${it.allowed} 次</small></div>
+        <div class="jw-risk-bar"><i style="width:${used}%"></i><u style="left:${used}%;width:${pend}%"></u></div>
+        <div class="jw-risk-note">${it.allowed <= 0
+          ? `这门课只排了 ${it.sessions} 次，按「总学时 ÷ 3」折不出 1 次请假额度，任何缺勤都会超限。`
+          : it.blockedA ? `已批请假 ${it.approved} 次，超过可缺的 ${it.allowed} 次 —— 已到红线。`
+            : `还能缺 <b>${it.remaining}</b> 次${it.pending ? `；审批中的 ${it.pending} 次若全批，就只剩 <b>${Math.max(it.pendingAfter, 0)}</b> 次` : ""}。`}</div>
+        <div class="jw-risk-note">${jwRiskTruancy(it.rejected)}${it.blockedB ? "（已超过 3 次红线）" : `（还剩 ${it.remainingTruancy} 次余量）`}</div>
+      </div>
+    </div>`;
+  }
+  function jwRiskHtml() {
+    const head = jwStateBlock("qjCourse", "正在读取本学期课次…");
+    if (head) return jwSection("考勤风险", jwAt("qjCourse"), head);
+    const rows = jwRiskRows();
+    if (!rows) {
+      return jwSection("考勤风险", jwAt("qjCourse"),
+        `<div class="pp-empty">教务还没返回本学期课次，暂时算不出可缺次数。点上方「刷新」；课表同步过还是没有，就去「学生请假」页看一眼。</div>`);
+    }
+    if (!rows.length) {
+      return jwSection("考勤风险", jwAt("qjCourse"), `<div class="pp-empty">本学期课次里没有课程名，没法按课统计。</div>`);
+    }
+    const risky = rows.filter((r) => r.level >= 1).length;
+    const lost = rows.filter((r) => r.lost).length;
+    const pend = rows.reduce((n, r) => n + r.pending, 0);
+    const left = rows.reduce((n, r) => n + r.remaining, 0);
+    const metrics = [
+      ["有风险课程", risky, risky ? "jg-warn" : "jg-good", "applyTotal"],
+      ["已到红线", lost, lost ? "jg-bad" : "jg-good", "rejected"],
+      ["审批中", pend, pend ? "jg-warn" : "", "pending"],
+      ["合计还能缺", left, left ? "jg-good" : "jg-bad", "approved"],
+    ].map(([label, value, tone, key]) => `<div><div class="jg-metric">${metricIcon(key, 26)}<span class="jg-metric-text"><b${tone ? ` class="${tone}"` : ""}>${value}</b><small>${label}</small></span></div></div>`).join("");
+    const noRec = !Array.isArray(jwState.data.qjRecord);
+    const dg = rows.diag || {};
+    const dgNote = [
+      dg.stale ? dg.stale + " 条记录属别的学期，已排除" : "",
+      dg.unmatched ? dg.unmatched + " 条记录没对上本学期课表" : "",
+      dg.unknown ? dg.unknown + " 条记录没带审批状态，未计入" : "",
+      dg.merged ? dg.merged + " 条是同一次课的重复申请，已按最有利的一条计" : "",
+      // 拿不到学期区间时上面四条都可能成立不了：记录没筛过，宁可说一句，别让人以为已按本学期算过
+      !dg.term && Array.isArray(jwState.data.qjRecord) && jwState.data.qjRecord.length
+        ? "没拿到学期起止日，请假记录未按学期筛" : "",
+    ].filter(Boolean).join("；");
+    return `<div class="jw-leave">
+      <section class="jg-card"><div class="jg-metrics">${metrics}</div>
+        <div class="jg-note">按本学期课次推算：1 次课 = 2 学时，允许缺勤总学时的 1/3 再折成课次；未通过 / 已撤销的申请按旷课计，超过 3 次同样到红线。${noRec ? "（请假记录这次没拿到，已批与审批中按 0 计，只反映额度。）" : ""}${dgNote ? "（" + dgNote + "。）" : ""}只读 —— 申请仍在「学生请假」里提交。</div></section>
+      ${jwSection("按风险排序", `${rows.length} 门课 · ${jwAt("qjCourse")}`, rows.map(jwRiskCardHtml).join(""))}
+    </div>`;
+  }
+
   const jwGradeDone = (r) => String(r?.SFHDXF || "") === "1";
   const jwModuleLabel = (code) => {
     const c = String(code ?? "").trim();
@@ -5502,6 +5865,17 @@
       body: () => jwLeaveHtml(),
     },
     {
+      /* 考勤风险（v0.299.0）：口径来自 cppu_helper 的 AttendanceRisk（原 APK 的功能），
+         数据换成插件已有的两条只读通道 —— qjCourse（本学期课次）+ qjRecord（请假状态）。
+         icon 用 shield-halved：这一页是「守住额度别踩红线」，与请假页的 calendar-xmark
+         （要请假）不是同一件事；solid 精灵里已有该符号（隐私模式按钮也用 it）。
+         只读：不新增任何提交动作。 */
+      id: "cppu-risk", title: "考勤风险", icon: "shield-halved", keys: ["qjRecord", "qjCourse"], menu: JW_MENU.qj,
+      kicker: "教 务 · 考 勤 风 险",
+      tip: "按本学期课次推算每门课还能缺几次：1 次课 = 2 学时，允许缺总学时的 1/3 再折成课次；未通过 / 已撤销的申请按旷课计，超过 3 次同样到红线。只读 —— 申请仍在「学生请假」里提交。",
+      body: () => jwRiskHtml(),
+    },
+    {
       // 保留旧视图 id：用户原先的导航入口与快捷键继续有效，内容切到 cppu-helper 成绩页。
       id: "cppu-credit", title: "警大成绩", icon: "chart-line", keys: ["grade", "pdataStudy"], menu: JW_MENU.grades,
       kicker: "教 务 · 成 绩",
@@ -5547,9 +5921,11 @@
       // 自习室查询（教室占用 / 借用）：校方挂在 学生服务 › 公共服务 下，nodeInfo=ZXZYCX。
       // icon 用 door-open —— 一扇开着的门，语义直给，且与教务子菜单里其余视图图标不撞。
       // 只读：申请借用仍去教务提交（与交请假、选课同一条口径）。
-      id: "cppu-room", title: "自习室", icon: "door-open", keys: ["room"], menu: JW_MENU.room,
+      // 首页先给「今天去哪」：按教务课次（qjCourse）定位楼与楼层，再列这层的空教室（v1.90.0）。
+      // keys 因此多带一个 qjCourse —— 课表是这页的前置，不是另一个视图才有的数据。
+      id: "cppu-room", title: "自习室", icon: "door-open", keys: ["room", "qjCourse"], menu: JW_MENU.room,
       kicker: "教 务 · 自 习 室 查 询",
-      tip: "教室占用与开放时段按楼与教室分组；可切成按日期看或平铺，也能按楼 / 节次 / 状态筛选。申请借用仍在教务里提交。",
+      tip: "顶上按你的课表定位：这节课在哪栋哪层、这层这会儿哪些教室空着；下面是全楼清单，可按日期 / 楼 / 节次 / 关键词筛选。申请借用仍在教务里提交。",
       body: () => jwRoomHtml(),
     },
   ];
@@ -5716,6 +6092,19 @@
         if (!Array.isArray(jwState.data.qjCourse)) await jwEnsureKeys(["qjCourse"]);
         return;
       }
+      // 首页「今天去哪」→ 看这层：等价于点楼胶囊 + 节次胶囊，再把那栋楼的卡滚进视野。
+      // 只改 jwState 后重绘，卡片显隐 / 计数仍由同一套渲染与过滤算，不另起一条口径。
+      const planGo = e.target.closest("[data-room-plan-go]");
+      if (planGo) {
+        jwState.roomBld = planGo.dataset.roomPlanBld || "";
+        jwState.roomSlot = planGo.dataset.roomPlanSlot || "all";
+        jwPaint();
+        jwSyncRoomGlow(el);
+        jwApplyRoomFilter(el);
+        el.querySelector(`[data-room-bld="${jwRoomAttr(jwState.roomBld)}"]`)
+          ?.scrollIntoView({ block: "start", behavior: "smooth" });
+        return;
+      }
       // 自习室按楼收窄（v0.275.0）：只改 jwState 再重绘，卡片显隐由渲染层的 visible 与
       // jwApplyRoomFilter 的 scope 共同决定 —— 搜索词必须就地重套一遍，否则选楼之后
       // 之前打的过滤词看着还在输入框里、却没有生效。
@@ -5731,8 +6120,19 @@
       const roomSlot = e.target.closest("[data-room-slot]");
       if (roomSlot) {
         jwState.roomSlot = roomSlot.dataset.roomSlot || "all";
+        // 退回「全部」时「只看空」自动失效：没有具体节次可看空，留着会是一个按不动的按钮
+        if (jwState.roomSlot === "all") jwState.roomOnlyFree = false;
         jwPaint();
         jwSyncRoomGlow(el);
+        jwApplyRoomFilter(el);
+        return;
+      }
+      // 只看空（v0.299.0）：只切类 + 就地过滤，不重绘 —— 重绘会把筛选框换掉
+      const roomFree = e.target.closest("[data-room-onlyfree]");
+      if (roomFree) {
+        jwState.roomOnlyFree = !jwState.roomOnlyFree;
+        roomFree.classList.toggle("on", jwState.roomOnlyFree);
+        roomFree.setAttribute("aria-pressed", String(jwState.roomOnlyFree));
         jwApplyRoomFilter(el);
         return;
       }
@@ -7692,6 +8092,42 @@
     return () => { disposed = true; if (typeof teardown === "function") teardown(); };
   }
 
+  /* 校园地图：点位来自 cppu-helper（Rooms.java 的 7 栋楼 + 13 个地标），画法在 campus-map.js。
+     走离线 SVG 示意图而不是在线瓦片 —— 理由与坐标换算都写在那个文件的头注释里。
+     楼名是可调的字号（图里直接画文字），这正是 cppu-helper 里 12sp marker title 做不到的。
+     bridge.openRoom 复用自习室那套楼名口径（A 栋 / E 栋 / 主楼 / 7S 楼）：
+     点「看某栋的自习室」先写 jwState.roomBld 再 navigate，落到 cppu-room 就是过滤好的那一栋。 */
+  let mapModule = null, mapView = null;
+  const mapBridge = {
+    openRoom(bld) {
+      if (!bld) return;
+      jwState.roomBld = bld;
+      tide.util.navigate("cppu-room");
+    },
+  };
+  function mountCampusMapView(el) {
+    let disposed = false, teardown = null;
+    ensureStyle();
+    el.innerHTML = `<div class="${sideShellClass()}"><aside class="pp-side" data-side>${sideHtml()}</aside>${sideToggleHtml()}`
+      + `<div class="pp-main"><div data-cp-host><div style="padding:30px;text-align:center;color:#A9B2BA;font-size:calc(12.5px * var(--ui-text-scale))">正在载入校园地图…</div></div></div></div>`;
+    bindSide(el);
+    loadLinkMeta(el);
+    (mapModule || (mapModule = import("/plugins/cppu-notify/campus-map.js")))
+      .then((mod) => {
+        if (disposed) return;
+        const host = el.querySelector("[data-cp-host]");
+        if (!host) return;
+        mapView = mapView || mod.createCampusMapView(tide, mapBridge);
+        teardown = mapView.render(host);
+      })
+      .catch(() => {
+        mapModule = null;
+        const host = el.querySelector("[data-cp-host]");
+        if (host && !disposed) host.innerHTML = '<p class="pp-tip" style="padding:24px;text-align:center">校园地图模块加载失败，请重新打开本视图重试</p>';
+      });
+    return () => { disposed = true; if (typeof teardown === "function") teardown(); };
+  }
+
   tide.ui.registerView({ id: "cppu-notify", title: "警大通知", icon: 'building-columns', render });
   tide.ui.registerView({ id: "cppu-card", title: "警大一卡通", icon: "credit-card", render: mountCardView });
   // 上网记录（drcom.cppu.edu.cn 自助服务系统）：另一套会话（JSESSIONID + 图形验证码），
@@ -7716,6 +8152,9 @@
   // 我的体测（sport-wechat.cppu.edu.cn）：只有企业微信能进的体测系统，取数靠同步脚本落下的 token。
   // icon 用 heart-pulse 不用 person-running：后者语义偏「运动」，这一页是体测成绩单。
   tide.ui.registerView({ id: "cppu-fitness", title: "我的体测", icon: "heart-pulse", render: mountFitnessView });
+  // 校园地图（v0.298.0）：楼与地标的相对位置一张图看完。icon 用 map-location-dot ——
+  // 此前只有 webContent.js 的链接图标映射用它，没有任何视图占用，侧栏里不会撞。
+  tide.ui.registerView({ id: "cppu-map", title: "校园地图", icon: "map-location-dot", render: mountCampusMapView });
   // 后台轮询：收到验证码就写进剪贴板（v0.268.0）。没 window 的环境（测试 / 极早期加载）不排程。
   scheduleMailWatch();
   // 启动预热（v0.246.0 引入，v0.272.7 才真正挂上）—— 插件在应用启动时由 initPluginHost

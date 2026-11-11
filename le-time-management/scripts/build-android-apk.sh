@@ -20,6 +20,11 @@ export JAVA_HOME="${JAVA_HOME:-${LOCALAPPDATA:-$HOME/AppData/Local}/Programs/Ecl
 export ANDROID_HOME="D:/Environment/android-sdk"
 export NDK_HOME="D:/Environment/android-sdk/ndk/27.0.12077973"
 export ANDROID_NDK_ROOT="$NDK_HOME"   # cc-rs（ring 等 C 依赖）认这个
+# 🔴 交叉编译必须走 stable 工具链，不能用默认的 nightly：
+#    nightly 上 rustup target add aarch64-linux-android 会因 lib/rustlib/aarch64-linux-android
+#    里残留文件报 detected conflict 并回滚（实测 2026-11-11），而 stable 侧四个 android target 齐全。
+#    缺 target 时的报错：error[E0463] cannot find crate for core。
+export RUSTUP_TOOLCHAIN="${RUSTUP_TOOLCHAIN:-stable}"
 # NDK 工具链在 Windows 上打开中文路径会编码损坏（lld 无法读取 .o/.rlib），
 # 所以 cargo 的 target 目录必须放纯 ASCII 路径；首次构建会全量重编依赖
 TARGET_DIR="D:/Environment/android-target"

@@ -47,8 +47,8 @@ const context = vm.createContext({URL,Set,Map,Date,console,setTimeout,clearTimeo
   Image:class{constructor(){this.naturalWidth=0;this.naturalHeight=0;}set src(v){this._src=v;}decode(){return Promise.reject(new Error('cannot decode'));}},
   tide:{ui:{registerView:(def)=>{views.push(def);}},http:{session:async()=>'s1',restoreCookies:async(dump)=>{calls.push(['restore',dump]);return 'restored-sid';},fetch:async(...args)=>{calls.push(args);return typeof response==='function'?response(...args):response;}},storage:{set:async(k,v)=>{storageData[k]=v;},get:async(k,d)=>(k in storageData?storageData[k]:(d===undefined?null:d))},vault:{get:async(key)=>vaultData[key]||null,set:async(key,value)=>{vaultData[key]=value;},del:async(key)=>{delete vaultData[key];}},util:{openUrl:(url)=>opened.push(url),openMailPage:(url,sid)=>opened.push(['mailPage',url,sid||'']),web:{formEncode:(fields)=>Object.entries(fields).map(([k,v])=>`${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&'),detectLoginForm:(html,base)=>html.includes('name="uid"')?{action:new URL('/coremail/index.jsp?cus=1',base).href,method:'POST',usernameField:'uid',passwordField:'password',captchaField:'',fields:[{name:'action',value:'login'}]}:null}},notify:(message,opts)=>{notices.push(message);noticeOpts.push(opts||{});},assets:{saveBase64:async(name,b64)=>{saved.push([name,b64]);return 'D:/Downloads/'+name;},revealSaved:async(p)=>{revealed.push(p);return {ok:true};}}}
 });
-vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailWeb,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwHoursRest,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,pdataRankCard,pdataRadarCard,pdataRadarSvg,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,jwStateBlock,mountJwView,JW_VIEWS,cardIsExpense,bannerRefreshHtml,cardSetStatus,mailBridge,mailRsaEscape,mailXmlTree,warmSession,scheduleWarm};\n  tide.ui.registerView({'),context);
-const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailWeb,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwHoursRest,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,pdataRankCard,pdataRadarCard,pdataRadarSvg,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense,jwStateBlock,mountJwView,JW_VIEWS,bannerRefreshHtml,cardSetStatus,mailBridge,mailRsaEscape,mailXmlTree,warmSession,scheduleWarm}=context.testApi;
+vm.runInContext(source.replace('  tide.ui.registerView({','  globalThis.testApi = {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailWeb,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwHoursRest,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,pdataRankCard,pdataRadarCard,pdataRadarSvg,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,jwStateBlock,mountJwView,JW_VIEWS,cardIsExpense,bannerRefreshHtml,cardSetStatus,mailBridge,mailRsaEscape,mailXmlTree,warmSession,scheduleWarm,jwRoomPlanHtml,jwRoomFloorOf,jwRoomClockSlot,jwRoomFocus,jwRoomBuilding,jwRiskRows,jwRiskHtml,jwTermFresh,jwRestoreCache};\n  tide.ui.registerView({'),context);
+const {state,cardHtml,loadDetail,loadPage,newSession,cleanText,noticeKind,extractAttachments,downloadAttachment,OCR,restoreCookies,silentRenew,submitLogin,finishPortalLogin,openSideLink,openMailWeb,jeLoad,explainHttpError,ensureJwSession,ensureJwLogin,jwLive,jwDict,jwTermName,clearSavedLogin,jwState,jwHoursRest,jwTaskStatus,jwTaskDetailHtml,jwTaskHtml,jwResultHtml,jwLeaveHtml,jwGradeDone,jwAcademicCreditHtml,jwGradesHtml,pdataRankCard,pdataRadarCard,pdataRadarSvg,jwExportGrades,gradeGpa,gradeSemLabel,jwInnovationCreditHtml,cardState,filtered,cardIsRecharge,cardNormalizeBill,cardTotals,cardStatsHtml,cardBalanceFromDetail,cardFetchBalance,cardFetchBills,cardIsExpense,jwStateBlock,mountJwView,JW_VIEWS,bannerRefreshHtml,cardSetStatus,mailBridge,mailRsaEscape,mailXmlTree,warmSession,scheduleWarm,jwRoomPlanHtml,jwRoomFloorOf,jwRoomClockSlot,jwRoomFocus,jwRoomBuilding,jwRiskRows,jwRiskHtml,jwTermFresh,jwRestoreCache}=context.testApi;
 const item={RESOURCE_ID:'test',PIM_TITLE:'Test <notice>',CREATE_TIME:1};
 assert.match(cardHtml(item),/展开正文/);
 assert.match(cardHtml(item),/class="pp-detail-shell" aria-hidden="true"/);
@@ -980,6 +980,58 @@ assert.match(shellSrc, /data-jw-site>浏览器打开</, '跳转教务那颗按�
 assert.ok(shellSrc.indexOf('data-jw-back') < shellSrc.indexOf('data-jw-site'), '「浏览器打开」要排到最后');
 assert.ok(!shellSrc.includes('>去教务<'), '顶部不再有「去教务」按钮');
 
+/* 首页「今天去哪」（v1.90.0）：先按课表定位到楼与楼层，再答这层哪些教室空着。
+   课表不跨插件读 storage（per-plugin 命名空间），用本插件自己的教务课次 qjCourse ——
+   与「选课 / 请假」同一份数据，教室名与自习室的 YWMC 同一套写法。 */
+assert.match(source, /keys: \["room", "qjCourse"\]/, '自习室要自带课次数据，否则首页根本拿不到「哪节课」');
+assert.match(roomSrc, /JW_ROOM_CLOCK/, '节次要能落到钟点上：自习室接口只有日期 + 节次码');
+assert.match(roomSrc, /节次按作息推算/, '「现在第几节」是推算的，界面上必须写明，不冒充教务给的时刻');
+assert.match(roomSrc, /data-room-plan-go/, '卡片要能一键跳到「这层全部教室」，与楼 / 节次胶囊联动');
+assert.match(roomSrc, /data-room-plan-bld="\$\{esc\(bld\)\}"/, '跳转按钮带楼名，楼层由节次与卡片本身交代');
+assert.match(roomSrc, /jwRoomPlanHtml\(\{ slots, blds, day: theDay \}\)/, '卡片跟所选日期走（看明天就说明天），不是永远「现在」');
+
+// 楼层解析：最后一个数字串是房号，去掉末两位是层；读不出来的不猜
+assert.equal(jwRoomFloorOf('A102'), 1);
+assert.equal(jwRoomFloorOf('538'), 5);
+assert.equal(jwRoomFloorOf('7S-101'), 1);
+assert.equal(jwRoomFloorOf('A1201'), 12);
+assert.equal(jwRoomFloorOf('穗7-3'), 3);
+assert.equal(jwRoomFloorOf('第一阶梯教室'), 0, '没有房号的场地不猜楼层（按整栋看）');
+assert.equal(jwRoomBuilding('A207'), 'A 栋', '楼名沿用全楼清单那一套，两处不能各认一套');
+
+// 「现在第几节」：课间算下一节，课全上完是 after
+assert.equal(jwRoomClockSlot(new Date('2026-11-05T07:30:00')).code, '01');
+assert.equal(jwRoomClockSlot(new Date('2026-11-05T09:50:00')).phase, 'before', '大课间按下一节算');
+assert.equal(jwRoomClockSlot(new Date('2026-11-05T15:00:00')).phase, 'in');
+assert.equal(jwRoomClockSlot(new Date('2026-11-05T23:30:00')).phase, 'after');
+assert.equal(jwRoomClockSlot(new Date('2026-11-05T23:30:00')).code, '', '课全上完就别再编一个节次');
+
+// 卡片：看别的日子按那天第一节课定位，空闲教室只取同一楼层
+const planModel = {
+  slots: ['01', '03'],
+  blds: [['A 栋', [
+    { name: 'A201', slots: new Map([['01', '2'], ['03', '2']]) },
+    { name: 'A203', slots: new Map([['01', '1'], ['03', '2']]) },
+    { name: 'A205', slots: new Map([['01', '1'], ['03', '1']]) },
+    { name: 'A101', slots: new Map([['01', '2'], ['03', '2']]) },
+  ]]],
+  day: '2026-12-01',
+};
+jwState.data.qjCourse = [{ SKRQ: '2026-12-01', JC: '03', DDMC: 'A201', KCMC: '高等数学' }];
+const planHtml = jwRoomPlanHtml(planModel);
+assert.match(planHtml, /A 栋 2 层/, '要去的楼与楼层从课表地点来');
+assert.match(planHtml, /高等数学 · 5-6 节 · A201/, '副行给出课程 / 节次 / 教室');
+assert.match(planHtml, /这层空闲 <b>2<\/b> \/ 3 间/, '分母只算同一楼层的教室（A101 在 1 层，不该进这张卡）');
+assert.match(planHtml, /A203/, '这节空闲的教室号要直接列出来');
+assert.doesNotMatch(planHtml, /A101/, '别的楼层不进这张卡');
+
+// 这天没课：往后 7 天找最近一节，并说明是哪天
+jwState.data.qjCourse = [{ SKRQ: '2026-12-03', JC: '01', DDMC: 'A101', KCMC: '大学物理' }];
+const awayHtml = jwRoomPlanHtml(planModel);
+assert.match(awayHtml, /这天没课/, '这天没课要说清楚');
+assert.match(awayHtml, /12-03 周/, '顺便告诉用户下一次课是哪天');
+jwState.data.qjCourse = null;
+
 /* ── 11.1 传输层抖动：reqwest 的 Display 只有 "error sending request for url (…)" 一句，
    成因（DNS / 超时 / 连接被掐）全在 cause 链里，由 Rust 侧摊平后送上来。
    两条要求：① 读查询遇到毛刺要自己重发一次，别把一次抖动变成一整屏报错；
@@ -1035,8 +1087,154 @@ assert.ok(source.includes('const JW_LOAD = JWAPP + "/je/load"'), '教务取数�
    v0.281.0 起这两页合并 —— 同一个 pdata 站点、同一份 token，只留「个人信息」一个入口。
    v0.282.0 新增「我的体测」：sport-wechat 体测成绩单，走企业微信 OAuth 的 Authorization token，
    数据是快照（进页面读缓存，只有点刷新才重新拉）。 */
-assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-credit-ledger', 'cppu-cx', 'cppu-exam', 'cppu-fitness', 'cppu-mail', 'cppu-net', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-room', 'cppu-xk'],
+assert.deepEqual(views.map((v) => v.id).sort(), ['cppu-award', 'cppu-calendar', 'cppu-card', 'cppu-credit', 'cppu-credit-ledger', 'cppu-cx', 'cppu-exam', 'cppu-fitness', 'cppu-mail', 'cppu-map', 'cppu-net', 'cppu-notify', 'cppu-profile', 'cppu-qj', 'cppu-risk', 'cppu-room', 'cppu-xk'],
   '必须注册通知、获奖名单、警大校历、自习室、个人信息（含成长数据）、我的体测、上网记录、邮箱、我的学分、我的考试及六个教务/一卡通视图，登录设置属于应用设置');
+/* 考勤风险（v0.299.0）：口径照搬 cppu-helper 的 AttendanceRisk ——
+   额度 = 学时 / 3 / 2 取整（30 次课的课 = 60 学时 → 10 次）；红线两条：已批准超过额度、
+   未通过满 3 次（按旷课折 2 学时一次，6 学时）；等级四档按这两条与剩余次数排。 */
+assert.match(source, /id: "cppu-risk", title: "考勤风险", icon: "shield-halved"[^\n]*keys: \["qjRecord", "qjCourse"\][\s\S]*?body: \(\) => jwRiskHtml\(\)/,
+  '考勤风险要同时拉请假记录与课表，页面由 jwRiskHtml 渲染');
+assert.match(source, /view: "cppu-risk", label: "考勤风险"/, '教务菜单必须有考勤风险入口');
+assert.match(source, /const allowed = Math\.trunc\(Math\.trunc\(totalHours \/ 3\) \/ 2\)/, '额度必须按「学时 / 3 / 2」取整，与原版一致（先除 3 再除 2，两步都截断）');
+assert.match(source, /const blockedA = it\.approved > allowed;/, '红线一：已批准次数超过额度');
+assert.match(source, /const blockedB = it\.rejected > 3;/, '红线二：未通过满 3 次');
+assert.match(source, /level: lost \? 3 : remaining <= 0 \? 2 : remaining <= 1 \? 1 : 0/, '等级四档：已超红线 / 额度用完 / 仅剩一次 / 安全');
+assert.match(source, /const jwRiskApproved = \(s\) => String\(s \?\? ""\)\.trim\(\) === "2";/, 'SQZT 只认 2 = 已同意；3（未同意）算通过会误报超红线');
+assert.match(source, /const jwRiskPending = \(s\) => String\(s \?\? ""\)\.trim\(\) === "1";/, 'SQZT 1 = 审批中单独计数，不和未通过混在一起');
+assert.match(source, /normalize\("NFKC"\)\.replace/, '课程名要 NFKC 归一：全角空格 / 大小写差异会让同名课漏配成 0');
+assert.match(source, /day < term\.from \|\| day > term\.to/, '学期外的请假单必须挡掉，否则上学期记录累成假红线');
+assert.match(source, /span >= 28/, '拿课次日期当学期范围前必须先看跨度：单次课跨度 0 天会把别的日期记录全排掉');
+assert.match(source, /const seen = new Map\(\);/, '同一节课要按「课程 + 上课日」判重');
+assert.match(source, /if \(!st\) \{ unknown\+\+; continue; \}/, '记录没带 SQZT 时不能猜状态，更不能算旷课');
+assert.match(source, /const remainingTruancy = Math\.max\(3 - it\.rejected, 0\);/, '还能旷几次要按 3 次基线递减');
+/* 自习室「只看空」（v0.299.0）：只在选定某一节时可点，切回全时段必须复位 */
+assert.match(source, /data-room-onlyfree/, '自习室筛选条要有「只看空」');
+assert.match(source, /if \(jwState\.roomSlot === "all"\) jwState\.roomOnlyFree = false;/, '切回全时段要复位只看空，否则按钮变灰而状态仍为真，教室被无声过滤掉');
+/* 学期缓存的可信期（v0.299.2）：term 跟着 jwCache 落盘，放假后继续复用旧 term 会让课表与考勤
+   把上学期当成这学期算 —— 而 loadJwTerm 见到 term 非空就不问教务，用户只看到一份没提示的旧数据。
+   判据取教务给的学期结束日，超一周即作废；老缓存没日期就按写入时间兜 30 天。 */
+assert.match(source, /function jwTermFresh\(t\)/, '学期缓存要有可信期判定');
+assert.match(source, /if \(!force && jwState\.term && jwTermFresh\(jwState\.term\)\) return jwState\.term;/, '过期 term 不能挡住重新查询教务');
+assert.match(source, /if \(c\.term && !jwState\.term && jwTermFresh\(c\.term\)\) jwState\.term = c\.term;/, '旧学期的缓存 term 不能恢复');
+assert.match(source, /没拿到学期起止日，请假记录未按学期筛/, '拿不到学期边界时要在页脚说清记录没筛过');
+
+/* 真跑一遍额度计算：30 次课 = 60 学时 → 可缺 10 次，与原版 AttendanceRisk 对得上 */
+jwState.data.qjCourse = Array.from({ length: 30 }, () => ({ KCMC: '警务战术' }));
+jwState.data.qjRecord = [];
+let risk = jwRiskRows();
+assert.equal(risk.length, 1, '按课程名聚合');
+assert.equal(risk[0].totalHours, 60, '1 次课 = 2 学时');
+assert.equal(risk[0].allowed, 10, '60 学时 → 可缺 10 次（先除 3 再除 2，两次都截断）');
+assert.equal(risk[0].remaining, 10);
+assert.equal(risk[0].level, 0, '一次没请 = 安全档');
+jwState.data.qjRecord = [{ KCMC: '警务战术', SQZT: '3' }, { KCMC: '不存在的课', SQZT: '2' }];
+risk = jwRiskRows();
+assert.equal(risk.length, 1, '请假单上不在课表里的课程名要丢掉，不能凭空多出一门课');
+assert.equal(risk[0].approved, 0, 'SQZT 3 = 未同意，不能算已批准（原版这里算错，会把 1 条未同意变成超红线）');
+assert.equal(risk[0].rejected, 1, '未同意按旷课计，占用 3 次红线额度');
+jwState.data.qjRecord = Array.from({ length: 10 }, () => ({ KCMC: '警务战术', SQZT: '2' }));
+risk = jwRiskRows();
+assert.equal(risk[0].remaining, 0);
+assert.equal(risk[0].level, 2, '额度刚好用完 = 「额度用完」档，还不算超线');
+assert.equal(risk[0].blockedA, false);
+jwState.data.qjRecord.push({ KCMC: '警务战术', SQZT: '2' });
+risk = jwRiskRows();
+assert.equal(risk[0].blockedA, true, '第 11 次批准就超额度');
+assert.equal(risk[0].lost, true);
+assert.equal(risk[0].level, 3, '超线直接落到最差档');
+jwState.data.qjRecord = Array.from({ length: 4 }, () => ({ KCMC: '警务战术', SQZT: '0' }));
+risk = jwRiskRows();
+assert.equal(risk[0].rejected, 4, 'SQZT 0 = 未通过 / 已撤销');
+assert.equal(risk[0].blockedB, true, '未通过满 3 次同样到红线');
+assert.equal(risk[0].remainingTruancy, 0, '还能旷的次数不能算成负数');
+jwState.data.qjRecord = [{ KCMC: '警务战术', SQZT: '2' }, { KCMC: '警务战术', SQZT: '1' }, { KCMC: '警务战术', SQZT: '1' }];
+risk = jwRiskRows();
+assert.equal(risk[0].pending, 2, 'SQZT 1 = 审批中');
+assert.equal(risk[0].remaining, 9);
+assert.equal(risk[0].pendingAfter, 7, '全批之后还剩几次（10 - 1 - 2）');
+/* v0.299.1 修的三处误报 / 漏报：SQZT 3 误判已批、上学期记录混入、课程名带空格对不上 */
+jwState.term = { code: '20262027-1', termStart: '2026-09-01', termEnd: '2027-01-20' };
+jwState.data.qjCourse = Array.from({ length: 9 }, () => ({ KCMC: '体育', SKRQ: '2026-11-05' }));
+jwState.data.qjRecord = [
+  { KCMC: '体育', SQZT: '2', SKRQ: '2026-04-10' },
+  { KCMC: '体育', SQZT: '2', SKRQ: '2026-05-08' },
+  { KCMC: '体育', SQZT: '2', SKRQ: '2025-11-20' },
+  { KCMC: '体育', SQZT: '2', SKRQ: '2026-11-05' },
+];
+risk = jwRiskRows();
+assert.equal(risk[0].approved, 1, '只算本学期的 1 条，上学期同名课的请假单不能累加');
+assert.equal(risk[0].remaining, 2);
+assert.equal(risk[0].lost, false, '旧记录混进来会把 3 次额度撑爆成假红线');
+assert.equal(risk.diag.stale, 3, '排掉几条要能说清，不能静默吞掉');
+assert.match(jwRiskHtml(), /3 条记录属别的学期，已排除/, '页脚必须把排除条数写出来');
+jwState.data.qjCourse = Array.from({ length: 6 }, () => ({ KCMC: '高等数学 A', SKRQ: '2026-10-08' }));
+jwState.data.qjRecord = [{ KCMC: '高等数学A', SQZT: '2', SKRQ: '2026-10-08' }];
+risk = jwRiskRows();
+assert.equal(risk[0].approved, 1, '课表「高等数学 A」与请假单「高等数学A」是同一门课，只 trim 会漏配成 0');
+assert.equal(risk[0].remaining, 1);
+jwState.data.qjCourse = [{ KCMC: '短程课', SKRQ: '2026-10-08' }];
+jwState.data.qjRecord = [{ KCMC: '短程课', SQZT: '2', SKRQ: '2026-10-08' }];
+risk = jwRiskRows();
+assert.equal(risk[0].allowed, 0, '只排 1 次课，折不出额度');
+assert.equal(risk[0].usedRatio, 1, '额度为 0 时已批 1 次要显示成用满，不能条是空的却写已超红线');
+assert.equal(risk[0].level, 3);
+jwState.term = null;
+/* v0.299.2 又抓到的三处：单次课兜底过窄 / 缺 SQZT 被当旷课 / 同一节课撤销后重提被算两次 */
+jwState.data.qjCourse = [{ KCMC: '形势与政策', SKRQ: '2026-10-08' }];
+jwState.data.qjRecord = [{ KCMC: '形势与政策', SQZT: '2', SKRQ: '2026-10-15' }];
+risk = jwRiskRows();
+assert.equal(risk[0].approved, 1, 'term 未知、课次只有一天时不能拿当天当学期范围，否则别的日期记录被误排');
+assert.equal(risk.diag.stale, 0);
+jwState.term = { termStart: '2026-09-01', termEnd: '2027-01-20' };
+jwState.data.qjCourse = Array.from({ length: 6 }, () => ({ KCMC: '刑法学', SKRQ: '2026-10-08' }));
+jwState.data.qjRecord = Array.from({ length: 4 }, () => ({ KCMC: '刑法学', SKRQ: '2026-10-08' }));
+risk = jwRiskRows();
+assert.equal(risk[0].rejected, 0, '记录没带 SQZT 时不能凭空算旷课（4 条就会误判已超红线）');
+assert.equal(risk[0].lost, false);
+assert.equal(risk.diag.unknown, 4);
+assert.match(jwRiskHtml(), /4 条记录没带审批状态，未计入/);
+jwState.data.qjCourse = Array.from({ length: 12 }, () => ({ KCMC: '刑事诉讼法', SKRQ: '2026-10-08' }));
+jwState.data.qjRecord = [
+  { KCMC: '刑事诉讼法', SQZT: '0', SKRQ: '2026-10-08' },
+  { KCMC: '刑事诉讼法', SQZT: '2', SKRQ: '2026-10-08' },
+];
+risk = jwRiskRows();
+assert.equal(risk[0].approved, 1);
+assert.equal(risk[0].rejected, 0, '同一节课先撤销后重提只算一次，不能既算已批又算旷课');
+assert.equal(risk.diag.merged, 1);
+jwState.term = null;
+jwState.data.qjCourse = [];
+jwState.data.qjRecord = [];
+/* 页面层也真跑一次：超红线要落到「已超红线」标签与摘要里，空数据要给人话空态 */
+jwState.data.qjCourse = Array.from({ length: 30 }, () => ({ KCMC: '警务战术' }));
+jwState.data.qjRecord = Array.from({ length: 11 }, () => ({ KCMC: '警务战术', SQZT: '2' }));
+const riskHtml = jwRiskHtml();
+assert.match(riskHtml, /已超红线/, '11 次批准 / 额度 10 → 卡片打最差档标签');
+assert.match(riskHtml, /jg-metrics/, '页面顶部要有四格摘要');
+assert.match(riskHtml, /只读/, '页脚要说明这是只读推算、不吃掉提交入口');
+jwState.data.qjCourse = [];
+jwState.data.qjRecord = [];
+assert.match(jwRiskHtml(), /教务还没返回本学期课次/, '课表没拉到时给可操作的空态，不画一张空表');
+/* 学期缓存真跑：放假后那次打开，缓存里的旧 term 必须被拒，别让整页按上学期算 */
+const shiftDay = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+storageData.jwCache = { username: null, term: { code: '2025-2026-2', termStart: shiftDay(-300), termEnd: shiftDay(-120), at: Date.now() - 120 * 86400000 }, keep: {}, at: {}, prefs: {} };
+jwState.term = null;
+await jwRestoreCache();
+assert.equal(jwState.term, null, '学期结束日已过 4 个月的缓存 term 不能恢复，否则课表与考勤按上学期算');
+storageData.jwCache = { username: null, term: { code: '2026-2027-1', termStart: shiftDay(-60), termEnd: shiftDay(180), at: Date.now() }, keep: {}, at: {}, prefs: {} };
+await jwRestoreCache();
+assert.equal(jwState.term?.code, '2026-2027-1', '学期内的缓存 term 要复用，不能每次进页面都去问教务');
+assert.equal(jwTermFresh({ code: '2026-2027-1', jxStart: shiftDay(-50), at: Date.now() - 40 * 86400000 }), false, '没有结束日期的老缓存按写入时间兜 30 天');
+assert.equal(jwTermFresh({ code: '2026-2027-1', jxStart: shiftDay(-30) }), true, '连 at 都没有的老缓存不能一刀切扔掉');
+jwState.term = null;
+jwState.data.qjCourse = [{ KCMC: '体育', SKRQ: shiftDay(-40) }];
+jwState.data.qjRecord = [{ KCMC: '体育', SKRQ: shiftDay(-40), SQZT: '2' }];
+const noTermRows = jwRiskRows();
+assert.equal(noTermRows.diag.term, null, '没有学期边界、课次跨度不足 28 天时只能不筛');
+assert.match(jwRiskHtml(), /没拿到学期起止日，请假记录未按学期筛/, '没筛过就要说，不能让人以为已按本学期算');
+jwState.data.qjCourse = [];
+jwState.data.qjRecord = [];
+
 assert.ok(views.filter((v) => v.id !== 'cppu-notify').every((v) => typeof v.render === 'function'), '插件子视图必须有 render');
 assert.ok(views.some((v) => v.id === 'cppu-cx' && v.title === '警大创新学分'), '创新学分视图要有独立标题');
 assert.ok(views.some((v) => v.id === 'cppu-credit' && v.title === '警大成绩'), '原警大学分视图应以警大成绩注册');

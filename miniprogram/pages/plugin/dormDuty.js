@@ -1,5 +1,6 @@
 const store = require("../../core/store.js");
 const runtime = require("../../core/pluginRuntime.js");
+const files = require("../../core/files.js");
 
 module.exports = {
   /* ── 轮换值日 ──
@@ -24,6 +25,16 @@ module.exports = {
     dd.newMemberName = (this.data.dd && this.data.dd.newMemberName) || "";
     dd.newLocationName = (this.data.dd && this.data.dd.newLocationName) || "";
     dd.remindBanner = [];
+    // 总览选择独立于 activeId：它只控制正在看的面板，不会改动当前编辑的轮换。
+    dd.panelTabs = [{ id: "overview", name: "总面板", on: dd.panelView === "overview" }]
+      .concat(dd.groups.map((g) => ({
+        id: g.id, name: g.name, who: g.who,
+        on: dd.panelView === "group" && g.id === dd.activeId,
+      })));
+    const settings = (store.getState() || {}).settings || {};
+    dd.reducedMotion = settings.motion === "reduced"
+      || !!(settings.ui && settings.ui.motion === "reduced")
+      || !!(settings.uiPreferences && settings.uiPreferences.motion === "reduced");
     // 到点提醒：小程序不常驻后台、宿主也不给定时回调，只能在打开本页时补一次。
     // 先落盘「已提醒」再弹提示 —— 万一多个入口同时打开，也只有一个能抢到写入。
     const groups = this.ddGroups();
@@ -44,13 +55,49 @@ module.exports = {
     dd.dutyNames = (dd.members || []).map((m) => m.name);
     dd.dutyIndex = Math.max(0, (dd.members || []).findIndex((m) => m.isCurrent));
     dd.dutyName = dd.dutyNames[dd.dutyIndex] || "";
-    this.setData({ dd });
+    const previous = this.data.dd || {};
+    dd.panelGlow = previous.panelGlow || { left: 0, top: 0, width: 0, height: 0, visible: false };
+    this.setData({ dd }, () => this.ddSyncPanelGlow(dd.panelView, dd.activeId));
+  },
+  /** 按按钮实测尺寸移动选中光，宽度随组名变化，连续切换从当前位置接续。 */
+  ddSyncPanelGlow(panelView, activeId) {
+    if (!wx.createSelectorQuery) return;
+    wx.createSelectorQuery().in(this)
+      .select(".dd-panel-tabs-inner").boundingClientRect()
+      .select(".dd-panel-tab.on").boundingClientRect()
+      .exec((boxes) => {
+        const current = this.data.dd || {};
+        if (this._unloaded || !boxes || !boxes[0] || !boxes[1]
+          || current.panelView !== panelView || current.activeId !== activeId) return;
+        const parent = boxes[0], target = boxes[1];
+        this.setData({ "dd.panelGlow": {
+          left: target.left - parent.left, top: target.top - parent.top,
+          width: target.width, height: target.height, visible: true,
+        } });
+      });
+  },
+  /** 总览或单组页切换；activeId 只在明确选择某组后才同步。 */
+  onDdPanel(e) {
+    const id = String(e.currentTarget.dataset.id || "overview");
+    if (id !== "overview" && !this.ddGroups().some((g) => g.id === id)) return;
+    store.pluginStorageSet("dorm-duty", "panelView", id === "overview" ? "overview" : "group");
+    if (id !== "overview") store.pluginStorageSet("dorm-duty", "activeId", id);
+    this.loadDormDuty();
+  },
+  onResize() {
+    const dd = this.data.dd;
+    if (!dd) return;
+    // 像素坐标在旋转 / 窗口尺寸变化后失效；等布局更新后重新测按钮与轨道。
+    const sync = () => this.ddSyncPanelGlow(dd.panelView, dd.activeId);
+    if (typeof wx.nextTick === "function") wx.nextTick(sync);
+    else setTimeout(sync, 0);
   },
   /** 切换当前轮换。 */
   onDdGroup(e) {
     const id = e.currentTarget.dataset.id;
     if (!this.ddGroups().some((g) => g.id === id)) return;
     store.pluginStorageSet("dorm-duty", "activeId", id);
+    store.pluginStorageSet("dorm-duty", "panelView", "group");
     this.loadDormDuty();
   },
   onDdGroupNew() {
@@ -59,6 +106,7 @@ module.exports = {
     if (!ng) { wx.showToast({ title: "最多 " + runtime.DD_GROUP_MAX + " 套轮换，先删掉不用的", icon: "none" }); return; }
     store.pluginStorageSet("dorm-duty", "groups", groups.concat([ng]));
     store.pluginStorageSet("dorm-duty", "activeId", ng.id);
+    store.pluginStorageSet("dorm-duty", "panelView", "group");
     this.loadDormDuty();
     wx.showToast({ title: "已新建「" + ng.name + "」，在下面改名并加成员", icon: "none" });
   },
@@ -71,7 +119,32 @@ module.exports = {
   ddSetGroups(groups, activeId) {
     store.pluginStorageSet("dorm-duty", "groups", groups);
     if (activeId) store.pluginStorageSet("dorm-duty", "activeId", activeId);
+    const panelView = store.pluginStorageGet("dorm-duty", "panelView", "overview");
+    if (activeId) store.pluginStorageSet("dorm-duty", "panelView", "group");
+    else if (panelView !== "overview" && panelView !== "group") store.pluginStorageSet("dorm-duty", "panelView", "overview");
     this.loadDormDuty();
+  },
+  async onDdExport() {
+    try {
+      const groups = this.ddGroups();
+      const activeId = (this.data.dd || {}).activeId || (groups[0] && groups[0].id) || "";
+      await files.exportText("U-Time-轮换值日-" + store.todayStr() + ".json", JSON.stringify(runtime.ddBackup(groups, activeId), null, 2));
+    } catch (e) { files.notifyError(e); }
+  },
+  async onDdImport() {
+    try {
+      const file = await files.readText(["json"], 4 * 1024 * 1024);
+      if (!file || this._unloaded) return;
+      const parsed = runtime.ddParseBackup(file.text, store.todayStr());
+      if (!parsed) { wx.showToast({ title: "不是有效的轮换值日备份", icon: "none" }); return; }
+      wx.showModal({
+        title: "导入轮换值日",
+        content: "导入后会覆盖当前全部轮换与成员名单，确定继续吗？",
+        success: (res) => {
+          if (res.confirm) this.ddSetGroups(parsed.groups, parsed.activeId);
+        },
+      });
+    } catch (e) { files.notifyError(e); }
   },
   /** 「⋯」菜单：桌面端右键菜单的触屏等价物（WebView 长按普通按钮不会触发 contextmenu，
       所以移动端只能给一个显式入口）。操作对象是**被点的那个标签**（data-id），

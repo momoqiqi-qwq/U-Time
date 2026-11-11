@@ -260,15 +260,19 @@ ime listener 压 `bottomMargin`）、`onPageFinished` 得**补注入一次**（�
 
 ## 🔴 铁律九：每次发版上传 GitHub 后，把最新便捷版钉到任务栏
 
-**构建 → 归档 → 上传 GitHub Release → 把本机任务栏上的便捷版换成新版本。** 一步都不能省。
+**构建 → 生成本机便携版 → 上传 GitHub Release → 把本机任务栏上的便捷版换成新版本。** 一步都不能省。
 
 任务栏上那个 U-Time 图标必须始终是**最新便捷版**，否则用户点开的是旧版本，
-会拿着新版本号的截图去对旧界面。发布收尾时按下面两条命令做完：
+会拿着新版本号的截图去对旧界面。
+
+发布资产**不再从 `releases/v<版本>/` 取**：构建脚本把按版本命名的 portable / setup / msi / apk /
+`SHA256SUMS.txt` 全部写到 `.workbuddy-ai/tmp/release-v<版本>/`，上传成功后该目录可整删；
+本地 `releases/` 里只留一个固定名 `UTime-portable.exe`（见铁律十一）。收尾按下面两条命令做完：
 
 ```powershell
-# ① 把最新便捷版覆盖到「固定运行路径」——pin 指向的是这个稳定路径，换版本不失效
-Copy-Item "releases/v<版本>/UTime-<版本>-x64-portable.exe" `
-          "E:\E-Apps\Time Manger\U-Time\UTime.exe" -Force
+# ① 把最新便捷版换到「固定运行路径」——pin 指向的是这个稳定路径，换版本不失效
+#    关进程 / 备份 / 解 MOTW / 校验 / 回滚都在脚本里（见铁律十一），不要再手写 Copy-Item
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/update-local-app.ps1
 
 # ② 幂等钉住（已固定时只报告，不会误取消）
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/pin-taskbar.ps1 `
@@ -321,7 +325,54 @@ UIA 找到目标按钮 → `SetFocus()` → 应用菜单键弹**跳转列表** �
 
 ---
 
+## 🔴 铁律十一：每次构建完 exe，立刻把本机运行版换成新版本
+
+**便携版一出来，就把本机在用的那份换掉 —— 不等发版、不等上传 GitHub。**
+
+运行路径固定为 `E:\E-Apps\Time Manger\U-Time\UTime.exe`（任务栏 pin 指向它，换版本不失效）。
+本机落后一版，就会出现「拿新代码的界面去对旧界面」的错乱。
+
+**本地产物只有一个固定文件：`releases\UTime-portable.exe`。** 构建脚本直接覆盖它，
+不再建 `releases\v<版本>\` 目录；上传 GitHub 用的按版本命名资产落在
+`.workbuddy-ai/tmp/release-v<版本>/`，上传成功后整目录删掉。这个固定文件不会被任何进程运行
+（跑的是 `E:\E-Apps` 下那份），所以覆盖它不会撞文件锁 —— 关进程只发生在运行路径那一步。
+
+```powershell
+# 构建完立刻执行；版本默认取 le-time-management/package.json
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/update-local-app.ps1 -Restart
+```
+
+`bash tools/build-and-archive.sh` 已在产物校验之后内置这一步（失败只告警不中断构建），
+所以走完整构建时不用再手动跑；**只有单独跑 `build-windows.sh --no-bundle` 时才需要补一次**。
+
+脚本按序做六件事，任何一步不过就停：
+
+| 步骤 | 行为 | 不做会怎样 |
+|---|---|---|
+| 1 | 读源 exe 的版本资源，必须 == 目标版本 | 把上一版产物当新版放进运行路径 |
+| 2 | 目标已是最新（SHA256 相同）→ 跳过 | 重复拷贝、白改时间戳 |
+| 3 | 先 `CloseMainWindow`，退不掉再 `Stop-Process` | `Copy-Item` 撞文件锁直接失败 |
+| 4 | 备份 → 覆盖 → `Unblock-File` | 双击弹「无法验证发布者」 |
+| 5 | 校验 SHA256 + 版本资源，不符从备份回滚 | 运行路径上留一个坏 exe |
+| 6 | `-Restart` 拉起新版 | 用户点开的还是被换掉的旧进程 |
+
+硬约束：
+
+- **不要手写 `Copy-Item` 了事** —— 少了关进程、解 MOTW、回滚三件事，失败时没人知道。
+- **不要改这个固定路径**，也不要为了「干净」另建目录：pin 绑的就是它。
+- 目标版本必须与 `package.json` 一致，且先过 `node tools/sync-version.js --check`。
+- 源文件默认就是 `releases\UTime-portable.exe`；只有单独跑 `build-windows.sh`、产物还在
+  `src-tauri/target/release/` 时才传 `-Source`。
+- **`releases/` 里只放 `UTime-portable.exe`**：不要再按版本建目录，也不要手工往里拷按版本命名的文件；
+  历史 `v*` 目录是旧归档，不动。
+- 交付时只报一行：`✓ 运行版已更新 v旧 → v新`。构建失败或没有产物就到不了这一步，**不许凭空宣布已更新**。
+- 与铁律九的关系：**这里是「构建完 → 本机运行版」，铁律九是「发版 → 钉任务栏」。先跑这里，发版收尾再跑铁律九，顺序不能倒。**
+
+---
+
 ## 一句话总结
 
 > **改代码 = 改版本号。** 改完 `package.json` → 跑 `sync-version.js` → 补 `package-lock.json`
 > → `--check` 通过 → 才能构建。
+> **构建完 = 换本机运行版。** 出一条便携版就跑一次 `tools/update-local-app.ps1`，
+> 别让本机停在上一个版本。

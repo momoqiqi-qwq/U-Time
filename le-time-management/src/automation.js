@@ -2,9 +2,10 @@ import * as S from './store.js';
 import { createAutoBackup } from './dataCenter.js';
 import { runDueAiAutomations } from './aiAutomation.js';
 import { LOG_UNDO_KEEP, pruneLogSnapshots, snapshotWithinLimit } from './automationLogs.js';
+import { maybeRunGitHubAutoBackup } from './githubBackup.js';
 
 const clone=x=>structuredClone(x);
-let running=false, timer=null, minuteTimer=null, hourTimer=null, listenerBound=false;
+let running=false, timer=null, minuteTimer=null, hourTimer=null, listenerBound=false, currentAppVersion="";
 const DEFAULT_RULES=[
   {id:'deadline-auto-schedule',name:'截止任务自动排程',enabled:true,trigger:'change',action:'schedule-due'},
   {id:'exam-reminders',name:'考试报名 / 打印 / 考试自动提醒',enabled:true,trigger:'hourly',action:'exam-remind'},
@@ -77,6 +78,19 @@ async function courseSync(){
   }
   if(added||conflicts)log('course-sync',`课程自动同步：新增 ${added} 个时间块${conflicts?`，${conflicts} 个冲突待处理`:''}`,before);
 }
+async function githubAutoBackup(appVersion) {
+  try {
+    const result = await maybeRunGitHubAutoBackup({
+      config: S.getState().settings?.sync?.github,
+      data: S.getState(),
+      appVersion,
+    });
+    if (!result.skipped) S.persistSoon();
+  } catch (error) {
+    // 自动备份失败不能中断本地自动化；设置页会在下次手动操作时显示具体错误。
+    console.warn('GitHub 自动备份失败：', error);
+  }
+}
 export async function runAutomation(reason='manual'){
   if(running)return; running=true;
   try {
@@ -89,6 +103,7 @@ export async function runAutomation(reason='manual'){
       if(has('exam-remind')) await S.batchChanges(async()=>examReminderFromStorage());
       if(has('course-sync')) await S.batchChanges(courseSync);
       cfg().lastDailyCycle=S.todayStr(); S.persistSoon();
+      if (reason === 'startup') await githubAutoBackup(currentAppVersion);
     } else if(reason==='hourly') {
       if(has('exam-remind')) await S.batchChanges(async()=>examReminderFromStorage());
       // 每小时定时器只在跨日后执行 daily 规则，避免一天重复扫描 24 次。
@@ -97,12 +112,14 @@ export async function runAutomation(reason='manual'){
         if(has('course-sync')) await S.batchChanges(courseSync);
         cfg().lastDailyCycle=S.todayStr(); S.persistSoon();
       }
+      await githubAutoBackup(currentAppVersion);
     }
     // AI 自动任务按分钟检查；startup/manual 也会补跑已经到点但尚未执行的规则。
     if(reason==='startup'||reason==='minute'||reason==='manual') await runDueAiAutomations();
   } finally { running=false; }
 }
 export function initAutomation(appVersion=''){
+  currentAppVersion=String(appVersion || "");
   cfg(); const s=S.getState(); s.settings.autoBackup??={enabled:true,frequency:'daily',keep:7};
   const ab=s.settings.autoBackup; const last=Number(localStorage.getItem('le-time:auto-backup:last')||0); const gap=ab.frequency==='weekly'?7*86400000:86400000;
   // 自动备份会把整份 state 序列化进 localStorage，配额满时直接抛 QuotaExceeded。

@@ -1,25 +1,26 @@
 import { readProductSource } from "./lib/read-product-source.mjs";
 /*
- * 左上角品牌字标回归守卫（v0.178.0，v0.183.0 扩到「字标 + 下方装饰线」）。
+ * 左上角品牌字标回归守卫（v0.178.0，v0.183.0 扩到「字标 + 下方装饰线」，
+ * v0.300.0 改为「只显示 U-Time + 一般字形、不再随包字体」）。
  *
  * 用户需求原文（v0.178.0）：「请将应用左上角的名称和图标修改为仅保留名称，名称的字体格式参照上述样式。」
  * —— 图标（`.mark` 那枚四色圆环）与重复一行的副标题 `<small>U-TIME</small>` 一起删掉，
  * 只剩一颗写着 U-Time 的 `<b>`，字体换成 Nephele Workshop 那套哥特黑体 + 粉紫→珊瑚橙横向渐变。
  *
- * 用户需求原文（v0.183.0）：「U-Time Work 改成 U Time WorkSpace，然后在下面添加一根像上面代码
- * 那样画出来的线。」—— 字标改名 + 名称**下方**补一条哥特装饰线（`.brand-rule`，DOM 由 shell.js
- * 的 brandRule() 建）。名字长了 42%，所以基础字号从 28px 降到 20px、过渡带降到 18px ——
- * 这是拿无头 Chrome 在真应用里量出来的（1280 视口：字标 159.03px / 可用 166px；
- * 1050 视口：143.13px / 可用 146px），不是估的。
+ * 用户需求原文（v0.300.0）：「把红框的位置的原来的 U Time WorkSpace 改成只显示 U-Time，
+ * 并且是一般字形。」—— 文案回到 U-Time（brandWordmark.js 的 BRAND_NAME 是唯一事实源），
+ * 字体从哥特体 UnifrakturCook 换成系统无衬线栈 + 700，随包字体目录整个删除。
+ * 字号按新文案重新量过：Segoe UI Bold 24px 下「U-Time」= 93.4px（System.Drawing 实测），
+ * 默认 compact 侧栏可用 166px、过渡带 146px，两档都放得下 → 过渡带那档 18px 覆盖一并删掉。
  *
  * 这条测试守的是「下次谁顺手改回去」的六类事故：
  *   ① 图标 / 副标题又长回来（DOM 与死 CSS 两头查）；
- *   ② 随包字体丢了、或 @font-face 指向了不存在的文件（字标静默退化成 Georgia 衬线）；
+ *   ② 哥特体 / @font-face / 字体文件又悄悄回来（v0.300.0 起字标必须是一般字形、不随包字体）；
  *   ③ 渐变字的实现被写坏 —— 少一条透明字色、改用 `text-shadow` 发光（阴影画在背景之上会把
  *      渐变整个盖住）、或某条媒体查询里又给 `.brand b` 写回 `color: var(--ink)`；
  *   ④ 浅色模式直接沿用参考图那组粉紫→珊瑚橙 —— 那组颜色压在浅色面板上只有 2.1~2.5:1，
  *      等于糊在白纸上。所以浅色必须另有一套「色相相同、压暗到 ≥4:1」的四档；
- *   ⑤ 字号被改回 28px —— 那是 `U-Time Work` 时代的尺寸，新名字会顶出侧栏；
+ *   ⑤ 字号被改回 20/28px 或又给过渡带加覆盖 —— 24px 是按 U-Time 量出来的唯一尺寸；
  *   ⑥ 装饰线：四档渐变跟字标脱钩、`gradientUnits` 退回 objectBoundingBox（左右两条主线各拿
  *      一份完整渐变，画面从中间断开）、柔光在浅色下也开着（浅底上只会发灰）、
  *      或者宽度写法让 160 宽的 viewBox 被横拉变形。
@@ -47,9 +48,13 @@ const stylesCss = read("src/styles.css");
 /* ── 1. DOM：品牌区只剩名称 ── */
 const brandBody = /el\("div",\s*\{\s*class:\s*"brand"\s*\},([\s\S]*?)\),\s*nav,/.exec(shellSrc)?.[1];
 assert.ok(brandBody, "在 shell.js 里找不到 rail 内的 .brand 品牌区（选择器或结构变了？）");
-assert.match(brandBody, /el\("b",\s*\{\s*\}\s*,\s*"U Time WorkSpace"\)/, "品牌区必须有一颗写着 U Time WorkSpace 的 <b>（v0.183.0 改的名）");
-assert.doesNotMatch(brandBody, /el\("b",\s*\{\s*\}\s*,\s*"U-Time Work"\)/, "旧文案 U-Time Work 不许留在品牌区（改名是 v0.183.0 的用户需求）");
-assert.doesNotMatch(brandBody, /el\("b",\s*\{\s*\}\s*,\s*"U-Time"\)/, "旧文案 U-Time 不许留在品牌区（v0.181.0 的历史值）");
+/* v0.300.0（用户需求「把红框里的 U Time WorkSpace 改成只显示 U-Time，并且是一般字形」）：
+   文案改为 U-Time，唯一事实源仍是 brandWordmark.js 的 BRAND_NAME —— shell.js 只引用不写死，
+   否则侧栏与刷新蒙版会各说各的。 */
+const brandName = /export const BRAND_NAME = "([^"]+)";/.exec(wordmarkSrc)?.[1];
+assert.equal(brandName, "U-Time", "BRAND_NAME 必须是 U-Time（v0.300.0 的用户需求）");
+assert.match(brandBody, /el\("b",\s*\{\s*\}\s*,\s*BRAND_NAME\)/, "品牌区的 <b> 必须引用 BRAND_NAME，不许再手写文案");
+assert.doesNotMatch(brandBody, /"U Time WorkSpace"/, "旧文案 U Time WorkSpace 不许留在品牌区（v0.300.0 改回 U-Time）");
 assert.match(brandBody, /\bbrandRule\(\)/, "字标下方必须有那条哥特装饰线（shell.js 的 brandRule()）");
 assert.doesNotMatch(brandBody, /class:\s*"mark"/, "品牌区的图标 .mark 已按需求删除，不许再长回来");
 assert.doesNotMatch(brandBody, /el\("small"/, "品牌区的副标题 <small>U-TIME</small> 已删除（名称已经写在字标里）");
@@ -58,43 +63,44 @@ assert.doesNotMatch(brandBody, /el\("small"/, "品牌区的副标题 <small>U-TI
 assert.doesNotMatch(stylesCss, /\.brand\s+\.mark/, "styles.css 还留着 .brand .mark 规则（图标已删，这是死代码）");
 assert.doesNotMatch(stylesCss, /\.brand\s+small/, "styles.css 还留着 .brand small 规则（副标题已删，这是死代码）");
 
-/* ── 3. 字体：随包 woff2 真的在，@font-face 指向它 ── */
-const face = /@font-face\s*\{[^}]*font-family:\s*"UnifrakturCook"[^}]*\}/.exec(stylesCss)?.[0];
-assert.ok(face, "styles.css 缺少 UnifrakturCook 的 @font-face 声明");
-const fontUrl = (/url\(([^)]+)\)/.exec(face)?.[1] || "").replace(/["']/g, "").trim();
-assert.equal(fontUrl, "/fonts/UnifrakturCook-Bold.woff2", "@font-face 必须指向随包的 /fonts/UnifrakturCook-Bold.woff2");
-assert.match(face, /font-display:\s*swap/, "@font-face 要给 font-display（否则首帧字标可能整块缺席）");
-
-const fontFile = path.join(appRoot, "public", "fonts", "UnifrakturCook-Bold.woff2");
-assert.ok(fs.existsSync(fontFile), `随包字体文件不存在：${path.relative(appRoot, fontFile)}`);
-assert.equal(fs.readFileSync(fontFile).subarray(0, 4).toString("latin1"), "wOF2", "字体文件不是真的 woff2（魔数不是 wOF2）");
-const ofl = path.join(appRoot, "public", "fonts", "OFL.txt");
-assert.ok(fs.existsSync(ofl), "随包字体必须带 OFL 许可文本 public/fonts/OFL.txt");
-assert.match(fs.readFileSync(ofl, "utf8"), /SIL OPEN FONT LICENSE/, "OFL.txt 内容不是 SIL 开源字体许可");
+/* ── 3. 字体：一般字形（v0.300.0）—— 不再随包任何字体 ── */
+/* 只匹配真正的规则 / 引用，不匹配注释里那句「@font-face 一起删了」的说明文字。 */
+assert.doesNotMatch(stylesCss, /@font-face\s*\{/, "styles.css 不许再声明 @font-face：字标已改系统无衬线，留下的字体规则是死代码");
+assert.doesNotMatch(stylesCss, /url\([^)]*UnifrakturCook/, "styles.css 不许再引用 UnifrakturCook 字体文件（v0.300.0 起字标走系统字体）");
+assert.doesNotMatch(stylesCss, /font-family:[^;]*UnifrakturCook/, "styles.css 的 font-family 不许再点名 UnifrakturCook");
+const fontDir = path.join(appRoot, "public", "fonts");
+assert.equal(fs.existsSync(fontDir), false, "public/fonts 已随哥特体一并删除，别再把字体文件放回来");
 const notices = read("public/OPEN_SOURCE_NOTICES.md");
-assert.match(notices, /UnifrakturCook/, "第三方来源说明里必须补上这套字体的署名与许可");
+/* 名字可以留在「已移除」的说明里（比抹掉更诚实），但不能再声称分发它、也不能再列字体文件路径。 */
+assert.doesNotMatch(notices, /fonts\/UnifrakturCook-Bold\.woff2/, "OPEN_SOURCE_NOTICES 不许再把哥特体 woff2 列为随包文件（已删除）");
+assert.match(notices, /不再包含该字体的任何副本/, "OPEN_SOURCE_NOTICES 要写明已不再随包分发该字体");
+assert.match(notices, /不随包分发任何字体文件/, "OPEN_SOURCE_NOTICES 的字体节要写明「不再随包分发字体」");
 
 /* ── 4. 渐变字的写法 ── */
 const rules = [...stylesCss.matchAll(/\.brand b\s*\{([^}]*)\}/g)].map((m) => m[1]);
 assert.ok(rules.length >= 2, "应至少有两处 .brand b 规则（浅色基础 + 深色覆盖）");
 const lightRule = rules[0];
-assert.match(lightRule, /font-family:[^;]*"UnifrakturCook"/, "字标必须优先用随包的 UnifrakturCook");
+/* v0.300.0：一般字形 = 系统无衬线栈 + 粗体。不许回退到哥特/衬线（花体是 v0.178~0.299 的旧样式）。 */
+assert.match(lightRule, /font-family:[^;]*"Segoe UI"[^;]*sans-serif/, "字标必须走系统无衬线栈（v0.300.0 的一般字形）");
+assert.doesNotMatch(lightRule, /UnifrakturCook|Georgia|Times/, "字标不许再回哥特 / 衬线（用户要的是一般字形）");
+assert.match(lightRule, /sans-serif;/, "字体栈必须以 sans-serif 收尾（否则某些平台会落到衬线默认字体）");
+assert.match(lightRule, /font-weight:\s*700/, "一般字形 ≠ 细体：字标保持 700");
 assert.match(lightRule, /-webkit-background-clip:\s*text/, "渐变字要 -webkit-background-clip: text");
 assert.match(lightRule, /(?:^|;|\s)background-clip:\s*text/, "渐变字要 background-clip: text（标准属性）");
 assert.match(lightRule, /-webkit-text-fill-color:\s*transparent/, "少这条时字会被填成实心色，渐变只剩描边");
 assert.match(lightRule, /(?:^|;)\s*color:\s*transparent/, "`color` 也要透明（只写 -webkit-text-fill-color 的路径会漏）");
 assert.match(lightRule, /white-space:\s*nowrap/, "字标是字标，不许折行");
 assert.match(lightRule, /display:\s*inline-block/, "字标要 inline-block：盒子按字标自己算，背景才裁得住字形");
-/* 字号是拿真应用量出来的（见文件头）：U Time WorkSpace 在 28px 下宽 222.64px，
-   默认 compact 侧栏（--rail-w: 204px）里 .brand 可用宽度只有 166px。20px → 159.03px。 */
+/* 字号是量出来的（见文件头）：`U-Time` 在 24px 粗体下实测 93.4px（Segoe UI Bold），
+   默认 compact 侧栏（--rail-w: 204px）里 .brand 可用宽度 166px，余量充足。
+   v0.300.0 起过渡带不再单独降字号 —— 名字只有 5 个字符，146px 里放 93px 绰绰有余。 */
 assert.match(
   lightRule,
-  /font-size:\s*calc\(20px \* var\(--ui-text-scale\)\)/,
-  "桌面字号必须是 calc(20px * var(--ui-text-scale))（v0.183.0 由 28px 降下来），跟界面文字缩放走",
+  /font-size:\s*calc\(24px \* var\(--ui-text-scale\)\)/,
+  "桌面字号必须是 calc(24px * var(--ui-text-scale))（v0.300.0 按 U-Time 重新量过），跟界面文字缩放走",
 );
-// 过渡带（901~1100px，侧栏被压到 176px）另有一档字号：18px 实测 143.13px ≤ 可用 146px
 const narrowRules = rules.filter((body) => /font-size:\s*calc\(18px \* var\(--ui-text-scale\)\)/.test(body));
-assert.equal(narrowRules.length, 1, "过渡带必须有一条 calc(18px * var(--ui-text-scale)) 的字号覆盖（19px 会溢出 5.06px）");
+assert.equal(narrowRules.length, 0, "过渡带不许再给字标单独降字号（18px 是 15 字符旧名字时代的补丁）");
 // 字形冒头那截没有背景可裁（background-clip: text 的绘制区止于盒子），行高与内边距是必需余量
 assert.match(lightRule, /line-height:\s*1\.3[0-9]/, "行高要留余量，黑体上下冒头的字形才不会被裁掉");
 assert.match(lightRule, /padding:\s*0\s+\.1em/, "左右内边距要留余量，字形冒头那截同样会被裁");
@@ -145,7 +151,7 @@ assert.match(shellSrc, /import\s*\{[^}]*\bbrandRule\b[^}]*\}\s*from\s*"\.\/brand
   "shell.js 必须从 ./brandWordmark.js 引入 brandRule（内联复制会与蒙版那份走形）");
 assert.match(ruleFn, /createElementNS\(NS, "svg"\)/, "装饰线必须是内联 SVG（纯 CSS 画不出中间的哥特花纹）");
 assert.match(ruleFn, /setAttribute\("viewBox", "0 0 160 14"\)/,
-  "viewBox 必须是 0 0 160 14 —— 与桌面侧栏里字标的实际宽度（159.03px）几乎 1:1，横拉才会走形");
+  "viewBox 必须是 0 0 160 14 —— 线宽按 0.8 缩到 128px 显示（v0.300.0 字标变窄后同比例收），改比例才会走形");
 assert.match(ruleFn, /setAttribute\("preserveAspectRatio", "xMidYMid meet"\)/, "要显式写 meet：写 none 会把线连同尖头与卷草一起横拉");
 assert.match(ruleFn, /gradientUnits="userSpaceOnUse"/,
   "渐变必须是 userSpaceOnUse：默认的 objectBoundingBox 会让左右两条主线**各拿一份完整渐变**，画面从中间断开");
@@ -168,8 +174,10 @@ assert.doesNotMatch(brandBase, /align-items:\s*flex-start/, "别退回 flex-star
 
 const ruleCss = /^\.brand-rule\s*\{([^}]*)\}/m.exec(stylesCss)?.[1];
 assert.ok(ruleCss, "styles.css 缺少 .brand-rule 的基础规则");
-assert.match(ruleCss, /width:\s*min\(100%,\s*160px\)/,
-  "线宽必须是 min(100%, 160px)：与 viewBox 等宽 ⇒ meet 的缩放比恒为 1，也不会被横向拉伸");
+/* v0.300.0：名字从 15 字符缩到 5 字符，装饰线跟着收窄。128 = 160 × 0.8，等比缩放（meet 保证
+   不拉伸）；100% 兜住窄侧栏 —— 若某天侧栏可用宽 < 128px，线先缩、不溢出。 */
+assert.match(ruleCss, /width:\s*min\(100%,\s*128px\)/,
+  "线宽必须是 min(100%, 128px)：viewBox 仍是 160 宽，按 0.8 等比缩到字标新宽（不做横向拉伸）");
 assert.match(ruleCss, /height:\s*14px/, "线高必须是 14px（viewBox 的高度）");
 assert.match(ruleCss, /--brand-rule-glow-opacity:\s*0/, "浅色下柔光必须关掉（浅底上叠同色光只会发灰）");
 
@@ -236,7 +244,7 @@ for (const theme of THEMES) {
 assert.deepEqual(failures, [], `品牌字标渐变对比度不达标（字与背景不能像）：\n  ${failures.join("\n  ")}`);
 
 console.log(
-  `PASS: 品牌字标（U Time WorkSpace + 哥特字 + 渐变 + 下方 160×14 哥特装饰线；` +
+  `PASS: 品牌字标（U-Time + 系统无衬线粗体 + 渐变 + 下方 128×14 哥特装饰线；` +
   `浅色 ${lightChecked} 套 / 深色 ${darkChecked} 套主题，` +
   `白面板 ≥${LIGHT_MIN_PANEL}:1、Nephele 毛玻璃 ≥${LIGHT_MIN_GLASS}:1、深色 ≥${DARK_MIN}:1）`,
 );

@@ -1,12 +1,12 @@
 # public/icons/plugins 素材台账（内置插件图标 + 插件内视图图标）
 
-共 32 个图标：
+共 35 个图标：
 
 - 0 个来自**本项目自有扁平母版**（`风格` 列为 `master`，`tools/icon-masters/`）：AI 按同一张风格参考图生成、抠成透明底后入库，是本产品自有素材，**无需第三方署名**；品牌类插件（微信推送、GitHub 文档）是按用途重新设计的图形，不含任何品牌标志。
-- 32 个仍来自 **Icons8 / iGoutu**（`风格` 列为 `color` / `3d-fluency`）：暂无母版的插件，按 Icons8 License 署名。
+- 35 个仍来自 **Icons8 / iGoutu**（`风格` 列为 `color` / `3d-fluency`）：暂无母版的插件，按 Icons8 License 署名。
 - 0 个为印章式文字图标（`风格` 列为 `text`，由本脚本代码绘制，无需署名）。
 
-其中 14 个是**插件内视图图标**（说明里带「插件内视图」）：同一个插件的不同分类在侧栏各用各的图标（v0.216.0），key = 视图 id，与插件图标同目录、同风格 —— `src/icons.js` 的 `VIEW_ICONS8` / `VIEW_FA_ICONS` 是它们的消费口径。
+其中 16 个是**插件内视图图标**（说明里带「插件内视图」）：同一个插件的不同分类在侧栏各用各的图标（v0.216.0），key = 视图 id，与插件图标同目录、同风格 —— `src/icons.js` 的 `VIEW_ICONS8` / `VIEW_FA_ICONS` 是它们的消费口径。
 
 图标集入口：<https://igoutu.cn/icons/set/标志--style-color> ｜ CDN 直链格式：`https://img.icons8.com/<style>/96/<slug>.png`
 
@@ -32,6 +32,7 @@
 | `inbox-drop` | color | `downloading-updates` | 拖入消息收纳 / 箭头入托盘 | `b0a69a328dcf6b3e…` |
 | `ai-chat` | color | `artificial-intelligence` | AI 对话 / 智能大脑 | `548f46d8d4c146e1…` |
 | `github-readme` | 3d-fluency | `github` | GitHub 文档 / GitHub 猫标志 | `0d0027483c6df026…` |
+| `html-gallery` | color | `source-code` | HTML 目录 / 源码文件 | `8ec0d43924431072…` |
 | `cppu-card` | color | `bank-cards` | 警大门户通知 · 警大一卡通（插件内视图） | `31e3126b67984d72…` |
 | `cppu-award` | color | `prize` | 警大门户通知 · 警大获奖名单（插件内视图） | `4f2405f79b613d34…` |
 | `cppu-xk` | color | `todo-list` | 警大门户通知 · 学生选课（插件内视图） | `4a0680aaea98e3f9…` |
@@ -46,6 +47,8 @@
 | `cppu-exam` | color | `clock` | 警大门户通知 · 我的考试（插件内视图） | `dca38110e1ddb25b…` |
 | `cppu-credit-ledger` | color | `scroll` | 警大门户通知 · 我的学分（插件内视图） | `3abb9f1c3588b659…` |
 | `cppu-fitness` | color | `heart-with-pulse` | 警大门户通知 · 我的体测（插件内视图） | `d139ee412752c47a…` |
+| `cppu-map` | color | `map-marker` | 警大门户通知 · 校园地图（插件内视图） | `186a063ae7beed80…` |
+| `cppu-risk` | color | `shield` | 警大门户通知 · 考勤风险（插件内视图） | `1b6719fb7ab2f63e…` |
 
 ## 许可
 

@@ -81,6 +81,9 @@ ICONS = {
     "inbox-drop":        ("color",      "downloading-updates", "拖入消息收纳 / 箭头入托盘"),
     "ai-chat":           ("color",      "artificial-intelligence", "AI 对话 / 智能大脑"),
     "github-readme":     ("3d-fluency", "github",           "GitHub 文档 / GitHub 猫标志"),
+    # HTML 目录（v0.293.0）：取「带代码标记的页面」语义 —— 这个插件看的是本地 html 页面本身，
+    # 不用 folder（读成文件管理）或 web（读成上网）那类。
+    "html-gallery":      ("color",      "source-code",      "HTML 目录 / 源码文件"),
 }
 
 # 插件内视图图标（v0.216.0）：同一个插件的不同分类在侧栏各用各的图标，所以它们和插件图标
@@ -127,6 +130,14 @@ VIEW_ICONS = {
     # pulse / health-checkup / dumbbell 只是兜底（Icons8 的 slug 时有增删，一个不保证存在）。
     "cppu-fitness":  (["heart-with-pulse", "pulse", "health-checkup", "dumbbell"],
                       "警大门户通知 · 我的体测"),
+    # 校园地图（v0.298.0）：图钉 / 地图语义，与轮廓图标（FA solid 的 map-location-dot）同义。
+    # 不用 school —— 那是学校通知网站的图标；也不用 university（插件自己的）。
+    "cppu-map":      (["map", "map-marker"],
+                      "警大门户通知 · 校园地图"),
+    # 考勤风险（v0.299.0）：盾牌语义，与轮廓图标（FA solid 的 shield-halved）同义。
+    # 不用 warning / alert —— 那读成「出错了」，这一页多数时候是一条都没踩线的。
+    "cppu-risk":     (["shield", "security-shield", "shield-check"],
+                      "警大门户通知 · 考勤风险"),
 }
 
 # 印章式文字图标：plugin-id -> (文字(至多 2 字，竖排堆叠), 说明)。

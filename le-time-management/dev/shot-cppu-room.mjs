@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const CHROME = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const PLUGIN = new URL("../public/plugins/cppu-notify/main.js", import.meta.url);
@@ -25,6 +26,9 @@ const pluginCss = source.slice(cssStart + "st.textContent = `".length, cssEnd);
 const styles = fs.readFileSync(STYLES, "utf8");
 const rootStart = styles.indexOf(":root {") >= 0 ? styles.indexOf(":root {") : styles.indexOf(":root{");
 const rootCss = styles.slice(rootStart, styles.indexOf("}", rootStart) + 1);
+/* 深色色板在生成物里（gen-theme-dark.js），不带上它 data-theme-mode="dark" 只是换了个属性、颜色没变 */
+const derivedPath = new URL("../src/styles/theme-derived.css", import.meta.url);
+const derivedCss = fs.existsSync(derivedPath) ? fs.readFileSync(derivedPath, "utf8") : "";
 
 /* 夹具：3 栋楼 × 4 间 × 5 个节次，主楼有全天空闲的、有全占的 —— 好一次看到三种标 */
 const SLOTS = ["01", "02", "03", "04", "05"];
@@ -68,14 +72,18 @@ function render(bld) {
   api.jwState.data.room = rows();
   api.jwState.at.room = Date.parse("2026-10-21T22:17:00");
   api.jwState.term = { code: "20262027-1", name: "2026-2027 学年第 1 学期" };
+  // 首页「今天去哪」（v1.90.0）：与自习室行同一天的一节课，落在 A 栋 2 层（A201 / A202）
+  api.jwState.data.qjCourse = [{ SKRQ: "2026-10-21", JC: "03", DDMC: "A201", KCMC: "数字电子技术" }];
+  api.jwState.at.qjCourse = Date.parse("2026-10-21T22:17:00");
   api.jwState.roomBld = bld;
   return api.jwRoomHtml();
 }
 
-const page = (body, w) => `<!doctype html><meta charset="utf-8">
-<html data-theme="classic" data-theme-mode="light" style="--sat:0px;--sab:0px;--sal:0px;--sar:0px;--ui-text-scale:1">
-<style>${rootCss}
-html,body{margin:0;background:var(--bg,#f4f3ef);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+const page = (body, w, mode = "light") => `<!doctype html><meta charset="utf-8">
+<html data-theme="classic" data-theme-mode="${mode}" style="--sat:0px;--sab:0px;--sal:0px;--sar:0px;--ui-text-scale:1">
+<style>${rootCss}</style>
+<style>${derivedCss}</style>
+<style>html,body{margin:0;background:var(--bg,#f4f3ef);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif}
 body{padding:0;box-sizing:border-box;width:100%;max-width:${w}px}
 .view{box-sizing:border-box;min-height:100vh}</style>
 <style>${pluginCss}</style>
@@ -84,11 +92,18 @@ body{padding:0;box-sizing:border-box;width:100%;max-width:${w}px}
 
 for (const [name, bld] of [["room-all", ""], ["room-main-bld", "主楼"]]) {
   for (const [suffix, w] of [["", 1180], ["-390", 390]]) {
-    const html = new URL(`${name}${suffix}.html`, OUT);
-    fs.writeFileSync(html, page(render(bld), w), "utf8");
-    execFileSync(CHROME, ["--headless=new", "--disable-gpu", "--hide-scrollbars", `--window-size=${w},1400`,
-      "--virtual-time-budget=1200", `--screenshot=${path.join(OUT.pathname.replace(/^\//, ""), `${name}${suffix}.png`)}`,
-      html.href], { stdio: "ignore" });
-    console.log("写 " + name + suffix + ".html / .png");
+    // 深色只出一张手机宽度：看的是「今天去哪」那张卡的底/边/小字，桌面版同一套令牌
+    for (const mode of w === 390 ? ["light", "dark"] : ["light"]) {
+      const tag = mode === "dark" ? `${suffix}-dark` : suffix;
+      const html = new URL(`${name}${tag}.html`, OUT);
+      fs.writeFileSync(html, page(render(bld), w, mode), "utf8");
+      // 必须 fileURLToPath：URL.pathname 是百分号编码的，中文目录下 Chrome 会把截图
+      // 写到一个不存在的路径且不报错 —— 留下上一次的旧图，看着像「改动没生效」。
+      const shot = fileURLToPath(new URL(`${name}${tag}.png`, OUT));
+      execFileSync(CHROME, ["--headless=new", "--disable-gpu", "--hide-scrollbars", `--window-size=${w},1400`,
+        "--virtual-time-budget=1200", `--screenshot=${shot}`,
+        html.href], { stdio: "ignore" });
+      console.log("写 " + name + tag + ".html / .png");
+    }
   }
 }

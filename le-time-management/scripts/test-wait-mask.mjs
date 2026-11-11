@@ -279,7 +279,7 @@ return { SHOW_DELAY_MS, MIN_VISIBLE_MS, FADE_MS, MAX_HOLD_MS, showWaitMask, with
   const h = makeHarness();
   const r1 = h.mod.showWaitMask();
   h.fireTimers(h.mod.SHOW_DELAY_MS);
-  assert.equal(h.brandText(), "U Time WorkSpace", "不传文案时蒙版上就是左上角那句品牌字标（唯一事实源 brandWordmark.js）");
+  assert.equal(h.brandText(), "U-Time", "不传文案时蒙版上就是左上角那句品牌字标（唯一事实源 brandWordmark.js）");
   assert.equal(h.maskEl().dataset.size, "brand", "空文案走 brand 档（与启动蒙版同字号）");
   r1();
   h.mod.resetWaitMask();

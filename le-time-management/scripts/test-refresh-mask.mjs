@@ -162,7 +162,7 @@ function makeHarness({ reducedMotion = false } = {}) {
   assert.equal(host, h.shell);
   const brand = h.shell.querySelector(".brand");
   assert.ok(brand, "revealRefreshMask() 必须把 .brand 放进蒙版");
-  assert.equal(brand.children[0].textContent, "U Time WorkSpace",
+  assert.equal(brand.children[0].textContent, "U-Time",
     "蒙版上的字必须就是左上角那句品牌文案（唯一事实源是 brandWordmark.js 的 BRAND_NAME）");
   assert.ok(brand.children[1] && brand.children[1].classes.has("brand-rule"),
     "蒙版上也要有那条哥特装饰线（与左上角同一份 brandRule()）");

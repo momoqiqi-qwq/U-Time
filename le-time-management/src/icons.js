@@ -68,6 +68,13 @@ const VIEW_ICONS8 = {
   // 我的体测（v0.282.0）：心率语义，与轮廓图标（FA solid 的 heart-pulse）同义。
   // pulse / health-checkup / dumbbell 只是兜底 —— Icons8 的 slug 时有增删，一个不保证存在。
   "cppu-fitness": ["heart-with-pulse", "pulse", "health-checkup", "dumbbell"],
+  // 校园地图（v0.298.0）：图钉语义，与轮廓图标（FA solid 的 map-location-dot）同义。
+  // school 是学校通知网站的、university 是本插件自己的，都不能用。
+  "cppu-map": ["map-marker", "map"],
+  // 考勤风险（v0.299.0）：盾牌语义 —— 这一页守的是「别踩请假/旷课红线」，
+  // 与请假页的 calendar-delete（要请假）不是同一件事；shield 与本视图的轮廓
+  // shield-halved 同义，同侧栏里没有别的盾。
+  "cppu-risk": ["shield", "security-shield", "shield-check"],
 };
 
 // 视图 id → 轮廓图标用的 FontAwesome 名（与 registerView 的 icon 一致）。
@@ -97,6 +104,11 @@ const VIEW_FA_ICONS = {
   "cppu-credit-ledger": "scroll",
   // 我的体测（v0.282.0）：心率语义 —— 服务端会给项目彩色图，侧栏只要一个「一眼是体测」的轮廓。
   "cppu-fitness": "heart-pulse",
+  // 校园地图（v0.298.0）：图钉 + 定位，与本视图「按点位看校区」的语义一致。
+  "cppu-map": "map-location-dot",
+  // 考勤风险（v0.299.0）：半面盾（shield-halved）—— 「守住额度」的轮廓。
+  // 已有 shield-halved 符号（隐私模式按钮在用），不需要新增 sprite。
+  "cppu-risk": "shield-halved",
 };
 
 const ICONS8 = { ...NAV_ICONS8, ...PLUGIN_ICONS8, ...VIEW_ICONS8 };

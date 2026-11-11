@@ -42,6 +42,7 @@ const NS_PERMISSION = {
   vault: 'vault',
   ai: 'ai',
   messages: 'messages',
+  localHtml: 'localFiles',
 };
 // tide.util 要再看第二段：同一个 util 下不同函数归不同能力
 const UTIL_PERMISSION = {

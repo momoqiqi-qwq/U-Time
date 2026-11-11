@@ -1,7 +1,7 @@
 // 品牌字标（左上角 `.brand`）与它下方那条哥特装饰线的**唯一创建口**。
 //
 // 为什么要独立成模块（v0.232.0）：刷新蒙版（loadingMask.js）要「文字形式参考左上角的标题」，
-// 也就是同一句 `U Time WorkSpace` + 同一套哥特黑体渐变 + 同一条装饰线。
+// 也就是同一句 `U-Time` + 同一套无衬线粗体渐变 + 同一条装饰线。
 // 复制一份到蒙版里必然走形（改一处漏一处），所以把 DOM 构造抽到这里，两处共用。
 // 视觉的**唯一事实源仍然是 styles.css 的 `.brand b` / `.brand-rule` 那两组规则** ——
 // 蒙版只是把 `.brand` 放进自己的容器里，不改字形、不改渐变、不写死任何十六进制色。
@@ -11,16 +11,18 @@
 // 所以 shell.js 里那句调用与 `brandRule()` 这个名字都**不能改名**，本文件也别再长出第二份
 // 装饰线实现（测试会直接拦下来）。
 
-/** 字标文案。改名要连带动字号：见 styles.css `.brand b` 那条「20px 是量出来的」注释。 */
-export const BRAND_NAME = "U Time WorkSpace";
+/** 字标文案。v0.300.0 起是 `U-Time`（用户需求「只显示 U-Time」）。
+ *  改名要连带动字号：见 styles.css `.brand b` 那条「24px 是量出来的」注释。 */
+export const BRAND_NAME = "U-Time";
 
 /**
  * 字标下方那条哥特装饰线（v0.183.0 用户需求「在下面添加一根像上面代码那样画出来的线」）。
  * 形状：左右两条带波纹节点的细主线 + 两端尖饰 + 中间上下对称的菱形与四片卷草花饰，
  * 末端再挂一对横向小枝；最上面那层极淡的同色柔光只在深色模式开（浅色下压白底会发灰）。
  *
- * viewBox 是 160×14 —— 与桌面侧栏里字标的实际宽度（≈159px @ 20px 字号，实测）几乎 1:1，
- * 所以默认 preserveAspectRatio（xMidYMid meet）下既不会被横拉变形，也不会被裁。
+ * viewBox 是 160×14，CSS 里按 `min(100%, 128px)` 显示（v0.300.0 由 160px 收窄，字标改
+ * 一般字形后只剩 93px 宽）。默认 preserveAspectRatio（xMidYMid meet）下等比缩到 0.8，
+ * 既不会被横拉变形，也不会被裁。
  *
  * **颜色一律由 styles.css 的 CSS 变量给**（`--brand-rule-*`）：浅色/深色两套四档跟字标同一
  * 色相，对比度由 scripts/test-brand-wordmark.mjs 一起实算，别在这里写死十六进制色。
@@ -88,7 +90,7 @@ export function replayBrandRule(svg, reduced = false) {
 /**
  * 字标节点（`<b>文案</b>` + 下方装饰线），调用方自己套一层 `.brand` 容器。
  *
- * `text` 默认是品牌文案 `U Time WorkSpace`。**等待蒙版（v0.233.0）会传自定义文案**
+ * `text` 默认是品牌文案 `U-Time`。**等待蒙版（v0.233.0）会传自定义文案**
  * （如「正在刷新课表…」）—— 那一档的字号由 `.wait-mask[data-size]` 给，别在这里写死字号。
  * @param {string} [gradientId] 见 brandRule()：同文档多条装饰线必须各给一个 id。
  * @param {string} [text] 字标文案，默认 BRAND_NAME。

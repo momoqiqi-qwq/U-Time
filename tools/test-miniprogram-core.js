@@ -168,8 +168,8 @@ ok("createFromCapture 有日期建块字段一致",
 console.log("[plugins]");
 const catalog = require("../miniprogram/core/pluginCatalog.js");
 const pluginRuntime = require("../miniprogram/core/pluginRuntime.js");
-/* 数量与 tools/sync-plugins.js 的输出对齐（v0.216.0 警大校历并入 cppu-notify 后为 17 / 13） */
-ok("内置插件清单同步为 17 个", catalog.plugins.length, 17);
+/* 数量与 tools/sync-plugins.js 的输出对齐（v0.293.0 新增 HTML 目录后为 18 / 13） */
+ok("内置插件清单同步为 18 个", catalog.plugins.length, 18);
 ok("小程序原生适配 13 个", catalog.plugins.filter((x) => x.platforms.miniprogram === "native").length, 13);
 ["plugin-guide", "wechat-push", "gx-news", "chaoxing-notify"].forEach((id) =>
   ok("新适配插件 " + id + " 标记 native", (catalog.byId[id].platforms || {}).miniprogram, "native"));
@@ -481,6 +481,12 @@ const ddWeek = DDG("2026-09-17", "宿舍值日", { members: ddM });
   ok("标签条标出当前组", s.groups.map((x) => x.on).join(","), "false,true");
   ok("标签条给出每组各自的当班人（一眼看出谁在轮）",
     s.groups.map((x) => x.who).join(","), "小北,乙");
+  ok("总面板覆盖每一组并显示今日全部当班人",
+    s.panelGroups.map((x) => x.name + ":" + x.currentNames).join(","), "宿舍值日:小北,公区卫生:乙");
+  ok("总面板按组展示今日地点和下次值日",
+    [s.panelGroups[0].currentLocation, s.panelGroups[0].nextWhoName].join(" / "), " / 老陈");
+  ok("总面板分别报告有成员和无成员状态",
+    [s.panelGroups[0].status, s.panelGroups[1].status].join(","), "active,active");
   ok("组数", s.groupCount, 2);
   ok("可以继续新建", s.canAddGroup, true);
   ok("多于一套时可以删", s.canDelGroup, true);
@@ -490,6 +496,17 @@ const ddWeek = DDG("2026-09-17", "宿舍值日", { members: ddM });
     pluginRuntime.ddSummaryFrom([dorm, pub], "不存在", "2026-09-17").groupName, "宿舍值日");
   ok("没有组时快照不崩（返回空态）",
     pluginRuntime.ddSummaryFrom([], "", "2026-09-17").groupCount, 0);
+
+  const emptyGroup = DDG("2026-09-17", "未加成员", { members: [] });
+  const futureGroup = DDG("2026-09-10", "下周开始", { startDate: "2026-09-17", members: ddM });
+  const pausedGroup = DDG("2026-09-17", "节日暂停", {
+    startDate: "2026-09-14", members: ddM, pauseRanges: [{ start: "2026-09-17", end: "2026-09-20" }],
+  });
+  const future = Object.assign({}, futureGroup, { startDate: "2026-09-18" });
+  const special = pluginRuntime.ddSummaryFrom([emptyGroup, future, pausedGroup], emptyGroup.id, "2026-09-17");
+  ok("总面板给空名单、未开始和暂停独立状态",
+    special.panelGroups.map((g) => g.status).join(","), "empty,upcoming,paused");
+  ok("暂停组仍提供恢复后的下一位", special.panelGroups[2].nextWhoName, "小北");
 
   // 空态 / 未开始 / 有成员 三种状态
   const empty = pluginRuntime.ddSnapshot("2026-09-17", DDG("2026-09-17", "值日", { members: [] }));
@@ -567,7 +584,26 @@ const ddWeek = DDG("2026-09-17", "宿舍值日", { members: ddM });
   const both = pluginRuntime.dormDutySummary("2026-09-17");
   ok("新版数据存在时不看旧键（否则旧快照会盖回来）", both.groupCount, 2);
   ok("存的 activeId 生效（下次打开还停在那一套）", both.groupName, "公区卫生");
+  ok("新装用户默认显示总面板", both.panelView, "overview");
+  ok("总面板快捷入口在轮换标签最前", both.panelTabs[0].id, "overview");
   ok("标签条给出两组各自当班人", both.groups.map((g) => g.who).join(","), "小北,甲");
+  store.pluginStorageSet("dorm-duty", "panelView", "group");
+  ok("总面板选择独立保存且不更改当前编辑组",
+    [pluginRuntime.dormDutySummary("2026-09-17").panelView,
+      store.pluginStorageGet("dorm-duty", "activeId", "")].join(","), "group,gB");
+  ok("group 标签根据 activeId 高亮当前详情轮换",
+    pluginRuntime.dormDutySummary("2026-09-17").panelTabs.map((x) => x.on).join(","), "false,false,true");
+  store.pluginStorageSet("dorm-duty", "panelView", "gA");
+  ok("旧版保存的轮换 id 兼容升级为 group 状态",
+    [pluginRuntime.dormDutySummary("2026-09-17").panelView,
+      store.pluginStorageGet("dorm-duty", "panelView", "")].join(","), "group,group");
+  store.pluginStorageSet("dorm-duty", "panelView", "不存在");
+  ok("失效的面板组回到总面板，不影响排班组", [
+    pluginRuntime.dormDutySummary("2026-09-17").panelView,
+    store.pluginStorageGet("dorm-duty", "activeId", ""),
+  ].join(","), "overview,gB");
+  ok("无效面板选择会被修正后落盘",
+    store.pluginStorageGet("dorm-duty", "panelView", ""), "overview");
   store.pluginStorageSet("dorm-duty", "activeId", "不存在");
   ok("activeId 失效时退回第一套", pluginRuntime.dormDutySummary("2026-09-17").groupName, "宿舍值日");
   ok("失效的 activeId 会被修正后落盘（不留一个永远无效的指针）",

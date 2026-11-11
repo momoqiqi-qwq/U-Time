@@ -1,5 +1,5 @@
 <view class="page-body" wx:if="{{plugin}}">
-  <view class="card plugin-head">
+  <view class="card plugin-head" wx:if="{{id !== 'dorm-duty' || !dd || dd.panelView !== 'overview'}}">
     <view class="icon"><image class="fa-icon" src="{{plugin.iconPath}}" mode="aspectFit" /></view>
     <view class="head-copy">
       <view class="title">{{plugin.name}}</view>
@@ -76,20 +76,42 @@
 
     <!-- 一个插件里可以有多套轮换：宿舍值日 / 公区卫生…各有各的成员与周期，互不影响 -->
     <view class="card">
-      <view class="section-title">轮换（{{dd.groupCount}}）</view>
-      <view class="dd-gchips">
-        <view class="dd-gtab" wx:for="{{dd.groups}}" wx:key="id">
-          <text class="dd-gchip {{item.on ? 'on' : ''}}" data-id="{{item.id}}" bindtap="onDdGroup">{{item.name}}<text class="dd-gwho" wx:if="{{item.who}}">· {{item.who}}</text></text>
-          <text class="dd-gmore" data-id="{{item.id}}" bindtap="onDdGroupMenu">⋯</text>
+      <view class="section-title">值日总览 · {{dd.groupCount}} 套轮换</view>
+      <view class="dd-panel-tabs {{dd.reducedMotion ? 'reduced' : ''}}">
+        <view class="dd-panel-tabs-inner">
+          <view class="dd-panel-glow {{dd.panelGlow.visible ? 'ready' : ''}}" style="left:{{dd.panelGlow.left}}px;top:{{dd.panelGlow.top}}px;width:{{dd.panelGlow.width}}px;height:{{dd.panelGlow.height}}px"></view>
+          <view class="dd-panel-tab {{item.on ? 'on' : ''}}" wx:for="{{dd.panelTabs}}" wx:key="id" id="dd-panel-{{item.id}}">
+            <view class="dd-panel-tab-hit" data-id="{{item.id}}" bindtap="onDdPanel"><text>{{item.name}}</text><text class="dd-gwho" wx:if="{{item.id !== 'overview' && item.who}}">· {{item.who}}</text></view>
+            <text class="dd-gmore" wx:if="{{item.id !== 'overview'}}" data-id="{{item.id}}" bindtap="onDdGroupMenu">⋯</text>
+          </view>
         </view>
       </view>
       <view class="dd-add">
         <button class="btn small pri dd-addbtn" bindtap="onDdGroupNew" disabled="{{!dd.canAddGroup}}">新建轮换</button>
+        <button class="btn small" bindtap="onDdExport">导出备份</button>
+        <button class="btn small" bindtap="onDdImport">导入备份</button>
       </view>
       <view class="desc hint">每套轮换各有自己的成员、周期、起始日与提醒时刻，互不影响。</view>
     </view>
 
-    <view class="card">
+    <view class="dd-overview {{dd.groupCount === 1 ? 'dd-overview-one' : ''}} {{dd.groupCount === 2 ? 'dd-overview-two' : ''}}" wx:if="{{dd.panelView === 'overview'}}">
+      <view class="card dd-overview-card" wx:for="{{dd.panelGroups}}" wx:key="id">
+        <view class="dd-overview-top">
+          <view class="dd-overview-label">今天值日</view>
+          <view class="dd-overview-name">{{item.name}}</view>
+        </view>
+        <view class="dd-overview-people" wx:if="{{item.status === 'active'}}" data-private-text>{{item.currentNames}}</view>
+        <view class="dd-overview-status" wx:elif="{{item.status === 'empty'}}">先添加值日成员</view>
+        <view class="dd-overview-status" wx:elif="{{item.status === 'paused'}}">节假日暂停</view>
+        <view class="dd-overview-status" wx:else>尚未开始值日</view>
+        <view class="dd-overview-location" wx:if="{{item.status === 'active' && item.currentLocation}}">今日地点 · {{item.currentLocation}}</view>
+        <view class="dd-overview-change" wx:if="{{item.status === 'active' && item.swapped}}">本轮已调整 · 原排班 {{item.swapName}}</view>
+        <view class="dd-overview-next" wx:if="{{item.status !== 'empty'}}"><text>下次{{item.nextVerb}}</text><text wx:if="{{item.nextStartText}}">{{item.nextStartText}} · {{item.nextWhoName}}</text><text wx:else>{{item.nextWhoName || '暂无排班'}}</text></view>
+        <button class="btn small pri dd-overview-manage" data-id="{{item.id}}" bindtap="onDdPanel">管理这套轮换</button>
+      </view>
+    </view>
+
+    <view class="card" wx:if="{{dd.panelView !== 'overview'}}">
       <view class="section-title">{{dd.groupName}} · {{dd.periodLabel}}一轮</view>
       <block wx:if="{{dd.empty}}">
         <view class="desc">还没有成员。先在下面「成员与轮换顺序」里添加成员，第一个人先当班。</view>
@@ -117,7 +139,7 @@
       </view>
     </view>
 
-    <view class="card" wx:if="{{dd.hasMembers}}">
+    <view class="card" wx:if="{{dd.panelView !== 'overview' && dd.hasMembers}}">
       <view class="section-title">下次{{dd.nextVerb}}</view>
       <view class="dd-next">
         <text class="dd-big">{{dd.nextBigEm}}</text>
@@ -134,7 +156,7 @@
       </view>
     </view>
 
-    <view class="card">
+    <view class="card" wx:if="{{dd.panelView !== 'overview'}}">
       <view class="section-title">地点轮换</view>
       <view class="meta" wx:if="{{dd.nextLocationStart}}">{{dd.started ? '下次换地点' : '地点轮换开始'}}：{{dd.nextLocationText}} · {{dd.nextLocationName}}</view>
       <view class="desc hint">地点和成员分别计时，均从起始日开始。</view>
@@ -160,7 +182,7 @@
       </view>
     </view>
 
-    <view class="card">
+    <view class="card" wx:if="{{dd.panelView !== 'overview'}}">
       <view class="section-title">成员与轮换顺序（{{dd.members.length}}）</view>
       <view class="desc">按真实轮换顺序排列；“当班”标记表示今天值日。按住拖拽点或点 ↑↓ 调整顺序{{dd.perRound > 1 ? '，每轮 ' + dd.perRound + ' 人一起当班' : ''}}。</view>
       <view class="dd-field" wx:if="{{dd.members.length}}">
@@ -195,7 +217,7 @@
       </view>
     </view>
 
-    <view class="card">
+    <view class="card" wx:if="{{dd.panelView !== 'overview'}}">
       <view class="section-title">设置</view>
       <view class="dd-field">
         <text class="label">轮换名</text>

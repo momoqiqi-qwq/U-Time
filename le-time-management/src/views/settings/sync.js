@@ -25,6 +25,7 @@ import {
   saveStoredSyncPassword, loadStoredSyncPassword, clearStoredSyncPassword,
   uploadWebDav, downloadWebDav, isPotentiallyUnsafeWebDav,
 } from "../../syncLayer.js";
+import { createGitHubBackupSection } from "./githubBackup.js";
 
 let disclosureId = 0;
 
@@ -203,6 +204,8 @@ export async function createSyncCard({ appVersion = "", os = "" } = {}) {
     el("p", { class: "desc" }, "换到另一台设备（比如手机上的 APK）：装好本程序，回到这一页选同一个网盘、填同样的账号和应用密码，点「从网盘拉回本地」。"),
   );
 
+  const githubBackup = await createGitHubBackupSection({ settings, info: { version: appVersion } });
+
   const card = el("div", { class: "card set-card sync-card" },
     el("div", { class: "ai-card-title-row" }, el("div", {}, el("h2", {}, "可选同步")), stateChip),
     el("p", { class: "desc" },
@@ -210,7 +213,7 @@ export async function createSyncCard({ appVersion = "", os = "" } = {}) {
       el("br"),
       "不自动上传、不注册账号，不点按钮就没有任何东西离开这台设备。",
     ),
-    ...steps, dailyCard, createLanSection(settings, { appVersion, os }),
+    ...steps, dailyCard, githubBackup, createLanSection(settings, { appVersion, os }),
   );
 
   const isConfigured = () => Boolean(cfg.root && cfg.lastSyncAt);

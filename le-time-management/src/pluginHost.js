@@ -70,6 +70,7 @@ export const PLUGIN_PERMISSION_LABELS = {
   messages: "读取其他插件推来的消息",
   schoolImport: "学校教务登录与课表脚本导入",
   sound: "播放提醒音",
+  localFiles: "读取你选中的本地文件夹（HTML 目录预览）",
 };
 
 function isPermissionAllowed(man, pid, perm) {
@@ -513,6 +514,19 @@ function makeApi(man, source) {
       get: (key) => { requirePermission(man, pid, "vault"); return api.pluginVaultGet(pid, key); },
       set: (key, value) => { requirePermission(man, pid, "vault"); return api.pluginVaultSet(pid, key, value); },
       del: (key) => { requirePermission(man, pid, "vault"); return api.pluginVaultDel(pid, key); },
+    },
+
+    /* 本地 HTML 目录：让插件能「挑一个文件夹 → 认出里面的 html → 真渲染成缩略图」。
+       目录浏览与扫描是只读的；缩略图靠原生起的 127.0.0.1 静态服务，服务只认挂载根
+       里的文件（路径逐段校验 + canonicalize 比前缀），读不到目录外的东西。
+       实现见 src-tauri/src/html_gallery.rs，接口见 src/api.js 的 htmlDir* / htmlServe*。 */
+    localHtml: {
+      roots: () => { requirePermission(man, pid, "localFiles"); return api.htmlDirRoots(); },
+      list: (path) => { requirePermission(man, pid, "localFiles"); return api.htmlDirList(path); },
+      scan: (path, depth = 2) => { requirePermission(man, pid, "localFiles"); return api.htmlDirScan(path, depth); },
+      serve: (path) => { requirePermission(man, pid, "localFiles"); return api.htmlServeStart(path); },
+      unserve: () => { requirePermission(man, pid, "localFiles"); return api.htmlServeStop(); },
+      status: () => { requirePermission(man, pid, "localFiles"); return api.htmlServeStatus(); },
     },
 
     util: {

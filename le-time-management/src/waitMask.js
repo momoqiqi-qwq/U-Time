@@ -4,8 +4,8 @@
 //   · loadingMask  → 启动那一次，盖住整段首屏，铺满 `--bg`，走完就摘掉，不复用；
 //   · waitMask     → 任何「要等一会儿」的操作（刷新课表 / 拉通知 / 同步账单 / 切视图），
 //                    半透明、可复用、可并发，操作结束自动撤。
-// 蒙版上那句字与左上角标题同源（brandWordmark.js 的 `.brand` + 哥特字标 + 装饰线），
-// 默认还是 `U Time WorkSpace`；传 text 就换成那句操作的说明（如「正在刷新课表…」）。
+// 蒙版上那句字与左上角标题同源（brandWordmark.js 的 `.brand` + 无衬线字标 + 装饰线），
+// 默认还是 `U-Time`；传 text 就换成那句操作的说明（如「正在刷新课表…」）。
 //
 // 四个设计决定（改之前先读完，都是踩过的地方）：
 // ① **延迟出现（SHOW_DELAY_MS）**：操作常常 50ms 就完了。不延迟的话每次刷新都闪一下蒙版，
@@ -211,7 +211,7 @@ function releaseAll() {
  * try { await loadSomething(); } finally { release(); }
  * ```
  *
- * @param {string} [text] 蒙版上的文案；不传就是品牌字标那句（`U Time WorkSpace`）。
+ * @param {string} [text] 蒙版上的文案；不传就是品牌字标那句（`U-Time`）。
  * @returns {() => void} 结束函数。
  */
 export function showWaitMask(text) {

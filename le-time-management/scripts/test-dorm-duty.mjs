@@ -187,9 +187,10 @@ function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = 
       '  tide.ui.registerView({ id: VIEW_ID,',
       '  globalThis.__fx = { state, load, save, tick, stopTimer, snapshot, GROUP_MAX, NAME_MAX, MEMBER_MAX, confirmFn,\n'
       + '    defaultGroup, normalizeGroup, normalizeGroups, migrateLegacy, addTodayTask,\n'
+      + '    dormDutyBackup, parseDormDutyBackup, exportDormDutyBackup, importDormDutyBackup,\n'
       + '    cycleStartOf, assigneeFor, assigneesFor, cycleIndexAt, overrideHit, overrideHits, normalAssignees, redesignate,\n'
       + '    isCycleStartDay, reminderDue, periodOf, perRoundOf, locationAt, locationsHtml,\n'
-      + '    nextBigText, render, heroHtml, rowsHtml, groupChipsHtml, swapHtml, rulesHtml, setActiveGroup, addGroup, removeGroup, renameGroup,\n'
+      + '    nextBigText, render, heroHtml, rowsHtml, groupChipsHtml, overviewHtml, showOverview, swapHtml, rulesHtml, setActiveGroup, addGroup, removeGroup, renameGroup,\n'
       + '    duplicateGroup, importMembers, tabMenuHtml, clampTabMenu, placeTabMenu, paint,\n'
       + '    roomHtml, roomBeds, roomBunks, roomDims, roomBunkCount, roomScene, roomBounds, roomProjectAll, roomProjectPoint, roomView,\n'
       + '    normalizeSeats, normalizeBedNames, normalizeLinks, seatsOf, bedNamesOf, roomLinks, moveSeat, toggleLink, bedSlotAtPoint, roomBedLabel,\n'
@@ -215,9 +216,31 @@ const GROUP = (patch = {}) => ({
   remindEnabled: true, remindTime: '08:00', sound: 'beep',
   members: MEMBERS, removed: [], overrides: {}, lastNotified: '', ...patch,
 });
-const seed = (patch = {}) => ({ groups: [GROUP()], activeId: 'g1', ...patch });
+const seed = (patch = {}) => ({ groups: [GROUP()], activeId: 'g1', panelView: 'group', ...patch });
 /** 关掉提醒的种子：不测提醒的用例用它，免得首刷 tick 按真实墙钟弹通知、写 storage。 */
-const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], activeId: 'g1', ...patch });
+const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], activeId: 'g1', panelView: 'group', ...patch });
+
+/* 3.0 备份格式：桌面与小程序可往返，坏文件拒绝且不产生隐式数据。 */
+{
+  const { fx } = bootPlugin({ seed: quietSeed({ groups: [GROUP({ id: 'g1', name: '宿舍值日' }), GROUP({ id: 'g2', name: '公区卫生', members: [{ id: 'm9', name: '小周' }] })], activeId: 'g2' }) });
+  await settle();
+  const backup = fx.dormDutyBackup();
+  assert.equal(backup.format, 'u-time-dorm-duty');
+  assert.equal(backup.schema, 1);
+  assert.equal(backup.activeId, 'g2');
+  assert.equal(backup.groups.length, 2);
+  const roundTrip = fx.parseDormDutyBackup(JSON.stringify(backup), '2026-09-17');
+  assert.equal(roundTrip.activeId, 'g2');
+  assert.equal(Array.from(roundTrip.groups, (g) => g.name).join(','), '宿舍值日,公区卫生');
+  for (const bad of ['', '{}', '{"format":"other","schema":1,"groups":[]}', JSON.stringify({ ...backup, groups: [{ ...backup.groups[0], id: backup.groups[0].id }, { ...backup.groups[1], id: backup.groups[0].id }] })]) {
+    assert.throws(() => fx.parseDormDutyBackup(bad, '2026-09-17'), /备份|JSON/);
+  }
+  const miniBackup = mini.ddBackup(roundTrip.groups, roundTrip.activeId);
+  const miniRoundTrip = mini.ddParseBackup(JSON.stringify(miniBackup), '2026-09-17');
+  assert.equal(miniRoundTrip.activeId, 'g2');
+  assert.equal(miniRoundTrip.groups.map((g) => g.name).join(','), '宿舍值日,公区卫生');
+  assert.equal(mini.ddParseBackup('{"format":"u-time-dorm-duty","schema":1,"groups":[]}', '2026-09-17'), null, '空组备份必须拒绝');
+}
 
 /* 3.1 组内字段归一化：坏数据不能把插件变成白屏 */
 {
@@ -897,7 +920,7 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
 {
   const A = GROUP({ id: 'gA', name: '宿舍值日', remindEnabled: false, members: MEMBERS });
   const B = GROUP({ id: 'gB', name: '公区卫生', remindEnabled: false, members: [{ id: 'p1', name: '甲' }] });
-  const { fx } = bootPlugin({ seed: { groups: [A, B], activeId: 'gA' }, today: '2026-09-17' });
+  const { fx } = bootPlugin({ seed: { groups: [A, B], activeId: 'gA', panelView: 'group' }, today: '2026-09-17' });
   await settle();
   await fx.load();
   const host = fakeEl('div');
@@ -910,6 +933,88 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
   assert.ok(host.innerHTML.includes('value="阿青"'), '当前组的成员要列出来');
   assert.ok(!host.innerHTML.includes('value="甲"'), '不能把别的组的成员混进当前组的成员列表');
   assert.match(host.innerHTML, /aria-pressed="true"/, '当前组要有选中态');
+}
+
+/* 6.3b 总面板是默认入口，汇总所有组的实际值日人，不把它混进组 ID。 */
+{
+  const A = GROUP({ id: 'gA', name: '宿舍值日', remindEnabled: false, perRound: 2,
+    locations: ['走廊'], overrides: { '2026-09-17': ['mC', 'mA'] } });
+  const B = GROUP({ id: 'gB', name: '公区卫生', remindEnabled: false,
+    members: [{ id: 'p1', name: '甲' }, { id: 'p2', name: '乙' }] });
+  const { fx, storage } = bootPlugin({ seed: { groups: [A, B], activeId: 'gB' } });
+  await settle();
+  const host = fakeEl('div');
+  fx.render(host);
+  await settle();
+  assert.equal(fx.state.panelView, 'overview', '已有排班未选择面板时，默认进总面板');
+  assert.equal(fx.state.activeId, 'gB', '总面板不能覆盖最后编辑的组');
+  assert.match(host.innerHTML, /dd-wrap dd-overview/);
+  assert.match(host.innerHTML, /data-count="2"/);
+  assert.equal((host.innerHTML.match(/data-overview-group=/g) || []).length, 2, '一套轮换对应一块汇总区域');
+  const aCard = host.innerHTML.split('data-overview-group="gA"')[1].split('</section>')[0];
+  const bCard = host.innerHTML.split('data-overview-group="gB"')[1].split('</section>')[0];
+  assert.match(aCard, /<span data-private-text>老陈<\/span><span data-private-text>阿青<\/span>/, '汇总必须显示临时换上的全部值日人');
+  assert.match(aCard, /今日地点：<b>走廊<\/b>/);
+  assert.match(aCard, /临时换人/);
+  assert.match(bCard, /<span data-private-text>甲<\/span>/, '其他组不能沿用 activeId 的排班');
+  assert.match(bCard, /<b data-private-text>乙<\/b>/, '下一轮也应独立计算');
+  assert.ok(!host.innerHTML.includes('data-name value='), '总面板不夹带单组编辑表单');
+  assert.ok(host.innerHTML.indexOf('data-panel-overview') < host.innerHTML.indexOf('data-group="gA"'), '总面板在标签栏第一项');
+  assert.equal(await fx.setActiveGroup('gB'), true, '从总面板点最后编辑的组也要能进入详情');
+  await fx.paint();
+  assert.equal(storage.get('panelView'), 'group');
+  assert.match(host.innerHTML, /data-name value="甲"/, '进入详情仍使用原编辑器');
+  assert.equal(await fx.showOverview(), true);
+  await fx.paint();
+  assert.equal(storage.get('panelView'), 'overview');
+  assert.equal(storage.get('activeId'), 'gB');
+  assert.equal(await fx.showOverview(), false, '重复选总面板不产生无意义重绘');
+  await fx.load();
+  assert.equal(fx.state.panelView, 'overview', '重读后保持总面板');
+}
+
+/* 6.3c 单组及无成员 / 暂停 / 尚未开始都应有明确状态，不能冒充今天值日。 */
+{
+  const one = bootPlugin({ seed: { groups: [GROUP({ remindEnabled: false })] } });
+  await settle();
+  assert.match(one.fx.overviewHtml(), /data-count="1" style="--dd-columns:1"/, '只有一组时独占整列');
+  const { fx } = bootPlugin({ seed: { groups: [
+    GROUP({ id: 'empty', members: [], remindEnabled: false }),
+    GROUP({ id: 'paused', pauseRanges: [{ start: '2026-09-17', end: '2026-09-18' }], remindEnabled: false }),
+    GROUP({ id: 'future', startDate: '2026-09-20', remindEnabled: false }),
+  ] } });
+  await settle();
+  const cards = fx.overviewHtml();
+  assert.match(cards.split('data-overview-group="empty"')[1].split('</section>')[0], /先添加成员/);
+  const paused = cards.split('data-overview-group="paused"')[1].split('</section>')[0];
+  const future = cards.split('data-overview-group="future"')[1].split('</section>')[0];
+  assert.match(paused, /假期 \/ 节日暂停中/);
+  assert.match(paused, /恢复值日 · 9月19日/);
+  assert.match(future, /轮换还没开始/);
+  assert.match(future, /开始值日 · 9月20日/);
+  assert.ok(!paused.includes('dd-overview-label">今天值日'), '暂停不能显示成今天当班');
+  assert.ok(!future.includes('dd-overview-label">今天值日'), '未来开始不能显示成今天当班');
+}
+
+/* 6.3d 总面板跨天、另一组同日改排班时都从各组的新数据重算。 */
+{
+  const A = GROUP({ id: 'gA', name: '宿舍值日', periodDays: 7, remindEnabled: false });
+  const B = GROUP({ id: 'gB', name: '公区卫生', periodDays: 1, remindEnabled: false });
+  const { fx, storage, setToday } = bootPlugin({ seed: { groups: [A, B], activeId: 'gA' } });
+  await settle();
+  const host = fakeEl('div');
+  fx.render(host);
+  await settle();
+  setToday('2026-09-18');
+  await fx.tick();
+  const currentName = () => host.innerHTML.split('data-overview-group="gB"')[1].split('dd-overview-next')[0];
+  assert.match(currentName(), /<span data-private-text>小北<\/span>/);
+  const updated = JSON.parse(JSON.stringify(storage.get('groups')));
+  updated[1].overrides = { '2026-09-18': 'mC' };
+  storage.set('groups', updated);
+  await fx.tick();
+  assert.match(currentName(), /<span data-private-text>老陈<\/span>/, '非 activeId 的组同日更新也要刷新');
+  assert.equal(fx.state.activeId, 'gA');
 }
 
 /* 6.4 换人后主卡片要标出「已换人 · 原 X」，X 是**正常排班本该当班的人** */

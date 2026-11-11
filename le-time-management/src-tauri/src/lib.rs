@@ -20,6 +20,7 @@ mod storage;
 mod vault;
 mod ai_models;
 mod plugin_cache;
+mod html_gallery;
 use vault::{load_ai_secret, validate_ai_base_url, ai_chat_endpoint};
 #[cfg(test)]
 use vault::{aead_encrypt, aead_decrypt};
@@ -2641,6 +2642,8 @@ pub fn run() {
         .manage(HttpSessions(Mutex::new(HashMap::new())))
         .manage(LanHandle(Mutex::new(None)))
         .manage(native_schedule::NativeSchedule::default())
+        // 「HTML 目录」插件的回环静态服务句柄（见 src/html_gallery.rs）
+        .manage(html_gallery::HtmlServe::default())
         // 退出握手的状态必须注册，否则 `State<'_, Arc<QuitGate>>` 注入失败，
         // quit_ack 永远敲不响 → 每次退出都要空等满 2 秒超时才走。
         .manage(quit_gate().clone())
@@ -2690,6 +2693,12 @@ pub fn run() {
             lan_status,
             lan_push_take,
             lan_push_resolve,
+            html_gallery::html_dir_roots,
+            html_gallery::html_dir_list,
+            html_gallery::html_dir_scan,
+            html_gallery::html_serve_start,
+            html_gallery::html_serve_stop,
+            html_gallery::html_serve_status,
             update::update_check,
             update::update_download,
             update::update_install,

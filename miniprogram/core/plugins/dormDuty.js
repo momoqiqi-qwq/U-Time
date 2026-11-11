@@ -31,6 +31,8 @@ const DD_LOCATION_NAME_MAX = 24;
 // 不然一份脏数据在桌面被夹回默认档、在小程序原样留存，两端备份恢复后就不一致了。
 const DD_ROOM_SIZES = [0, 4, 6, 8];
 const DD_ROOM_DEFAULT = 4;
+const DD_BACKUP_FORMAT = "u-time-dorm-duty";
+const DD_BACKUP_SCHEMA = 1;
 
 function ddValidDate(s) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(s || ""))) return false;
@@ -187,6 +189,35 @@ function ddGroups(raw, today) {
     out.push(g);
   }
   return out;
+}
+
+/** 跨端值日备份格式：只包含 groups / activeId，避免把页面临时状态带入文件。 */
+function ddBackup(groups, activeId) {
+  return {
+    format: DD_BACKUP_FORMAT,
+    schema: DD_BACKUP_SCHEMA,
+    exportedAt: new Date().toISOString(),
+    activeId: String(activeId || ""),
+    groups: JSON.parse(JSON.stringify(groups || [])),
+  };
+}
+/** 先完整校验再归一化；返回 null 表示拒绝，调用方可保证坏文件不改 storage。 */
+function ddParseBackup(raw, today) {
+  let doc;
+  try { doc = typeof raw === "string" ? JSON.parse(raw) : raw; } catch (_) { return null; }
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)
+    || doc.format !== DD_BACKUP_FORMAT || Number(doc.schema) !== DD_BACKUP_SCHEMA
+    || !Array.isArray(doc.groups) || !doc.groups.length || doc.groups.length > DD_GROUP_MAX) return null;
+  const ids = {};
+  for (const item of doc.groups) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+    const id = String(item.id || "").trim();
+    if (!id || ids[id]) return null;
+    ids[id] = 1;
+  }
+  const groups = ddGroups(doc.groups, today);
+  if (groups.length !== doc.groups.length) return null;
+  return { groups, activeId: ddActiveId(groups, String(doc.activeId || "")) };
 }
 /** 旧版单套轮换 → 一组。没有任何旧数据时返回空数组（由调用方决定要不要建默认组）。 */
 function ddMigrateLegacy(legacy, today) {
@@ -628,6 +659,23 @@ function ddSummaryFrom(groups, activeId, today) {
     const who = ddAssigneesFor(g, today).map((m) => m.name).join("、");
     return { id: g.id, name: g.name, who: who, on: !!active && g.id === active.id };
   });
+  snap.panelGroups = list.map((g) => {
+    const s = ddSnapshot(today, g);
+    return {
+      id: g.id,
+      name: g.name,
+      status: s.empty ? "empty" : s.paused ? "paused" : s.started ? "active" : "upcoming",
+      currentNames: s.paused || !s.started ? "" : s.currentNames,
+      currentLocation: s.paused || !s.started ? "" : s.currentLocation,
+      nextStartText: s.hasMembers ? s.nextStartText : "",
+      nextVerb: s.nextVerb,
+      nextWhoName: s.hasMembers ? s.nextWhoName : "",
+      nextStart: s.nextStart,
+      swapped: s.started && s.swapped,
+      swapName: s.started && s.swapped ? s.swapName : "",
+      perRound: s.perRound,
+    };
+  });
   snap.activeId = active ? active.id : "";
   snap.groupCount = list.length;
   snap.canAddGroup = list.length < DD_GROUP_MAX;
@@ -659,13 +707,25 @@ function dormDutySummary(today) {
   if (!groups.length) { groups = [ddDefaultGroup(today, null)]; needPersist = true; }
   const storedActive = store.pluginStorageGet("dorm-duty", "activeId", "");
   const activeId = ddActiveId(groups, storedActive);
+  const storedPanelView = store.pluginStorageGet("dorm-duty", "panelView", "overview");
+  // 跨端协议只存 overview / group；旧版小程序曾将组 id 写进 panelView，仍兼容映射为 group。
+  const panelView = storedPanelView === "overview" ? "overview"
+    : storedPanelView === "group" || groups.some((g) => g.id === storedPanelView) ? "group" : "overview";
   // activeId 变了（首次落盘 / 存的指针失效）也要写回 —— 让存储里的指针**始终有效**，
   // 而不是每次进页面都靠兜底。落盘的 groups 与 activeId 必须是一对，否则指针会指空。
   if (needPersist || activeId !== storedActive) {
     store.pluginStorageSet("dorm-duty", "groups", groups);
     store.pluginStorageSet("dorm-duty", "activeId", activeId);
   }
-  return ddSummaryFrom(groups, activeId, today);
+  if (storedPanelView !== panelView) store.pluginStorageSet("dorm-duty", "panelView", panelView);
+  const summary = ddSummaryFrom(groups, activeId, today);
+  summary.panelView = panelView;
+  summary.panelTabs = [{ id: "overview", name: "总面板", on: panelView === "overview" }]
+    .concat(summary.groups.map((g) => ({
+      id: g.id, name: g.name, who: g.who,
+      on: panelView === "group" && g.id === activeId,
+    })));
+  return summary;
 }
 
 /** 某一组到点提醒的判据（纯函数）。
@@ -698,4 +758,4 @@ function ddMarkNotified(groups, ids, today) {
 }
 
 
-module.exports = { dormDutySummary, ddSummaryFrom, ddSnapshot, ddReminderDue, ddDueReminders, ddMarkNotified, ddPeriodLabel, ddDefaultConfig, ddNormalizeConfig, ddNormalizeTime, ddMembers, ddPeriod, ddDefaultGroup, ddNormalizeGroup, ddGroups, ddMigrateLegacy, ddActiveId, ddLocationAt, ddGroupAddLocation, ddGroupMoveLocation, ddGroupRemoveLocation, ddCycleStartOf, ddCycleIndexAt, ddIsCycleStartDay, ddAssigneeFor, ddNormalFor, ddOverrideHit, ddMembersInDateOrder, ddWithGroup, ddGroupPatch, ddGroupAddMember, ddGroupRenameMember, ddGroupMoveMember, ddGroupMoveMemberTo, ddRedesignate, ddGroupRemoveMember, ddGroupRestoreMember, ddGroupSetOverride, ddAddGroup, ddRemoveGroup, ddDuplicateGroup, ddImportMembers, ddCopyName, DD_PERIODS, DD_UPCOMING, DD_REMOVED_KEEP, DD_GROUP_MAX, DD_NAME_MAX };
+module.exports = { dormDutySummary, ddSummaryFrom, ddSnapshot, ddReminderDue, ddDueReminders, ddMarkNotified, ddPeriodLabel, ddDefaultConfig, ddNormalizeConfig, ddNormalizeTime, ddMembers, ddPeriod, ddDefaultGroup, ddNormalizeGroup, ddGroups, ddBackup, ddParseBackup, ddMigrateLegacy, ddActiveId, ddLocationAt, ddGroupAddLocation, ddGroupMoveLocation, ddGroupRemoveLocation, ddCycleStartOf, ddCycleIndexAt, ddIsCycleStartDay, ddAssigneeFor, ddNormalFor, ddOverrideHit, ddMembersInDateOrder, ddWithGroup, ddGroupPatch, ddGroupAddMember, ddGroupRenameMember, ddGroupMoveMember, ddGroupMoveMemberTo, ddRedesignate, ddGroupRemoveMember, ddGroupRestoreMember, ddGroupSetOverride, ddAddGroup, ddRemoveGroup, ddDuplicateGroup, ddImportMembers, ddCopyName, DD_PERIODS, DD_UPCOMING, DD_REMOVED_KEEP, DD_GROUP_MAX, DD_NAME_MAX };

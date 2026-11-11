@@ -37,9 +37,10 @@ import { attachToolbarDrag } from "./toolbarDrag.js";
 import { attachMarketCardResize, resetMarketCardSize } from "./marketCardResize.js";
 import { searchGlyph, withSearchGlyph } from "./searchField.js";
 import { openUpdateHistory } from "./updateHistory.js";
-// 字标（U Time WorkSpace + 下方哥特装饰线）的唯一创建口：刷新蒙版要「参考左上角标题」，
-// 两处共用同一份 DOM 构造，视觉仍由 styles.css 的 `.brand b` / `.brand-rule` 决定。
-import { brandRule, replayBrandRule } from "./brandWordmark.js";
+// 字标（U-Time + 下方装饰线）的唯一创建口：刷新蒙版要「参考左上角标题」，
+// 两处共用同一份 DOM 构造与同一句文案（BRAND_NAME），视觉仍由 styles.css 的
+// `.brand b` / `.brand-rule` 决定。
+import { BRAND_NAME, brandRule, replayBrandRule } from "./brandWordmark.js";
 import { withWaitMask } from "./waitMask.js";
 import { shrinkIconDataUrl } from "./iconShrink.js";
 import { createViewScrollMemory } from "./viewScroll.js";
@@ -342,10 +343,15 @@ export function renderShell(root) {
      166px —— 所以基础字号从 28px 降到 20px（实测 159.03px，留 7px 余量），过渡带那条从 22px
      降到 18px（实测 143.13px ≤ 可用 146px；19px 会溢出 5.06px）。`.brand` 因为多了下面这条线，
      主轴从 row 改成 column。
-     别再照抄 28px：这个字号是拿无头 Chrome 量出来的，不是估的。 */
+     别再照抄 28px：这个字号是拿无头 Chrome 量出来的，不是估的。
+
+      v0.300.0（用户需求「把红框里的 U Time WorkSpace 改成只显示 U-Time，并且是一般字形」）：
+      文案回落到 `U-Time`（唯一事实源是 brandWordmark.js 的 BRAND_NAME，这里只引用不写死），
+      字形从随包哥特黑体换成系统无衬线栈（24px 粗体实测 93.4px）。上面关于名字长度与字号的
+      历史推导只为解释「20px / 18px 这两个数的来历」，新的 24px 是按新文案重新量过的。 */
   const rail = el("aside", { class: "rail" },
       el("div", { class: "brand" },
-      el("b", {}, "U Time WorkSpace"),
+      el("b", {}, BRAND_NAME),
       brandRule(),
     ),
     nav,

@@ -143,6 +143,44 @@
 .dd-chip { font-size: 22rpx; border: 2rpx solid var(--line); background: var(--paper); border-radius: 999rpx; padding: 8rpx 22rpx; color: var(--ink-2); }
 .dd-chip.on { background: var(--deep); color: var(--on-deep); border-color: var(--deep); }
 
+/* 总面板的导航胶囊和选中光跟随组名宽度，切换时从上一次的位置滑过来。 */
+.dd-panel-tabs { overflow: hidden; margin: -4rpx -6rpx 12rpx; }
+.dd-panel-tabs-inner { position: relative; isolation: isolate; display: flex; align-items: center; flex-wrap: wrap; gap: 10rpx; padding: 6rpx; }
+.dd-panel-glow { position: absolute; z-index: 0; pointer-events: none; border-radius: 999rpx; background: var(--deep); opacity: 0; }
+.dd-panel-glow.ready { opacity: 1; transition: left .32s cubic-bezier(.34,1.35,.64,1), top .24s ease, width .28s ease, height .24s ease, opacity .16s ease; }
+.dd-panel-tab { display: flex; position: relative; z-index: 1; align-items: stretch; min-height: 70rpx; border: 2rpx solid var(--line); border-radius: 999rpx; background: var(--paper); color: var(--ink-2); font-size: 22rpx; overflow: hidden; }
+.dd-panel-tab.on { border-color: transparent; background: transparent; color: var(--on-deep); font-weight: 700; }
+.dd-panel-tab-hit { display: flex; align-items: center; gap: 8rpx; min-width: 0; padding: 8rpx 20rpx; white-space: nowrap; }
+.dd-panel-tab .dd-gwho { overflow: hidden; text-overflow: ellipsis; max-width: 180rpx; }
+.dd-panel-tab .dd-gmore { position: relative; margin-left: 0; border: 0; border-radius: 0 999rpx 999rpx 0; background: transparent; color: inherit; padding: 0 16rpx 0 4rpx; }
+.dd-panel-tab.on .dd-gmore { color: var(--on-deep); }
+.dd-overview { display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-rows: minmax(320rpx, auto); gap: 18rpx; align-items: stretch; }
+.dd-overview-card { display: flex; flex-direction: column; min-width: 0; min-height: 0; margin-bottom: 0; padding: 32rpx; overflow: visible; }
+.dd-overview-one { height: calc(100vh - 500rpx); min-height: 560rpx; grid-template-rows: minmax(0, 1fr); }
+.dd-overview-two { height: calc(100vh - 500rpx); min-height: 700rpx; grid-template-rows: repeat(2, minmax(320rpx, 1fr)); }
+.dd-overview-top { display: flex; flex-wrap: wrap; align-items: center; gap: 12rpx; }
+.dd-overview-label { flex: none; color: var(--ink-3); font-size: 23rpx; }
+.dd-overview-name { color: var(--ink); font-size: 28rpx; font-weight: 700; }
+.dd-overview-people { margin: 38rpx 0 20rpx; color: var(--deep); font-size: 66rpx; line-height: 1.28; font-weight: 800; overflow-wrap: anywhere; }
+.dd-overview-status { margin: 44rpx 0 24rpx; color: var(--ink-2); font-size: 38rpx; line-height: 1.4; font-weight: 700; }
+.dd-overview-location { color: var(--ink-2); font-size: 25rpx; }
+.dd-overview-change { margin-top: 12rpx; color: var(--coral); font-size: 22rpx; }
+.dd-overview-next { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8rpx 18rpx; margin-top: auto; padding-top: 30rpx; color: var(--ink-3); font-size: 22rpx; line-height: 1.6; }
+.dd-overview-next text:last-child { color: var(--ink-2); }
+.dd-overview-manage { align-self: flex-start; margin-top: 22rpx; }
+@media (min-width: 560px) {
+  .dd-overview:not(.dd-overview-one):not(.dd-overview-two) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dd-overview-two { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: minmax(420rpx, 1fr); }
+}
+@media (orientation: landscape) {
+  .dd-overview-one { min-height: 420rpx; }
+  .dd-overview-two { min-height: 480rpx; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd-panel-glow.ready { transition: none; }
+}
+.dd-panel-tabs.reduced .dd-panel-glow.ready { transition: none; }
+
 /* 多套轮换的切换条。选中态是深底浅字，当班人跟着走 opacity —— 别给固定色，
    否则深底上会看不清。
    ⚠️ 组名与当班人之间用 margin 而不是空格：<text> 里元素边界处的空白在渲染时可能被吞，
