@@ -370,9 +370,69 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/update-local-app.ps1 -
 
 ---
 
+## 🔴 铁律十二：出完 exe 必须紧接着出 APK，两件同版一起进 Release
+
+**Windows 产物一出来，Android APK 必须跟上 —— 只发 exe 等于没发完。**
+exe 与 apk 是同一个版本号的两副皮，缺一端就会出现「电脑上是新版、手机上是旧版」的错位。
+
+### 顺序（不能反、不能并行，见铁律四）
+
+```bash
+cd le-time-management
+
+# ① Windows：便携版 + NSIS 安装包（MSI 在 0.3xx 出不来，见下方约束）
+bash build-windows.sh --bundles nsis
+
+# ② APK 前置：版本化原生镜像必须与 gen/android 一致，不一致先修再打
+node ../tools/sync-android-native.js --check
+
+# ③ 把 dist 移走：Android 侧要重编一次前端资产，vite 会 emptyDir(dist)
+mv dist ../.workbuddy-ai/tmp/dist-win-v<版本>-$(date +%s)
+
+# ④ Android：aarch64 + x86_64 交叉编译 → gradle 打 universal 包
+bash scripts/build-android-apk.sh all
+```
+
+`tools/build-and-archive.sh` 已经把 ①–④ 串成一条流水线（附带版本校验、SHA256、本机运行版同步），
+**优先用它**；只有单独补某一段时才手跑上面的命令。
+
+### 产物与上传名（三件一起进同一个 Release）
+
+| 平台 | 构建产物 | 上传名 |
+|---|---|---|
+| Windows 便携版 | `src-tauri/target/release/letime.exe` | `UTime-<版本>-x64-portable.exe` |
+| Windows 安装包 | `src-tauri/target/release/bundle/nsis/U-Time_<版本>_x64-setup.exe` | `UTime-<版本>-x64-setup.exe` |
+| Android | `src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk` | `UTime-v<版本>-universal.apk` |
+
+```bash
+gh release create v<版本> --repo momoqiqi-qwq/U-Time --title "v<版本> · <一句话>" \
+  --notes-file .workbuddy-ai/tmp/release-notes-<版本>.md --latest \
+  .workbuddy-ai/tmp/release-v<版本>/UTime-<版本>-x64-portable.exe \
+  .workbuddy-ai/tmp/release-v<版本>/UTime-<版本>-x64-setup.exe \
+  .workbuddy-ai/tmp/release-v<版本>/UTime-v<版本>-universal.apk \
+  .workbuddy-ai/tmp/release-v<版本>/SHA256SUMS.txt
+```
+
+### 硬约束
+
+- **APK 的 `versionName` 必须等于 `package.json`**：`tauri.properties` 与 `appMeta.js` 由
+  `sync-version.js` 写，`--check` 不过不许打包（否则装到手机上会被系统判成同一个包或拒绝升级）。
+- **`SHA256SUMS.txt` 必须覆盖 apk**，不能只写两个 exe —— 手机端下载量通常更大。
+- **旧版本 apk 也按版本单独进各自 Release**：不许塞进新版资产，也不许覆盖历史 tag 上的资产。
+- **APK 拿不到就明说拿不到**（JDK / NDK 缺失、gradle 失败），不许只发 exe 就宣布「已发版」；
+  发版回复里逐条列出三件资产的版本与 SHA256 前缀。
+- **MSI 出不来是已知限制**（WiX 要求次版本号 ≤ 255，`0.301.x` 的 `301` 超限），
+  但 **APK 不受影响，照样得出**；别拿 MSI 失败当跳过 Android 的理由。
+- Android 首次构建会全量重编依赖（`--target-dir D:/Environment/android-target`，纯 ASCII 路径），
+  耗时十几分钟属正常，不要误判卡死，更不要改用 `npm run tauri android build`（中文路径会坏）。
+
+---
+
 ## 一句话总结
 
 > **改代码 = 改版本号。** 改完 `package.json` → 跑 `sync-version.js` → 补 `package-lock.json`
 > → `--check` 通过 → 才能构建。
 > **构建完 = 换本机运行版。** 出一条便携版就跑一次 `tools/update-local-app.ps1`，
 > 别让本机停在上一个版本。
+> **出了 exe = 接着出 APK。** 一个 Release 里必须同时有 portable、setup、universal.apk
+> 和覆盖三者的 `SHA256SUMS.txt`，只发 exe 等于没发版。
