@@ -25,11 +25,14 @@ REL="$ROOT/releases"
 # 用 node 读版本：Git Bash 在中文 locale 下 grep -P 会直接报
 # "supports only unibyte and UTF-8 locales"，-P 不能依赖。
 VER="${1:-$(node -p "require('./le-time-management/package.json').version")}"
+CURRENT_VER="$(node -p "require('./le-time-management/package.json').version")"
+[ "$VER" = "$CURRENT_VER" ] || { echo "✗ 目标版本 $VER 与源码版本 $CURRENT_VER 不一致" >&2; exit 1; }
 echo "==== 目标版本：v$VER ===="
 
 # ---------- 0. 前置校验 ----------
 cd "$LM"
 node ../tools/sync-version.js --check || { echo "✗ 三端版本不一致，先修"; exit 1; }
+node ../tools/sync-android-native.js --check
 if [ -n "$(git status --porcelain --untracked-files=no -- src public src-tauri miniprogram)" ]; then
   echo "⚠️  本项目源码有未提交改动 —— 产物会掺入半成品。确认无误再继续。"
   read -r -p "继续？(y/N) " a; [ "$a" = "y" ] || exit 1
@@ -53,11 +56,14 @@ bash build-windows.sh --no-bundle
 cp src-tauri/target/release/letime.exe "$PORTABLE"
 cp "$PORTABLE" "$STAGE/UTime-$VER-x64-portable.exe"
 echo "  ✓ portable 已写到 releases/UTime-portable.exe（在 bundling 打标记之前）"
+PS1_WIN="$(cygpath -w "$ROOT/tools/update-local-app.ps1" 2>/dev/null || echo "$ROOT/tools/update-local-app.ps1")"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PS1_WIN" -Version "$VER" -Restart
 
-echo "==== [2/3] Windows 安装包（nsis + msi）===="
+echo "==== [2/3] Windows 安装包（nsis）===="
 sed 's|^npm run tauri -- build "\$@"|npm run tauri -- bundle "$@"|' build-windows.sh \
   > "$ROOT/.workbuddy-ai/tmp/bundle-windows.sh"
-bash "$ROOT/.workbuddy-ai/tmp/bundle-windows.sh" --bundles nsis,msi
+# WiX 的 minor 上限是 255；只构建 NSIS，避免 MSI 失败阻断同版 APK。
+bash "$ROOT/.workbuddy-ai/tmp/bundle-windows.sh" --bundles nsis
 
 # nsis/ 与 msi/ 是历版共用的输出目录，堆着几十个旧版本产物：
 # 直接 glob 会多匹配，cp 把目标当目录，报 "cp: target '...' is not a directory" 并中断。
@@ -73,16 +79,17 @@ pick_one() {
   printf '%s\n' "${matches[0]}"
 }
 NSIS_BIN="$(pick_one 'NSIS 安装包' src-tauri/target/release/bundle/nsis/*_"$VER"_x64-setup.exe)"
-MSI_BIN="$(pick_one 'MSI 安装包' src-tauri/target/release/bundle/msi/*_"$VER"_x64_zh-CN.msi)"
 cp "$NSIS_BIN" "$STAGE/UTime-$VER-x64-setup.exe"
-cp "$MSI_BIN"  "$STAGE/UTime-$VER-x64-zh-CN.msi"
 
 # ---------- 3. Android ----------
 echo "==== [3/3] Android APK（两个 ABI）===="
-mv dist "$ROOT/.workbuddy-ai/tmp/dist-win-v$VER-$(date +%s)" 2>/dev/null || true
+node ../tools/sync-android-native.js --check
+if [ -d dist ]; then
+  mv dist "$ROOT/.workbuddy-ai/tmp/dist-win-v$VER-$(date +%s)"
+fi
 bash scripts/build-android-apk.sh all
 cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
-   "$STAGE/UTime-$VER-universal.apk"
+   "$STAGE/UTime-v$VER-universal.apk"
 
 # ---------- 3.5 清掉 MOTW（网络来源标记）----------
 # 产物只要经过一次浏览器/网盘/GitHub 下载就会被写上 Zone.Identifier，双击时 Windows 弹
@@ -100,7 +107,7 @@ echo "  提示：全局关掉该弹窗（含浏览器/网盘下载的安装包�
 # ---------- 4. 校验 + 摘要 ----------
 echo "==== 校验产物版本 ===="
 # 用 node 而不是 python：本机只装了 `py`（`python` 不在 PATH），原写法在这里必挂。
-# 两个 exe 的版本串按 UTF-16LE 存在；MSI 把版本放在 CFB 属性流里、APK 在压缩过的
+# 两个 exe 的版本串按 UTF-16LE 存在；APK 的版本在压缩过的
 # AndroidManifest 里，裸字节都数不到，所以只校验 exe 两件（与历版一致）。
 node -e '
 const fs = require("fs");
@@ -119,15 +126,12 @@ process.exit(ok ? 0 : 1);
   || { echo "✗ 产物版本不符，别发布"; exit 1; }
 
 cd "$STAGE"
-sha256sum UTime-$VER-* > SHA256SUMS.txt
+sha256sum "UTime-$VER-x64-portable.exe" "UTime-$VER-x64-setup.exe" "UTime-v$VER-universal.apk" > SHA256SUMS.txt
 
 # ---------- 5. 本机运行版同步（AGENTS.md 铁律十一）----------
-# 产物已过版本校验才走到这里；失败只告警不中断 ——
-# 构建/暂存已经完成，运行版可以事后单独补跑。
+# 安装包构建可能打标记；再次确认运行版仍与保留的便携版一致。
 echo "==== 更新本机运行版 ===="
-PS1_WIN="$(cygpath -w "$ROOT/tools/update-local-app.ps1" 2>/dev/null || echo "$ROOT/tools/update-local-app.ps1")"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PS1_WIN" -Version "$VER" \
-  || echo "  ⚠️ 运行版未更新：应用可能还在跑或被杀软占用，手动补跑 tools/update-local-app.ps1 -Restart"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PS1_WIN" -Version "$VER" -Restart
 
 echo ""
 echo "==== 完成 ===="
@@ -140,7 +144,8 @@ echo ""
 echo "下一步（各版本独立 Release，最新版带 --latest，旧版加 --latest=false）："
 echo "  gh release create v$VER --repo momoqiqi-qwq/U-Time --title \"U-Time v$VER\" \\"
 echo "     --notes-file .workbuddy-ai/tmp/release-notes-$VER.md --latest \\"
-echo "     $STAGE/UTime-$VER-* $STAGE/SHA256SUMS.txt"
+echo "     $STAGE/UTime-$VER-x64-portable.exe $STAGE/UTime-$VER-x64-setup.exe \\"
+echo "     $STAGE/UTime-v$VER-universal.apk $STAGE/SHA256SUMS.txt"
 echo "  上传成功后暂存目录可以删：rm -rf $STAGE"
 echo "  发布后核对（curl 走 github.com，本机没配代理时记得带上 HTTP(S)_PROXY）："
 echo "  cd $LM && npm run check:update-release:full"

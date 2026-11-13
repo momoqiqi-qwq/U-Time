@@ -146,18 +146,22 @@ function collectTimelineData(anchorDate) {
   events.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
 
   const projectMap = new Map();
-  // 任务 → 排程日期先按 taskId 分组一遍（v0.109.0）：原来是每条任务全表 filter，
-  // O(任务数 × 时间块数)；任务上百、时间块过千时每次渲染时间线都白扫几十万次。
-  const blockDatesByTask = new Map();
+  // 甘特只需要日期边界；保留全部日期再逐任务复制排序会浪费内存，重复 ID 还会反复排序同一组。
+  const blockRangeByTask = new Map();
   for (const b of blocks) {
-    const list = blockDatesByTask.get(b.taskId);
-    if (list) list.push(b.date); else blockDatesByTask.set(b.taskId, [b.date]);
+    const date = b.date;
+    const range = blockRangeByTask.get(b.taskId);
+    if (!range) blockRangeByTask.set(b.taskId, { start: date, end: date });
+    else {
+      if (date < range.start) range.start = date;
+      if (date > range.end) range.end = date;
+    }
   }
   for (const t of tasks) {
     const key = t.project || (t.tags && t.tags[0]) || "未分类任务";
-    const blockDates = (blockDatesByTask.get(t.id) || []).slice().sort();
-    const start = blockDates[0] || safeDateFromCreated(t.createdAt);
-    const end = (t.due || blockDates.at(-1) || start).slice(0, 10);
+    const range = blockRangeByTask.get(t.id);
+    const start = range?.start || safeDateFromCreated(t.createdAt);
+    const end = (t.due || range?.end || start).slice(0, 10);
     const row = { id: t.id, group: key, title: t.title, start: start <= end ? start : end, end: end >= start ? end : start, cat: taskCat(t) };
     if (!projectMap.has(key)) projectMap.set(key, []);
     projectMap.get(key).push(row);
