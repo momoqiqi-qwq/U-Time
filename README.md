@@ -8,7 +8,7 @@
 
 </div>
 
-<details>
+<details open>
 <summary><b>目录</b></summary>
 
 - [✨ 项目简介](#项目简介)
@@ -22,6 +22,8 @@
 - [❤️ 赞助支持](#赞助支持)
 
 </details>
+
+---
 
 ---
 
