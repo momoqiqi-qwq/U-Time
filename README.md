@@ -2,11 +2,28 @@
 
 <img src="./assets/readme-hero.svg" alt="U-Time" width="1000" />
 
-**U-Time · 把「你的时间」放进「大学的时间」里 **
+**U-Time · 把「你的时间」放进「大学的时间」里**
 
-<p>[![stars](https://img.shields.io/github/stars/momoqiqi-qwq/U-Time?style=for-the-badge&color=f5c518&labelColor=2b2b2b)](https://github.com/momoqiqi-qwq/U-Time/stargazers) ![JavaScript](https://img.shields.io/badge/JavaScript-E8B40C?style=for-the-badge&logo=javascript&logoColor=white) ![Tauri 2](https://img.shields.io/badge/Tauri%202-24C8DB?style=for-the-badge&logo=tauri&logoColor=white) ![WeChat](https://img.shields.io/badge/WeChat%20Mini-07C160?style=for-the-badge&logo=wechat&logoColor=white)</p>
+[![stars](https://img.shields.io/github/stars/momoqiqi-qwq/U-Time?style=for-the-badge&color=f5c518&labelColor=2b2b2b)](https://github.com/momoqiqi-qwq/U-Time/stargazers) ![JavaScript](https://img.shields.io/badge/JavaScript-E8B40C?style=for-the-badge&logo=javascript&logoColor=white) ![Tauri 2](https://img.shields.io/badge/Tauri%202-24C8DB?style=for-the-badge&logo=tauri&logoColor=white) ![WeChat](https://img.shields.io/badge/WeChat%20Mini-07C160?style=for-the-badge&logo=wechat&logoColor=white)
 
 </div>
+
+<details>
+<summary><b>目录</b></summary>
+
+- [✨ 项目简介](#项目简介)
+- [🏷️ 名字的含义：U-Time 里的那个「U」](#名字的含义utime-里的那个「u」)
+- [🎨 主要特点](#主要特点)
+- [📦 包含模块](#包含模块)
+- [🛠️ 如何使用](#如何使用)
+- [❓ 效果演示](#效果演示)
+- [📲 微信小程序版](#微信小程序版)
+- [🙏 贡献](#贡献)
+- [❤️ 赞助支持](#赞助支持)
+
+</details>
+
+---
 
 ---
 
