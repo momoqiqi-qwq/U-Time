@@ -1,12 +1,14 @@
 <div align="center">
 
-<img src="./assets/readme-hero.svg" alt="U-Time" width="1000" />
+<img src="./assets/hero.svg" alt="U-Time" width="1000" />
 
 **U-Time · 把「你的时间」放进「大学的时间」里**
 
 [![stars](https://img.shields.io/github/stars/momoqiqi-qwq/U-Time?style=for-the-badge&color=f5c518&labelColor=2b2b2b)](https://github.com/momoqiqi-qwq/U-Time/stargazers) ![JavaScript](https://img.shields.io/badge/JavaScript-E8B40C?style=for-the-badge&logo=javascript&logoColor=white) ![Tauri 2](https://img.shields.io/badge/Tauri%202-24C8DB?style=for-the-badge&logo=tauri&logoColor=white) ![WeChat](https://img.shields.io/badge/WeChat%20Mini-07C160?style=for-the-badge&logo=wechat&logoColor=white)
 
 </div>
+
+---
 
 <details open>
 <summary><b>目录</b></summary>
