@@ -17,6 +17,11 @@
 #       且 git status 对本项目源码干净（避免把并行会话的半成品编进产物）。
 set -euo pipefail
 
+# Git Bash 会把 PowerShell 7 的模块目录塞进 PSModulePath（含 ...\PowerShell\7\Modules），
+# 从它调用的 Windows PowerShell 5.1 会去加载 PS7 的 Microsoft.PowerShell.Utility 并失败，
+# 表现是 update-local-app.ps1 里 'Get-FileHash' 找不到命令。清掉让 5.1 自己算默认路径。
+unset PSModulePath || true
+
 cd "$(dirname "$0")/.."                      # → 工作区根
 ROOT="$(pwd)"
 LM="$ROOT/le-time-management"
