@@ -386,6 +386,11 @@ module.exports = {
     if (n === cur) return;
     this.ddCommit((g) => runtime.ddGroupPatch(g, { perRound: n }));
   },
+  /** 周六周日同一人：开启后周日不推进轮换，周六与周日由同一个人当班，周一接着下一位。 */
+  onDdWeekendSame(e) {
+    const on = !!(e.detail && e.detail.value);
+    this.ddCommit((g) => runtime.ddGroupPatch(g, { weekendSame: on }));
+  },
   /** 轮换名 / 起始日 / 时刻都改成失焦或选择后提交：输入过程中反复落盘会把 storage 写爆，也没意义。 */
   onDdGroupName(e) {
     const raw = String(e.detail.value || "").trim();

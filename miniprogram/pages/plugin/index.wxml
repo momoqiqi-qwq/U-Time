@@ -242,6 +242,11 @@
         </view>
       </view>
       <view class="desc hint" wx:if="{{dd.perRound > 1}}">每轮按名单顺序 {{dd.perRound}} 人一起当班（如 3 人每轮 2 人：A、B → C、A → B、C），到点会一起提醒。</view>
+      <view class="dd-field">
+        <text class="label">周六周日同一人</text>
+        <switch checked="{{dd.cfg.weekendSame}}" bindchange="onDdWeekendSame" color="#0F4C5C" />
+      </view>
+      <view class="desc hint" wx:if="{{dd.cfg.weekendSame}}">周日不推进轮换：周六、周日由同一个人当班，周一接着轮到下一位，不跳过任何人。</view>
       <view class="section-title">假期 / 节日暂停</view>
       <view class="desc hint">添加放假日期段（含首尾日期）。期间不值日、不提醒，成员和地点轮换均不计时；结束后接着原顺序继续。相邻或重叠日期自动合并。</view>
       <view class="dd-field" wx:for="{{dd.pauseRanges}}" wx:key="start">

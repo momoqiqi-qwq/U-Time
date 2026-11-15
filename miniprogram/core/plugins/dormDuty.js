@@ -96,30 +96,78 @@ function ddLocations(raw) {
     return out;
   }
   function ddPausedAt(g, date) { return ddPauseRanges(g.pauseRanges).some(r => r.start <= date && date <= r.end); }
-  // [起始日, date) 中真正计入轮换的天数。
+  /** 星期几，0 = 周日（与 WEEK_CN 同序）。按日期字符串的年月日本地零点取，不受时区影响。 */
+  function ddWeekdayNum(ds) {
+    const p = String(ds || "").split("-").map(Number);
+    return new Date(p[0], p[1] - 1, p[2]).getDay();
+  }
+  /** [from, to) 里有几个周日。「周末同一人」算轮换天数时要按区间扣掉，纯算术不逐天循环。 */
+  function ddSundaysIn(from, to) {
+    const n = dayDiff(from, to);
+    if (n <= 0) return 0;
+    const first = (7 - ddWeekdayNum(from)) % 7;   // from 起第几天撞上周日（from 自己是周日时 = 0）
+    if (first >= n) return 0;
+    return Math.floor((n - first - 1) / 7) + 1;
+  }
+  /** 这套轮换是否「周六周日由同一人值日」。
+      口径：把**周日当成不占槽位的日子**（与暂停日同类）—— 周日序号不涨，于是周六与周日
+      落在同一槽位 = 同一个人；周一序号再 +1 接着下一位，不跳过任何人。 */
+  const ddWeekendSameOf = (g) => !!(g && g.weekendSame);
+  // [起始日, date) 中真正计入轮换的天数（暂停日不算；开了「周末同一人」时周日也不算）。
   function ddActiveDays(g, date) {
+    const ranges = ddPauseRanges(g.pauseRanges);
     let days = dayDiff(g.startDate, date);
-    for (const r of ddPauseRanges(g.pauseRanges)) {
+    for (const r of ranges) {
       const a = r.start < g.startDate ? g.startDate : r.start;
       const b = r.end < date ? store.addDays(r.end, 1) : date;
       if (a < b) days -= dayDiff(a, b);
     }
+    if (!ddWeekendSameOf(g)) return days;
+    // 区间口径是**左开右闭**（起始日, date]：周日当天不涨序号，周六与周日才落在同一槽位；
+    // 起始日自己恒占第 0 槽（它本身可能就是周日）。
+    days -= ddSundaysIn(store.addDays(g.startDate, 1), store.addDays(date, 1));
+    // 暂停段里的周日上面已整段扣过，这里补回来，别一天扣两次。
+    for (const r of ranges) {
+      const a = r.start < g.startDate ? g.startDate : r.start;
+      const b = r.end < date ? store.addDays(r.end, 1) : date;
+      if (a < b) days += ddSundaysIn(a, b);
+    }
     return days;
   }
-  // 有效日序号反解为自然日期，按日期段跳过，可处理多年假期。
+  // 有效日序号反解为自然日期（第 index 个槽位的第一天）。
+  // 开了「周末同一人」后日期与序号不再等差（每 7 天多一个周日），一步加偏移再跳假期的老写法会错，
+  // 改二分：槽位号随日期单调不减，收敛到最小 offset 即可。
   function ddActiveDate(g, index) {
-    let date = store.addDays(g.startDate, index);
-    for (const r of ddPauseRanges(g.pauseRanges)) {
-      if (r.end < g.startDate) continue;
-      const start = r.start < g.startDate ? g.startDate : r.start;
-      if (start > date) break;
-      date = store.addDays(date, dayDiff(start, r.end) + 1);
+    const i = Math.trunc(Number(index) || 0);
+    // 落点若正好是暂停日就往后推过整段 —— 暂停日不排班，不该出现在任何轮次里。
+    const settle = (d) => {
+      let x = d, guard = 0;
+      while (ddPausedAt(g, x) && guard++ < 4000) x = store.addDays(x, 1);
+      return x;
+    };
+    if (i <= 0) return settle(store.addDays(g.startDate, i));
+    let hi = 2 * i + 400;                                   // 预留：周日最多让日期后移 i/6 天
+    for (const r of ddPauseRanges(g.pauseRanges)) hi += dayDiff(r.start, r.end) + 1;
+    let guard = 0;
+    while (ddActiveDays(g, store.addDays(g.startDate, hi)) < i && guard++ < 40) hi *= 2;
+    let lo = 0;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (ddActiveDays(g, store.addDays(g.startDate, mid)) < i) lo = mid; else hi = mid;
     }
-    return date;
+    return settle(store.addDays(g.startDate, hi));
   }
   function ddShiftActive(g, date, days) { return ddActiveDate(g, ddActiveDays(g, date) + days); }
   function ddCycleEndOf(g, date, period) {
-    return ddActiveDate(g, (Math.floor(ddActiveDays(g, date) / period) + 1) * period - 1);
+    const p = Math.max(1, Math.round(Number(period) || 1));
+    const last = (Math.floor(ddActiveDays(g, date) / p) + 1) * p - 1;
+    if (!ddWeekendSameOf(g)) return ddActiveDate(g, last);
+    // 周末合并时槽位最后一天可能是周日：下一槽位首日 - 1 天才是本轮真正的结束日；
+    // 若那天落在暂停段里就退回假期前一天（否则会显示「本轮一直到假期结束」）。
+    let end = store.addDays(ddActiveDate(g, last + 1), -1);
+    let guard = 0;
+    while (end > date && ddPausedAt(g, end) && guard++ < 4000) end = store.addDays(end, -1);
+    return end;
   }
 
 function ddUid(prefix) { return (prefix || "m") + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -141,6 +189,8 @@ function ddDefaultGroup(today, name) {
     startDate: ddValidDate(today) ? today : store.todayStr(),
     periodDays: 7,
     perRound: 1,
+    // 周末合并：开启后周日不推进轮换，周六与周日由同一人值日
+    weekendSame: false,
     roomSize: DD_ROOM_DEFAULT,
     pauseRanges: [],
     locations: [],
@@ -165,6 +215,8 @@ function ddNormalizeGroup(raw, today) {
   g.pauseRanges = ddPauseRanges(g.pauseRanges);
   // 每轮人数：1 = 单人（历史默认）。不 clamp 到当前成员数（成员会变），计算时用模运算兜底。
   g.perRound = Math.min(DD_MEMBER_MAX, Math.max(1, Math.round(Number(g.perRound) || 1)));
+  // 周末合并只认真正的 true：旧备份没这个键、脏数据写成 "false" 字符串时都当关闭。
+  g.weekendSame = g.weekendSame === true;
   // 宿舍床位数：只认 0（关闭）/ 4 / 6 / 8，与桌面端 ROOM_SIZES / normalizeRoomSize 同一套语义。
   g.roomSize = ddRoomSize(g.roomSize);
   g.remindTime = ddNormalizeTime(g.remindTime) || "08:00";
@@ -545,6 +597,11 @@ const ddRelLabel = (n) => (n === 0 ? "今天" : n === 1 ? "明天" : n > 0 ? n +
 const ddRangeText = (start, end) => (start === end ? start : start + " → " + end);
 const ddMonthDay = (s) => Number(s.slice(5, 7)) + "月" + Number(s.slice(8, 10)) + "日";
 
+/** 单日轮次 + 周末合并时，周日不会单独占一行 —— 在周六那行补一句，别让人以为周日没人值日。 */
+function weekendTip(g, start) {
+  return ddWeekendSameOf(g) && ddWeekdayNum(start) === 6 ? " · 周日同人" : "";
+}
+
 function ddSnapshot(today, group) {
   today = today || store.todayStr();
   const g = ddNormalizeGroup(group, today);
@@ -571,7 +628,7 @@ function ddSnapshot(today, group) {
       // 多日轮次写成「9月14日 → 9月20日 · 周五起」。与桌面端文案一致。
       range: period > 1
         ? ddRangeText(ddMonthDay(start), ddMonthDay(ddCycleEndOf(g, start, period))) + " · " + weekday(start) + "起"
-        : ddMonthDay(start) + "（" + weekday(start) + "）",
+        : ddMonthDay(start) + "（" + weekday(start) + "）" + weekendTip(g, start),
       whoId: whoAll.length ? whoAll[0].id : "",
       whoName: names || "—",
       index: ddCycleIndexAt(g, start) + 1,
@@ -595,6 +652,7 @@ function ddSnapshot(today, group) {
       name: g.name, startDate: g.startDate, periodDays: g.periodDays,
       locationPeriodDays: g.locationPeriodDays,
       remindTime: g.remindTime, remindEnabled: g.remindEnabled, sound: g.sound,
+      weekendSame: g.weekendSame,
     },
     periodLabel: ddPeriodLabel(period),
     periods: DD_PERIODS.map((p) => ({ days: p.days, label: p.label, on: p.days === period })),

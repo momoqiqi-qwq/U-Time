@@ -189,6 +189,7 @@ function bootPlugin({ seed = {}, today = '2026-09-17', navAlive = true, clock = 
       + '    defaultGroup, normalizeGroup, normalizeGroups, migrateLegacy, addTodayTask,\n'
       + '    dormDutyBackup, parseDormDutyBackup, exportDormDutyBackup, importDormDutyBackup,\n'
       + '    cycleStartOf, assigneeFor, assigneesFor, cycleIndexAt, overrideHit, overrideHits, normalAssignees, redesignate,\n'
+      + '    activeDays, activeDate, shiftActive, cycleEndOf, sundaysIn, weekdayNum,\n'
       + '    isCycleStartDay, reminderDue, periodOf, perRoundOf, locationAt, locationsHtml,\n'
       + '    nextBigText, render, heroHtml, rowsHtml, groupChipsHtml, overviewHtml, showOverview, swapHtml, rulesHtml, setActiveGroup, addGroup, removeGroup, renameGroup,\n'
       + '    duplicateGroup, importMembers, tabMenuHtml, clampTabMenu, placeTabMenu, paint,\n'
@@ -323,6 +324,75 @@ const quietSeed = (patch = {}) => ({ groups: [GROUP({ remindEnabled: false })], 
     const g = fx.normalizeGroup(GROUP({ periodDays: p }), today);
     assert.equal(fx.assigneeFor(g, today)?.name, want, `周期 ${p} 天、${today} 应轮到 ${want}`);
   }
+}
+
+/* 3.3d 周六周日同一人：周日不占槽位，周六与周日是同一个人，周一接着下一位且不跳过任何人 */
+{
+  const cases = [
+    // [周期, 今天, 期望当班人] —— 起始日 2026-09-17（周四），原节奏：四=阿青、五=小北、六=老陈
+    [1, '2026-09-17', '阿青'], [1, '2026-09-18', '小北'],
+    [1, '2026-09-19', '老陈'], [1, '2026-09-20', '老陈'],
+    [1, '2026-09-21', '阿青'], [1, '2026-09-22', '小北'],
+    [1, '2026-09-26', '老陈'], [1, '2026-09-27', '老陈'],
+    [1, '2026-09-28', '阿青'],
+    [7, '2026-09-17', '阿青'], [7, '2026-09-20', '阿青'], [7, '2026-09-24', '阿青'], [7, '2026-09-25', '小北'],
+  ];
+  for (const [p, today, want] of cases) {
+    const { fx } = bootPlugin({ today });
+    const g = fx.normalizeGroup(GROUP({ periodDays: p, weekendSame: true }), today);
+    assert.equal(fx.assigneeFor(g, today)?.name, want, `周末合并 + 周期 ${p} 天、${today} 应轮到 ${want}`);
+  }
+
+  const { fx } = bootPlugin({ today: '2026-09-20' });
+  // 默认关闭：周日照旧推进一位（老行为一个字节都没变）
+  const off = fx.normalizeGroup(GROUP({ periodDays: 1 }), '2026-09-20');
+  assert.equal(off.weekendSame, false, '缺字段的老数据按关闭处理');
+  assert.equal(fx.assigneeFor(off, '2026-09-20')?.name, '阿青', '关闭时周日仍照常推进');
+  assert.equal(fx.normalizeGroup(GROUP({ weekendSame: 'false' }), '2026-09-17').weekendSame, false, '脏字符串不当成开启');
+  assert.equal(fx.normalizeGroup(GROUP({ weekendSame: true }), '2026-09-17').weekendSame, true, '开启状态要留得住');
+
+  // 数学层：周日不占槽位，所以 09-20（周日）与 09-19（周六）槽位号相同
+  const g = fx.normalizeGroup(GROUP({ periodDays: 1, weekendSame: true }), '2026-09-17');
+  assert.equal(fx.activeDays(g, '2026-09-19'), 2, '周六槽位 = 2');
+  assert.equal(fx.activeDays(g, '2026-09-20'), 2, '周日不涨槽位');
+  assert.equal(fx.activeDays(g, '2026-09-21'), 3, '周一只 +1，不跳人');
+  assert.equal(fx.activeDate(g, 3), '2026-09-21', '槽位 3 的首日是周一（周日被跳过）');
+  assert.equal(fx.sundaysIn('2026-09-18', '2026-09-25'), 1, '[09-18, 09-25) 里只有 1 个周日');
+  assert.equal(fx.cycleEndOf(g, '2026-09-17', 7), '2026-09-24', '周末合并时本轮结束日要把周日算进去');
+  // 周日正好是暂停日：不能既算周日又算暂停，扣两次会白跳一个人
+  const paused = fx.normalizeGroup(GROUP({ periodDays: 1, weekendSame: true, pauseRanges: [{ start: '2026-09-20', end: '2026-09-20' }] }), '2026-09-17');
+  assert.equal(fx.activeDays(paused, '2026-09-21'), 3, '周日同时是暂停日时不能扣两次');
+  assert.equal(fx.assigneeFor(paused, '2026-09-21')?.name, '阿青', '暂停日的周日补回后顺序不乱');
+
+  // 小程序端同源：同一份数据两端必须算出同一批人
+  const miniG = mini.ddNormalizeGroup(GROUP({ periodDays: 1, weekendSame: true }), '2026-09-17');
+  assert.equal(mini.ddAssigneeFor(miniG, '2026-09-20')?.name, '老陈', '小程序端周末合并口径与桌面一致');
+  assert.equal(mini.ddSnapshot('2026-09-18', miniG).rows[0].range.includes('周日同人'), true, '小程序在周六那行标出「周日同人」');
+  assert.equal(mini.ddSnapshot('2026-09-18', miniG).cfg.weekendSame, true, '小程序快照带出开关状态');
+}
+
+/* 3.3e 开关要出现在规则面板里，开启后抬头与轮次列表都标出来 */
+{
+  const { fx } = bootPlugin({ seed: quietSeed({ groups: [GROUP({ periodDays: 1 })] }), today: '2026-09-18' });
+  await settle();
+  await fx.load();
+  await settle();
+  const host = fakeEl('div');
+  fx.render(host);
+  await settle();
+  assert.ok(/data-weekend-same/.test(host.innerHTML), '规则面板要有「周六周日同一人」开关');
+  assert.equal(/data-weekend-same[^>]*aria-pressed="true"/.test(host.innerHTML), false, '默认关闭：aria-pressed 应为 false');
+  assert.equal(/dd-kicker">[^<]*周六周日同一人/.test(host.innerHTML), false, '关闭时抬头不标注周末合并');
+
+  fx.state.groups[0].weekendSame = true;
+  await fx.save();            // 写回 storage：render 后会重新 load，不落地这一步就等于没开
+  fx.render(host);
+  await settle();
+  assert.ok(/class="dd-chip on" data-weekend-same/.test(host.innerHTML), '开启后按钮是高亮态');
+  assert.ok(/data-weekend-same[^>]*aria-pressed="true"/.test(host.innerHTML), '开启后 aria-pressed=true');
+  assert.ok(/dd-kicker">[^<]*周六周日同一人/.test(host.innerHTML), '开启后抬头标注周末合并');
+  assert.ok(/9月19日（周六） · 周日同人/.test(host.innerHTML), '轮次列表在周六那行标出「周日同人」');
+  assert.equal(/9月20日（周日）/.test(host.innerHTML), false, '周日不再单独占一行（它由周六那人包了）');
 }
 
 /* 3.3b 编辑名单保持真实轮换顺序，今天当班人单独标记 */

@@ -158,7 +158,17 @@
   const addDays = (s, n) => fromUTC(toUTC(s) + n * DAY_MS);
   const diffDays = (a, b) => Math.round((toUTC(b) - toUTC(a)) / DAY_MS);
   const validDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) && !Number.isNaN(toUTC(s)) && fromUTC(toUTC(s)) === s;
-  const weekday = (s) => `周${WEEK_CN[new Date(toUTC(s)).getUTCDay()]}`;
+  const weekdayNum = (s) => new Date(toUTC(s)).getUTCDay();   // 0 = 周日（与 WEEK_CN 同序）
+  const weekday = (s) => `周${WEEK_CN[weekdayNum(s)]}`;
+  /** [from, to) 里有几个周日。「周末同一人」在算轮换天数时要按区间扣掉它们，
+      所以刻意做成纯算术（不逐天循环）—— 跨几年的轮换也只算一次。 */
+  function sundaysIn(from, to) {
+    const n = diffDays(from, to);
+    if (n <= 0) return 0;
+    const first = (7 - weekdayNum(from)) % 7;   // from 起第几天撞上周日（from 自己就是周日时 = 0）
+    if (first >= n) return 0;
+    return Math.floor((n - first - 1) / 7) + 1;
+  }
   const fmt = (s) => `${Number(s.slice(5, 7))}月${Number(s.slice(8, 10))}日`;
   const esc = (s) => String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -221,30 +231,66 @@
     return out;
   }
   function pausedAt(g, date) { return pauseRanges(g.pauseRanges).some(r => r.start <= date && date <= r.end); }
-  // [起始日, date) 中真正计入轮换的天数。
+  /** 这套轮换是否「周六周日由同一人值日」。
+      实现口径：把**周日当成不占槽位的日子**（和暂停日同类）—— 周日那天的轮换序号不涨，
+      于是周六与周日落在同一个槽位 = 同一个人；周一序号再 +1，接着下一位，不会跳过任何人。
+      只有这一处语义，别在调用方另写「周日把日期减一天」之类的特判，否则与暂停段叠在一起会算错。 */
+  const weekendSameOf = (g) => !!(g && g.weekendSame);
+  // [起始日, date) 中真正计入轮换的天数（暂停日不算；开了「周末同一人」时周日也不算）。
   function activeDays(g, date) {
+    const ranges = pauseRanges(g.pauseRanges);
     let days = diffDays(g.startDate, date);
-    for (const r of pauseRanges(g.pauseRanges)) {
+    for (const r of ranges) {
       const a = r.start < g.startDate ? g.startDate : r.start;
       const b = r.end < date ? addDays(r.end, 1) : date;
       if (a < b) days -= diffDays(a, b);
     }
+    if (!weekendSameOf(g)) return days;
+    // 周日不占槽位。区间口径是**左开右闭**（起始日, date]：周日当天不涨序号，
+    // 周六与周日才会落在同一槽位；起始日自己恒占第 0 槽（它可能是周日）。
+    days -= sundaysIn(addDays(g.startDate, 1), addDays(date, 1));
+    // 暂停段里的周日上一步已经整段扣过，这里补回来，别一天扣两次。
+    for (const r of ranges) {
+      const a = r.start < g.startDate ? g.startDate : r.start;
+      const b = r.end < date ? addDays(r.end, 1) : date;
+      if (a < b) days += sundaysIn(a, b);
+    }
     return days;
   }
-  // 有效日序号反解为自然日期，按日期段跳过，可处理多年假期。
+  // 有效日序号反解为自然日期（第 index 个槽位的第一天）。
+  // 开了「周末同一人」后日期与序号不再等差（每 7 天会多出一个周日），所以不能再
+  // 「起始日 + index 再跳过假期」那样一步到位 —— 槽位号随日期单调不减，二分收敛最稳。
   function activeDate(g, index) {
-    let date = addDays(g.startDate, index);
-    for (const r of pauseRanges(g.pauseRanges)) {
-      if (r.end < g.startDate) continue;
-      const start = r.start < g.startDate ? g.startDate : r.start;
-      if (start > date) break;
-      date = addDays(date, diffDays(start, r.end) + 1);
+    const i = Math.trunc(Number(index) || 0);
+    // 落点若正好是暂停日就往后推过整段 —— 暂停日不排班，这一天不该出现在任何轮次里。
+    const settle = (d) => {
+      let x = d, guard = 0;
+      while (pausedAt(g, x) && guard++ < 4000) x = addDays(x, 1);
+      return x;
+    };
+    if (i <= 0) return settle(addDays(g.startDate, i));
+    let hi = 2 * i + 400;                                  // 预留：周日最多让日期后移 i/6 天
+    for (const r of pauseRanges(g.pauseRanges)) hi += diffDays(r.start, r.end) + 1;
+    let guard = 0;
+    while (activeDays(g, addDays(g.startDate, hi)) < i && guard++ < 40) hi *= 2;   // 病态数据兜底
+    let lo = 0;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (activeDays(g, addDays(g.startDate, mid)) < i) lo = mid; else hi = mid;
     }
-    return date;
+    return settle(addDays(g.startDate, hi));
   }
   function shiftActive(g, date, days) { return activeDate(g, activeDays(g, date) + days); }
   function cycleEndOf(g, date, period) {
-    return activeDate(g, (Math.floor(activeDays(g, date) / period) + 1) * period - 1);
+    const p = Math.max(1, Math.round(Number(period) || 1));
+    const last = (Math.floor(activeDays(g, date) / p) + 1) * p - 1;
+    if (!weekendSameOf(g)) return activeDate(g, last);
+    // 周末合并时槽位的最后一天可能是周日：下一个槽位首日 - 1 天才是本轮真正的结束日。
+    // 若那天正好落在暂停段里，就退回假期前一天（否则会显示「本轮一直到假期结束」）。
+    let end = addDays(activeDate(g, last + 1), -1);
+    let guard = 0;
+    while (end > date && pausedAt(g, end) && guard++ < 4000) end = addDays(end, -1);
+    return end;
   }
 
   /** 一套轮换的默认值。 */
@@ -255,6 +301,8 @@
       startDate: validDate(today) ? today : tide.util.today(),
       periodDays: 7,
       perRound: 1,
+      // 周末合并：开启后周日不推进轮换，周六与周日由同一人值日（见 activeDays 的说明）
+      weekendSame: false,
       roomSize: ROOM_DEFAULT,
       pauseRanges: [],
       locations: [],
@@ -286,6 +334,8 @@
     // 每轮人数：1 = 单人（历史默认）。上限对齐 MEMBER_MAX —— 成员数可能随时变，
     // 这里不能 clamp 到当前成员数（否则移除一个人会偷偷改掉排班规则），计算时用模运算兜底。
     g.perRound = Math.min(MEMBER_MAX, Math.max(1, Math.round(Number(g.perRound) || 1)));
+    // 周末合并只认真正的 true：旧备份没有这个键、脏数据写成 "false" 字符串时都当关闭。
+    g.weekendSame = g.weekendSame === true;
     // 宿舍床位数：只认 0（关闭）/ 4 / 6 / 8。认了别的数会让星图画不出铺位。
     g.roomSize = normalizeRoomSize(g.roomSize);
     // 床位分配 / 空床别名 / 自定连线。links 的越界判定要拿 size 当边界，所以只能排在 roomSize 之后 ——
@@ -1105,7 +1155,7 @@
 
   function heroHtml(s) {
     const g = s.g;
-    const kicker = `${esc(g.name)} · ${PERIOD_LABEL[s.period] || `每 ${s.period} 天`}一轮${s.per > 1 ? ` · 每轮 ${s.per} 人` : ""}`;
+    const kicker = `${esc(g.name)} · ${PERIOD_LABEL[s.period] || `每 ${s.period} 天`}一轮${s.per > 1 ? ` · 每轮 ${s.per} 人` : ""}${g.weekendSame ? " · 周六周日同一人" : ""}`;
     if (!g.members.length) {
       return `<div class="dd-kicker">${kicker}</div>
         <div class="dd-who"><b>先添加成员</b></div>
@@ -1154,7 +1204,7 @@
       const names = r.whoAll.map((m) => m.name).join("、");
       return `<div class="dd-row${r.daysUntil === 0 ? " now" : ""}">
       <b>${r.daysUntil === 0 ? "本轮" : `第 ${r.index} 轮`}</b>
-      <span class="dd-d">${s.period > 1 ? `${fmt(r.start)} — ${fmt(r.end)} · ${weekday(r.start)}起` : `${fmt(r.start)}（${weekday(r.start)}）`}</span>
+      <span class="dd-d">${s.period > 1 ? `${fmt(r.start)} — ${fmt(r.end)} · ${weekday(r.start)}起` : `${fmt(r.start)}（${weekday(r.start)}）${g.weekendSame && weekdayNum(r.start) === 6 ? " · 周日同人" : ""}`}</span>
       <span class="dd-tag"><span data-private-text>${esc(names || "—")}</span>${r.swapped ? " · 换人" : ""} · ${relLabel(r.daysUntil)}</span>
     </div>`;
     }).join("");
@@ -2193,7 +2243,13 @@
           <span class="dd-muted">人一起当班</span>
         </div>
       </div>
-      <div class="dd-note">起始日期就是「第一个人开始当班」的那天；改周期不会打乱已经排好的顺序。<br>每轮人数大于 1 时按名单顺序每轮取 N 人循环（如 3 人每轮 2 人：A、B → C、A → B、C）。<br>每套轮换各自独立 —— 这里的成员、周期、换人与提醒都只影响「${esc(g.name)}」。</div>
+      <div class="dd-field"><span>周末</span>
+        <div class="dd-chips">
+          <button class="dd-chip${g.weekendSame ? " on" : ""}" data-weekend-same type="button" aria-pressed="${g.weekendSame ? "true" : "false"}" title="开启后周六和周日由同一个人值日；周日不推进轮换，周一接着轮到下一位">周六周日同一人</button>
+          <span class="dd-muted">${g.weekendSame ? "周日不推进轮换" : "关：每天推进一位"}</span>
+        </div>
+      </div>
+      <div class="dd-note">起始日期就是「第一个人开始当班」的那天；改周期不会打乱已经排好的顺序。<br>每轮人数大于 1 时按名单顺序每轮取 N 人循环（如 3 人每轮 2 人：A、B → C、A → B、C）。<br>开启「周六周日同一人」后周日不推进轮换：周六、周日是同一个人，周一接着轮到下一位，不跳过任何人。<br>每套轮换各自独立 —— 这里的成员、周期、换人与提醒都只影响「${esc(g.name)}」。</div>
       <div class="dd-actions">
         <button class="dd-btn danger" data-group-del type="button"${lastOne ? " disabled" : ""} title="${lastOne ? "至少要留一套轮换" : `删除「${esc(g.name)}」`}">${faIcon("trash")}删除这个轮换</button>
       </div>`;
@@ -2794,6 +2850,12 @@
       const raw = Math.round(Number(input.value));
       if (!Number.isFinite(raw) || raw < 1 || raw > 365) { tide.notify("周期请填 1～365 天"); await paint(); return; }
       await commit(() => { g.periodDays = raw; });
+    });
+    // 「周六周日同一人」是个开关：点一次切一次，不弹确认（随时能点回来，改的是排班规则不是数据）。
+    q("[data-weekend-same]")?.addEventListener("click", async () => {
+      const next = !g.weekendSame;
+      await commit(() => { g.weekendSame = next; });
+      tide.notify(next ? "已开启：周六、周日由同一个人值日" : "已关闭：恢复每天轮换一位");
     });
 
     root.querySelectorAll("[data-location-period]").forEach((btn) => btn.addEventListener("click", async () => {
