@@ -38,7 +38,9 @@ if (cargoVersion !== version) {
 
 const cargoLock = path.join(DESKTOP, "Cargo.lock");
 const lockText = fs.readFileSync(cargoLock, "utf8");
-const lockMatch = lockText.match(/(\[\[package\]\]\nname = "letime"\nversion = ")([^"]+)(")/);
+// 换行要容忍 CRLF：Windows 上 core.autocrlf=true 时 checkout 出来的 Cargo.lock 是 CRLF，
+// 只认 \n 会让 --check 报 "<missing> != x.y.z"，然后构建脚本直接拒绝开工。
+const lockMatch = lockText.match(/(\[\[package\]\]\r?\nname = "letime"\r?\nversion = ")([^"]+)(")/);
 const lockVersion = lockMatch?.[2];
 if (lockVersion !== version) {
   if (CHECK) failures.push(`Cargo.lock: ${lockVersion || "<missing>"} != ${version}`);
